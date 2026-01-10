@@ -46,6 +46,7 @@ class TradeResult:
     shares_bought: float = 0
     cost: float = 0
     new_price: float = 0
+    balance: Optional[float] = None  # Remaining balance after trade
     error: Optional[str] = None
 
 
@@ -237,6 +238,10 @@ class SimmerClient:
             json=payload
         )
 
+        # Extract balance from position dict if available
+        position = data.get("position") or {}
+        balance = position.get("sim_balance")
+
         return TradeResult(
             success=data.get("success", False),
             trade_id=data.get("trade_id"),
@@ -245,6 +250,7 @@ class SimmerClient:
             shares_bought=data.get("shares_bought", 0),
             cost=data.get("cost", 0),
             new_price=data.get("new_price", 0),
+            balance=balance,
             error=data.get("error")
         )
 
