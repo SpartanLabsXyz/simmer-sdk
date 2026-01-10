@@ -4,10 +4,9 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "simmer-sdk"
-version = "0.2.2"
+version = "0.2.3"
 description = "Python SDK for Simmer prediction markets"
 readme = "README.md"
-license = "MIT"
 authors = [
     {name = "Simmer", email = "hello@simmer.markets"}
 ]
@@ -15,6 +14,7 @@ keywords = ["prediction-markets", "polymarket", "kalshi", "trading", "sdk"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
@@ -30,9 +30,9 @@ dependencies = [
 
 [project.urls]
 Homepage = "https://simmer.markets"
-Documentation = "https://github.com/SupaFund/simmer/tree/main/sdk"
-Repository = "https://github.com/SupaFund/simmer"
-Issues = "https://github.com/SupaFund/simmer/issues"
+Documentation = "https://github.com/SpartanLabsXyz/simmer-sdk"
+Repository = "https://github.com/SpartanLabsXyz/simmer-sdk"
+Issues = "https://github.com/SpartanLabsXyz/simmer-sdk/issues"
 
 [tool.setuptools.packages.find]
 where = ["."]
