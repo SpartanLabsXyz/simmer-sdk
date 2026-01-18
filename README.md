@@ -98,7 +98,11 @@ Send to your wallet address (shown in wallet modal):
 
 ### 3. Activate Trading
 
-Go to **Dashboard → Portfolio tab** and complete the "Activate Trading" step. This sets Polymarket contract allowances (one-time transaction, uses POL for gas).
+Complete the "Activate Trading" step. This appears in two places:
+- **Dashboard → Portfolio tab** (if wallet not activated)
+- **Market detail pages** (in the trading panel for Polymarket markets)
+
+This sets Polymarket contract allowances (one-time transaction, uses POL for gas).
 
 ### 4. Enable SDK Access
 
