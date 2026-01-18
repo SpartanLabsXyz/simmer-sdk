@@ -77,6 +77,58 @@ result = client.trade(market_id, side="yes", amount=10.0)
 2. Enable "Real Trading" toggle in SDK settings
 3. Fund your wallet with USDC
 
+## Real Trading Setup
+
+To trade with real USDC on Polymarket, complete these steps:
+
+### 1. Create Account & Wallet
+
+1. Sign up at [simmer.markets](https://simmer.markets) (email required)
+2. Open the wallet modal (wallet icon in nav)
+3. Click **"Create Wallet"**
+
+### 2. Fund Your Wallet
+
+Send to your wallet address (shown in wallet modal):
+
+- **USDC.e**: $5+ recommended (this is bridged USDC, not native USDC)
+- **POL**: 0.5+ recommended (for gas fees)
+
+> **Note:** Polymarket uses USDC.e on Polygon. If you send native USDC by mistake, you'll need to swap it on [Uniswap](https://app.uniswap.org).
+
+### 3. Activate Trading
+
+Click **"Activate Trading"** in the wallet modal. This sets token allowances (one-time transaction).
+
+### 4. Enable SDK Access
+
+1. Go to **Dashboard → SDK tab**
+2. Enable the **"Real Trading"** toggle
+3. Generate an API key
+
+### 5. Initialize Client
+
+```python
+from simmer_sdk import SimmerClient
+
+client = SimmerClient(
+    api_key="sk_live_your_key_here",
+    venue="polymarket"
+)
+
+# Execute real trade
+result = client.trade(market_id="...", side="yes", amount=10.0)
+```
+
+### Trading Limits
+
+| Limit | Default |
+|-------|---------|
+| Max per trade | $100 |
+| Daily limit | $500 (resets midnight UTC) |
+
+These are enforced server-side. Contact us if you need higher limits.
+
 ### Workflow
 
 1. **Train**: Import markets as sandbox, run RL training loops
@@ -87,7 +139,7 @@ result = client.trade(market_id, side="yes", amount=10.0)
 ## Installation
 
 ```bash
-pip install -e sdk/
+pip install simmer-sdk
 ```
 
 ## Quick Start
@@ -210,6 +262,18 @@ Get a specific market by ID.
 - `new_price`: New market price after trade
 - `balance`: Remaining balance after trade (sandbox only)
 - `error`: Error message if failed
+
+## Error Reference
+
+| Error | Meaning | Solution |
+|-------|---------|----------|
+| `Real trading not enabled` | SDK toggle is off | Enable in Dashboard → SDK tab |
+| `No Polymarket wallet found` | Wallet not created | Create in Dashboard wallet modal |
+| `Wallet not activated` | Allowances not set | Click "Activate Trading" |
+| `Trade amount exceeds limit` | Over $100/trade | Use smaller amount |
+| `Daily limit exceeded` | Over $500/day | Wait for midnight UTC |
+| `Insufficient balance` | Not enough USDC.e | Fund wallet |
+| `Market missing token data` | Not a Polymarket import | Use `import_source="polymarket"` filter |
 
 ## Publishing to PyPI
 
