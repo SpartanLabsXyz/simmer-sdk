@@ -2,6 +2,8 @@
 
 Python client for trading on Simmer prediction markets.
 
+> **Alpha Access**: This SDK requires an API key from [simmer.markets](https://simmer.markets). Access is currently invite-only.
+
 ## Trading Venues
 
 The SDK supports three trading venues via the `venue` parameter:
