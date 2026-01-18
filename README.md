@@ -148,10 +148,7 @@ pip install simmer-sdk
 from simmer_sdk import SimmerClient
 
 # Initialize client
-client = SimmerClient(
-    api_key="sk_live_...",
-    base_url="http://localhost:8000"  # or https://api.simmer.markets
-)
+client = SimmerClient(api_key="sk_live_...")
 
 # List available markets
 markets = client.get_markets(import_source="polymarket", limit=10)

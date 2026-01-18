@@ -48,7 +48,7 @@ class SimmerExecutor:
     Replaces humanplane's paper trading with real SDK execution.
     """
 
-    def __init__(self, api_key: str, base_url: str = "http://localhost:8000"):
+    def __init__(self, api_key: str, base_url: str = "https://api.simmer.markets"):
         self.client = SimmerClient(api_key=api_key, base_url=base_url)
         self.positions: Dict[str, Position] = {}  # market_id -> Position
         self.total_pnl = 0.0
@@ -179,7 +179,7 @@ def main():
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--api-key", default=os.getenv("SIMMER_API_KEY"))
-    parser.add_argument("--base-url", default="http://localhost:8000")
+    parser.add_argument("--base-url", default="https://api.simmer.markets")
     parser.add_argument("--asset", default="BTC")
     parser.add_argument("--size", type=float, default=10.0)
     args = parser.parse_args()
