@@ -185,7 +185,8 @@ class SimmerClient:
         side: str,
         amount: float,
         venue: Optional[str] = None,
-        reasoning: Optional[str] = None
+        reasoning: Optional[str] = None,
+        source: Optional[str] = None
     ) -> TradeResult:
         """
         Execute a trade on a market.
@@ -202,6 +203,8 @@ class SimmerClient:
             reasoning: Optional explanation for the trade. This will be displayed
                 publicly on the market's trade history page, allowing spectators
                 to see why your bot made this trade.
+            source: Optional source tag for tracking (e.g., "sdk:weather", "sdk:copytrading").
+                Used to track which strategy opened each position.
 
         Returns:
             TradeResult with execution details
@@ -213,10 +216,11 @@ class SimmerClient:
             # Override venue for single trade
             result = client.trade(market_id, "yes", 10.0, venue="polymarket")
 
-            # Include reasoning for spectators
+            # Include reasoning and source tag
             result = client.trade(
                 market_id, "yes", 10.0,
-                reasoning="Strong bullish signal from sentiment analysis"
+                reasoning="Strong bullish signal from sentiment analysis",
+                source="sdk:my-strategy"
             )
         """
         effective_venue = venue or self.venue
@@ -231,6 +235,8 @@ class SimmerClient:
         }
         if reasoning:
             payload["reasoning"] = reasoning
+        if source:
+            payload["source"] = source
 
         data = self._request(
             "POST",
@@ -434,3 +440,74 @@ class SimmerClient:
             json={"polymarket_url": polymarket_url}
         )
         return data
+
+    def get_portfolio(self) -> Optional[Dict[str, Any]]:
+        """
+        Get portfolio summary with balance, exposure, and positions by source.
+
+        Returns:
+            Dict containing:
+            - balance_usdc: Available USDC balance
+            - total_exposure: Total value in open positions
+            - positions: List of current positions
+            - by_source: Breakdown by trade source (e.g., "sdk:weather", "sdk:copytrading")
+
+        Example:
+            portfolio = client.get_portfolio()
+            print(f"Balance: ${portfolio['balance_usdc']}")
+            print(f"Weather positions: {portfolio['by_source'].get('sdk:weather', {})}")
+        """
+        return self._request("GET", "/api/sdk/portfolio")
+
+    def get_market_context(self, market_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get market context with trading safeguards.
+
+        Returns context useful for making trading decisions, including:
+        - Current position (if any)
+        - Recent trade history
+        - Flip-flop detection (trading discipline)
+        - Slippage estimates
+        - Warnings (time decay, low liquidity, etc.)
+
+        Args:
+            market_id: Market ID to get context for
+
+        Returns:
+            Dict containing:
+            - market: Market details (question, prices, resolution criteria)
+            - position: Current position in this market (if any)
+            - discipline: Trading discipline info (flip-flop detection)
+            - slippage: Estimated execution costs
+            - warnings: List of warnings (e.g., "Market resolves in 2 hours")
+
+        Example:
+            context = client.get_market_context(market_id)
+            if context['warnings']:
+                print(f"Warnings: {context['warnings']}")
+            if context['discipline'].get('is_flip_flop'):
+                print("Warning: This would be a flip-flop trade")
+        """
+        return self._request("GET", f"/api/sdk/context/{market_id}")
+
+    def get_price_history(self, market_id: str) -> List[Dict[str, Any]]:
+        """
+        Get price history for trend detection.
+
+        Args:
+            market_id: Market ID to get history for
+
+        Returns:
+            List of price points, each containing:
+            - timestamp: ISO timestamp
+            - price_yes: YES price at that time
+            - price_no: NO price at that time
+
+        Example:
+            history = client.get_price_history(market_id)
+            if len(history) >= 2:
+                trend = history[-1]['price_yes'] - history[0]['price_yes']
+                print(f"Price trend: {'+' if trend > 0 else ''}{trend:.2f}")
+        """
+        data = self._request("GET", f"/api/sdk/markets/{market_id}/history")
+        return data.get("points", []) if data else []

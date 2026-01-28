@@ -202,6 +202,82 @@ total_pnl = client.get_total_pnl()
 print(f"Total P&L: ${total_pnl:.2f}")
 ```
 
+## MoltBot Skills
+
+Pre-built trading strategies in [skills/](./skills/):
+
+| Skill | Description | Cron |
+|-------|-------------|------|
+| [Weather](./skills/weather/) | Trade Polymarket weather markets using NOAA forecasts | Every 2h |
+| [Copytrading](./skills/copytrading/) | Mirror positions from top Polymarket traders | Every 4h |
+| [Signal Sniper](./skills/signalsniper/) | Trade on breaking news from RSS feeds | Every 15m |
+
+Install via MoltHub:
+```bash
+molthub install simmer-weather
+molthub install simmer-copytrading
+molthub install simmer-signalsniper
+```
+
+Skills require `SIMMER_API_KEY` from your dashboard.
+
+## Advanced Features
+
+### Portfolio Management
+
+```python
+portfolio = client.get_portfolio()
+print(f"Balance: ${portfolio['balance_usdc']}")
+print(f"Total exposure: ${portfolio['total_exposure']}")
+
+# See positions grouped by source (strategy)
+for source, data in portfolio.get('by_source', {}).items():
+    print(f"{source}: {data['position_count']} positions")
+```
+
+### Market Context (Safeguards)
+
+Get trading context with built-in safeguards before executing trades:
+
+```python
+context = client.get_market_context(market_id)
+
+# Check warnings
+if context['warnings']:
+    print(f"Warnings: {context['warnings']}")
+
+# Check for flip-flop (trading discipline)
+if context['discipline'].get('is_flip_flop'):
+    print("Warning: This would reverse a recent trade")
+
+# Check slippage
+print(f"Estimated slippage: {context['slippage']['pct']:.1%}")
+```
+
+### Price History (Trend Detection)
+
+```python
+history = client.get_price_history(market_id)
+if len(history) >= 2:
+    trend = history[-1]['price_yes'] - history[0]['price_yes']
+    print(f"Price trend: {'+' if trend > 0 else ''}{trend:.2f}")
+```
+
+### Source Tagging
+
+Track which strategy opened each position:
+
+```python
+result = client.trade(
+    market_id, "yes", 10.0,
+    source="sdk:my-strategy"  # Tag for tracking
+)
+
+# Later, see positions by source
+portfolio = client.get_portfolio()
+my_positions = portfolio['by_source'].get('sdk:my-strategy', {})
+```
+
 ## API Reference
 
 ### SimmerClient
@@ -220,12 +296,14 @@ List available markets.
 - `import_source`: Filter by source (`polymarket`, `kalshi`, or `None` for all)
 - Returns: List of `Market` objects
 
-#### `trade(market_id, side, amount, venue)`
+#### `trade(market_id, side, amount, venue, reasoning, source)`
 Execute a trade.
 - `market_id`: Market to trade on
 - `side`: `yes` or `no`
 - `amount`: Dollar amount to spend
 - `venue`: Override client's default venue for this trade (optional)
+- `reasoning`: Public explanation for the trade (optional)
+- `source`: Source tag for tracking, e.g., `"sdk:weather"` (optional)
 - Returns: `TradeResult` with execution details
 
 #### `get_positions()`
@@ -235,6 +313,20 @@ Get all positions with P&L.
 #### `get_total_pnl()`
 Get total unrealized P&L.
 - Returns: Float
+
+#### `get_portfolio()`
+Get portfolio summary with balance and positions by source.
+- Returns: Dict with `balance_usdc`, `total_exposure`, `positions`, `by_source`
+
+#### `get_market_context(market_id)`
+Get market context with trading safeguards.
+- `market_id`: Market ID
+- Returns: Dict with `market`, `position`, `discipline`, `slippage`, `warnings`
+
+#### `get_price_history(market_id)`
+Get price history for trend detection.
+- `market_id`: Market ID
+- Returns: List of price points with `timestamp`, `price_yes`, `price_no`
 
 #### `import_market(polymarket_url, sandbox=True)`
 Import a Polymarket market for trading.

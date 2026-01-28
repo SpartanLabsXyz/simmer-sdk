@@ -22,3 +22,7 @@ molthub install simmer-signalsniper
 
 - `SIMMER_API_KEY` from simmer.markets/dashboard
 - Funded Polymarket account via Simmer
+
+## SDK Reference
+
+For programmatic access, see the [Python SDK](../simmer_sdk) documentation in the main [README](../README.md).
