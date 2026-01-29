@@ -128,6 +128,38 @@ def get_positions() -> dict:
     return api_request("GET", "/api/sdk/positions")
 
 
+def set_risk_monitor(market_id: str, side: str, 
+                     stop_loss_pct: float = 0.20, take_profit_pct: float = 0.50) -> dict:
+    """
+    Set stop-loss and take-profit for a position.
+    The backend monitors every 15 min and auto-exits when thresholds hit.
+    """
+    try:
+        return api_request("POST", f"/api/sdk/positions/{market_id}/monitor", {
+            "side": side,
+            "stop_loss_pct": stop_loss_pct,
+            "take_profit_pct": take_profit_pct
+        })
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def get_risk_monitors() -> dict:
+    """List all active risk monitors."""
+    try:
+        return api_request("GET", "/api/sdk/positions/monitors")
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def remove_risk_monitor(market_id: str, side: str) -> dict:
+    """Remove risk monitor for a position."""
+    try:
+        return api_request("DELETE", f"/api/sdk/positions/{market_id}/monitor?side={side}")
+    except Exception as e:
+        return {"error": str(e)}
+
+
 def get_markets() -> list:
     """Get available markets."""
     result = api_request("GET", "/api/sdk/markets")
@@ -307,6 +339,21 @@ def run_copytrading(wallets: list, top_n: int = None, max_usd: float = 50.0, dry
         print("\n💡 Remove --dry-run to execute trades")
     elif trades_executed > 0:
         print(f"\n✅ Successfully mirrored positions!")
+        
+        # Set risk monitors for executed BUY trades
+        risk_monitors_set = 0
+        for t in trades:
+            if t.get('success') and t.get('action') == 'buy':
+                market_id = t.get('market_id')
+                side = t.get('side', 'yes')
+                if market_id:
+                    risk_result = set_risk_monitor(market_id, side, 
+                                                   stop_loss_pct=0.25, take_profit_pct=0.50)
+                    if risk_result and risk_result.get('success'):
+                        risk_monitors_set += 1
+        
+        if risk_monitors_set > 0:
+            print(f"🛡️  Risk monitors set: {risk_monitors_set} positions (SL -25% / TP +50%)")
     else:
         print("\n✅ Scan complete")
 

@@ -316,6 +316,20 @@ def get_market_context(market_id: str) -> Optional[Dict]:
     return result
 
 
+def set_risk_monitor(market_id: str, side: str, 
+                     stop_loss_pct: float = 0.20, take_profit_pct: float = 0.50) -> Dict:
+    """
+    Set stop-loss and take-profit for a position.
+    The backend monitors every 15 min and auto-exits when thresholds hit.
+    """
+    result = sdk_request("POST", f"/api/sdk/positions/{market_id}/monitor", {
+        "side": side,
+        "stop_loss_pct": stop_loss_pct,
+        "take_profit_pct": take_profit_pct
+    })
+    return result
+
+
 def execute_trade(market_id: str, side: str, amount: float, price: float = None, source: str = "sdk:signalsniper") -> Dict:
     """Execute trade via SDK with 5-share minimum check."""
     # Check Polymarket minimum shares requirement

@@ -271,7 +271,48 @@ def sdk_request(api_key: str, method: str, endpoint: str, data: dict = None) -> 
 
 
 # =============================================================================
-# Simmer API - New SDK Features
+# Simmer API - Risk Monitoring
+# =============================================================================
+
+def set_risk_monitor(api_key: str, market_id: str, side: str, 
+                     stop_loss_pct: float = 0.20, take_profit_pct: float = 0.50) -> dict:
+    """
+    Set stop-loss and take-profit for a position.
+    The backend monitors every 15 min and auto-exits when thresholds hit.
+    
+    Args:
+        market_id: Market ID
+        side: 'yes' or 'no'
+        stop_loss_pct: Exit if P&L drops below this (default 20% loss)
+        take_profit_pct: Exit if P&L rises above this (default 50% gain)
+    """
+    result = sdk_request(api_key, "POST", f"/api/sdk/positions/{market_id}/monitor", {
+        "side": side,
+        "stop_loss_pct": stop_loss_pct,
+        "take_profit_pct": take_profit_pct
+    })
+    if "error" in result:
+        print(f"  ⚠️  Risk monitor failed: {result['error']}")
+        return None
+    return result
+
+
+def get_risk_monitors(api_key: str) -> dict:
+    """List all active risk monitors."""
+    result = sdk_request(api_key, "GET", "/api/sdk/positions/monitors")
+    if "error" in result:
+        return None
+    return result
+
+
+def remove_risk_monitor(api_key: str, market_id: str, side: str) -> dict:
+    """Remove risk monitor for a position."""
+    result = sdk_request(api_key, "DELETE", f"/api/sdk/positions/{market_id}/monitor?side={side}")
+    return result
+
+
+# =============================================================================
+# Simmer API - Portfolio & Context
 # =============================================================================
 
 def get_portfolio(api_key: str) -> dict:
@@ -715,6 +756,12 @@ def run_weather_strategy(dry_run: bool = False, positions_only: bool = False,
                     trades_executed += 1
                     shares = result.get("shares_bought") or result.get("shares") or 0
                     print(f"  ✅ Bought {shares:.1f} shares @ ${price:.2f}")
+                    
+                    # Set up risk monitor (stop-loss 25%, take-profit 60%)
+                    risk_result = set_risk_monitor(api_key, market_id, "yes", 
+                                                   stop_loss_pct=0.25, take_profit_pct=0.60)
+                    if risk_result and risk_result.get("success"):
+                        print(f"  🛡️  Risk monitor set: SL -25% / TP +60%")
                 else:
                     error = result.get("error", "Unknown error")
                     print(f"  ❌ Trade failed: {error}")
