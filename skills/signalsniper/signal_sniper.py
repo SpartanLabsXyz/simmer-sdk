@@ -31,6 +31,13 @@ from urllib.error import URLError, HTTPError
 from urllib.parse import urlparse
 from xml.etree import ElementTree as ET
 
+# Try to use defusedxml for secure XML parsing (XXE protection)
+try:
+    import defusedxml.ElementTree as DefusedET
+    _USE_DEFUSEDXML = True
+except ImportError:
+    _USE_DEFUSEDXML = False
+
 # Configuration from environment
 API_KEY = os.environ.get("SIMMER_API_KEY", "")
 API_BASE = os.environ.get("SIMMER_API_BASE", "https://api.simmer.markets")
@@ -221,12 +228,11 @@ def fetch_rss(url: str) -> List[Dict[str, str]]:
         with urlopen(req, timeout=REQUEST_TIMEOUT_SECONDS) as response:
             content = response.read()
 
-        # Secure XML parsing - use defusedxml if available, otherwise standard parsing
-        try:
-            import defusedxml.ElementTree as DefusedET
+        # Secure XML parsing - use defusedxml if available for XXE protection
+        if _USE_DEFUSEDXML:
             root = DefusedET.fromstring(content)
-        except ImportError:
-            # Fallback to standard parsing (RSS feeds from trusted sources)
+        else:
+            # Standard parsing - consider installing defusedxml for XXE protection
             root = ET.fromstring(content)
 
         # Handle both RSS and Atom feeds
