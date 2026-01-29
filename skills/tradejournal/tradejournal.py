@@ -452,12 +452,19 @@ def generate_report(period: str = "weekly"):
         print("No trades in this period.")
         return
 
-    # Calculate stats
-    total_cost = sum(t.get("cost", 0) for t in period_trades)
+    # Calculate stats - separate buys (cost) from sells (proceeds)
+    buys = [t for t in period_trades if t.get("action") == "buy"]
+    sells = [t for t in period_trades if t.get("action") == "sell"]
+    total_bought = sum(t.get("cost", 0) for t in buys)
+    total_sold = sum(t.get("cost", 0) for t in sells)
+    net_spent = total_bought - total_sold
+    
     resolved = [t for t in period_trades if t.get("outcome", {}).get("resolved")]
     wins = len([t for t in resolved if t.get("outcome", {}).get("was_correct")])
 
-    print(f"Total cost: ${total_cost:.2f}")
+    print(f"Bought: ${total_bought:.2f} ({len(buys)} trades)")
+    print(f"Sold: ${total_sold:.2f} ({len(sells)} trades)")
+    print(f"Net: ${net_spent:+.2f}")
     print(f"Resolved: {len(resolved)} / {len(period_trades)}")
 
     if resolved:
