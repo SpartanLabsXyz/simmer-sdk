@@ -28,6 +28,7 @@ from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
 
 
 # =============================================================================
@@ -59,18 +60,25 @@ def ensure_data_dir():
 
 def load_trades() -> Dict[str, Any]:
     """Load trades from local storage."""
-    if not TRADES_FILE.exists():
-        return {
-            "trades": [],
-            "metadata": {
-                "created_at": datetime.now(timezone.utc).isoformat(),
-                "last_sync": None,
-                "total_trades": 0
-            }
+    default_data = {
+        "trades": [],
+        "metadata": {
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "last_sync": None,
+            "total_trades": 0
         }
+    }
 
-    with open(TRADES_FILE, "r") as f:
-        return json.load(f)
+    if not TRADES_FILE.exists():
+        return default_data
+
+    try:
+        with open(TRADES_FILE, "r") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, IOError) as e:
+        print(f"⚠️  Warning: Could not load {TRADES_FILE}: {e}")
+        print("   Starting with empty trade history.")
+        return default_data
 
 
 def save_trades(data: Dict[str, Any]):
@@ -87,8 +95,12 @@ def load_context() -> Dict[str, Dict]:
     if not CONTEXT_FILE.exists():
         return {}
 
-    with open(CONTEXT_FILE, "r") as f:
-        return json.load(f)
+    try:
+        with open(CONTEXT_FILE, "r") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, IOError) as e:
+        print(f"⚠️  Warning: Could not load {CONTEXT_FILE}: {e}")
+        return {}
 
 
 def save_context(data: Dict[str, Dict]):
@@ -110,8 +122,9 @@ def api_request(method: str, endpoint: str, params: Dict = None) -> Dict:
 
     url = f"{SIMMER_API_URL}{endpoint}"
     if params:
-        query = "&".join(f"{k}={v}" for k, v in params.items() if v is not None)
-        url = f"{url}?{query}"
+        # Filter None values and URL-encode parameters
+        filtered = {k: v for k, v in params.items() if v is not None}
+        url = f"{url}?{urlencode(filtered)}"
 
     headers = {
         "Authorization": f"Bearer {SIMMER_API_KEY}",
@@ -332,7 +345,8 @@ def show_history(n: int = 10):
 
     for i, t in enumerate(trades, 1):
         # Basic info
-        side_emoji = "🟢" if t["side"] == "yes" else "🔴"
+        side = t.get("side", "unknown")
+        side_emoji = "🟢" if side == "yes" else "🔴"
         question = t.get("market_question", "Unknown market")[:45]
         cost = t.get("cost", 0)
         shares = t.get("shares", 0)
