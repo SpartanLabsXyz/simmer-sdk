@@ -43,9 +43,14 @@ try:
     from tradejournal import log_trade
     JOURNAL_AVAILABLE = True
 except ImportError:
-    JOURNAL_AVAILABLE = False
-    def log_trade(*args, **kwargs):
-        pass  # No-op if tradejournal not installed
+    try:
+        # Try relative import within skills package
+        from skills.tradejournal import log_trade
+        JOURNAL_AVAILABLE = True
+    except ImportError:
+        JOURNAL_AVAILABLE = False
+        def log_trade(*args, **kwargs):
+            pass  # No-op if tradejournal not installed
 
 # Source tag for tracking
 TRADE_SOURCE = "sdk:signalsniper"

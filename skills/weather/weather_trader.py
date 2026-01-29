@@ -30,9 +30,14 @@ try:
     from tradejournal import log_trade
     JOURNAL_AVAILABLE = True
 except ImportError:
-    JOURNAL_AVAILABLE = False
-    def log_trade(*args, **kwargs):
-        pass  # No-op if tradejournal not installed
+    try:
+        # Try relative import within skills package
+        from skills.tradejournal import log_trade
+        JOURNAL_AVAILABLE = True
+    except ImportError:
+        JOURNAL_AVAILABLE = False
+        def log_trade(*args, **kwargs):
+            pass  # No-op if tradejournal not installed
 
 # =============================================================================
 # Configuration
@@ -779,8 +784,11 @@ def run_weather_strategy(dry_run: bool = False, positions_only: bool = False,
 
                     # Log trade context for journal
                     if trade_id and JOURNAL_AVAILABLE:
-                        # Confidence based on price gap from threshold
-                        confidence = min(0.95, (ENTRY_THRESHOLD - price) / ENTRY_THRESHOLD + 0.5)
+                        # Confidence based on price gap from threshold (guard against div by zero)
+                        if ENTRY_THRESHOLD > 0:
+                            confidence = min(0.95, (ENTRY_THRESHOLD - price) / ENTRY_THRESHOLD + 0.5)
+                        else:
+                            confidence = 0.7  # Default confidence if threshold is zero
                         log_trade(
                             trade_id=trade_id,
                             source=TRADE_SOURCE,
