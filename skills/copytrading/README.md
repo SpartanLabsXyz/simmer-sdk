@@ -4,6 +4,7 @@ description: Mirror positions from top Polymarket traders using Simmer API. Size
 metadata: {"clawdbot":{"emoji":"🐋","requires":{"env":["SIMMER_API_KEY"]},"cron":"0 */4 * * *"}}
 authors:
   - Simmer (@simmer_markets)
+version: "1.1.0"
 ---
 
 # Simmer Copytrading
@@ -36,7 +37,8 @@ python scripts/status.py --positions
 
 ## Finding Whale Wallets
 
-- **predicting.top** — Leaderboard of top Polymarket traders with wallet addresses
+- **[predicting.top](https://predicting.top)** — Leaderboard of top Polymarket traders with wallet addresses
+- **[alphawhale.trade](https://alphawhale.trade)** — Tools for copying and tracking top performers
 - **Polymarket Leaderboard** — Official rankings (requires account)
 
 ## Quick Start (Ad-Hoc Usage)
@@ -76,6 +78,8 @@ For automated recurring scans, wallets can be saved in environment:
 **Polymarket Constraints:**
 - Minimum 5 shares per order
 - SDK enforces $1.00 minimum position value (filters dust positions)
+
+> ⚠️ **Start Conservative:** Begin with small amounts (`--max-usd 5-10`) and `--dry-run` to understand how the skill behaves before scaling up.
 
 ## How It Works
 
@@ -210,6 +214,10 @@ The skill works best when:
 - Wallets trade markets available on Polymarket
 
 ## Troubleshooting
+
+**"Order too small" / "below minimum (5)"**
+- Polymarket requires minimum 5 shares per order
+- Increase `--max-usd` or reduce `--top-n` to concentrate into fewer positions
 
 **"No wallets specified"**
 - Provide wallet addresses in your message, e.g., "copytrade 0x1234..."
