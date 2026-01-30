@@ -348,9 +348,18 @@ def sdk_request(method: str, endpoint: str, data: Optional[Dict] = None) -> Dict
         return {"error": "Network error"}
 
 
-def get_market_context(market_id: str) -> Optional[Dict]:
-    """Get SDK context for a market (safeguards)."""
-    result = sdk_request("GET", f"/api/sdk/context/{market_id}")
+def get_market_context(market_id: str, my_probability: float = None) -> Optional[Dict]:
+    """
+    Get SDK context for a market (safeguards + optional edge analysis).
+    
+    Args:
+        market_id: Market ID
+        my_probability: Your probability estimate (0-1) for edge calculation
+    """
+    endpoint = f"/api/sdk/context/{market_id}"
+    if my_probability is not None:
+        endpoint += f"?my_probability={my_probability}"
+    result = sdk_request("GET", endpoint)
     if "error" in result:
         return None
     return result
@@ -480,6 +489,22 @@ def check_safeguards(context: Dict) -> Tuple[bool, List[str]]:
         reasons.append(f"Wide spread ({spread_pct:.1%}) - illiquid market")
         return False, reasons
 
+    # Check edge recommendation (if available)
+    edge = context.get("edge") or {}
+    if edge:
+        recommendation = edge.get("recommendation")
+        user_edge = edge.get("user_edge")
+        threshold = edge.get("suggested_threshold", 0)
+        
+        if recommendation == "SKIP":
+            reasons.append("Edge analysis: SKIP (market resolved or invalid)")
+            return False, reasons
+        elif recommendation == "HOLD":
+            if user_edge is not None and threshold:
+                reasons.append(f"Edge {user_edge:.1%} below threshold {threshold:.1%}")
+        elif recommendation == "TRADE":
+            reasons.append(f"Edge {user_edge:.1%} ≥ threshold {threshold:.1%} - good opportunity")
+
     return True, reasons
 
 
@@ -593,8 +618,9 @@ def run_scan(
         for market_id in markets:
             print(f"\n   → Checking market: {market_id[:20]}...")
 
-            # Get context with safeguards
-            context = get_market_context(market_id)
+            # Get context with safeguards + edge analysis
+            # Use confidence threshold as probability estimate
+            context = get_market_context(market_id, my_probability=CONFIDENCE_THRESHOLD)
             if not context:
                 print(f"     ⚠️ Could not fetch context")
                 continue

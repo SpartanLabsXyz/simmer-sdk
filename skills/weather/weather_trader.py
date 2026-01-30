@@ -363,12 +363,21 @@ def get_portfolio(api_key: str) -> dict:
     return result
 
 
-def get_market_context(api_key: str, market_id: str) -> dict:
+def get_market_context(api_key: str, market_id: str, my_probability: float = None) -> dict:
     """
-    Get market context with safeguards.
-    Returns: market info, position, warnings, slippage, discipline
+    Get market context with safeguards and optional edge analysis.
+    
+    Args:
+        api_key: Simmer API key
+        market_id: Market ID
+        my_probability: Your probability estimate (0-1) for edge calculation
+    
+    Returns: market info, position, warnings, slippage, discipline, edge
     """
-    result = sdk_request(api_key, "GET", f"/api/sdk/context/{market_id}")
+    endpoint = f"/api/sdk/context/{market_id}"
+    if my_probability is not None:
+        endpoint += f"?my_probability={my_probability}"
+    result = sdk_request(api_key, "GET", endpoint)
     if "error" in result:
         return None
     return result
@@ -385,9 +394,13 @@ def get_price_history(api_key: str, market_id: str) -> list:
     return result.get("points", [])
 
 
-def check_context_safeguards(context: dict) -> tuple:
+def check_context_safeguards(context: dict, use_edge: bool = True) -> tuple:
     """
     Check context for safeguards. Returns (should_trade, reasons).
+    
+    Args:
+        context: Context response from SDK
+        use_edge: If True, respect edge recommendation (TRADE/HOLD/SKIP)
     """
     if not context:
         return True, []  # No context = proceed (fail open)
@@ -397,6 +410,7 @@ def check_context_safeguards(context: dict) -> tuple:
     warnings = context.get("warnings", [])
     discipline = context.get("discipline", {})
     slippage = context.get("slippage", {})
+    edge = context.get("edge", {})
 
     # Check for deal-breakers in warnings
     for warning in warnings:
@@ -435,6 +449,22 @@ def check_context_safeguards(context: dict) -> tuple:
         slippage_pct = estimates[0].get("slippage_pct", 0)
         if slippage_pct > SLIPPAGE_MAX_PCT:
             return False, [f"Slippage too high: {slippage_pct:.1%}"]
+
+    # Check edge recommendation (if available and use_edge=True)
+    if use_edge and edge:
+        recommendation = edge.get("recommendation")
+        user_edge = edge.get("user_edge")
+        threshold = edge.get("suggested_threshold", 0)
+        
+        if recommendation == "SKIP":
+            return False, ["Edge analysis: SKIP (market resolved or invalid)"]
+        elif recommendation == "HOLD":
+            if user_edge is not None and threshold:
+                reasons.append(f"Edge {user_edge:.1%} below threshold {threshold:.1%} - marginal opportunity")
+            else:
+                reasons.append("Edge analysis recommends HOLD")
+        elif recommendation == "TRADE":
+            reasons.append(f"Edge {user_edge:.1%} ≥ threshold {threshold:.1%} - good opportunity")
 
     return True, reasons
 
@@ -760,9 +790,11 @@ def run_weather_strategy(dry_run: bool = False, positions_only: bool = False,
             print(f"  ⏸️  Price ${price:.4f} above max tradeable - skip (market at extreme)")
             continue
 
-        # Check safeguards
+        # Check safeguards with edge analysis
+        # NOAA forecasts are ~85% accurate for 1-2 day predictions when in-bucket
+        noaa_probability = 0.85
         if use_safeguards:
-            context = get_market_context(api_key, market_id)
+            context = get_market_context(api_key, market_id, my_probability=noaa_probability)
             should_trade, reasons = check_context_safeguards(context)
             if not should_trade:
                 print(f"  ⏭️  Safeguard blocked: {'; '.join(reasons)}")
