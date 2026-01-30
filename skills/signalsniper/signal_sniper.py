@@ -55,32 +55,39 @@ except ImportError:
 # Source tag for tracking
 TRADE_SOURCE = "sdk:signalsniper"
 
-# Configuration from environment
+# Import shared config loader
+try:
+    from config_loader import load_config, save_config, update_config, get_config_path
+except ImportError:
+    import sys as _sys
+    from pathlib import Path as _Path
+    _sys.path.insert(0, str(_Path(__file__).parent.parent))
+    from config_loader import load_config, save_config, update_config, get_config_path
+
+# Configuration schema
+CONFIG_SCHEMA = {
+    "feeds": {"env": "SIMMER_SNIPER_FEEDS", "default": "", "type": str},
+    "markets": {"env": "SIMMER_SNIPER_MARKETS", "default": "", "type": str},
+    "keywords": {"env": "SIMMER_SNIPER_KEYWORDS", "default": "", "type": str},
+    "confidence_threshold": {"env": "SIMMER_SNIPER_CONFIDENCE", "default": 0.7, "type": float},
+    "max_usd": {"env": "SIMMER_SNIPER_MAX_USD", "default": 25.0, "type": float},
+    "max_trades_per_run": {"env": "SIMMER_SNIPER_MAX_TRADES", "default": 5, "type": int},
+}
+
+# Load configuration
+_config = load_config(CONFIG_SCHEMA, __file__)
+
+# Configuration from environment (API key still from env for security)
 API_KEY = os.environ.get("SIMMER_API_KEY", "")
 API_BASE = os.environ.get("SIMMER_API_BASE", "https://api.simmer.markets")
 
-# Sniper configuration
-FEEDS = os.environ.get("SIMMER_SNIPER_FEEDS", "")  # Comma-separated RSS URLs
-MARKETS = os.environ.get("SIMMER_SNIPER_MARKETS", "")  # Comma-separated market IDs
-KEYWORDS = os.environ.get("SIMMER_SNIPER_KEYWORDS", "")  # Comma-separated keywords
-
-# Parse config with validation
-def _parse_float_config(name: str, default: str, min_val: float = None, max_val: float = None) -> float:
-    """Parse float config with validation."""
-    try:
-        value = float(os.environ.get(name, default))
-        if min_val is not None and value < min_val:
-            raise ValueError(f"{name} must be >= {min_val}")
-        if max_val is not None and value > max_val:
-            raise ValueError(f"{name} must be <= {max_val}")
-        return value
-    except ValueError as e:
-        print(f"❌ Configuration error: {e}")
-        sys.exit(1)
-
-CONFIDENCE_THRESHOLD = _parse_float_config("SIMMER_SNIPER_CONFIDENCE", "0.7", 0.0, 1.0)
-MAX_USD = _parse_float_config("SIMMER_SNIPER_MAX_USD", "25", 0.01)
-MAX_TRADES_PER_RUN = int(os.environ.get("SIMMER_SNIPER_MAX_TRADES", "5"))  # Max trades per scan cycle
+# Sniper configuration - from config
+FEEDS = _config["feeds"]
+MARKETS = _config["markets"]
+KEYWORDS = _config["keywords"]
+CONFIDENCE_THRESHOLD = _config["confidence_threshold"]
+MAX_USD = _config["max_usd"]
+MAX_TRADES_PER_RUN = _config["max_trades_per_run"]
 
 # Polymarket constraints
 MIN_SHARES_PER_ORDER = 5.0  # Polymarket requires minimum 5 shares
@@ -116,6 +123,7 @@ def get_config() -> Dict[str, Any]:
 def show_config():
     """Display current configuration."""
     config = get_config()
+    config_path = get_config_path(__file__)
     print("🎯 Signal Sniper Configuration")
     print("=" * 40)
     print(f"API Base: {config['api_base']}")
@@ -144,6 +152,13 @@ def show_config():
     print(f"Confidence Threshold: {config['confidence_threshold']:.0%}")
     print(f"Max Trade Size: ${config['max_usd']:.2f}")
     print(f"Max Trades/Run: {MAX_TRADES_PER_RUN}")
+    print()
+    print(f"Config file: {config_path}")
+    print(f"Config exists: {'Yes' if config_path.exists() else 'No'}")
+    print("\nTo change settings:")
+    print("  --set feeds=https://rss.example.com/feed1,https://rss.example.com/feed2")
+    print("  --set keywords=bitcoin,ethereum,crypto")
+    print("  --set confidence_threshold=0.8")
 
 
 def load_processed() -> Dict[str, Dict]:
@@ -333,9 +348,18 @@ def sdk_request(method: str, endpoint: str, data: Optional[Dict] = None) -> Dict
         return {"error": "Network error"}
 
 
-def get_market_context(market_id: str) -> Optional[Dict]:
-    """Get SDK context for a market (safeguards)."""
-    result = sdk_request("GET", f"/api/sdk/context/{market_id}")
+def get_market_context(market_id: str, my_probability: float = None) -> Optional[Dict]:
+    """
+    Get SDK context for a market (safeguards + optional edge analysis).
+    
+    Args:
+        market_id: Market ID
+        my_probability: Your probability estimate (0-1) for edge calculation
+    """
+    endpoint = f"/api/sdk/context/{market_id}"
+    if my_probability is not None:
+        endpoint += f"?my_probability={my_probability}"
+    result = sdk_request("GET", endpoint)
     if "error" in result:
         return None
     return result
@@ -465,6 +489,22 @@ def check_safeguards(context: Dict) -> Tuple[bool, List[str]]:
         reasons.append(f"Wide spread ({spread_pct:.1%}) - illiquid market")
         return False, reasons
 
+    # Check edge recommendation (if available)
+    edge = context.get("edge") or {}
+    if edge:
+        recommendation = edge.get("recommendation")
+        user_edge = edge.get("user_edge")
+        threshold = edge.get("suggested_threshold", 0)
+        
+        if recommendation == "SKIP":
+            reasons.append("Edge analysis: SKIP (market resolved or invalid)")
+            return False, reasons
+        elif recommendation == "HOLD":
+            if user_edge is not None and threshold:
+                reasons.append(f"Edge {user_edge:.1%} below threshold {threshold:.1%}")
+        elif recommendation == "TRADE":
+            reasons.append(f"Edge {user_edge:.1%} ≥ threshold {threshold:.1%} - good opportunity")
+
     return True, reasons
 
 
@@ -578,8 +618,9 @@ def run_scan(
         for market_id in markets:
             print(f"\n   → Checking market: {market_id[:20]}...")
 
-            # Get context with safeguards
-            context = get_market_context(market_id)
+            # Get context with safeguards + edge analysis
+            # Use confidence threshold as probability estimate
+            context = get_market_context(market_id, my_probability=CONFIDENCE_THRESHOLD)
             if not context:
                 print(f"     ⚠️ Could not fetch context")
                 continue
@@ -684,8 +725,37 @@ def main():
     parser.add_argument("--feed", type=str, help="Override RSS feed URL")
     parser.add_argument("--market", type=str, help="Override target market ID")
     parser.add_argument("--keywords", type=str, help="Override keywords (comma-separated)")
+    parser.add_argument("--set", action="append", metavar="KEY=VALUE",
+                        help="Set config value (e.g., --set feeds=url1,url2 --set keywords=a,b)")
 
     args = parser.parse_args()
+
+    # Handle --set config updates
+    if args.set:
+        updates = {}
+        for item in args.set:
+            if "=" in item:
+                key, value = item.split("=", 1)
+                if key in CONFIG_SCHEMA:
+                    type_fn = CONFIG_SCHEMA[key].get("type", str)
+                    try:
+                        value = type_fn(value)
+                    except (ValueError, TypeError):
+                        pass
+                updates[key] = value
+        if updates:
+            updated = update_config(updates, __file__)
+            print(f"✅ Config updated: {updates}")
+            print(f"   Saved to: {get_config_path(__file__)}")
+            # Reload globals
+            global FEEDS, MARKETS, KEYWORDS, CONFIDENCE_THRESHOLD, MAX_USD, MAX_TRADES_PER_RUN
+            _config = load_config(CONFIG_SCHEMA, __file__)
+            FEEDS = _config["feeds"]
+            MARKETS = _config["markets"]
+            KEYWORDS = _config["keywords"]
+            CONFIDENCE_THRESHOLD = _config["confidence_threshold"]
+            MAX_USD = _config["max_usd"]
+            MAX_TRADES_PER_RUN = _config["max_trades_per_run"]
 
     if args.config:
         show_config()

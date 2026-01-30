@@ -32,9 +32,26 @@ from urllib.parse import urlencode
 
 
 # =============================================================================
-# Configuration
+# Configuration (config.json > env vars > defaults)
 # =============================================================================
 
+# Import shared config loader
+try:
+    from config_loader import load_config, save_config, update_config, get_config_path
+except ImportError:
+    sys.path.insert(0, str(Path(__file__).parent.parent))
+    from config_loader import load_config, save_config, update_config, get_config_path
+
+# Configuration schema
+CONFIG_SCHEMA = {
+    "fetch_limit": {"env": "SIMMER_JOURNAL_FETCH_LIMIT", "default": 100, "type": int},
+    "auto_sync_outcomes": {"env": "SIMMER_JOURNAL_AUTO_SYNC", "default": "true", "type": str},
+}
+
+# Load configuration
+_config = load_config(CONFIG_SCHEMA, __file__)
+
+# API config (always from env for security)
 SIMMER_API_KEY = os.environ.get("SIMMER_API_KEY", "")
 SIMMER_API_URL = os.environ.get("SIMMER_API_URL", "https://api.simmer.markets")
 
@@ -44,8 +61,8 @@ DATA_DIR = SCRIPT_DIR / "data"
 TRADES_FILE = DATA_DIR / "trades.json"
 CONTEXT_FILE = DATA_DIR / "context.json"  # For log_trade() enrichment
 
-# Sync settings
-DEFAULT_FETCH_LIMIT = 100
+# Sync settings - from config
+DEFAULT_FETCH_LIMIT = _config["fetch_limit"]
 REQUEST_TIMEOUT_SECONDS = 30
 
 

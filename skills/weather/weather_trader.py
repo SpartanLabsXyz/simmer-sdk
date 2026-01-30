@@ -40,8 +40,30 @@ except ImportError:
             pass  # No-op if tradejournal not installed
 
 # =============================================================================
-# Configuration
+# Configuration (config.json > env vars > defaults)
 # =============================================================================
+
+# Import shared config loader
+try:
+    from config_loader import load_config, save_config, update_config, get_config_path
+except ImportError:
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).parent.parent))
+    from config_loader import load_config, save_config, update_config, get_config_path
+
+# Configuration schema
+CONFIG_SCHEMA = {
+    "entry_threshold": {"env": "SIMMER_WEATHER_ENTRY", "default": 0.15, "type": float},
+    "exit_threshold": {"env": "SIMMER_WEATHER_EXIT", "default": 0.45, "type": float},
+    "max_position_usd": {"env": "SIMMER_WEATHER_MAX_POSITION", "default": 2.00, "type": float},
+    "sizing_pct": {"env": "SIMMER_WEATHER_SIZING_PCT", "default": 0.05, "type": float},
+    "max_trades_per_run": {"env": "SIMMER_WEATHER_MAX_TRADES", "default": 5, "type": int},
+    "locations": {"env": "SIMMER_WEATHER_LOCATIONS", "default": "NYC", "type": str},
+}
+
+# Load configuration
+_config = load_config(CONFIG_SCHEMA, __file__)
 
 SIMMER_API_BASE = "https://api.simmer.markets"
 NOAA_API_BASE = "https://api.weather.gov"
@@ -53,16 +75,16 @@ TRADE_SOURCE = "sdk:weather"
 MIN_SHARES_PER_ORDER = 5.0  # Polymarket requires minimum 5 shares
 MIN_TICK_SIZE = 0.01        # Minimum tradeable price
 
-# Strategy parameters - configurable via environment variables
-ENTRY_THRESHOLD = float(os.environ.get("SIMMER_WEATHER_ENTRY", "0.15"))
-EXIT_THRESHOLD = float(os.environ.get("SIMMER_WEATHER_EXIT", "0.45"))
-MAX_POSITION_USD = float(os.environ.get("SIMMER_WEATHER_MAX_POSITION", "2.00"))
+# Strategy parameters - from config
+ENTRY_THRESHOLD = _config["entry_threshold"]
+EXIT_THRESHOLD = _config["exit_threshold"]
+MAX_POSITION_USD = _config["max_position_usd"]
 
 # Smart sizing parameters
-SMART_SIZING_PCT = float(os.environ.get("SIMMER_WEATHER_SIZING_PCT", "0.05"))  # 5% of available balance per trade
+SMART_SIZING_PCT = _config["sizing_pct"]
 
 # Rate limiting
-MAX_TRADES_PER_RUN = int(os.environ.get("SIMMER_WEATHER_MAX_TRADES", "5"))  # Max trades per scan cycle
+MAX_TRADES_PER_RUN = _config["max_trades_per_run"]
 
 # Context safeguard thresholds
 SLIPPAGE_MAX_PCT = 0.15  # Skip if slippage > 15%
@@ -81,9 +103,9 @@ LOCATIONS = {
     "Miami": {"lat": 25.7959, "lon": -80.2870, "name": "Miami (MIA)"},
 }
 
-# Active locations - configurable via environment
-_locations_env = os.environ.get("SIMMER_WEATHER_LOCATIONS", "NYC")
-ACTIVE_LOCATIONS = [loc.strip().upper() for loc in _locations_env.split(",") if loc.strip()]
+# Active locations - from config
+_locations_str = _config["locations"]
+ACTIVE_LOCATIONS = [loc.strip().upper() for loc in _locations_str.split(",") if loc.strip()]
 
 # =============================================================================
 # NOAA Weather API
@@ -341,12 +363,21 @@ def get_portfolio(api_key: str) -> dict:
     return result
 
 
-def get_market_context(api_key: str, market_id: str) -> dict:
+def get_market_context(api_key: str, market_id: str, my_probability: float = None) -> dict:
     """
-    Get market context with safeguards.
-    Returns: market info, position, warnings, slippage, discipline
+    Get market context with safeguards and optional edge analysis.
+    
+    Args:
+        api_key: Simmer API key
+        market_id: Market ID
+        my_probability: Your probability estimate (0-1) for edge calculation
+    
+    Returns: market info, position, warnings, slippage, discipline, edge
     """
-    result = sdk_request(api_key, "GET", f"/api/sdk/context/{market_id}")
+    endpoint = f"/api/sdk/context/{market_id}"
+    if my_probability is not None:
+        endpoint += f"?my_probability={my_probability}"
+    result = sdk_request(api_key, "GET", endpoint)
     if "error" in result:
         return None
     return result
@@ -363,9 +394,13 @@ def get_price_history(api_key: str, market_id: str) -> list:
     return result.get("points", [])
 
 
-def check_context_safeguards(context: dict) -> tuple:
+def check_context_safeguards(context: dict, use_edge: bool = True) -> tuple:
     """
     Check context for safeguards. Returns (should_trade, reasons).
+    
+    Args:
+        context: Context response from SDK
+        use_edge: If True, respect edge recommendation (TRADE/HOLD/SKIP)
     """
     if not context:
         return True, []  # No context = proceed (fail open)
@@ -375,6 +410,7 @@ def check_context_safeguards(context: dict) -> tuple:
     warnings = context.get("warnings", [])
     discipline = context.get("discipline", {})
     slippage = context.get("slippage", {})
+    edge = context.get("edge", {})
 
     # Check for deal-breakers in warnings
     for warning in warnings:
@@ -413,6 +449,22 @@ def check_context_safeguards(context: dict) -> tuple:
         slippage_pct = estimates[0].get("slippage_pct", 0)
         if slippage_pct > SLIPPAGE_MAX_PCT:
             return False, [f"Slippage too high: {slippage_pct:.1%}"]
+
+    # Check edge recommendation (if available and use_edge=True)
+    if use_edge and edge:
+        recommendation = edge.get("recommendation")
+        user_edge = edge.get("user_edge")
+        threshold = edge.get("suggested_threshold", 0)
+        
+        if recommendation == "SKIP":
+            return False, ["Edge analysis: SKIP (market resolved or invalid)"]
+        elif recommendation == "HOLD":
+            if user_edge is not None and threshold:
+                reasons.append(f"Edge {user_edge:.1%} below threshold {threshold:.1%} - marginal opportunity")
+            else:
+                reasons.append("Edge analysis recommends HOLD")
+        elif recommendation == "TRADE":
+            reasons.append(f"Edge {user_edge:.1%} ≥ threshold {threshold:.1%} - good opportunity")
 
     return True, reasons
 
@@ -622,13 +674,17 @@ def run_weather_strategy(dry_run: bool = False, positions_only: bool = False,
     print(f"  Trend detection: {'✓ Enabled' if use_trends else '✗ Disabled'}")
 
     if show_config:
-        print("\n  To change settings, set environment variables:")
-        print("    SIMMER_WEATHER_ENTRY=0.20")
-        print("    SIMMER_WEATHER_EXIT=0.50")
-        print("    SIMMER_WEATHER_MAX_POSITION=5.00")
-        print("    SIMMER_WEATHER_MAX_TRADES=5")
-        print("    SIMMER_WEATHER_LOCATIONS=NYC,Chicago,Miami")
-        print("    SIMMER_WEATHER_SIZING_PCT=0.05  (for smart sizing)")
+        from config_loader import get_config_path
+        config_path = get_config_path(__file__)
+        print(f"\n  Config file: {config_path}")
+        print(f"  Config exists: {'Yes' if config_path.exists() else 'No'}")
+        print("\n  To change settings, either:")
+        print("  1. Create/edit config.json in skill directory:")
+        print('     {"entry_threshold": 0.20, "exit_threshold": 0.50, "locations": "NYC,Chicago"}')
+        print("  2. Or use --set flag:")
+        print("     python weather_trader.py --set entry_threshold=0.20")
+        print("  3. Or set environment variables (lowest priority):")
+        print("     SIMMER_WEATHER_ENTRY=0.20")
         return
 
     api_key = get_api_key()
@@ -734,9 +790,11 @@ def run_weather_strategy(dry_run: bool = False, positions_only: bool = False,
             print(f"  ⏸️  Price ${price:.4f} above max tradeable - skip (market at extreme)")
             continue
 
-        # Check safeguards
+        # Check safeguards with edge analysis
+        # NOAA forecasts are ~85% accurate for 1-2 day predictions when in-bucket
+        noaa_probability = 0.85
         if use_safeguards:
-            context = get_market_context(api_key, market_id)
+            context = get_market_context(api_key, market_id, my_probability=noaa_probability)
             should_trade, reasons = check_context_safeguards(context)
             if not should_trade:
                 print(f"  ⏭️  Safeguard blocked: {'; '.join(reasons)}")
@@ -834,10 +892,41 @@ if __name__ == "__main__":
     parser.add_argument("--dry-run", action="store_true", help="Show opportunities without trading")
     parser.add_argument("--positions", action="store_true", help="Show current positions only")
     parser.add_argument("--config", action="store_true", help="Show current config")
+    parser.add_argument("--set", action="append", metavar="KEY=VALUE",
+                        help="Set config value (e.g., --set entry_threshold=0.20)")
     parser.add_argument("--smart-sizing", action="store_true", help="Use portfolio-based position sizing")
     parser.add_argument("--no-safeguards", action="store_true", help="Disable context safeguards")
     parser.add_argument("--no-trends", action="store_true", help="Disable price trend detection")
     args = parser.parse_args()
+
+    # Handle --set config updates
+    if args.set:
+        updates = {}
+        for item in args.set:
+            if "=" in item:
+                key, value = item.split("=", 1)
+                # Try to convert to appropriate type
+                if key in CONFIG_SCHEMA:
+                    type_fn = CONFIG_SCHEMA[key].get("type", str)
+                    try:
+                        value = type_fn(value)
+                    except (ValueError, TypeError):
+                        pass
+                updates[key] = value
+        if updates:
+            updated = update_config(updates, __file__)
+            print(f"✅ Config updated: {updates}")
+            print(f"   Saved to: {get_config_path(__file__)}")
+            # Reload config
+            _config = load_config(CONFIG_SCHEMA, __file__)
+            # Update module-level vars
+            globals()["ENTRY_THRESHOLD"] = _config["entry_threshold"]
+            globals()["EXIT_THRESHOLD"] = _config["exit_threshold"]
+            globals()["MAX_POSITION_USD"] = _config["max_position_usd"]
+            globals()["SMART_SIZING_PCT"] = _config["sizing_pct"]
+            globals()["MAX_TRADES_PER_RUN"] = _config["max_trades_per_run"]
+            _locations_str = _config["locations"]
+            globals()["ACTIVE_LOCATIONS"] = [loc.strip().upper() for loc in _locations_str.split(",") if loc.strip()]
 
     run_weather_strategy(
         dry_run=args.dry_run, 

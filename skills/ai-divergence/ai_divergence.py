@@ -17,10 +17,29 @@ import os
 import sys
 import json
 import argparse
+from pathlib import Path
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 
+# Import shared config loader
+try:
+    from config_loader import load_config, save_config, update_config, get_config_path
+except ImportError:
+    sys.path.insert(0, str(Path(__file__).parent.parent))
+    from config_loader import load_config, save_config, update_config, get_config_path
+
+# Configuration schema
+CONFIG_SCHEMA = {
+    "min_divergence": {"env": "SIMMER_DIVERGENCE_MIN", "default": 5.0, "type": float},
+    "default_direction": {"env": "SIMMER_DIVERGENCE_DIRECTION", "default": "", "type": str},
+}
+
+# Load configuration
+_config = load_config(CONFIG_SCHEMA, __file__)
+
 SIMMER_API_URL = os.environ.get("SIMMER_API_URL", "https://api.simmer.markets")
+DEFAULT_MIN_DIVERGENCE = _config["min_divergence"]
+DEFAULT_DIRECTION = _config["default_direction"]
 
 
 def api_request(api_key: str, endpoint: str) -> dict:
@@ -133,12 +152,48 @@ def show_opportunities(markets: list) -> None:
 
 def main():
     parser = argparse.ArgumentParser(description="Simmer AI Divergence Scanner")
-    parser.add_argument("--min", type=float, default=5, help="Minimum divergence %% (default: 5)")
+    parser.add_argument("--min", type=float, default=DEFAULT_MIN_DIVERGENCE, 
+                        help=f"Minimum divergence %% (default: {DEFAULT_MIN_DIVERGENCE})")
     parser.add_argument("--bullish", action="store_true", help="Only bullish divergence (Simmer > Poly)")
     parser.add_argument("--bearish", action="store_true", help="Only bearish divergence (Simmer < Poly)")
     parser.add_argument("--opportunities", "-o", action="store_true", help="Show top opportunities only")
     parser.add_argument("--json", action="store_true", help="Output as JSON")
+    parser.add_argument("--config", action="store_true", help="Show configuration")
+    parser.add_argument("--set", action="append", metavar="KEY=VALUE",
+                        help="Set config value (e.g., --set min_divergence=10)")
     args = parser.parse_args()
+    
+    # Handle --set config updates
+    if args.set:
+        updates = {}
+        for item in args.set:
+            if "=" in item:
+                key, value = item.split("=", 1)
+                if key in CONFIG_SCHEMA:
+                    type_fn = CONFIG_SCHEMA[key].get("type", str)
+                    try:
+                        value = type_fn(value)
+                    except (ValueError, TypeError):
+                        pass
+                updates[key] = value
+        if updates:
+            update_config(updates, __file__)
+            print(f"✅ Config updated: {updates}")
+            print(f"   Saved to: {get_config_path(__file__)}")
+    
+    # Show config
+    if args.config:
+        config_path = get_config_path(__file__)
+        print("🔮 AI Divergence Scanner Configuration")
+        print("=" * 40)
+        print(f"Min divergence: {DEFAULT_MIN_DIVERGENCE}%")
+        print(f"Default direction: {DEFAULT_DIRECTION or '(none)'}")
+        print(f"\nConfig file: {config_path}")
+        print(f"Config exists: {'Yes' if config_path.exists() else 'No'}")
+        print("\nTo change settings:")
+        print("  --set min_divergence=10")
+        print("  --set default_direction=bullish")
+        return
     
     api_key = os.environ.get("SIMMER_API_KEY")
     if not api_key:
@@ -146,7 +201,7 @@ def main():
         print("   Get your API key from: https://simmer.markets/dashboard")
         sys.exit(1)
     
-    direction = None
+    direction = DEFAULT_DIRECTION or None
     if args.bullish:
         direction = "bullish"
     elif args.bearish:

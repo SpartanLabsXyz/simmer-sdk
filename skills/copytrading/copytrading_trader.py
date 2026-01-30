@@ -51,10 +51,30 @@ TRADE_SOURCE = "sdk:copytrading"
 
 
 # =============================================================================
-# Configuration
+# Configuration (config.json > env vars > defaults)
 # =============================================================================
 
-# Environment variables
+# Import shared config loader
+try:
+    from config_loader import load_config, save_config, update_config, get_config_path
+except ImportError:
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).parent.parent))
+    from config_loader import load_config, save_config, update_config, get_config_path
+
+# Configuration schema
+CONFIG_SCHEMA = {
+    "wallets": {"env": "SIMMER_COPYTRADING_WALLETS", "default": "", "type": str},
+    "top_n": {"env": "SIMMER_COPYTRADING_TOP_N", "default": "", "type": str},  # Empty = auto
+    "max_usd": {"env": "SIMMER_COPYTRADING_MAX_USD", "default": 50.0, "type": float},
+    "max_trades_per_run": {"env": "SIMMER_COPYTRADING_MAX_TRADES", "default": 10, "type": int},
+}
+
+# Load configuration
+_config = load_config(CONFIG_SCHEMA, __file__)
+
+# Environment variables (API key still from env for security)
 SIMMER_API_KEY = os.environ.get("SIMMER_API_KEY", "")
 SIMMER_API_URL = os.environ.get("SIMMER_API_URL", "https://api.simmer.markets")
 
@@ -62,11 +82,11 @@ SIMMER_API_URL = os.environ.get("SIMMER_API_URL", "https://api.simmer.markets")
 MIN_SHARES_PER_ORDER = 5.0  # Polymarket requires minimum 5 shares
 MIN_TICK_SIZE = 0.01        # Minimum price increment
 
-# Copytrading settings
-COPYTRADING_WALLETS = os.environ.get("SIMMER_COPYTRADING_WALLETS", "")
-COPYTRADING_TOP_N = os.environ.get("SIMMER_COPYTRADING_TOP_N", "")  # Empty = auto
-COPYTRADING_MAX_USD = float(os.environ.get("SIMMER_COPYTRADING_MAX_USD", "50"))
-MAX_TRADES_PER_RUN = int(os.environ.get("SIMMER_COPYTRADING_MAX_TRADES", "10"))  # Max trades per scan cycle
+# Copytrading settings - from config
+COPYTRADING_WALLETS = _config["wallets"]
+COPYTRADING_TOP_N = _config["top_n"]
+COPYTRADING_MAX_USD = _config["max_usd"]
+MAX_TRADES_PER_RUN = _config["max_trades_per_run"]
 
 
 def get_config() -> dict:
@@ -87,6 +107,7 @@ def get_config() -> dict:
 def print_config():
     """Print current configuration."""
     config = get_config()
+    config_path = get_config_path(__file__)
 
     print("\n🐋 Simmer Copytrading Configuration")
     print("=" * 40)
@@ -101,6 +122,12 @@ def print_config():
     print(f"\nSettings:")
     print(f"  Top N: {config['top_n'] if config['top_n'] else 'auto (based on balance)'}")
     print(f"  Max per position: ${config['max_position_usd']:.2f}")
+    print(f"\nConfig file: {config_path}")
+    print(f"Config exists: {'Yes' if config_path.exists() else 'No'}")
+    print("\nTo change settings:")
+    print("  --set wallets=0x123...,0x456...")
+    print("  --set max_usd=100")
+    print("  --set top_n=10")
     print()
 
 
@@ -500,8 +527,38 @@ def main():
         action="store_true",
         help="Sell positions when whales exit (only affects copytrading-opened positions)"
     )
+    parser.add_argument(
+        "--set",
+        action="append",
+        metavar="KEY=VALUE",
+        help="Set config value (e.g., --set wallets=0x123,0x456 --set max_usd=100)"
+    )
 
     args = parser.parse_args()
+
+    # Handle --set config updates
+    if args.set:
+        updates = {}
+        for item in args.set:
+            if "=" in item:
+                key, value = item.split("=", 1)
+                if key in CONFIG_SCHEMA:
+                    type_fn = CONFIG_SCHEMA[key].get("type", str)
+                    try:
+                        value = type_fn(value)
+                    except (ValueError, TypeError):
+                        pass
+                updates[key] = value
+        if updates:
+            updated = update_config(updates, __file__)
+            print(f"✅ Config updated: {updates}")
+            print(f"   Saved to: {get_config_path(__file__)}")
+            # Reload config
+            _config = load_config(CONFIG_SCHEMA, __file__)
+            globals()["COPYTRADING_WALLETS"] = _config["wallets"]
+            globals()["COPYTRADING_TOP_N"] = _config["top_n"]
+            globals()["COPYTRADING_MAX_USD"] = _config["max_usd"]
+            globals()["MAX_TRADES_PER_RUN"] = _config["max_trades_per_run"]
 
     # Show config
     if args.config:
