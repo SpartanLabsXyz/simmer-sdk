@@ -1052,3 +1052,77 @@ class SimmerClient:
             "guide": guide,
             "raw_status": status,
         }
+
+    @staticmethod
+    def check_for_updates(warn: bool = True) -> Dict[str, Any]:
+        """
+        Check PyPI for a newer version of the SDK.
+
+        Args:
+            warn: If True, print a warning message when outdated (default: True)
+
+        Returns:
+            Dict containing:
+            - current: Currently installed version
+            - latest: Latest version on PyPI
+            - update_available: True if a newer version exists
+            - message: Human-readable status message
+
+        Example:
+            result = SimmerClient.check_for_updates()
+            if result["update_available"]:
+                print(result["message"])
+
+            # Or just check silently
+            info = SimmerClient.check_for_updates(warn=False)
+            if info["update_available"]:
+                # Handle update logic
+                pass
+        """
+        from . import __version__
+
+        result = {
+            "current": __version__,
+            "latest": None,
+            "update_available": False,
+            "message": "",
+        }
+
+        try:
+            response = requests.get(
+                "https://pypi.org/pypi/simmer-sdk/json",
+                timeout=5
+            )
+            response.raise_for_status()
+            latest = response.json()["info"]["version"]
+            result["latest"] = latest
+
+            # Simple version comparison (works for semver)
+            if latest != __version__:
+                # Parse versions for proper comparison
+                def parse_version(v):
+                    return tuple(int(x) for x in v.split(".")[:3])
+
+                try:
+                    current_tuple = parse_version(__version__)
+                    latest_tuple = parse_version(latest)
+                    result["update_available"] = latest_tuple > current_tuple
+                except (ValueError, IndexError):
+                    # Fallback to string comparison if parsing fails
+                    result["update_available"] = latest > __version__
+
+            if result["update_available"]:
+                result["message"] = (
+                    f"⚠️  simmer-sdk {latest} available (you have {__version__})\n"
+                    f"   Update with: pip install --upgrade simmer-sdk"
+                )
+                if warn:
+                    print(result["message"])
+            else:
+                result["message"] = f"✓ simmer-sdk {__version__} is up to date"
+
+        except requests.RequestException as e:
+            logger.debug("Could not check for updates: %s", e)
+            result["message"] = f"Could not check for updates: {e}"
+
+        return result

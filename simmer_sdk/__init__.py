@@ -59,7 +59,13 @@ from .approvals import (
     format_approval_guide,
 )
 
-__version__ = "0.2.7"
+# Single source of truth: read version from package metadata (set in pyproject.toml)
+try:
+    from importlib.metadata import version as _get_version
+    __version__ = _get_version("simmer-sdk")
+except Exception:
+    # Fallback for development installs or older Python
+    __version__ = "0.3.2"
 __all__ = [
     "SimmerClient",
     "get_required_approvals",
