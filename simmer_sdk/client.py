@@ -1108,8 +1108,9 @@ class SimmerClient:
                     latest_tuple = parse_version(latest)
                     result["update_available"] = latest_tuple > current_tuple
                 except (ValueError, IndexError):
-                    # Fallback to string comparison if parsing fails
-                    result["update_available"] = latest > __version__
+                    # Can't parse version - don't assume update available
+                    result["update_available"] = False
+                    logger.debug("Could not parse versions for comparison: %s vs %s", __version__, latest)
 
             if result["update_available"]:
                 result["message"] = (
