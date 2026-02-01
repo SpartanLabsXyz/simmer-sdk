@@ -638,6 +638,47 @@ class SimmerClient:
         )
         return data
 
+    def list_importable_markets(
+        self,
+        min_volume: float = 10000,
+        limit: int = 50,
+        category: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        List active Polymarket markets that can be imported.
+
+        Returns markets that are:
+        - Open for trading (not resolved)
+        - Not already imported to Simmer
+        - Above minimum volume threshold
+
+        Use this to discover markets before calling import_market().
+
+        Args:
+            min_volume: Minimum 24h volume in USD (default: 10000)
+            limit: Max markets to return (default: 50, max: 100)
+            category: Filter by category (e.g., "politics", "crypto", "sports")
+
+        Returns:
+            List of dicts with question, url, condition_id, current_price, volume_24h
+
+        Example:
+            # Find importable crypto markets
+            markets = client.list_importable_markets(category="crypto", limit=10)
+            for m in markets:
+                print(f"{m['question']} - ${m['volume_24h']:,.0f} volume")
+                result = client.import_market(m['url'])
+        """
+        params = {
+            "min_volume": min_volume,
+            "limit": limit,
+        }
+        if category:
+            params["category"] = category
+
+        data = self._request("GET", "/api/sdk/markets/importable", params=params)
+        return data.get("markets", [])
+
     def get_portfolio(self) -> Optional[Dict[str, Any]]:
         """
         Get portfolio summary with balance, exposure, and positions by source.
