@@ -858,12 +858,7 @@ def run_weather_strategy(dry_run: bool = False, positions_only: bool = False,
                             target_date=date_str,
                             metric=metric,
                         )
-
-                    # Set up risk monitor (stop-loss 25%, take-profit 60%)
-                    risk_result = set_risk_monitor(api_key, market_id, "yes",
-                                                   stop_loss_pct=0.25, take_profit_pct=0.60)
-                    if risk_result and risk_result.get("success"):
-                        print(f"  🛡️  Risk monitor set: SL -25% / TP +60%")
+                    # Risk monitors are now auto-set via SDK settings (dashboard)
                 else:
                     error = result.get("error", "Unknown error")
                     print(f"  ❌ Trade failed: {error}")

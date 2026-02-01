@@ -384,18 +384,15 @@ def run_copytrading(wallets: list, top_n: int = None, max_usd: float = 50.0, dry
     elif trades_executed > 0:
         print(f"\n✅ Successfully mirrored positions!")
 
-        # Log successful trades to journal and set risk monitors
-        risk_monitors_set = 0
-        risk_monitor_errors = 0
+        # Log successful trades to journal
+        # Risk monitors are now auto-set via SDK settings (dashboard)
         for t in trades:
             if t.get('success'):
                 trade_id = t.get('trade_id')
                 action = t.get('action', 'buy')
-                market_id = t.get('market_id')
                 side = t.get('side', 'yes')
                 shares = t.get('shares', 0)
                 price = t.get('estimated_price', 0)
-                title = t.get('market_title', 'Unknown')
 
                 # Log trade context for journal
                 if trade_id and JOURNAL_AVAILABLE:
@@ -407,20 +404,6 @@ def run_copytrading(wallets: list, top_n: int = None, max_usd: float = 50.0, dry
                         action=action,
                         wallets_count=len(wallets),
                     )
-
-                # Set risk monitors for BUY trades
-                if action == 'buy' and market_id:
-                    risk_result = set_risk_monitor(market_id, side,
-                                                   stop_loss_pct=0.25, take_profit_pct=0.50)
-                    if risk_result and risk_result.get('error'):
-                        risk_monitor_errors += 1
-                    elif risk_result and risk_result.get('success'):
-                        risk_monitors_set += 1
-
-        if risk_monitors_set > 0:
-            print(f"🛡️  Risk monitors set: {risk_monitors_set} positions (SL -25% / TP +50%)")
-        if risk_monitor_errors > 0:
-            print(f"⚠️  Risk monitor errors: {risk_monitor_errors} (check API key/permissions)")
     else:
         print("\n✅ Scan complete")
 
