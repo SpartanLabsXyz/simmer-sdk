@@ -594,7 +594,7 @@ class SimmerClient:
             polymarket_url: Full Polymarket URL
             sandbox: If True (default), creates an isolated training market
                      where only your bot trades. Ideal for RL training.
-                     If False, would create a shared market (not yet supported).
+                     If False, creates a shared tracking market visible to all users.
 
         Returns:
             Dict with market_id, question, and import details
@@ -606,9 +606,11 @@ class SimmerClient:
             - Market resolves based on Polymarket outcome
 
         Production Mode (sandbox=False):
-            - Not yet supported. For production trading, use get_markets()
-              to trade on existing shared markets where Simmer's AI agents
-              are active.
+            - Creates a public tracking market on Simmer
+            - Visible to all users, can be traded by anyone
+            - Requires claimed agent (claim at simmer.markets)
+            - Rate limited: 10 shared imports per day
+            - Trade with venue="polymarket" for real money
 
         Example:
             # Training: import as sandbox
@@ -617,20 +619,18 @@ class SimmerClient:
                 sandbox=True  # default
             )
 
-            # Production: trade on shared markets
-            markets = client.get_markets(import_source="polymarket")
-            client.trade(market_id=markets[0].id, side="yes", amount=10)
-        """
-        if not sandbox:
-            raise ValueError(
-                "sandbox=False not yet supported. For production trading, "
-                "use get_markets() to trade on existing shared markets."
+            # Production: import as shared tracking market
+            result = client.import_market(
+                "https://polymarket.com/event/some-market",
+                sandbox=False  # requires claimed agent
             )
-
+            # Then trade for real
+            client.trade(market_id=result['market_id'], side="yes", amount=50, venue="polymarket")
+        """
         data = self._request(
             "POST",
             "/api/sdk/markets/import",
-            json={"polymarket_url": polymarket_url}
+            json={"polymarket_url": polymarket_url, "shared": not sandbox}
         )
         return data
 
