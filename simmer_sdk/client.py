@@ -129,8 +129,8 @@ class SimmerClient:
                 - "sandbox": Trade on Simmer's LMSR market with $SIM (virtual currency)
                 - "polymarket": Execute real trades on Polymarket CLOB with USDC
                   (requires wallet linked in dashboard + real trading enabled)
-                - "shadow": Paper trading - executes on LMSR but tracks P&L against
-                  real Polymarket prices (coming soon)
+                - "kalshi": Execute real trades on Kalshi via DFlow
+                  (requires SIMMER_SOLANA_KEY env var with base58 secret key)
             private_key: Optional EVM wallet private key for Polymarket trading.
                 When provided, orders are signed locally instead of server-side.
                 This enables trading with your own Polymarket wallet.
@@ -378,7 +378,6 @@ class SimmerClient:
                 - "polymarket": Real Polymarket CLOB, USDC (requires linked wallet)
                 - "kalshi": Real Kalshi trading via DFlow, USDC on Solana
                   (requires SIMMER_SOLANA_KEY env var with base58 secret key)
-                - "shadow": Paper trading against real prices (coming soon)
                 - None: Use client's default venue
             order_type: Order type for Polymarket trades (default: "FAK").
                 - "FAK": Fill And Kill - fill what you can immediately, cancel rest (recommended for bots)

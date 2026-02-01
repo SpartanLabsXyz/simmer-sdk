@@ -27,14 +27,13 @@ The platform uses LMSR (automated market maker) pricing, so you always get insta
 
 ## Trading Venues
 
-The SDK supports four trading venues via the `venue` parameter:
+The SDK supports three trading venues via the `venue` parameter:
 
 | Venue | Currency | Description |
 |-------|----------|-------------|
 | `sandbox` | $SIM (virtual) | Default. Trade on Simmer's LMSR markets with virtual currency. |
 | `polymarket` | USDC (real) | Execute real trades on Polymarket (Polygon). Requires EVM wallet. |
 | `kalshi` | USDC (real) | Execute real trades on Kalshi via DFlow (Solana). Requires Solana wallet. |
-| `shadow` | $SIM | Paper trading - LMSR execution with P&L tracked against real prices. *(Coming soon)* |
 
 ```python
 # Sandbox trading (default) - virtual currency, no risk
@@ -533,7 +532,6 @@ my_positions = portfolio['by_source'].get('sdk:my-strategy', {})
   - `sandbox`: Simmer LMSR with $SIM virtual currency
   - `polymarket`: Real Polymarket CLOB with USDC (requires `SIMMER_PRIVATE_KEY` or `private_key`)
   - `kalshi`: Real Kalshi via DFlow with USDC on Solana (requires `SIMMER_SOLANA_KEY` env var)
-  - `shadow`: Paper trading against real prices *(coming soon)*
 - `private_key`: Optional EVM wallet private key for Polymarket trading. When provided, orders are signed locally instead of server-side.
 
 > **Note:** For Kalshi, use `SIMMER_SOLANA_KEY` environment variable (not `private_key` parameter).
