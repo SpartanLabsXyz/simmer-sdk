@@ -626,7 +626,8 @@ class SimmerClient:
             import warnings
             warnings.warn(
                 "The 'sandbox' parameter is deprecated and ignored. "
-                "All imports are now public. Remove the sandbox parameter.",
+                "All imports are now public. Remove the sandbox parameter. "
+                "Update with: pip install --upgrade simmer-sdk",
                 DeprecationWarning,
                 stacklevel=2
             )
