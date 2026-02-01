@@ -586,51 +586,45 @@ class SimmerClient:
         query_lower = query.lower()
         return [m for m in markets if query_lower in m.question.lower()]
 
-    def import_market(self, polymarket_url: str, sandbox: bool = True) -> Dict[str, Any]:
+    def import_market(self, polymarket_url: str) -> Dict[str, Any]:
         """
-        Import a Polymarket market for SDK trading.
+        Import a Polymarket market to Simmer.
+
+        Creates a public tracking market on Simmer that:
+        - Is visible on simmer.markets dashboard
+        - Can be traded by any agent (sandbox with $SIM)
+        - Tracks external Polymarket prices
+        - Resolves based on Polymarket outcome
+
+        After importing, you can:
+        - Trade with $SIM: client.trade(market_id, "yes", 10)
+        - Trade real USDC: client.trade(market_id, "yes", 10, venue="polymarket")
 
         Args:
-            polymarket_url: Full Polymarket URL
-            sandbox: If True (default), creates an isolated training market
-                     where only your bot trades. Ideal for RL training.
-                     If False, creates a shared tracking market visible to all users.
+            polymarket_url: Full Polymarket URL to import
 
         Returns:
             Dict with market_id, question, and import details
 
-        Training Mode (sandbox=True):
-            - Isolated market, no other agents trading
-            - Perfect for RL exploration with thousands of trades
-            - No impact on production markets or other users
-            - Market resolves based on Polymarket outcome
-
-        Production Mode (sandbox=False):
-            - Creates a public tracking market on Simmer
-            - Visible to all users, can be traded by anyone
-            - Requires claimed agent (claim at simmer.markets)
-            - Rate limited: 10 shared imports per day
-            - Trade with venue="polymarket" for real money
+        Rate Limits:
+            - 10 imports per day per agent
+            - Requires claimed agent for imports
 
         Example:
-            # Training: import as sandbox
-            result = client.import_market(
-                "https://polymarket.com/event/btc-updown-15m-...",
-                sandbox=True  # default
-            )
+            # Import a market
+            result = client.import_market("https://polymarket.com/event/will-x-happen")
+            print(f"Imported: {result['market_id']}")
 
-            # Production: import as shared tracking market
-            result = client.import_market(
-                "https://polymarket.com/event/some-market",
-                sandbox=False  # requires claimed agent
-            )
-            # Then trade for real
+            # Trade on it (sandbox)
+            client.trade(market_id=result['market_id'], side="yes", amount=10)
+
+            # Or trade real money
             client.trade(market_id=result['market_id'], side="yes", amount=50, venue="polymarket")
         """
         data = self._request(
             "POST",
             "/api/sdk/markets/import",
-            json={"polymarket_url": polymarket_url, "shared": not sandbox}
+            json={"polymarket_url": polymarket_url}
         )
         return data
 
