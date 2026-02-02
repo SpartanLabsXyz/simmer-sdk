@@ -27,6 +27,7 @@ from urllib.request import urlopen, Request
 from urllib.error import HTTPError, URLError
 from dataclasses import dataclass, asdict
 from typing import Dict, List, Optional, Tuple
+from collections import defaultdict
 
 # =============================================================================
 # Configuration
@@ -250,15 +251,23 @@ def detect_negrisk_arb(market: Dict) -> Optional[ArbOpportunity]:
     # Check if it's a NegRisk market
     if not market.get('negRisk'):
         return None
-    
-    outcome_prices = market.get('outcomePrices', [])
-    outcomes = market.get('outcomes', [])
-    clob_token_ids = market.get('clobTokenIds', [])
-    
+
+    # Gamma API returns these as JSON strings - need to parse
+    outcome_prices_raw = market.get('outcomePrices', '[]')
+    outcomes_raw = market.get('outcomes', '[]')
+    clob_token_ids_raw = market.get('clobTokenIds', '[]')
+
+    try:
+        outcome_prices = json.loads(outcome_prices_raw) if isinstance(outcome_prices_raw, str) else outcome_prices_raw
+        outcomes = json.loads(outcomes_raw) if isinstance(outcomes_raw, str) else outcomes_raw
+        clob_token_ids = json.loads(clob_token_ids_raw) if isinstance(clob_token_ids_raw, str) else clob_token_ids_raw
+    except json.JSONDecodeError:
+        return None
+
     # NegRisk = 3+ mutually exclusive outcomes
     if len(outcome_prices) < 3:
         return None
-    
+
     try:
         prices = [float(p) for p in outcome_prices]
     except (ValueError, TypeError):
@@ -408,7 +417,6 @@ def run_scanner(execute: bool = False, dry_run: bool = False, venue: str = "sand
     print("\n🔎 Scanning for arbitrage...")
     
     # Group markets by negRiskMarketID for group analysis
-    from collections import defaultdict
     negrisk_groups = defaultdict(list)
     
     for market in markets:
@@ -473,7 +481,7 @@ def run_scanner(execute: bool = False, dry_run: bool = False, venue: str = "sand
     print(f"  Total potential profit: ${total_profit:.2f}")
     print(f"  Average ROI: {avg_roi:.1%}")
     print(f"  Single-condition: {sum(1 for o in opportunities if o.opportunity_type == 'single_condition')}")
-    print(f"  NegRisk: {sum(1 for o in opportunities if o.opportunity_type == 'negrisk')}")
+    print(f"  NegRisk: {sum(1 for o in opportunities if o.opportunity_type in ('negrisk', 'negrisk_group'))}")
 
 # =============================================================================
 # CLI
