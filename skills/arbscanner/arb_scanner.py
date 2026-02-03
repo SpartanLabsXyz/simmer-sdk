@@ -395,7 +395,7 @@ def execute_arb_trade(api_key: str, opp: ArbOpportunity, venue: str = "polymarke
 # Main Scanner
 # =============================================================================
 
-def run_scanner(execute: bool = False, dry_run: bool = False, venue: str = "sandbox"):
+def run_scanner(execute: bool = False, dry_run: bool = False, venue: str = "simmer"):
     """Run the arbitrage scanner"""
     
     print("🔍 Simmer Arbitrage Scanner")
@@ -491,8 +491,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Simmer Arbitrage Scanner")
     parser.add_argument("--execute", action="store_true", help="Execute trades on opportunities")
     parser.add_argument("--dry-run", action="store_true", help="Show what would be traded")
-    parser.add_argument("--venue", default="sandbox", choices=["sandbox", "polymarket"], 
-                        help="Trading venue (default: sandbox)")
+    parser.add_argument("--venue", default="simmer", choices=["simmer", "sandbox", "polymarket"],
+                        help="Trading venue (default: simmer, sandbox is deprecated alias)")
     args = parser.parse_args()
     
     run_scanner(execute=args.execute, dry_run=args.dry_run, venue=args.venue)

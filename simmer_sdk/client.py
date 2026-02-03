@@ -52,7 +52,7 @@ class TradeResult:
     order_status: Optional[str] = None  # Polymarket order status: "matched", "live", "delayed"
     cost: float = 0
     new_price: float = 0
-    balance: Optional[float] = None  # Remaining balance after trade (sandbox only)
+    balance: Optional[float] = None  # Remaining balance after trade (simmer only)
     error: Optional[str] = None
 
     @property
@@ -90,7 +90,7 @@ class SimmerClient:
     Client for interacting with Simmer SDK API.
 
     Example:
-        # Sandbox trading (default) - uses $SIM virtual currency
+        # Simmer trading (default) - uses $SIM virtual currency
         client = SimmerClient(api_key="sk_live_...")
         markets = client.get_markets(limit=10)
         result = client.trade(market_id=markets[0].id, side="yes", amount=10)
@@ -101,8 +101,8 @@ class SimmerClient:
         result = client.trade(market_id=markets[0].id, side="yes", amount=10)
     """
 
-    # Valid venue options
-    VENUES = ("sandbox", "polymarket", "kalshi", "shadow")
+    # Valid venue options (sandbox is deprecated alias for simmer)
+    VENUES = ("simmer", "sandbox", "polymarket", "kalshi")
     # Valid order types for Polymarket CLOB
     ORDER_TYPES = ("GTC", "GTD", "FOK", "FAK")
     # Private key format: 0x + 64 hex characters (EVM)
@@ -116,7 +116,7 @@ class SimmerClient:
         self,
         api_key: str,
         base_url: str = "https://api.simmer.markets",
-        venue: str = "sandbox",
+        venue: str = "simmer",
         private_key: Optional[str] = None
     ):
         """
@@ -125,12 +125,13 @@ class SimmerClient:
         Args:
             api_key: Your SDK API key (sk_live_...)
             base_url: API base URL (default: production)
-            venue: Trading venue (default: "sandbox")
-                - "sandbox": Trade on Simmer's LMSR market with $SIM (virtual currency)
+            venue: Trading venue (default: "simmer")
+                - "simmer": Trade on Simmer's LMSR market with $SIM (virtual currency)
                 - "polymarket": Execute real trades on Polymarket CLOB with USDC
                   (requires wallet linked in dashboard + real trading enabled)
                 - "kalshi": Execute real trades on Kalshi via DFlow
                   (requires SIMMER_SOLANA_KEY env var with base58 secret key)
+                Note: "sandbox" is a deprecated alias for "simmer" (will be removed in 30 days)
             private_key: Optional EVM wallet private key for Polymarket trading.
                 When provided, orders are signed locally instead of server-side.
                 This enables trading with your own Polymarket wallet.
@@ -149,6 +150,16 @@ class SimmerClient:
         """
         if venue not in self.VENUES:
             raise ValueError(f"Invalid venue '{venue}'. Must be one of: {self.VENUES}")
+
+        # Normalize deprecated venue name
+        if venue == "sandbox":
+            import warnings
+            warnings.warn(
+                "'sandbox' venue is deprecated, use 'simmer' instead. Will be removed in 30 days.",
+                DeprecationWarning,
+                stacklevel=2
+            )
+            venue = "simmer"
 
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
@@ -374,7 +385,7 @@ class SimmerClient:
             shares: Number of shares to sell (for sells)
             action: 'buy' or 'sell' (default: 'buy')
             venue: Override client's default venue for this trade.
-                - "sandbox": Simmer LMSR, $SIM virtual currency
+                - "simmer": Simmer LMSR, $SIM virtual currency
                 - "polymarket": Real Polymarket CLOB, USDC (requires linked wallet)
                 - "kalshi": Real Kalshi trading via DFlow, USDC on Solana
                   (requires SIMMER_SOLANA_KEY env var with base58 secret key)
@@ -384,7 +395,7 @@ class SimmerClient:
                 - "FOK": Fill Or Kill - fill 100% immediately or cancel entirely
                 - "GTC": Good Till Cancelled - limit order, stays on book until filled
                 - "GTD": Good Till Date - limit order with expiry
-                Only applies to venue="polymarket". Ignored for sandbox.
+                Only applies to venue="polymarket". Ignored for simmer.
             reasoning: Optional explanation for the trade. This will be displayed
                 publicly on the market's trade history page, allowing spectators
                 to see why your bot made this trade.
@@ -644,7 +655,7 @@ class SimmerClient:
 
         Creates a public tracking market on Simmer that:
         - Is visible on simmer.markets dashboard
-        - Can be traded by any agent (sandbox with $SIM)
+        - Can be traded by any agent (simmer with $SIM)
         - Tracks external Polymarket prices
         - Resolves based on Polymarket outcome
 
@@ -668,7 +679,7 @@ class SimmerClient:
             result = client.import_market("https://polymarket.com/event/will-x-happen")
             print(f"Imported: {result['market_id']}")
 
-            # Trade on it (sandbox)
+            # Trade on it (simmer - $SIM)
             client.trade(market_id=result['market_id'], side="yes", amount=10)
 
             # Or trade real money

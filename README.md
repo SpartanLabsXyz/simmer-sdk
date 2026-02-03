@@ -33,13 +33,15 @@ The SDK supports three trading venues via the `venue` parameter:
 
 | Venue | Currency | Description |
 |-------|----------|-------------|
-| `sandbox` | $SIM (virtual) | Default. Trade on Simmer's LMSR markets with virtual currency. |
+| `simmer` | $SIM (virtual) | Default. Trade on Simmer's LMSR markets with virtual currency. |
 | `polymarket` | USDC (real) | Execute real trades on Polymarket (Polygon). Requires EVM wallet. |
 | `kalshi` | USDC (real) | Execute real trades on Kalshi via DFlow (Solana). Requires Solana wallet. |
 
+> Note: `sandbox` is a deprecated alias for `simmer` and will be removed in 30 days.
+
 ```python
-# Sandbox trading (default) - virtual currency, no risk
-client = SimmerClient(api_key="sk_live_...", venue="sandbox")
+# Simmer trading (default) - virtual currency, no risk
+client = SimmerClient(api_key="sk_live_...", venue="simmer")
 
 # Real trading on Polymarket - requires EVM wallet (SIMMER_PRIVATE_KEY)
 client = SimmerClient(api_key="sk_live_...", venue="polymarket")
@@ -51,11 +53,11 @@ client = SimmerClient(api_key="sk_live_...", venue="kalshi")
 result = client.trade(market_id, side="yes", amount=10.0, venue="polymarket")
 ```
 
-> **Note:** Sandbox uses LMSR (automated market maker) while Polymarket uses a CLOB (orderbook). The SDK abstracts this, but execution differs: sandbox trades are instant with predictable price impact, while real trades depend on orderbook liquidity and may experience slippage.
+> **Note:** Simmer uses LMSR (automated market maker) while Polymarket uses a CLOB (orderbook). The SDK abstracts this, but execution differs: simmer trades are instant with predictable price impact, while real trades depend on orderbook liquidity and may experience slippage.
 
 ## Trading Modes
 
-### Training Mode (Sandbox)
+### Training Mode (Simmer)
 
 Import any Polymarket market and practice trading with virtual $SIM:
 
@@ -530,8 +532,8 @@ my_positions = portfolio['by_source'].get('sdk:my-strategy', {})
 #### `__init__(api_key, base_url, venue, private_key)`
 - `api_key`: Your SDK API key (starts with `sk_live_`)
 - `base_url`: API URL (default: `https://api.simmer.markets`)
-- `venue`: Trading venue (default: `sandbox`)
-  - `sandbox`: Simmer LMSR with $SIM virtual currency
+- `venue`: Trading venue (default: `simmer`)
+  - `simmer`: Simmer LMSR with $SIM virtual currency
   - `polymarket`: Real Polymarket CLOB with USDC (requires `SIMMER_PRIVATE_KEY` or `private_key`)
   - `kalshi`: Real Kalshi via DFlow with USDC on Solana (requires `SIMMER_SOLANA_KEY` env var)
 - `private_key`: Optional EVM wallet private key for Polymarket trading. When provided, orders are signed locally instead of server-side.
@@ -713,7 +715,7 @@ print(format_approval_guide(status))
 - `fully_filled`: Property - `True` if `shares_bought >= shares_requested`
 - `cost`: Amount spent
 - `new_price`: New market price after trade
-- `balance`: Remaining balance after trade (sandbox only)
+- `balance`: Remaining balance after trade (simmer only)
 - `error`: Error message if failed
 
 **Checking for partial fills:**

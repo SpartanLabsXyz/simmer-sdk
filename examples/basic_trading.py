@@ -15,7 +15,7 @@ Usage:
 import os
 from simmer_sdk import SimmerClient
 
-# Initialize client (uses sandbox by default - virtual $SIM currency)
+# Initialize client (uses simmer by default - virtual $SIM currency)
 client = SimmerClient(api_key=os.environ["SIMMER_API_KEY"])
 
 # List active markets from Polymarket

@@ -9,7 +9,7 @@ Usage:
     # List markets
     markets = client.get_markets(import_source="polymarket")
 
-    # Execute trade (sandbox with $SIM virtual currency)
+    # Execute trade (simmer with $SIM virtual currency)
     result = client.trade(market_id="...", side="yes", amount=10.0)
 
     # Get positions

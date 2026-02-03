@@ -82,7 +82,7 @@ MAX_TRADE_SIZE = 25.0        # $25 max per opportunity
 
 ```bash
 # Practice with virtual $SIM (default)
-python arb_scanner.py --execute --venue sandbox
+python arb_scanner.py --execute --venue simmer
 
 # Real USDC on Polymarket
 python arb_scanner.py --execute --venue polymarket
@@ -94,7 +94,7 @@ python arb_scanner.py --execute --venue polymarket
 🔍 Simmer Arbitrage Scanner
 ============================================================
   Execution: SCAN ONLY
-  Venue: sandbox
+  Venue: simmer
   Min profit: $0.02
   Min ROI: 1%
 
@@ -126,7 +126,7 @@ Run every 30 minutes to catch opportunities:
 
 ```bash
 # Add to crontab
-*/30 * * * * cd /path/to/skill && python arb_scanner.py --execute --venue sandbox
+*/30 * * * * cd /path/to/skill && python arb_scanner.py --execute --venue simmer
 ```
 
 Or use your agent's heartbeat system.
