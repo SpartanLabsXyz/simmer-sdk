@@ -5,7 +5,7 @@ metadata: {"clawdbot":{"emoji":"🌡️","requires":{"env":["SIMMER_API_KEY"]},"
 authors:
   - Simmer (@simmer_markets)
 attribution: "Strategy inspired by gopfan2"
-version: "1.4.0"
+version: "1.4.2"
 ---
 
 # Simmer Weather Trading
@@ -125,7 +125,7 @@ Each cycle the script:
 
 With `--smart-sizing`, position size is calculated as:
 - 5% of available USDC balance (configurable via `SIMMER_WEATHER_SIZING_PCT`)
-- Capped at 5x the max position setting
+- Capped at max position setting ($2.00 default)
 - Falls back to fixed size if portfolio unavailable
 
 This prevents over-deployment and scales with your account size.
@@ -170,7 +170,7 @@ All trades are tagged with `source: "sdk:weather"`. This means:
 📍 NYC 2026-01-28 (high temp)
   NOAA forecast: 34°F
   Matching bucket: 34-35°F @ $0.12
-  💡 Smart sizing: $7.50 (5% of $150.00 balance)
+  💡 Smart sizing: $2.00 (capped at max position)
   ✅ Below threshold ($0.15) - BUY opportunity! 📉 (dropped 15% in 24h)
   Executing trade...
   ✅ Bought 62.5 shares @ $0.12
