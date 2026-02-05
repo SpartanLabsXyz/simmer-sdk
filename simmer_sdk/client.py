@@ -814,6 +814,63 @@ class SimmerClient:
         return data.get("points", []) if data else []
 
     # ==========================================
+    # SETTINGS
+    # ==========================================
+
+    def get_settings(self) -> Dict[str, Any]:
+        """
+        Get your SDK trading settings.
+
+        Returns:
+            Dict containing:
+            - max_trades_per_day: Daily trade limit (default: 20)
+            - max_position_usd: Max USD per trade (default: 100)
+            - default_stop_loss_pct: Default stop-loss percentage (0-1)
+            - default_take_profit_pct: Default take-profit percentage (0-1)
+            - auto_risk_monitor_enabled: Auto-create risk monitors on new positions
+            - clawdbot_webhook_url: Webhook URL for notifications
+            - clawdbot_chat_id: Chat ID for notifications
+            - clawdbot_channel: Notification channel
+
+        Example:
+            settings = client.get_settings()
+            print(f"Daily trade limit: {settings['max_trades_per_day']}")
+        """
+        return self._request("GET", "/api/sdk/user/settings")
+
+    def update_settings(self, **kwargs) -> Dict[str, Any]:
+        """
+        Update your SDK trading settings.
+
+        Keyword Args:
+            max_trades_per_day: Daily trade limit (1-1000, default: 20)
+            max_position_usd: Max USD per trade (1-10000, default: 100)
+            default_stop_loss_pct: Stop-loss percentage (0-1)
+            default_take_profit_pct: Take-profit percentage (0-1)
+            auto_risk_monitor_enabled: Auto-create risk monitors
+            clawdbot_webhook_url: Webhook URL for notifications
+            clawdbot_chat_id: Chat ID for notifications
+            clawdbot_channel: Notification channel
+
+        Returns:
+            Dict with updated settings
+
+        Example:
+            # Increase daily trade limit
+            client.update_settings(max_trades_per_day=40)
+
+            # Set multiple settings at once
+            client.update_settings(
+                max_trades_per_day=50,
+                max_position_usd=200,
+                auto_risk_monitor_enabled=True
+            )
+        """
+        if not kwargs:
+            raise ValueError("No settings provided. Pass keyword arguments to update.")
+        return self._request("PATCH", "/api/sdk/user/settings", json=kwargs)
+
+    # ==========================================
     # PRICE ALERTS
     # ==========================================
 
