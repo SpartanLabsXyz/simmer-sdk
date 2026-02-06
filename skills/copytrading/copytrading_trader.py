@@ -54,14 +54,57 @@ TRADE_SOURCE = "sdk:copytrading"
 # Configuration (config.json > env vars > defaults)
 # =============================================================================
 
-# Import shared config loader
-try:
-    from config_loader import load_config, save_config, update_config, get_config_path
-except ImportError:
-    import sys
+def _load_config(schema, skill_file, config_filename="config.json"):
+    """Load config with priority: config.json > env vars > defaults."""
     from pathlib import Path
-    sys.path.insert(0, str(Path(__file__).parent.parent))
-    from config_loader import load_config, save_config, update_config, get_config_path
+    config_path = Path(skill_file).parent / config_filename
+    file_cfg = {}
+    if config_path.exists():
+        try:
+            with open(config_path) as f:
+                file_cfg = json.load(f)
+        except (json.JSONDecodeError, IOError):
+            pass
+    result = {}
+    for key, spec in schema.items():
+        if key in file_cfg:
+            result[key] = file_cfg[key]
+        elif spec.get("env") and os.environ.get(spec["env"]):
+            val = os.environ.get(spec["env"])
+            type_fn = spec.get("type", str)
+            try:
+                result[key] = type_fn(val) if type_fn != str else val
+            except (ValueError, TypeError):
+                result[key] = spec.get("default")
+        else:
+            result[key] = spec.get("default")
+    return result
+
+def _get_config_path(skill_file, config_filename="config.json"):
+    """Get path to config file."""
+    from pathlib import Path
+    return Path(skill_file).parent / config_filename
+
+def _update_config(updates, skill_file, config_filename="config.json"):
+    """Update config values and save to file."""
+    from pathlib import Path
+    config_path = Path(skill_file).parent / config_filename
+    existing = {}
+    if config_path.exists():
+        try:
+            with open(config_path) as f:
+                existing = json.load(f)
+        except (json.JSONDecodeError, IOError):
+            pass
+    existing.update(updates)
+    with open(config_path, "w") as f:
+        json.dump(existing, f, indent=2)
+    return existing
+
+# Aliases for compatibility
+load_config = _load_config
+get_config_path = _get_config_path
+update_config = _update_config
 
 # Configuration schema
 CONFIG_SCHEMA = {
