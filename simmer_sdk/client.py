@@ -56,12 +56,13 @@ class TradeResult:
     trade_id: Optional[str] = None
     market_id: str = ""
     side: str = ""
+    venue: str = "simmer"  # "simmer", "polymarket", or "kalshi"
     shares_bought: float = 0  # Actual shares filled (for Polymarket, assumes full fill if matched)
     shares_requested: float = 0  # Shares requested (for partial fill detection)
     order_status: Optional[str] = None  # Polymarket order status: "matched", "live", "delayed"
-    cost: float = 0
+    cost: float = 0  # Cost in $SIM (simmer) or USDC (polymarket/kalshi)
     new_price: float = 0
-    balance: Optional[float] = None  # Remaining balance after trade (simmer only)
+    balance: Optional[float] = None  # Remaining $SIM balance (simmer only, None for real venues)
     error: Optional[str] = None
 
     @property
@@ -507,15 +508,17 @@ class SimmerClient:
             json=payload
         )
 
-        # Extract balance from position dict if available
+        # Extract balance: only meaningful for simmer venue ($SIM balance)
+        # Polymarket/Kalshi trades don't return a balance (use get_portfolio() instead)
         position = data.get("position") or {}
-        balance = position.get("sim_balance")
+        balance = position.get("sim_balance") if effective_venue == "simmer" else None
 
         return TradeResult(
             success=data.get("success", False),
             trade_id=data.get("trade_id"),
             market_id=data.get("market_id", market_id),
             side=data.get("side", side),
+            venue=effective_venue,
             shares_bought=data.get("shares_bought", 0),
             shares_requested=data.get("shares_requested", 0),
             order_status=data.get("order_status"),
@@ -1222,6 +1225,7 @@ class SimmerClient:
             trade_id=data.get("trade_id"),
             market_id=data.get("market_id", market_id),
             side=data.get("side", side),
+            venue="kalshi",
             shares_bought=data.get("shares_bought", 0) if not is_sell else 0,
             shares_requested=data.get("shares_requested", 0),
             order_status=data.get("order_status"),
