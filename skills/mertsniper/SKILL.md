@@ -157,5 +157,10 @@ Each cycle the script:
 - Lower the min split: `--set min_split=0.55`
 - This trades more often but with less conviction
 
+**"Resolves in: 17h" on 15-min markets**
+- Polymarket's `endDate` is the event-level end-of-day, not the individual market close time
+- For 15-min crypto markets (e.g. "BTC Up or Down - Feb 8, 11PM ET"), the actual close time is in the question text but not in the API
+- This is a Polymarket data limitation — widen the expiry window (`--expiry 1080`) as a workaround, or use the split filter to find conviction opportunities regardless of timing
+
 **"API key invalid"**
 - Get new key from simmer.markets/dashboard -> SDK tab
