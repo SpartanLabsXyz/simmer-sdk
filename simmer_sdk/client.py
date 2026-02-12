@@ -1107,6 +1107,88 @@ class SimmerClient:
         return data.get("alerts", [])
 
     # ==========================================
+    # WEBHOOKS
+    # ==========================================
+
+    def register_webhook(
+        self,
+        url: str,
+        events: List[str] = None,
+        secret: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Register a webhook URL to receive event notifications.
+
+        Args:
+            url: HTTPS URL to receive webhook POSTs
+            events: Event types to subscribe to. Options:
+                    - "trade.executed" (fires on trade fill/submit)
+                    - "market.resolved" (fires when held market resolves)
+                    - "price.movement" (fires on >5% price change for held markets)
+                    Defaults to all events.
+            secret: Optional HMAC signing key. If set, payloads include
+                    X-Simmer-Signature header for verification.
+
+        Returns:
+            Dict with webhook subscription details (id, url, events, active)
+
+        Example:
+            webhook = client.register_webhook(
+                url="https://my-bot.example.com/webhook",
+                events=["trade.executed", "market.resolved"],
+                secret="my-signing-secret"
+            )
+            print(f"Registered: {webhook['id']}")
+        """
+        if events is None:
+            events = ["trade.executed", "market.resolved", "price.movement"]
+        payload = {"url": url, "events": events}
+        if secret:
+            payload["secret"] = secret
+        return self._request("POST", "/api/sdk/webhooks", json=payload)
+
+    def list_webhooks(self) -> List[Dict[str, Any]]:
+        """
+        List all webhook subscriptions.
+
+        Returns:
+            List of webhook subscription dicts
+
+        Example:
+            for wh in client.list_webhooks():
+                print(f"{wh['url']} -> {wh['events']} (active={wh['active']})")
+        """
+        data = self._request("GET", "/api/sdk/webhooks")
+        return data.get("webhooks", [])
+
+    def delete_webhook(self, webhook_id: str) -> Dict[str, Any]:
+        """
+        Delete a webhook subscription.
+
+        Args:
+            webhook_id: ID of the webhook to delete
+
+        Returns:
+            Dict with success status
+
+        Example:
+            client.delete_webhook("abc123...")
+        """
+        return self._request("DELETE", f"/api/sdk/webhooks/{webhook_id}")
+
+    def test_webhook(self) -> Dict[str, Any]:
+        """
+        Send a test payload to all active webhook subscriptions.
+
+        Returns:
+            Dict with success status
+
+        Example:
+            client.test_webhook()
+        """
+        return self._request("POST", "/api/sdk/webhooks/test")
+
+    # ==========================================
     # EXTERNAL WALLET SUPPORT
     # ==========================================
 

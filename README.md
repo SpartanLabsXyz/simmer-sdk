@@ -737,6 +737,49 @@ for p in positions:
 
 > **Note:** Positions with `redeemable: true` in `get_positions()` are resolved, winning, and ready to redeem. Gas is paid in POL (ensure your wallet has a small POL balance).
 
+### Webhook Methods
+
+Replace polling with push notifications. Register a URL and Simmer pushes events to your agent.
+
+#### `register_webhook(url, events=None, secret=None)`
+Register a webhook URL to receive event notifications.
+- `url`: HTTPS endpoint to receive POST requests
+- `events`: List of event types (default: all). Options: `trade.executed`, `market.resolved`, `price.movement`
+- `secret`: Optional HMAC signing key for payload verification
+
+```python
+# Register for all events
+webhook = client.register_webhook(
+    url="https://my-bot.example.com/webhook",
+    events=["trade.executed", "market.resolved"],
+    secret="my-signing-secret"
+)
+print(f"Webhook ID: {webhook['id']}")
+```
+
+#### `list_webhooks()`
+List all webhook subscriptions.
+
+#### `delete_webhook(webhook_id)`
+Delete a webhook subscription.
+
+#### `test_webhook()`
+Send a test payload to all active subscriptions.
+
+```python
+# Verify your endpoint works
+client.test_webhook()
+```
+
+**Signature verification:**
+```python
+import hmac, hashlib
+
+def verify(payload_bytes, secret, sig_header):
+    expected = "sha256=" + hmac.new(secret.encode(), payload_bytes, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected, sig_header)
+```
+
 ### Approval Helpers
 
 Standalone functions for working with Polymarket approvals:
