@@ -899,6 +899,111 @@ class SimmerClient:
         return self._request("PATCH", "/api/sdk/user/settings", json=kwargs)
 
     # ==========================================
+    # RISK MONITORS (Stop-Loss / Take-Profit)
+    # ==========================================
+
+    def set_monitor(
+        self,
+        market_id: str,
+        side: str,
+        stop_loss_pct: Optional[float] = None,
+        take_profit_pct: Optional[float] = None
+    ) -> Dict[str, Any]:
+        """
+        Set a stop-loss and/or take-profit monitor on a position.
+
+        The system checks every 15 minutes and automatically sells
+        when thresholds are hit.
+
+        Args:
+            market_id: Market ID to monitor
+            side: Which side of your position ('yes' or 'no')
+            stop_loss_pct: Sell if P&L drops below this % (e.g., 0.20 = -20%)
+            take_profit_pct: Sell if P&L rises above this % (e.g., 0.50 = +50%)
+
+        At least one threshold must be set.
+
+        Returns:
+            Dict with monitor details (market_id, side, stop_loss_pct, take_profit_pct)
+
+        Example:
+            # Set 20% stop-loss and 50% take-profit
+            client.set_monitor("market-id", "yes", stop_loss_pct=0.20, take_profit_pct=0.50)
+
+            # Stop-loss only
+            client.set_monitor("market-id", "no", stop_loss_pct=0.30)
+        """
+        payload: Dict[str, Any] = {"side": side}
+        if stop_loss_pct is not None:
+            payload["stop_loss_pct"] = stop_loss_pct
+        if take_profit_pct is not None:
+            payload["take_profit_pct"] = take_profit_pct
+        return self._request("POST", f"/api/sdk/positions/{market_id}/monitor", json=payload)
+
+    def list_monitors(self) -> List[Dict[str, Any]]:
+        """
+        List all active risk monitors with current position P&L.
+
+        Returns:
+            List of monitors, each containing market_id, side, stop_loss_pct,
+            take_profit_pct, current P&L, and position details.
+
+        Example:
+            monitors = client.list_monitors()
+            for m in monitors:
+                print(f"{m['market_id']} {m['side']}: SL={m['stop_loss_pct']}, TP={m['take_profit_pct']}")
+        """
+        resp = self._request("GET", "/api/sdk/positions/monitors")
+        return resp.get("monitors", []) if isinstance(resp, dict) else resp
+
+    def delete_monitor(self, market_id: str, side: str) -> Dict[str, Any]:
+        """
+        Remove a risk monitor from a position.
+
+        Args:
+            market_id: Market ID
+            side: Which side ('yes' or 'no')
+
+        Returns:
+            Dict confirming deletion
+
+        Example:
+            client.delete_monitor("market-id", "yes")
+        """
+        return self._request("DELETE", f"/api/sdk/positions/{market_id}/monitor", params={"side": side})
+
+    # ==========================================
+    # REDEMPTIONS
+    # ==========================================
+
+    def redeem(self, market_id: str, side: str) -> Dict[str, Any]:
+        """
+        Redeem a winning Polymarket position for USDC.e.
+
+        After a market resolves, call this to convert CTF tokens into USDC.e
+        in your wallet. The server looks up all Polymarket details automatically.
+
+        Args:
+            market_id: Market ID (from positions response)
+            side: Which side you hold ('yes' or 'no')
+
+        Returns:
+            Dict with 'success' (bool) and 'tx_hash' (str) on success
+
+        Example:
+            # Check for redeemable positions
+            positions = client.get_positions()
+            for p in positions:
+                if p.get('redeemable'):
+                    result = client.redeem(p['market_id'], p['redeemable_side'])
+                    print(f"Redeemed: {result['tx_hash']}")
+        """
+        return self._request("POST", "/api/sdk/redeem", json={
+            "market_id": market_id,
+            "side": side,
+        })
+
+    # ==========================================
     # PRICE ALERTS
     # ==========================================
 

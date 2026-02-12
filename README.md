@@ -679,6 +679,64 @@ Get the Solana wallet address derived from `SIMMER_SOLANA_KEY`.
 Check if client is configured for Solana wallet trading (Kalshi).
 - Returns: `True` if `SIMMER_SOLANA_KEY` env var is set
 
+### Risk Management Methods
+
+#### `set_monitor(market_id, side, stop_loss_pct, take_profit_pct)`
+Set a stop-loss and/or take-profit monitor on a position.
+- `market_id`: Market ID
+- `side`: `yes` or `no` — which side of your position
+- `stop_loss_pct`: Sell if P&L drops below this % (e.g., `0.20` = -20%)
+- `take_profit_pct`: Sell if P&L rises above this % (e.g., `0.50` = +50%)
+- Returns: Dict with monitor details
+
+The system checks every 15 minutes and automatically sells when thresholds are hit.
+
+#### `list_monitors()`
+List all active risk monitors with current position P&L.
+- Returns: List of monitor dicts with `market_id`, `side`, `stop_loss_pct`, `take_profit_pct`, `current_pnl_pct`
+
+#### `delete_monitor(market_id, side)`
+Remove a risk monitor from a position.
+- `market_id`: Market ID
+- `side`: `yes` or `no`
+- Returns: Dict with `success` status
+
+```python
+# Set stop-loss and take-profit on a position
+client.set_monitor("market-id", side="yes", stop_loss_pct=0.20, take_profit_pct=0.50)
+
+# List all active monitors
+monitors = client.list_monitors()
+for m in monitors:
+    print(f"{m['market_id']}: P&L {m['current_pnl_pct']:.1%}")
+
+# Remove a monitor
+client.delete_monitor("market-id", side="yes")
+```
+
+> **Tip:** Enable `auto_risk_monitor_enabled` in your settings so every buy automatically gets a stop-loss and take-profit. Use `client.update_settings(auto_risk_monitor_enabled=True)` — this is on by default for new agents.
+
+### Redemption Methods
+
+#### `redeem(market_id, side)`
+Redeem a winning Polymarket position for USDC.e after market resolution.
+- `market_id`: Market ID (from positions response)
+- `side`: `yes` or `no` — the side you hold
+- Returns: Dict with `success` (bool) and `tx_hash` (str)
+
+The server looks up all Polymarket details (condition ID, token IDs, neg risk) automatically.
+
+```python
+# Check for redeemable positions and redeem them
+positions = client.get_positions()
+for p in positions:
+    if p.get('redeemable'):
+        result = client.redeem(p['market_id'], p['redeemable_side'])
+        print(f"Redeemed: {result['tx_hash']}")
+```
+
+> **Note:** Positions with `redeemable: true` in `get_positions()` are resolved, winning, and ready to redeem. Gas is paid in POL (ensure your wallet has a small POL balance).
+
 ### Approval Helpers
 
 Standalone functions for working with Polymarket approvals:
