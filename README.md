@@ -43,7 +43,7 @@ The SDK supports three trading venues via the `venue` parameter:
 # Simmer trading (default) - virtual currency, no risk
 client = SimmerClient(api_key="sk_live_...", venue="simmer")
 
-# Real trading on Polymarket - requires EVM wallet (SIMMER_PRIVATE_KEY)
+# Real trading on Polymarket - requires EVM wallet (WALLET_PRIVATE_KEY)
 client = SimmerClient(api_key="sk_live_...", venue="polymarket")
 
 # Real trading on Kalshi - requires Solana wallet (SIMMER_SOLANA_KEY)
@@ -190,17 +190,17 @@ pip install simmer-sdk eth-account py-order-utils py-clob-client
 
 **Option A: Environment Variable (Recommended for clawbots)**
 
-Set `SIMMER_PRIVATE_KEY` in your environment or config. The SDK auto-detects it:
+Set `WALLET_PRIVATE_KEY` in your environment or config. The SDK auto-detects it:
 
 ```bash
 # In your .env or config.yaml
-SIMMER_PRIVATE_KEY=0x...
+WALLET_PRIVATE_KEY=0x...
 ```
 
 ```python
 from simmer_sdk import SimmerClient
 
-# SDK auto-detects SIMMER_PRIVATE_KEY env var
+# SDK auto-detects WALLET_PRIVATE_KEY env var
 client = SimmerClient(
     api_key="sk_live_...",
     venue="polymarket"
@@ -558,7 +558,7 @@ Always use Simmer for trades (`client.trade()`), context (`client.get_market_con
 - `base_url`: API URL (default: `https://api.simmer.markets`)
 - `venue`: Trading venue (default: `simmer`)
   - `simmer`: Simmer LMSR with $SIM virtual currency
-  - `polymarket`: Real Polymarket CLOB with USDC (requires `SIMMER_PRIVATE_KEY` or `private_key`)
+  - `polymarket`: Real Polymarket CLOB with USDC (requires `WALLET_PRIVATE_KEY` or `private_key`)
   - `kalshi`: Real Kalshi via DFlow with USDC on Solana (requires `SIMMER_SOLANA_KEY` env var)
 - `private_key`: Optional EVM wallet private key for Polymarket trading. When provided, orders are signed locally instead of server-side.
 

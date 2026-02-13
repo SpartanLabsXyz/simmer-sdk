@@ -118,7 +118,9 @@ class SimmerClient:
     # Private key format: 0x + 64 hex characters (EVM)
     PRIVATE_KEY_LENGTH = 66
     # Environment variable for EVM private key auto-detection (Polymarket)
-    PRIVATE_KEY_ENV_VAR = "SIMMER_PRIVATE_KEY"
+    # Primary: WALLET_PRIVATE_KEY. Fallback: SIMMER_PRIVATE_KEY (deprecated, backward compat)
+    PRIVATE_KEY_ENV_VAR = "WALLET_PRIVATE_KEY"
+    PRIVATE_KEY_ENV_VAR_LEGACY = "SIMMER_PRIVATE_KEY"
     # Environment variable for Solana private key (Kalshi via DFlow)
     SOLANA_PRIVATE_KEY_ENV_VAR = "SIMMER_SOLANA_KEY"
 
@@ -146,9 +148,9 @@ class SimmerClient:
                 When provided, orders are signed locally instead of server-side.
                 This enables trading with your own Polymarket wallet.
 
-                If not provided, the SDK will auto-detect from the SIMMER_PRIVATE_KEY
-                environment variable. This allows existing skills/bots to use external
-                wallets without code changes.
+                If not provided, the SDK will auto-detect from the WALLET_PRIVATE_KEY
+                environment variable (or deprecated SIMMER_PRIVATE_KEY fallback).
+                This allows existing skills/bots to use external wallets without code changes.
 
                 For Kalshi trading, use SIMMER_SOLANA_KEY env var instead (base58 format).
 
@@ -182,7 +184,24 @@ class SimmerClient:
         self._solana_wallet_address: Optional[str] = None  # Solana wallet address
 
         # EVM key: Use provided private_key, or auto-detect from environment
-        env_key = os.environ.get(self.PRIVATE_KEY_ENV_VAR)
+        # Check WALLET_PRIVATE_KEY first, fall back to deprecated SIMMER_PRIVATE_KEY
+        import warnings
+        _wallet_key = os.environ.get(self.PRIVATE_KEY_ENV_VAR)
+        _legacy_key = os.environ.get(self.PRIVATE_KEY_ENV_VAR_LEGACY)
+        if _wallet_key and _legacy_key and _wallet_key != _legacy_key:
+            warnings.warn(
+                "Both WALLET_PRIVATE_KEY and SIMMER_PRIVATE_KEY are set with different values. "
+                "Using WALLET_PRIVATE_KEY. Remove SIMMER_PRIVATE_KEY to avoid confusion.",
+                UserWarning,
+                stacklevel=2
+            )
+        elif not _wallet_key and _legacy_key:
+            warnings.warn(
+                "SIMMER_PRIVATE_KEY is deprecated. Use WALLET_PRIVATE_KEY instead.",
+                DeprecationWarning,
+                stacklevel=2
+            )
+        env_key = _wallet_key or _legacy_key
         effective_key = private_key or env_key
 
         if effective_key:
@@ -277,6 +296,7 @@ class SimmerClient:
             if linked_address and linked_address.lower() == self._wallet_address.lower():
                 self._wallet_linked = True
                 logger.debug("Wallet %s already linked", self._wallet_address[:10] + "...")
+                self._ensure_clob_credentials()
                 return
         except Exception as e:
             logger.debug("Could not check wallet link status: %s", e)
@@ -288,11 +308,60 @@ class SimmerClient:
             if result.get("success"):
                 self._wallet_linked = True
                 logger.info("Wallet linked successfully")
+                # Derive and register CLOB credentials right after linking
+                self._ensure_clob_credentials()
             else:
                 logger.warning("Wallet linking returned: %s", result.get("error", "unknown error"))
         except Exception as e:
             # Log warning but don't fail - the trade API will return proper error
             logger.warning("Auto-link failed: %s. Trade may fail if wallet not linked.", e)
+
+    def _ensure_clob_credentials(self) -> None:
+        """
+        Derive and register Polymarket CLOB API credentials if not already done.
+
+        Uses py_clob_client to derive credentials from the private key, then
+        sends them to the backend for encrypted storage. One-time per wallet.
+        """
+        if not self._private_key or not self._wallet_address:
+            return
+
+        # Check if credentials already exist (settings returns this info indirectly —
+        # if we've traded successfully before, credentials exist)
+        # We use a flag to avoid re-deriving every session
+        if getattr(self, '_clob_creds_registered', False):
+            return
+
+        try:
+            from py_clob_client.client import ClobClient
+
+            client = ClobClient(
+                host="https://clob.polymarket.com",
+                key=self._private_key,
+                chain_id=137,
+                signature_type=0,  # EOA
+                funder=self._wallet_address
+            )
+
+            creds = client.create_or_derive_api_creds()
+
+            # Register with backend
+            self._request("POST", "/api/sdk/wallet/credentials", json={
+                "api_key": creds.api_key,
+                "api_secret": creds.api_secret,
+                "api_passphrase": creds.api_passphrase
+            })
+
+            self._clob_creds_registered = True
+            logger.info("CLOB credentials registered for wallet %s", self._wallet_address[:10] + "...")
+
+        except ImportError:
+            logger.warning(
+                "py-clob-client not installed — cannot derive CLOB credentials. "
+                "Install with: pip install py-clob-client"
+            )
+        except Exception as e:
+            logger.warning("Failed to derive/register CLOB credentials: %s", e)
 
     def _warn_approvals_once(self) -> None:
         """
