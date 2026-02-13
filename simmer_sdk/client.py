@@ -1711,20 +1711,37 @@ class SimmerClient:
 
         print(f"Found {len(missing_txs)} missing approvals (of {total} total). Setting them now...")
 
-        # Get nonce for transaction sequencing
-        polygon_rpc = "https://1rpc.io/matic"  # For nonce query only
+        # Fetch nonce and current gas price from public RPC
+        polygon_rpc = "https://1rpc.io/matic"
+        nonce = None
+        max_fee_per_gas = None
+        max_priority_fee = None
+
         try:
-            nonce_resp = requests.post(polygon_rpc, json={
-                "jsonrpc": "2.0",
-                "method": "eth_getTransactionCount",
-                "params": [self._wallet_address, "pending"],
-                "id": 1,
-            }, timeout=10)
-            nonce = int(nonce_resp.json().get("result", "0x0"), 16)
+            # Batch: nonce + gas price in one round-trip
+            batch_resp = requests.post(polygon_rpc, json=[
+                {"jsonrpc": "2.0", "method": "eth_getTransactionCount", "params": [self._wallet_address, "pending"], "id": 1},
+                {"jsonrpc": "2.0", "method": "eth_gasPrice", "params": [], "id": 2},
+            ], timeout=10)
+            batch = batch_resp.json()
+            for item in batch:
+                if item.get("id") == 1:
+                    nonce = int(item.get("result", "0x0"), 16)
+                elif item.get("id") == 2:
+                    gas_price = int(item.get("result", "0x0"), 16)
+                    # Set priority fee to 30 gwei or gas_price, whichever is smaller
+                    max_priority_fee = min(30_000_000_000, gas_price)
+                    # Set max fee to 2x current gas price (handles spikes during 9-tx batch)
+                    max_fee_per_gas = gas_price * 2
+            if max_fee_per_gas:
+                print(f"  Current gas price: {gas_price / 1e9:.0f} gwei, using max {max_fee_per_gas / 1e9:.0f} gwei")
         except Exception as e:
-            logger.warning("Failed to get nonce from public RPC, trying Alchemy relay: %s", e)
-            # Will let the RPC assign nonce per-tx if we can't get it
-            nonce = None
+            logger.warning("Failed to fetch nonce/gas from RPC: %s", e)
+
+        # Fallback gas values if RPC fetch failed
+        if not max_fee_per_gas:
+            max_fee_per_gas = 100_000_000_000  # 100 gwei fallback
+            max_priority_fee = 30_000_000_000  # 30 gwei fallback
 
         for i, tx_data in enumerate(missing_txs):
             desc = tx_data.get("description", f"Approval {i + 1}")
@@ -1738,8 +1755,8 @@ class SimmerClient:
                     "value": 0,
                     "chainId": 137,
                     "gas": 100000,  # Approvals use ~46k gas, 100k is safe
-                    "maxFeePerGas": 50_000_000_000,  # 50 gwei (Polygon is cheap)
-                    "maxPriorityFeePerGas": 30_000_000_000,  # 30 gwei
+                    "maxFeePerGas": max_fee_per_gas,
+                    "maxPriorityFeePerGas": max_priority_fee,
                     "type": 2,  # EIP-1559
                 }
 
