@@ -1295,9 +1295,11 @@ class SimmerClient:
         is_sell = action == "sell"
 
         # Get market data to find token IDs and price
-        market_data = self._request("GET", f"/api/sdk/markets/{market_id}")
-        if not market_data:
+        markets_resp = self._request("GET", f"/api/sdk/markets?ids={market_id}")
+        markets_list = markets_resp.get("markets", []) if isinstance(markets_resp, dict) else []
+        if not markets_list:
             raise ValueError(f"Market {market_id} not found")
+        market_data = markets_list[0]
 
         # Get token ID based on side
         if side.lower() == "yes":
