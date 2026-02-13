@@ -1571,7 +1571,7 @@ class SimmerClient:
 
         return result
 
-    def check_approvals(self, address: Optional[str] = None) -> Dict[str, Any]:
+    def check_approvals(self, address: Optional[str] = None, no_cache: bool = False) -> Dict[str, Any]:
         """
         Check Polymarket token approvals for a wallet.
 
@@ -1581,6 +1581,7 @@ class SimmerClient:
         Args:
             address: Wallet address to check. Defaults to the configured
                     wallet if private_key was provided.
+            no_cache: If True, bypass server-side cache for fresh on-chain read.
 
         Returns:
             Dict containing:
@@ -1602,10 +1603,10 @@ class SimmerClient:
                 "or initialize client with private_key."
             )
 
-        return self._request(
-            "GET",
-            f"/api/polymarket/allowances/{check_address}"
-        )
+        path = f"/api/polymarket/allowances/{check_address}"
+        if no_cache:
+            path += "?no_cache=1"
+        return self._request("GET", path)
 
     def ensure_approvals(self) -> Dict[str, Any]:
         """
@@ -1693,9 +1694,9 @@ class SimmerClient:
 
         from .approvals import get_missing_approval_transactions, get_approval_transactions
 
-        # Check current approval status
+        # Check current approval status (skip cache for fresh on-chain read)
         print("Checking current approvals...")
-        status = self.check_approvals()
+        status = self.check_approvals(no_cache=True)
         all_txs = get_approval_transactions()
         missing_txs = get_missing_approval_transactions(status)
 
