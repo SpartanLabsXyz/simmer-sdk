@@ -1791,7 +1791,7 @@ class SimmerClient:
 
                 if result.get("success"):
                     tx_status = result.get("status", "unknown")
-                    print(f"    Confirmed: {tx_hash[:18]}... ({tx_status})")
+                    print(f"    Broadcast OK: {tx_hash[:18]}... ({tx_status})")
                     set_count += 1
                     details.append({"description": desc, "success": True, "tx_hash": tx_hash})
                 else:
@@ -1804,6 +1804,21 @@ class SimmerClient:
                 print(f"    Error: {type(e).__name__}: {e}")
                 failed += 1
                 details.append({"description": desc, "success": False, "error": str(e)})
+                # Re-query nonce from chain — the timed-out tx may or may not
+                # have been broadcast. Fresh nonce prevents desync.
+                try:
+                    nonce_resp = requests.post(polygon_rpc, json={
+                        "jsonrpc": "2.0",
+                        "method": "eth_getTransactionCount",
+                        "params": [self._wallet_address, "pending"],
+                        "id": 1,
+                    }, timeout=10)
+                    fresh_nonce = int(nonce_resp.json().get("result", "0x0"), 16)
+                    if nonce is not None and fresh_nonce != nonce:
+                        print(f"    Nonce corrected: {nonce} → {fresh_nonce}")
+                    nonce = fresh_nonce
+                except Exception:
+                    pass  # Best effort — next tx will fetch its own nonce if needed
 
         # Summary
         if failed == 0:
