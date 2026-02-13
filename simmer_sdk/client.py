@@ -379,7 +379,7 @@ class SimmerClient:
             if not status.get("all_set", False):
                 logger.warning(
                     "Polymarket approvals may be missing for wallet %s. "
-                    "Trade may fail. Use client.ensure_approvals() to check status.",
+                    "Trade may fail. Use client.set_approvals() to set them.",
                     self._wallet_address[:10] + "..."
                 )
         except Exception as e:
@@ -1648,6 +1648,153 @@ class SimmerClient:
             "guide": guide,
             "raw_status": status,
         }
+
+    def set_approvals(self) -> Dict[str, Any]:
+        """
+        Set all required Polymarket token approvals for trading.
+
+        Checks which approvals are missing, constructs and signs approval
+        transactions locally, then relays them through Simmer's backend
+        for reliable broadcasting via Alchemy RPC.
+
+        Keys never leave the client — transactions are signed locally.
+
+        Requires: eth-account package (pip install eth-account)
+
+        Returns:
+            Dict containing:
+            - set: Number of approvals successfully set
+            - skipped: Number of approvals already in place
+            - failed: Number of approvals that failed
+            - details: List of per-approval results
+
+        Raises:
+            ValueError: If no wallet is configured
+            ImportError: If eth-account is not installed
+
+        Example:
+            client = SimmerClient(api_key="...")  # WALLET_PRIVATE_KEY auto-detected
+            client.link_wallet()
+            result = client.set_approvals()
+            print(f"Set {result['set']} approvals, skipped {result['skipped']}")
+        """
+        if not self._private_key or not self._wallet_address:
+            raise ValueError(
+                "No wallet configured. Set WALLET_PRIVATE_KEY env var or pass private_key to constructor."
+            )
+
+        try:
+            from eth_account import Account
+        except ImportError:
+            raise ImportError(
+                "eth-account is required for set_approvals(). "
+                "Install with: pip install eth-account"
+            )
+
+        from .approvals import get_missing_approval_transactions, get_approval_transactions
+
+        # Check current approval status
+        print("Checking current approvals...")
+        status = self.check_approvals()
+        all_txs = get_approval_transactions()
+        missing_txs = get_missing_approval_transactions(status)
+
+        total = len(all_txs)
+        skipped = total - len(missing_txs)
+        set_count = 0
+        failed = 0
+        details = []
+
+        if not missing_txs:
+            print("All approvals already set! Ready to trade.")
+            return {"set": 0, "skipped": total, "failed": 0, "details": []}
+
+        print(f"Found {len(missing_txs)} missing approvals (of {total} total). Setting them now...")
+
+        # Get nonce for transaction sequencing
+        polygon_rpc = "https://1rpc.io/matic"  # For nonce query only
+        try:
+            nonce_resp = requests.post(polygon_rpc, json={
+                "jsonrpc": "2.0",
+                "method": "eth_getTransactionCount",
+                "params": [self._wallet_address, "pending"],
+                "id": 1,
+            }, timeout=10)
+            nonce = int(nonce_resp.json().get("result", "0x0"), 16)
+        except Exception as e:
+            logger.warning("Failed to get nonce from public RPC, trying Alchemy relay: %s", e)
+            # Will let the RPC assign nonce per-tx if we can't get it
+            nonce = None
+
+        for i, tx_data in enumerate(missing_txs):
+            desc = tx_data.get("description", f"Approval {i + 1}")
+            print(f"  Setting approval {i + 1}/{len(missing_txs)}: {desc}...")
+
+            try:
+                # Build a full transaction for signing
+                tx_fields = {
+                    "to": tx_data["to"],
+                    "data": bytes.fromhex(tx_data["data"][2:] if tx_data["data"].startswith("0x") else tx_data["data"]),
+                    "value": 0,
+                    "chainId": 137,
+                    "gas": 100000,  # Approvals use ~46k gas, 100k is safe
+                    "maxFeePerGas": 50_000_000_000,  # 50 gwei (Polygon is cheap)
+                    "maxPriorityFeePerGas": 30_000_000_000,  # 30 gwei
+                    "type": 2,  # EIP-1559
+                }
+
+                if nonce is not None:
+                    tx_fields["nonce"] = nonce
+                else:
+                    # Fetch nonce per-tx as fallback
+                    try:
+                        nonce_resp = requests.post(polygon_rpc, json={
+                            "jsonrpc": "2.0",
+                            "method": "eth_getTransactionCount",
+                            "params": [self._wallet_address, "pending"],
+                            "id": 1,
+                        }, timeout=10)
+                        tx_fields["nonce"] = int(nonce_resp.json().get("result", "0x0"), 16)
+                    except Exception:
+                        raise RuntimeError("Cannot determine nonce for transaction signing")
+
+                # Sign locally (keys never leave the client)
+                signed = Account.sign_transaction(tx_fields, self._private_key)
+                signed_tx_hex = "0x" + signed.raw_transaction.hex()
+
+                # Relay through Simmer backend (uses Alchemy RPC)
+                result = self._request("POST", "/api/sdk/wallet/broadcast-tx", json={
+                    "signed_tx": signed_tx_hex,
+                })
+
+                tx_hash = result.get("tx_hash")
+                # Increment nonce if tx was broadcast (has tx_hash), even if it reverted
+                if tx_hash and nonce is not None:
+                    nonce += 1
+
+                if result.get("success"):
+                    tx_status = result.get("status", "unknown")
+                    print(f"    Confirmed: {tx_hash[:18]}... ({tx_status})")
+                    set_count += 1
+                    details.append({"description": desc, "success": True, "tx_hash": tx_hash})
+                else:
+                    error = result.get("error", "Unknown error")
+                    print(f"    Failed: {error}")
+                    failed += 1
+                    details.append({"description": desc, "success": False, "error": error})
+
+            except Exception as e:
+                print(f"    Error: {type(e).__name__}: {e}")
+                failed += 1
+                details.append({"description": desc, "success": False, "error": str(e)})
+
+        # Summary
+        if failed == 0:
+            print(f"Done! Set {set_count} approvals, skipped {skipped}. Ready to trade.")
+        else:
+            print(f"Done with errors: set {set_count}, skipped {skipped}, failed {failed}.")
+
+        return {"set": set_count, "skipped": skipped, "failed": failed, "details": details}
 
     @staticmethod
     def check_for_updates(warn: bool = True) -> Dict[str, Any]:

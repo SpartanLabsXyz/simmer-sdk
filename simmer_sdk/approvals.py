@@ -28,6 +28,7 @@ POLYGON_CHAIN_ID = 137
 
 # Token addresses on Polygon
 USDC_BRIDGED = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"  # USDC.e
+USDC_NATIVE = "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359"  # Native USDC (Circle-issued)
 CTF_TOKEN = "0x4D97DCd97eC945f40cF65F87097ACe5EA0476045"  # Polymarket CTF
 
 # Spender contracts that need approval
@@ -61,8 +62,8 @@ ERC1155_SET_APPROVAL_SELECTOR = "0xa22cb465"
 # Boolean true encoded as 32-byte hex (for setApprovalForAll)
 BOOL_TRUE_ENCODED = "0000000000000000000000000000000000000000000000000000000000000001"
 
-# Length of address prefix used in allowance keys (0x + 8 hex chars)
-ADDRESS_PREFIX_LENGTH = 10
+# Length of address prefix used in allowance keys (0x + 6 hex chars, matching backend)
+ADDRESS_PREFIX_LENGTH = 8
 
 # EVM word size in hex characters (32 bytes = 64 hex chars)
 EVM_WORD_SIZE_HEX = 64
@@ -78,6 +79,15 @@ def _build_approval_info(spender_info: Dict[str, str], token: str) -> Dict[str, 
             "spender_address": spender_info["address"],
             "type": "ERC20",
             "description": f"Allow {spender_info['name']} to spend USDC.e",
+        }
+    elif token == "USDC":
+        return {
+            "token": "USDC",
+            "token_address": USDC_NATIVE,
+            "spender": spender_info["name"],
+            "spender_address": spender_info["address"],
+            "type": "ERC20",
+            "description": f"Allow {spender_info['name']} to spend USDC",
         }
     else:
         return {
@@ -99,6 +109,7 @@ def get_required_approvals() -> List[Dict[str, Any]]:
     """
     approvals = []
     for spender_info in SPENDERS.values():
+        approvals.append(_build_approval_info(spender_info, "USDC"))
         approvals.append(_build_approval_info(spender_info, "USDC.e"))
         approvals.append(_build_approval_info(spender_info, "CTF"))
     return approvals
@@ -135,17 +146,30 @@ def get_approval_transactions() -> List[Dict[str, Any]]:
         spender_addr = spender_info["address"]
         spender_name = spender_info["name"]
 
-        # ERC20 approve(spender, amount)
+        # ERC20 approve(spender, amount) calldata (same for both USDC tokens)
         # Encode: selector + spender (32 bytes) + amount (32 bytes)
-        usdc_data = (
+        erc20_approve_data = (
             ERC20_APPROVE_SELECTOR +
             spender_addr[2:].lower().zfill(EVM_WORD_SIZE_HEX) +
             MAX_UINT256[2:]  # Remove 0x prefix
         )
 
+        # USDC native (Circle-issued)
+        transactions.append({
+            "to": USDC_NATIVE,
+            "data": erc20_approve_data,
+            "value": "0x0",
+            "chainId": POLYGON_CHAIN_ID,
+            "description": f"Approve {spender_name} to spend USDC",
+            "token": "USDC",
+            "spender": spender_name,
+            "spender_address": spender_addr,
+        })
+
+        # USDC.e (bridged)
         transactions.append({
             "to": USDC_BRIDGED,
-            "data": usdc_data,
+            "data": erc20_approve_data,
             "value": "0x0",
             "chainId": POLYGON_CHAIN_ID,
             "description": f"Approve {spender_name} to spend USDC.e",
@@ -203,10 +227,12 @@ def get_missing_approval_transactions(
     missing_txs = []
     for tx in all_txs:
         # Build the key used in allowances dict
-        # Format: "usdc_bridged_{spender[:8]}" or "ctf_{spender[:8]}"
+        # Format: "usdc_native_{spender[:8]}", "usdc_bridged_{spender[:8]}", or "ctf_{spender[:8]}"
         spender_prefix = tx["spender_address"][:ADDRESS_PREFIX_LENGTH]
 
-        if tx["token"] == "USDC.e":
+        if tx["token"] == "USDC":
+            key = f"usdc_native_{spender_prefix}"
+        elif tx["token"] == "USDC.e":
             key = f"usdc_bridged_{spender_prefix}"
         else:
             key = f"ctf_{spender_prefix}"
@@ -239,15 +265,19 @@ def format_approval_guide(approval_status: Dict[str, Any]) -> str:
         spender_prefix = spender_info["address"][:ADDRESS_PREFIX_LENGTH]
         spender_name = spender_info["name"]
 
-        usdc_key = f"usdc_bridged_{spender_prefix}"
+        usdc_native_key = f"usdc_native_{spender_prefix}"
+        usdc_bridged_key = f"usdc_bridged_{spender_prefix}"
         ctf_key = f"ctf_{spender_prefix}"
 
-        usdc_ok = allowances.get(usdc_key, False)
+        usdc_native_ok = allowances.get(usdc_native_key, False)
+        usdc_bridged_ok = allowances.get(usdc_bridged_key, False)
         ctf_ok = allowances.get(ctf_key, False)
 
-        if not usdc_ok or not ctf_ok:
+        if not usdc_native_ok or not usdc_bridged_ok or not ctf_ok:
             lines.append(f"  {spender_name}:")
-            if not usdc_ok:
+            if not usdc_native_ok:
+                lines.append(f"    ❌ USDC approval missing")
+            if not usdc_bridged_ok:
                 lines.append(f"    ❌ USDC.e approval missing")
             if not ctf_ok:
                 lines.append(f"    ❌ CTF approval missing")
