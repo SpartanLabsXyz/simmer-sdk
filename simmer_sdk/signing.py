@@ -24,8 +24,6 @@ POLYGON_CHAIN_ID = 137
 # Precision factors for Polymarket CLOB
 # Shares: max 4 decimal places in 1e6 factor = round to multiple of 100
 SHARES_PRECISION_FACTOR = 100
-# USDC: max 2 decimal places in 1e6 factor = round to multiple of 10000
-USDC_PRECISION_FACTOR = 10000
 
 # Zero address for open orders (anyone can fill)
 ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
@@ -119,8 +117,6 @@ def build_and_sign_order(
         raise ValueError(f"Invalid signature_type {signature_type}. Must be 0, 1, or 2")
 
     # Fix decimal precision for Polymarket CLOB orders
-    # - makerAmount (USDC) must have max 2 decimals
-    # - takerAmount (shares) must have max 4 decimals
     rounded_price = round(price, 4)
     rounded_size = math.floor(size * SHARES_PRECISION_FACTOR) / SHARES_PRECISION_FACTOR  # Floor to 2 decimals
 
@@ -128,9 +124,11 @@ def build_and_sign_order(
     shares_raw = int(rounded_size * POLYMARKET_DECIMAL_FACTOR)
     shares_raw = (shares_raw // SHARES_PRECISION_FACTOR) * SHARES_PRECISION_FACTOR  # 4 decimal precision
 
-    usdc_human = round(rounded_price * rounded_size, 2)
-    usdc_raw = int(usdc_human * POLYMARKET_DECIMAL_FACTOR)
-    usdc_raw = (usdc_raw // USDC_PRECISION_FACTOR) * USDC_PRECISION_FACTOR  # 2 decimal precision
+    # USDC raw = shares × price in raw units, floored to tick precision
+    # Dome validates exact consistency: makerAmount = floor(size * price * 1e6 / 10) * 10
+    # Previous 2-decimal rounding (//10000) caused rejection on fractional prices (e.g., 0.2636)
+    usdc_raw = int(rounded_price * rounded_size * POLYMARKET_DECIMAL_FACTOR)
+    usdc_raw = (usdc_raw // 10) * 10  # Floor to 5 decimal precision (tick-aligned)
 
     # Check minimum order size
     effective_shares = shares_raw / POLYMARKET_DECIMAL_FACTOR
