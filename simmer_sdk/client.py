@@ -1729,9 +1729,11 @@ class SimmerClient:
                     nonce = int(item.get("result", "0x0"), 16)
                 elif item.get("id") == 2:
                     gas_price = int(item.get("result", "0x0"), 16)
-                    # Set priority fee to 30 gwei or gas_price, whichever is smaller
-                    max_priority_fee = min(30_000_000_000, gas_price)
-                    # Set max fee to 2x current gas price (handles spikes during 9-tx batch)
+                    # Priority fee scales with gas (25% of current, min 30 gwei).
+                    # Fixed 30 gwei caused "replacement tx underpriced" when retrying
+                    # because Alchemy requires both fees to bump by 10%+.
+                    max_priority_fee = max(30_000_000_000, gas_price // 4)
+                    # Max fee at 2x current gas price (handles spikes during 9-tx batch)
                     max_fee_per_gas = gas_price * 2
             if max_fee_per_gas:
                 print(f"  Current gas price: {gas_price / 1e9:.0f} gwei, using max {max_fee_per_gas / 1e9:.0f} gwei")
@@ -1754,7 +1756,7 @@ class SimmerClient:
                     "data": bytes.fromhex(tx_data["data"][2:] if tx_data["data"].startswith("0x") else tx_data["data"]),
                     "value": 0,
                     "chainId": 137,
-                    "gas": 100000,  # Approvals use ~46k gas, 100k is safe
+                    "gas": 60000,  # Approvals use ~46k gas, 60k is safe
                     "maxFeePerGas": max_fee_per_gas,
                     "maxPriorityFeePerGas": max_priority_fee,
                     "type": 2,  # EIP-1559
