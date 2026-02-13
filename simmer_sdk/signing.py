@@ -21,9 +21,8 @@ MIN_ORDER_SIZE_SHARES = 5
 # Polygon mainnet chain ID
 POLYGON_CHAIN_ID = 137
 
-# Precision factors for Polymarket CLOB
-# Shares: max 4 decimal places in 1e6 factor = round to multiple of 100
-SHARES_PRECISION_FACTOR = 100
+# Polymarket tick size: prices must be multiples of 0.001
+TICK_SIZE_DECIMALS = 3
 
 # Zero address for open orders (anyone can fill)
 ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
@@ -117,12 +116,13 @@ def build_and_sign_order(
         raise ValueError(f"Invalid signature_type {signature_type}. Must be 0, 1, or 2")
 
     # Fix decimal precision for Polymarket CLOB orders
-    rounded_price = round(price, 4)
-    rounded_size = math.floor(size * SHARES_PRECISION_FACTOR) / SHARES_PRECISION_FACTOR  # Floor to 2 decimals
+    # Price must be at tick size (0.001) — Dome rejects finer precision
+    rounded_price = round(price, 3)
+    rounded_size = math.floor(size * 100) / 100  # Floor to 2 decimals
 
     # Calculate raw amounts with proper precision
-    shares_raw = int(rounded_size * POLYMARKET_DECIMAL_FACTOR)
-    shares_raw = (shares_raw // SHARES_PRECISION_FACTOR) * SHARES_PRECISION_FACTOR  # 4 decimal precision
+    shares_raw = int(round(rounded_size * POLYMARKET_DECIMAL_FACTOR))
+    shares_raw = (shares_raw // 10000) * 10000  # 2 decimal precision (matches backend)
 
     # USDC raw = shares × price in raw units, floored to tick precision
     # Dome validates exact consistency: makerAmount = floor(size * price * 1e6 / 10) * 10
