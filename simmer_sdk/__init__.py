@@ -19,7 +19,7 @@ External Wallet Trading (BYOW):
     The SDK supports trading with your own wallet (Bring Your Own Wallet).
 
     POLYMARKET (EVM wallet):
-        # Set SIMMER_PRIVATE_KEY env var to your EVM private key (0x...)
+        # Set WALLET_PRIVATE_KEY env var to your EVM private key (0x...)
         client = SimmerClient(api_key="sk_live_...", venue="polymarket")
         result = client.trade(...)  # Signs locally with EVM key
 
@@ -39,7 +39,7 @@ External Wallet Trading (BYOW):
         # Run `npm install` in the SDK directory to install dependencies.
 
     The SDK will:
-    - Auto-detect env vars (SIMMER_PRIVATE_KEY for EVM, SIMMER_SOLANA_KEY for Solana)
+    - Auto-detect env vars (WALLET_PRIVATE_KEY for EVM, SIMMER_SOLANA_KEY for Solana)
     - Auto-link EVM wallet on first Polymarket trade
     - Warn about missing Polymarket approvals
 

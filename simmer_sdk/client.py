@@ -118,7 +118,9 @@ class SimmerClient:
     # Private key format: 0x + 64 hex characters (EVM)
     PRIVATE_KEY_LENGTH = 66
     # Environment variable for EVM private key auto-detection (Polymarket)
-    PRIVATE_KEY_ENV_VAR = "SIMMER_PRIVATE_KEY"
+    # Primary: WALLET_PRIVATE_KEY. Fallback: SIMMER_PRIVATE_KEY (deprecated, backward compat)
+    PRIVATE_KEY_ENV_VAR = "WALLET_PRIVATE_KEY"
+    PRIVATE_KEY_ENV_VAR_LEGACY = "SIMMER_PRIVATE_KEY"
     # Environment variable for Solana private key (Kalshi via DFlow)
     SOLANA_PRIVATE_KEY_ENV_VAR = "SIMMER_SOLANA_KEY"
 
@@ -146,9 +148,9 @@ class SimmerClient:
                 When provided, orders are signed locally instead of server-side.
                 This enables trading with your own Polymarket wallet.
 
-                If not provided, the SDK will auto-detect from the SIMMER_PRIVATE_KEY
-                environment variable. This allows existing skills/bots to use external
-                wallets without code changes.
+                If not provided, the SDK will auto-detect from the WALLET_PRIVATE_KEY
+                environment variable (or deprecated SIMMER_PRIVATE_KEY fallback).
+                This allows existing skills/bots to use external wallets without code changes.
 
                 For Kalshi trading, use SIMMER_SOLANA_KEY env var instead (base58 format).
 
@@ -182,7 +184,15 @@ class SimmerClient:
         self._solana_wallet_address: Optional[str] = None  # Solana wallet address
 
         # EVM key: Use provided private_key, or auto-detect from environment
-        env_key = os.environ.get(self.PRIVATE_KEY_ENV_VAR)
+        # Check WALLET_PRIVATE_KEY first, fall back to deprecated SIMMER_PRIVATE_KEY
+        env_key = os.environ.get(self.PRIVATE_KEY_ENV_VAR) or os.environ.get(self.PRIVATE_KEY_ENV_VAR_LEGACY)
+        if not os.environ.get(self.PRIVATE_KEY_ENV_VAR) and os.environ.get(self.PRIVATE_KEY_ENV_VAR_LEGACY):
+            import warnings
+            warnings.warn(
+                "SIMMER_PRIVATE_KEY is deprecated. Use WALLET_PRIVATE_KEY instead.",
+                DeprecationWarning,
+                stacklevel=2
+            )
         effective_key = private_key or env_key
 
         if effective_key:
