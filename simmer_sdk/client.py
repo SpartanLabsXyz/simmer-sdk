@@ -185,14 +185,23 @@ class SimmerClient:
 
         # EVM key: Use provided private_key, or auto-detect from environment
         # Check WALLET_PRIVATE_KEY first, fall back to deprecated SIMMER_PRIVATE_KEY
-        env_key = os.environ.get(self.PRIVATE_KEY_ENV_VAR) or os.environ.get(self.PRIVATE_KEY_ENV_VAR_LEGACY)
-        if not os.environ.get(self.PRIVATE_KEY_ENV_VAR) and os.environ.get(self.PRIVATE_KEY_ENV_VAR_LEGACY):
-            import warnings
+        import warnings
+        _wallet_key = os.environ.get(self.PRIVATE_KEY_ENV_VAR)
+        _legacy_key = os.environ.get(self.PRIVATE_KEY_ENV_VAR_LEGACY)
+        if _wallet_key and _legacy_key and _wallet_key != _legacy_key:
+            warnings.warn(
+                "Both WALLET_PRIVATE_KEY and SIMMER_PRIVATE_KEY are set with different values. "
+                "Using WALLET_PRIVATE_KEY. Remove SIMMER_PRIVATE_KEY to avoid confusion.",
+                UserWarning,
+                stacklevel=2
+            )
+        elif not _wallet_key and _legacy_key:
             warnings.warn(
                 "SIMMER_PRIVATE_KEY is deprecated. Use WALLET_PRIVATE_KEY instead.",
                 DeprecationWarning,
                 stacklevel=2
             )
+        env_key = _wallet_key or _legacy_key
         effective_key = private_key or env_key
 
         if effective_key:
@@ -306,10 +315,6 @@ class SimmerClient:
         except Exception as e:
             # Log warning but don't fail - the trade API will return proper error
             logger.warning("Auto-link failed: %s. Trade may fail if wallet not linked.", e)
-
-        # For already-linked wallets, ensure CLOB credentials exist
-        if self._wallet_linked:
-            self._ensure_clob_credentials()
 
     def _ensure_clob_credentials(self) -> None:
         """
