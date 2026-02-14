@@ -144,7 +144,9 @@ def _get_x402_httpx_client():
     from x402.mechanisms.evm.signers import EthAccountSigner
     from x402.mechanisms.evm.exact.register import register_exact_evm_client
     from x402.http.x402_http_client import x402HTTPClient
-    from x402.http.clients.httpx import x402HttpxClient
+    from x402.http.clients.httpx import x402AsyncTransport
+
+    import httpx
 
     account = get_wallet()
     signer = EthAccountSigner(account)
@@ -153,7 +155,13 @@ def _get_x402_httpx_client():
     register_exact_evm_client(client, signer)
 
     http_client = x402HTTPClient(client)
-    return x402HttpxClient(http_client, timeout=60, transport=_get_v2_header_transport())
+
+    # Chain transports: x402 payment transport wraps our V2 header fix transport
+    # x402AsyncTransport -> V2HeaderTransport -> default httpx transport
+    v2_transport = _get_v2_header_transport()
+    payment_transport = x402AsyncTransport(http_client, v2_transport)
+
+    return httpx.AsyncClient(transport=payment_transport, timeout=60)
 
 
 # =============================================================================
