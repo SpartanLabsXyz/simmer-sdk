@@ -1,19 +1,48 @@
 ---
 name: simmer-fastloop
-version: 1.0.0
-description: Trade BTC 5-minute and 15-minute fast markets on Polymarket using CEX price momentum signals.
-tags: [polymarket, trading, btc, fast market, momentum]
+displayName: Polymarket FastLoop Trader
+description: Trade Polymarket BTC 5-minute and 15-minute fast markets using CEX price momentum signals via Simmer API. Default signal is Binance BTC/USDT klines. Use when user wants to trade sprint/fast markets, automate short-term crypto trading, or use CEX momentum as a Polymarket signal.
+metadata: {"clawdbot":{"emoji":"⚡","requires":{"env":["SIMMER_API_KEY"]},"cron":null,"autostart":false}}
+authors:
+  - Simmer (@simmer_markets)
+version: "1.0.1"
 ---
 
-# Simmer FastLoop Trading Skill
+# Polymarket FastLoop Trader
 
 Trade Polymarket's 5-minute BTC fast markets using real-time price momentum from Binance.
+
+> **Polymarket only.** All trades execute on Polymarket with real USDC. Use `--live` for real trades, dry-run is the default.
 
 **How it works:** Every cycle, the script finds the current live BTC fast market, checks BTC price momentum on Binance, and trades if momentum diverges from market odds.
 
 **This is a template.** The default signal (Binance momentum) gets you started. Your agent's reasoning is the edge — layer on sentiment analysis, multi-exchange spreads, news feeds, or custom signals to improve it.
 
 > ⚠️ Fast markets carry Polymarket's 10% fee (`is_paid: true`). Factor this into your edge calculations.
+
+## When to Use This Skill
+
+Use this skill when the user wants to:
+- Trade BTC sprint/fast markets (5-minute or 15-minute)
+- Automate short-term crypto prediction trading
+- Use CEX price momentum as a Polymarket signal
+- Monitor sprint market positions
+
+## Setup Flow
+
+When user asks to install or configure this skill:
+
+1. **Ask for Simmer API key**
+   - Get from simmer.markets/dashboard → SDK tab
+   - Store in environment as `SIMMER_API_KEY`
+
+2. **Ask about settings** (or confirm defaults)
+   - Asset: BTC, ETH, or SOL (default BTC)
+   - Entry threshold: Min divergence to trade (default 5¢)
+   - Max position: Amount per trade (default $5.00)
+   - Window: 5m or 15m (default 5m)
+
+3. **Set up cron or loop** (user drives scheduling — see "How to Run on a Loop")
 
 ## Quick Start
 
@@ -72,15 +101,15 @@ python fastloop_trader.py --set min_momentum_pct=0.3 --set max_position=10
 
 | Setting | Default | Env Var | Description |
 |---------|---------|---------|-------------|
-| `entry_threshold` | 0.05 | `SIMMER_FAST_ENTRY` | Min price divergence from 50¢ to trigger |
-| `min_momentum_pct` | 0.5 | `SIMMER_FAST_MOMENTUM` | Min BTC % move to trigger |
-| `max_position` | 5.0 | `SIMMER_FAST_MAX_POSITION` | Max $ per trade |
-| `signal_source` | binance | `SIMMER_FAST_SIGNAL` | Price feed (binance, coingecko) |
-| `lookback_minutes` | 5 | `SIMMER_FAST_LOOKBACK` | Minutes of price history |
-| `min_time_remaining` | 60 | `SIMMER_FAST_MIN_TIME` | Skip fast markets with less time left (seconds) |
-| `asset` | BTC | `SIMMER_FAST_ASSET` | Asset to trade (BTC, ETH, SOL) |
+| `entry_threshold` | 0.05 | `SIMMER_SPRINT_ENTRY` | Min price divergence from 50¢ to trigger |
+| `min_momentum_pct` | 0.5 | `SIMMER_SPRINT_MOMENTUM` | Min BTC % move to trigger |
+| `max_position` | 5.0 | `SIMMER_SPRINT_MAX_POSITION` | Max $ per trade |
+| `signal_source` | binance | `SIMMER_SPRINT_SIGNAL` | Price feed (binance, coingecko) |
+| `lookback_minutes` | 5 | `SIMMER_SPRINT_LOOKBACK` | Minutes of price history |
+| `min_time_remaining` | 60 | `SIMMER_SPRINT_MIN_TIME` | Skip fast markets with less time left (seconds) |
+| `asset` | BTC | `SIMMER_SPRINT_ASSET` | Asset to trade (BTC, ETH, SOL) |
 | `window` | 5m | `SIMMER_SPRINT_WINDOW` | Market window duration (5m or 15m) |
-| `volume_confidence` | true | `SIMMER_FAST_VOL_CONF` | Weight signal by Binance volume |
+| `volume_confidence` | true | `SIMMER_SPRINT_VOL_CONF` | Weight signal by Binance volume |
 
 ### Example config.json
 
@@ -174,7 +203,7 @@ The skill handles all the Simmer plumbing (discovery, import, trade execution). 
 All trades are tagged with `source: "sdk:fastloop"`. This means:
 - Portfolio shows breakdown by strategy
 - Other skills won't interfere with your fast market positions
-- You can track fast market Pfast market P&LL separately
+- You can track fast market P&L separately
 
 ## Troubleshooting
 

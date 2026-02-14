@@ -66,7 +66,7 @@ CONFIG_SCHEMA = {
                           "help": "Weight signal by volume (higher volume = more confident)"},
 }
 
-TRADE_SOURCE = "sdk:fastloop_market"
+TRADE_SOURCE = "sdk:fastloop"
 SMART_SIZING_PCT = 0.05  # 5% of balance per trade
 MIN_SHARES_PER_ORDER = 5  # Polymarket minimum
 
