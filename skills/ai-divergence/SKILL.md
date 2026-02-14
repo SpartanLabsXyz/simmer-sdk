@@ -6,6 +6,7 @@ metadata: {"clawdbot":{"emoji":"🔮","requires":{"env":["SIMMER_API_KEY"]},"cro
 authors:
   - Simmer (@simmer_markets)
 version: "1.0.2"
+published: true
 ---
 
 # Polymarket AI Divergence Scanner

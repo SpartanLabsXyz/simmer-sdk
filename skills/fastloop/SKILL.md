@@ -6,6 +6,7 @@ metadata: {"clawdbot":{"emoji":"⚡","requires":{"env":["SIMMER_API_KEY"]},"cron
 authors:
   - Simmer (@simmer_markets)
 version: "1.0.3"
+published: true
 ---
 
 # Polymarket FastLoop Trader
