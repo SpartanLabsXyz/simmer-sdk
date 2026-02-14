@@ -5,7 +5,7 @@ description: Snipe Polymarket opportunities from your own signal sources. Monito
 metadata: {"clawdbot":{"emoji":"🎯","requires":{"env":["SIMMER_API_KEY"]},"cron":null,"autostart":false}}
 authors:
   - Simmer (@simmer_markets)
-version: "1.3.1"
+version: "1.3.2"
 ---
 
 # Polymarket Signal Sniper

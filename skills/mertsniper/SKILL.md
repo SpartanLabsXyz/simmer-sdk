@@ -6,7 +6,7 @@ metadata: {"clawdbot":{"emoji":"🎯","requires":{"env":["SIMMER_API_KEY"]},"cro
 authors:
   - Simmer (@simmer_markets)
 attribution: "Strategy inspired by @mert — https://x.com/mert/status/2020216613279060433"
-version: "1.0.0"
+version: "1.0.2"
 ---
 
 # Mert Sniper

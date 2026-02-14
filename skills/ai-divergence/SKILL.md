@@ -5,7 +5,7 @@ description: Surface markets where Simmer's AI price diverges from Polymarket. H
 metadata: {"clawdbot":{"emoji":"🔮","requires":{"env":["SIMMER_API_KEY"]},"cron":null,"autostart":false}}
 authors:
   - Simmer (@simmer_markets)
-version: "1.0.1"
+version: "1.0.2"
 ---
 
 # Polymarket AI Divergence Scanner
