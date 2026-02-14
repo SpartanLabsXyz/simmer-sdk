@@ -106,6 +106,12 @@ python weather_trader.py --no-safeguards
 
 # Disable trend detection
 python weather_trader.py --no-trends
+
+# Quiet mode — only output on trades/errors (ideal for high-frequency runs)
+python weather_trader.py --live --quiet
+
+# Combine: frequent scanning, minimal noise
+python weather_trader.py --live --smart-sizing --quiet
 ```
 
 ## How It Works
