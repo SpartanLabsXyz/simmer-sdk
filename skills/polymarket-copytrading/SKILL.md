@@ -1,11 +1,11 @@
 ---
-name: simmer-copytrading
+name: polymarket-copytrading
 displayName: Polymarket Copytrading
 description: Mirror positions from top Polymarket traders using Simmer API. Size-weighted aggregation across multiple wallets.
 metadata: {"clawdbot":{"emoji":"🐋","requires":{"env":["SIMMER_API_KEY"]},"cron":null,"autostart":false}}
 authors:
   - Simmer (@simmer_markets)
-version: "1.3.4"
+version: "1.3.5"
 published: true
 ---
 

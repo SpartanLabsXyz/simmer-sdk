@@ -1,11 +1,11 @@
 ---
-name: simmer-ai-divergence
+name: polymarket-ai-divergence
 displayName: Polymarket AI Divergence
 description: Surface markets where Simmer's AI price diverges from Polymarket. High divergence = potential alpha. Use when user wants to find AI vs market disagreements, scan for trading opportunities, or understand where the AI is bullish/bearish relative to external prices.
 metadata: {"clawdbot":{"emoji":"🔮","requires":{"env":["SIMMER_API_KEY"]},"cron":null,"autostart":false}}
 authors:
   - Simmer (@simmer_markets)
-version: "1.0.2"
+version: "1.0.3"
 published: true
 ---
 
