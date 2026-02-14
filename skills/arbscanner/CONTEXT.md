@@ -2,7 +2,7 @@
 
 ## Overview
 
-Scan Polymarket for arbitrage opportunities between correlated markets. When mutually exclusive outcomes are mispriced (sum < $1.00), execute guaranteed profit trades.
+Scan Polymarket for arbitrage opportunities between correlated markets. When mutually exclusive outcomes are mispriced (sum < $1.00), detect potential arb edges. Note: actual profitability depends on CLOB spreads, fees, and execution latency — see SKILL.md for viability notes.
 
 ## Why This Skill
 

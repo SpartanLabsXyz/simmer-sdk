@@ -23,7 +23,7 @@ Use when you want to:
 ## Strategies
 
 ### 1. Single-Condition Arbitrage
-When YES + NO prices don't sum to $1.00, guaranteed profit exists.
+When YES + NO prices don't sum to $1.00, a theoretical edge exists (actual profit depends on CLOB spread and fees).
 
 **Example:**
 ```
@@ -131,11 +131,27 @@ Run every 30 minutes to catch opportunities:
 
 Or use your agent's heartbeat system.
 
-## Limitations
+## Important: Viability Notes
 
-- **NegRisk execution:** Currently detection-only. Multi-leg execution requires atomic transactions.
-- **Slippage:** Scanner uses best ask prices; actual execution may differ.
-- **Speed:** Arb opportunities close quickly. This scanner is for learning/small trades, not HFT.
+We tested this extensively across all major NegRisk events (Feb 2026). Key findings:
+
+- **Heuristic ≠ executable:** The scanner detects price deviations using Gamma API mid-prices, but actual CLOB orderbook spreads + Polymarket's 2% fee eat most or all of the edge.
+- **Thin edges close fast:** Arb opportunities on Polymarket are competitive — edges are small and get taken quickly. Latency matters.
+- **Our test results:** Scanned all major NegRisk events — after fees, only 1-2 showed marginal profit (< 1.5¢/$1), most were break-even or negative.
+
+This skill is useful for **learning arb detection** and **scanning for unusually mispriced markets**, but don't expect consistent profit from automated execution.
+
+## Rate Limits & x402
+
+The free tier allows 6 req/min on some endpoints. If you hit rate limits:
+
+- **x402 pay-per-call:** When you get a 429 response, it includes an `x402_url`. Fund your agent's Base wallet with USDC to auto-bypass limits at $0.005/call.
+- **Pro tier (3x limits):** Contact us at https://simmer.markets
+
+## Other Limitations
+
+- **NegRisk execution:** Currently detection-only. Multi-leg execution requires batch trades endpoint.
+- **Slippage:** Scanner uses mid-market prices; actual execution at ask prices will differ.
 
 ## Attribution
 
