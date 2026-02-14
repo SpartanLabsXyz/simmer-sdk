@@ -232,6 +232,7 @@ def discover_fast_market_markets(asset="BTC", window="5m"):
                     "end_time": end_time,
                     "outcomes": m.get("outcomes", []),
                     "outcome_prices": m.get("outcomePrices", "[]"),
+                    "fee_rate_bps": int(m.get("fee_rate_bps") or m.get("feeRateBps") or 0),
                 })
     return markets
 
@@ -540,6 +541,12 @@ def run_fast_market_strategy(dry_run=True, positions_only=False, show_config=Fal
         market_yes_price = 0.5
     log(f"  Current YES price: ${market_yes_price:.3f}")
 
+    # Fee info (fast markets charge 10% on winnings)
+    fee_rate_bps = best.get("fee_rate_bps", 0)
+    fee_rate = fee_rate_bps / 10000  # 1000 bps -> 0.10
+    if fee_rate > 0:
+        log(f"  Fee rate:         {fee_rate:.0%} (Polymarket fast market fee)")
+
     # Step 3: Get CEX price momentum
     log(f"\n📈 Fetching {ASSET} price signal ({SIGNAL_SOURCE})...")
     momentum = get_momentum(ASSET, SIGNAL_SOURCE, LOOKBACK_MINUTES)
@@ -594,6 +601,20 @@ def run_fast_market_strategy(dry_run=True, positions_only=False, show_config=Fal
         if not quiet:
             print(f"📊 Summary: No trade (market already priced in)")
         return
+
+    # Fee-aware EV check: require enough divergence to cover fees
+    if fee_rate > 0:
+        buy_price = market_yes_price if side == "yes" else (1 - market_yes_price)
+        win_profit = (1 - buy_price) * (1 - fee_rate)
+        breakeven = buy_price / (win_profit + buy_price)
+        fee_penalty = breakeven - 0.50  # how much fees shift breakeven above 50%
+        min_divergence = fee_penalty + 0.02  # plus buffer
+        log(f"  Breakeven:        {breakeven:.1%} win rate (fee-adjusted, min divergence {min_divergence:.3f})")
+        if divergence < min_divergence:
+            log(f"  ⏸️  Divergence {divergence:.3f} < fee-adjusted minimum {min_divergence:.3f} — skip")
+            if not quiet:
+                print(f"📊 Summary: No trade (fees eat the edge)")
+            return
 
     # We have a signal!
     position_size = calculate_position_size(api_key, MAX_POSITION_USD, smart_sizing)
