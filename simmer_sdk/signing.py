@@ -8,7 +8,6 @@ SECURITY NOTE: The private key should NEVER be logged, transmitted, or stored
 outside of memory. It is only used for signing operations.
 """
 
-import math
 from typing import Dict, Any
 from dataclasses import dataclass
 
@@ -20,9 +19,6 @@ MIN_ORDER_SIZE_SHARES = 5
 
 # Polygon mainnet chain ID
 POLYGON_CHAIN_ID = 137
-
-# Polymarket tick size: prices must be multiples of 0.001
-TICK_SIZE_DECIMALS = 3
 
 # Zero address for open orders (anyone can fill)
 ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
@@ -73,6 +69,7 @@ def build_and_sign_order(
     size: float,
     neg_risk: bool = False,
     signature_type: int = 0,  # 0=EOA, 1=POLY_PROXY, 2=GNOSIS_SAFE
+    tick_size: float = 0.01,
 ) -> SignedOrder:
     """
     Build and sign a Polymarket order.
@@ -86,6 +83,7 @@ def build_and_sign_order(
         size: Number of shares to trade
         neg_risk: Whether this is a neg-risk market
         signature_type: Signature type (0=EOA default)
+        tick_size: Market tick size (e.g., 0.01 or 0.001)
 
     Returns:
         SignedOrder ready for API submission
@@ -99,6 +97,7 @@ def build_and_sign_order(
         from py_order_utils.signer import Signer
         from py_order_utils.model import OrderData, EOA, POLY_PROXY, POLY_GNOSIS_SAFE as GNOSIS_SAFE, BUY, SELL
         from py_clob_client.config import get_contract_config
+        from py_clob_client.order_builder.builder import OrderBuilder as ClobOrderBuilder, ROUNDING_CONFIG
     except ImportError:
         raise ImportError(
             "py_order_utils and py_clob_client are required for local signing. "
@@ -115,22 +114,24 @@ def build_and_sign_order(
     if signature_type not in (0, 1, 2):
         raise ValueError(f"Invalid signature_type {signature_type}. Must be 0, 1, or 2")
 
-    # Fix decimal precision for Polymarket CLOB orders
-    # Price must be at tick size (0.001) — Dome rejects finer precision
-    rounded_price = round(price, 3)
-    rounded_size = math.floor(size * 100) / 100  # Floor to 2 decimals
+    # Use py-clob-client's OrderBuilder for tick_size-aware precision
+    # This handles rounding correctly (avoids float truncation bugs like
+    # int(0.99 * 5.05 * 1e6) = 4999499 instead of 4999500)
+    tick_size_str = str(tick_size)
+    if tick_size_str not in ROUNDING_CONFIG:
+        tick_size_str = "0.01"  # Safe fallback (most common)
+    round_config = ROUNDING_CONFIG[tick_size_str]
 
-    # Calculate raw amounts with proper precision
-    shares_raw = int(round(rounded_size * POLYMARKET_DECIMAL_FACTOR))
-    shares_raw = (shares_raw // 10000) * 10000  # 2 decimal precision (matches backend)
+    dummy_builder = ClobOrderBuilder.__new__(ClobOrderBuilder)
+    side_enum, maker_raw, taker_raw = dummy_builder.get_order_amounts(
+        side, size, price, round_config
+    )
 
-    # USDC raw = shares × price in raw units, floored to tick precision
-    # Dome validates exact consistency: makerAmount = floor(size * price * 1e6 / 10) * 10
-    # Previous 2-decimal rounding (//10000) caused rejection on fractional prices (e.g., 0.2636)
-    usdc_raw = int(rounded_price * rounded_size * POLYMARKET_DECIMAL_FACTOR)
-    usdc_raw = (usdc_raw // 10) * 10  # Floor to 5 decimal precision (tick-aligned)
+    # CLOB enforces maker max 2 decimals for FAK/FOK (raw divisible by 10000)
+    maker_raw = (maker_raw // 10000) * 10000
 
     # Check minimum order size
+    shares_raw = taker_raw if side == "BUY" else maker_raw
     effective_shares = shares_raw / POLYMARKET_DECIMAL_FACTOR
     if effective_shares < MIN_ORDER_SIZE_SHARES:
         raise ValueError(
@@ -138,21 +139,9 @@ def build_and_sign_order(
             f"is below minimum ({MIN_ORDER_SIZE_SHARES})"
         )
 
-    # Assign maker/taker amounts based on side
-    # BUY: maker gives USDC, receives shares (taker)
-    # SELL: maker gives shares, receives USDC (taker)
-    if side == "BUY":
-        maker_raw = usdc_raw
-        taker_raw = shares_raw
-    else:
-        maker_raw = shares_raw
-        taker_raw = usdc_raw
-
     # Map signature type
     sig_type_map = {0: EOA, 1: POLY_PROXY, 2: GNOSIS_SAFE}
     sig_type = sig_type_map.get(signature_type, EOA)
-
-    side_enum = BUY if side == "BUY" else SELL
 
     # Build OrderData
     data = OrderData(

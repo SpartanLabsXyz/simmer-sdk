@@ -1307,12 +1307,11 @@ class SimmerClient:
 
         is_sell = action == "sell"
 
-        # Get market data to find token IDs and price
-        markets_resp = self._request("GET", f"/api/sdk/markets?ids={market_id}")
-        markets_list = markets_resp.get("markets", []) if isinstance(markets_resp, dict) else []
-        if not markets_list:
+        # Get market data to find token IDs, price, and tick_size
+        markets_resp = self._request("GET", f"/api/sdk/markets/{market_id}")
+        market_data = markets_resp.get("market") if isinstance(markets_resp, dict) else None
+        if not market_data:
             raise ValueError(f"Market {market_id} not found")
-        market_data = markets_list[0]
 
         # Get token ID based on side
         if side.lower() == "yes":
@@ -1344,6 +1343,7 @@ class SimmerClient:
         clob_side = "SELL" if is_sell else "BUY"
 
         neg_risk = market_data.get("polymarket_neg_risk", False)
+        tick_size = market_data.get("tick_size", 0.01)
 
         # Build and sign the order
         signed = build_and_sign_order(
@@ -1355,6 +1355,7 @@ class SimmerClient:
             size=size,
             neg_risk=neg_risk,
             signature_type=0,  # EOA
+            tick_size=tick_size,
         )
 
         return signed.to_dict()
