@@ -726,11 +726,24 @@ class SimmerClient:
         Returns:
             Market object or None if not found
         """
-        markets = self.get_markets(limit=100)
-        for m in markets:
-            if m.id == market_id:
-                return m
-        return None
+        try:
+            data = self._request("GET", f"/api/sdk/markets/{market_id}")
+            m = data.get("market")
+            if not m:
+                return None
+            return Market(
+                id=m["id"],
+                question=m["question"],
+                status=m.get("status", "active"),
+                current_probability=m.get("current_probability", 0.5),
+                import_source=m.get("import_source"),
+                external_price_yes=m.get("external_price_yes"),
+                divergence=m.get("divergence"),
+                resolves_at=m.get("resolves_at"),
+                is_sdk_only=m.get("is_sdk_only", False),
+            )
+        except Exception:
+            return None
 
     def find_markets(self, query: str) -> List[Market]:
         """
