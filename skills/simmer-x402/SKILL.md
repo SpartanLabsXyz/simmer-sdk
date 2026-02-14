@@ -6,6 +6,7 @@ metadata: {"clawdbot":{"emoji":"💳","requires":{"env":["EVM_PRIVATE_KEY"]},"cr
 authors:
   - Simmer (@simmer_markets)
 version: "1.0.0"
+published: true
 ---
 
 # x402 Payments
@@ -26,12 +27,11 @@ Use this skill when:
    ```bash
    export EVM_PRIVATE_KEY=0x...your_private_key...
    ```
-   This is the same wallet you use for Polymarket trading. Your EVM address works on all chains — Polygon for trading, Base for x402 payments.
+   Falls back to `WALLET_PRIVATE_KEY` if `EVM_PRIVATE_KEY` is not set (same key Simmer/Polymarket users already have). Your EVM address works on all chains — Polygon for trading, Base for x402 payments.
 
 2. **Fund with USDC on Base**
    - Send USDC to your wallet address on Base network
-   - A small amount of ETH on Base is needed for gas (~0.001 ETH)
-   - x402 payments are gasless for buyers in most cases (facilitator sponsors gas)
+   - x402 payments on Base are fully gasless — you only need USDC, no ETH
 
 3. **Install dependencies**
    ```bash
@@ -56,12 +56,12 @@ python x402_cli.py balance
 ```
 ```
 x402 Wallet Balance
-====================
+==============================
 Address: 0x1234...5678
 Network: Base Mainnet
 
 USDC:  $42.50
-ETH:   0.0051 ETH
+ETH:   0.000000 ETH
 ```
 
 ### Fetch free endpoint (no payment needed)
@@ -69,13 +69,19 @@ ETH:   0.0051 ETH
 python x402_cli.py fetch "https://api.kaito.ai/api/v1/tokens" --json
 ```
 
-### Fetch paid endpoint (auto-pays via x402)
+### Fetch Kaito mindshare data ($0.02/data point via x402)
 ```bash
-python x402_cli.py fetch "https://api.kaito.ai/api/payg/mindshare?token=BTC" --json
+python x402_cli.py fetch "https://api.kaito.ai/api/payg/mindshare?token=BTC&start_date=2026-02-13&end_date=2026-02-14" --json
 ```
+
+### Fetch Kaito sentiment data ($0.02/data point via x402)
+```bash
+python x402_cli.py fetch "https://api.kaito.ai/api/payg/sentiment?token=BTC&start_date=2026-02-13&end_date=2026-02-14" --json
 ```
-Paid $0.60 USDC via x402
-{"mindshare": {"2026-01-16": 0.15, "2026-01-17": 0.14, ...}}
+
+### Fetch CoinGecko price data ($0.01 via x402)
+```bash
+python x402_cli.py fetch "https://pro-api.coingecko.com/api/v3/x402/simple/price?ids=bitcoin&vs_currencies=usd" --json
 ```
 
 ### Fetch Simmer premium endpoint
@@ -84,11 +90,25 @@ python x402_cli.py fetch "https://x402.simmer.markets/api/sdk/context/market-123
   --header "Authorization: Bearer sk_live_..." --json
 ```
 
+## Supported x402 Providers
+
+| Provider | Endpoint | Price | Description |
+|----------|----------|-------|-------------|
+| Kaito | `/api/payg/mindshare` | $0.02/data point | Token mindshare time series |
+| Kaito | `/api/payg/sentiment` | $0.02/data point | Token sentiment time series |
+| Kaito | `/api/payg/narrative_mindshare` | $0.02/data point | Narrative mindshare time series |
+| Kaito | `/api/payg/smart_followers` | $0.20/request | Smart follower metrics |
+| CoinGecko | `/api/v3/x402/simple/price` | $0.01/request | Token price data |
+| Simmer | `/api/sdk/context/:id` | $0.005/request | Market context (rate limit bypass) |
+| Simmer | `/api/sdk/briefing` | $0.005/request | Portfolio briefing (rate limit bypass) |
+
+Kaito API docs: https://github.com/MetaSearch-IO/KaitoX402APIDocs
+
 ## Configuration
 
 | Setting | Environment Variable | Default | Description |
 |---------|---------------------|---------|-------------|
-| Wallet key | `EVM_PRIVATE_KEY` | (required) | Hex-encoded private key |
+| Wallet key | `EVM_PRIVATE_KEY` | (required) | Hex-encoded private key (falls back to `WALLET_PRIVATE_KEY`) |
 | Max payment | `X402_MAX_PAYMENT_USD` | 10.00 | Safety cap per request |
 | Network | `X402_NETWORK` | mainnet | `mainnet` or `testnet` |
 
@@ -142,4 +162,4 @@ data = await x402_fetch("https://api.kaito.ai/api/payg/mindshare?token=BTC")
 - Increase limit: `--max 50` or set `X402_MAX_PAYMENT_USD=50`
 
 **"Unsupported network in payment options"**
-- Some providers offer Solana payment options. This skill filters to Base-only automatically.
+- Ensure you have USDC on Base. Some providers may offer other chains but this skill uses Base only.

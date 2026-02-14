@@ -83,6 +83,61 @@ def get_wallet():
         sys.exit(1)
 
 
+def _get_v2_header_transport():
+    """
+    Transport wrapper that injects the payment-required header for x402 V2
+    providers that only put payment info in the response body (e.g., Kaito).
+
+    The x402 SDK v2.1.0 has a bug: get_payment_required_response() only checks
+    the payment-required header for V2 info. If a provider puts V2 payment info
+    in the body only (no header), the SDK throws ValueError. This transport
+    detects that case and injects the header from the body before the SDK sees it.
+    """
+    import httpx
+    import base64
+
+    class V2HeaderTransport(httpx.AsyncHTTPTransport):
+        async def handle_async_request(self, request):
+            response = await super().handle_async_request(request)
+            if response.status_code != 402:
+                return response
+
+            # Check if payment-required header is already present
+            if "payment-required" in response.headers:
+                return response
+
+            # Read body and check for V2 payment info
+            content = await response.aread()
+            try:
+                body = json.loads(content.decode())
+                if body.get("x402Version", 0) >= 2:
+                    # Inject body as payment-required header (base64-encoded)
+                    encoded = base64.b64encode(content).decode()
+                    new_headers = httpx.Headers(response.headers)
+                    new_headers["payment-required"] = encoded
+
+                    from httpx._content import ByteStream
+                    return httpx.Response(
+                        status_code=response.status_code,
+                        headers=new_headers,
+                        stream=ByteStream(content),
+                        extensions=response.extensions,
+                    )
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                pass
+
+            # Return original with consumed content restored
+            from httpx._content import ByteStream
+            return httpx.Response(
+                status_code=response.status_code,
+                headers=response.headers,
+                stream=ByteStream(content),
+                extensions=response.extensions,
+            )
+
+    return V2HeaderTransport()
+
+
 def _get_x402_httpx_client():
     """Create an x402-enabled httpx client using the v2 SDK."""
     from x402 import x402Client
@@ -98,7 +153,7 @@ def _get_x402_httpx_client():
     register_exact_evm_client(client, signer)
 
     http_client = x402HTTPClient(client)
-    return x402HttpxClient(http_client, timeout=60)
+    return x402HttpxClient(http_client, timeout=60, transport=_get_v2_header_transport())
 
 
 # =============================================================================
