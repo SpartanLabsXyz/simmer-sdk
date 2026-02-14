@@ -1,0 +1,11 @@
+{
+  "entry_threshold": 0.05,
+  "min_momentum_pct": 0.5,
+  "max_position": 5.0,
+  "lookback_minutes": 5,
+  "min_time_remaining": 60,
+  "asset": "BTC",
+  "window": "5m",
+  "signal_source": "binance",
+  "volume_confidence": true
+}
