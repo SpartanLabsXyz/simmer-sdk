@@ -410,6 +410,7 @@ def import_fast_market_market(api_key, slug):
     result = simmer_request("/api/sdk/markets/import", method="POST", data={
         "polymarket_url": url,
         "shared": True,
+        "analytics_only": True,  # Skip slow AI simulation — fast markets need instant import
     }, api_key=api_key)
 
     if not result:
