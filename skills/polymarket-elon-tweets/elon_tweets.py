@@ -14,6 +14,8 @@ Usage:
 
 Requires:
     SIMMER_API_KEY environment variable (get from simmer.markets/dashboard)
+    WALLET_PRIVATE_KEY environment variable (for order signing with external wallets)
+    pip install simmer-sdk
 """
 
 import os
@@ -28,6 +30,13 @@ from urllib.parse import urlencode, quote
 
 # Force line-buffered stdout so output is visible in non-TTY environments (cron, Docker, OpenClaw)
 sys.stdout.reconfigure(line_buffering=True)
+
+# Import SimmerClient for wallet-aware trading
+try:
+    from simmer_sdk import SimmerClient
+except ImportError:
+    print("ERROR: simmer-sdk not installed. Run: pip install simmer-sdk")
+    sys.exit(1)
 
 # Optional: Trade Journal integration for tracking
 try:
@@ -132,11 +141,30 @@ SLIPPAGE_MAX_PCT = 0.15
 TIME_TO_RESOLUTION_MIN_HOURS = 1  # Tweet markets are shorter, allow closer-to-resolution trades
 
 # =============================================================================
-# HTTP helpers
+# SDK Client (module-level singleton for wallet-aware trading)
+# =============================================================================
+
+def get_sdk_client():
+    """Initialize and return SimmerClient singleton. Handles WALLET_PRIVATE_KEY + CLOB signing."""
+    api_key = os.environ.get("SIMMER_API_KEY")
+    if not api_key:
+        print("ERROR: SIMMER_API_KEY not set")
+        sys.exit(1)
+    return SimmerClient(api_key=api_key)
+
+# Initialize client on module load
+try:
+    _client = get_sdk_client()
+except Exception as e:
+    print(f"ERROR: Failed to initialize SDK client: {e}")
+    sys.exit(1)
+
+# =============================================================================
+# HTTP helpers (for public APIs like XTracker)
 # =============================================================================
 
 def fetch_json(url, headers=None):
-    """Fetch JSON from URL with error handling."""
+    """Fetch JSON from URL with error handling. Used for public APIs (XTracker, etc.)."""
     try:
         req = Request(url, headers=headers or {})
         with urlopen(req, timeout=30) as response:
@@ -230,103 +258,98 @@ def match_tracking_to_event(tracking_title, event_name):
 # Simmer API
 # =============================================================================
 
-def get_api_key():
-    """Get Simmer API key from environment."""
-    key = os.environ.get("SIMMER_API_KEY")
-    if not key:
-        print("Error: SIMMER_API_KEY environment variable not set")
-        print("Get your API key from: simmer.markets/dashboard → SDK tab")
-        sys.exit(1)
-    return key
+# =============================================================================
+# SDK API Wrappers (using SimmerClient for wallet-aware operations)
+# =============================================================================
 
-
-def sdk_request(api_key, method, endpoint, data=None):
-    """Make authenticated request to Simmer SDK."""
-    url = f"{SIMMER_API_BASE}{endpoint}"
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-    }
+def get_portfolio():
+    """Get account portfolio (USDC balance, positions) from Simmer."""
     try:
-        if method == "GET":
-            req = Request(url, headers=headers)
-        else:
-            body = json.dumps(data).encode() if data else None
-            req = Request(url, data=body, headers=headers, method=method)
-        with urlopen(req, timeout=30) as response:
-            return json.loads(response.read().decode())
-    except HTTPError as e:
-        error_body = e.read().decode() if e.fp else str(e)
-        return {"error": f"HTTP {e.code}: {error_body}"}
+        return _client.get_portfolio()
     except Exception as e:
-        return {"error": str(e)}
-
-
-def get_portfolio(api_key):
-    result = sdk_request(api_key, "GET", "/api/sdk/portfolio")
-    if "error" in result:
-        print(f"  ⚠️  Portfolio fetch failed: {result['error']}")
+        print(f"  ⚠️  Portfolio fetch failed: {e}")
         return None
-    return result
 
 
-def get_market_context(api_key, market_id, my_probability=None):
-    endpoint = f"/api/sdk/context/{market_id}"
-    if my_probability is not None:
-        endpoint += f"?my_probability={my_probability}"
-    result = sdk_request(api_key, "GET", endpoint)
-    if "error" in result:
+def get_market_context(market_id, my_probability=None):
+    """Get market context including safeguard warnings and slippage estimates."""
+    try:
+        # Use raw request to support my_probability parameter
+        endpoint = f"/api/sdk/context/{market_id}"
+        if my_probability is not None:
+            endpoint += f"?my_probability={my_probability}"
+        return _client._request("GET", endpoint)
+    except Exception as e:
+        print(f"  Warning: Could not fetch market context: {e}")
         return None
-    return result
 
 
-def get_positions(api_key):
-    result = sdk_request(api_key, "GET", "/api/sdk/positions")
-    if "error" in result:
-        print(f"  Error fetching positions: {result['error']}")
+def get_positions():
+    """Get list of open positions from Simmer. Converts Position objects to dicts."""
+    try:
+        positions = _client.get_positions()
+        # SDK returns Position objects; convert to dicts for compatibility
+        return [p.to_dict() if hasattr(p, 'to_dict') else p for p in (positions or [])]
+    except Exception as e:
+        print(f"  Error fetching positions: {e}")
         return []
-    return result.get("positions", [])
 
 
-def execute_trade(api_key, market_id, side, amount):
-    """Execute a buy trade with source tagging."""
-    return sdk_request(api_key, "POST", "/api/sdk/trade", {
-        "market_id": market_id,
-        "side": side,
-        "amount": amount,
-        "venue": "polymarket",
-        "source": TRADE_SOURCE,
-    })
+def execute_trade(market_id, side, amount):
+    """Execute a buy trade with source tagging. SDK client handles wallet signing."""
+    try:
+        return _client.trade(
+            market_id=market_id,
+            side=side,
+            amount=amount,
+            venue="polymarket",
+            source=TRADE_SOURCE,
+        )
+    except Exception as e:
+        return {"error": str(e), "success": False}
 
 
-def execute_sell(api_key, market_id, shares):
+def execute_sell(market_id, shares):
     """Execute a sell trade with source tagging."""
-    return sdk_request(api_key, "POST", "/api/sdk/trade", {
-        "market_id": market_id,
-        "side": "yes",
-        "action": "sell",
-        "shares": shares,
-        "venue": "polymarket",
-        "source": TRADE_SOURCE,
-    })
+    try:
+        return _client.trade(
+            market_id=market_id,
+            side="yes",
+            action="sell",
+            shares=shares,
+            venue="polymarket",
+            source=TRADE_SOURCE,
+        )
+    except Exception as e:
+        return {"error": str(e), "success": False}
 
 
-def search_markets(api_key, query):
+def search_markets(query):
     """Search Simmer for markets matching a query."""
-    encoded = quote(query)
-    result = sdk_request(api_key, "GET", f"/api/sdk/markets?q={encoded}&status=active&limit=100")
-    if "error" in result:
+    try:
+        # Use SDK's raw request for query parameter (not available in get_markets())
+        result = _client._request("GET", "/api/sdk/markets", params={
+            "q": query,
+            "status": "active",
+            "limit": 100,
+        })
+        return result.get("markets", [])
+    except Exception as e:
+        print(f"  Error searching markets: {e}")
         return []
-    return result.get("markets", [])
 
 
-def import_event(api_key, polymarket_url):
+def import_event(polymarket_url):
     """Import a multi-outcome event from Polymarket."""
-    result = sdk_request(api_key, "POST", "/api/sdk/markets/import", {
-        "polymarket_url": polymarket_url,
-        "shared": True,
-    })
-    return result
+    try:
+        # Use raw request for import with shared=true parameter
+        result = _client._request("POST", "/api/sdk/markets/import", json={
+            "polymarket_url": polymarket_url,
+            "shared": True,
+        })
+        return result
+    except Exception as e:
+        return {"error": str(e), "success": False}
 
 
 # =============================================================================
@@ -379,10 +402,11 @@ def check_context_safeguards(context):
     return True, reasons
 
 
-def calculate_position_size(api_key, default_size, smart_sizing):
+def calculate_position_size(default_size, smart_sizing):
+    """Calculate position size, optionally using portfolio balance for smart sizing."""
     if not smart_sizing:
         return default_size
-    portfolio = get_portfolio(api_key)
+    portfolio = get_portfolio()
     if not portfolio:
         return default_size
     balance = portfolio.get("balance_usdc", 0)
@@ -460,16 +484,21 @@ def evaluate_cluster(target_buckets):
 # Exit strategy
 # =============================================================================
 
-def check_exit_opportunities(api_key, dry_run=True, use_safeguards=True):
+def check_exit_opportunities(dry_run=True, use_safeguards=True):
     """Check open tweet positions for exit opportunities."""
-    positions = get_positions(api_key)
+    positions = get_positions()
     if not positions:
         return 0, 0
 
     tweet_positions = []
     for pos in positions:
-        sources = pos.get("sources", [])
-        question = (pos.get("question") or "").lower()
+        # Handle both dict and Position object
+        if isinstance(pos, dict):
+            sources = pos.get("sources", [])
+            question = (pos.get("question") or "").lower()
+        else:
+            sources = getattr(pos, "sources", [])
+            question = (getattr(pos, "question", "") or "").lower()
         if TRADE_SOURCE in sources or ("elon" in question and "tweet" in question):
             tweet_positions.append(pos)
 
@@ -482,10 +511,17 @@ def check_exit_opportunities(api_key, dry_run=True, use_safeguards=True):
     exits_executed = 0
 
     for pos in tweet_positions:
-        market_id = pos.get("market_id")
-        current_price = pos.get("current_price") or pos.get("price_yes") or 0
-        shares = pos.get("shares_yes") or pos.get("shares") or 0
-        question = (pos.get("question") or "Unknown")[:50]
+        # Handle both dict and Position object
+        if isinstance(pos, dict):
+            market_id = pos.get("market_id")
+            current_price = pos.get("current_price") or pos.get("price_yes") or 0
+            shares = pos.get("shares_yes") or pos.get("shares") or 0
+            question = (pos.get("question") or "Unknown")[:50]
+        else:
+            market_id = getattr(pos, "market_id", None)
+            current_price = getattr(pos, "current_price", 0) or getattr(pos, "price_yes", 0) or 0
+            shares = getattr(pos, "shares_yes", 0) or getattr(pos, "shares", 0) or 0
+            question = (getattr(pos, "question", "") or "Unknown")[:50]
 
         if shares < MIN_SHARES_PER_ORDER:
             continue
@@ -496,7 +532,7 @@ def check_exit_opportunities(api_key, dry_run=True, use_safeguards=True):
             print(f"     Price ${current_price:.2f} >= exit threshold ${EXIT_THRESHOLD:.2f}")
 
             if use_safeguards:
-                context = get_market_context(api_key, market_id)
+                context = get_market_context(market_id)
                 should_trade, reasons = check_context_safeguards(context)
                 if not should_trade:
                     print(f"     ⏭️  Skipped: {'; '.join(reasons)}")
@@ -506,10 +542,15 @@ def check_exit_opportunities(api_key, dry_run=True, use_safeguards=True):
                 print(f"     [DRY RUN] Would sell {shares:.1f} shares")
             else:
                 print(f"     Selling {shares:.1f} shares...")
-                result = execute_sell(api_key, market_id, shares)
-                if result.get("success"):
+                result = execute_sell(market_id, shares)
+                # Handle both dict and TradeResult object
+                success = result.get("success") if isinstance(result, dict) else getattr(result, "success", False)
+                if success:
                     exits_executed += 1
-                    trade_id = result.get("trade_id")
+                    if isinstance(result, dict):
+                        trade_id = result.get("trade_id")
+                    else:
+                        trade_id = getattr(result, "trade_id", None)
                     print(f"     ✅ Sold {shares:.1f} shares @ ${current_price:.2f}")
                     if trade_id and JOURNAL_AVAILABLE:
                         log_trade(
@@ -519,7 +560,11 @@ def check_exit_opportunities(api_key, dry_run=True, use_safeguards=True):
                             action="sell",
                         )
                 else:
-                    print(f"     ❌ Sell failed: {result.get('error', 'Unknown')}")
+                    if isinstance(result, dict):
+                        error = result.get('error', 'Unknown')
+                    else:
+                        error = getattr(result, 'error', 'Unknown')
+                    print(f"     ❌ Sell failed: {error}")
         else:
             print(f"  📊 {question}...")
             print(f"     Price ${current_price:.2f} < exit ${EXIT_THRESHOLD:.2f} - hold")
@@ -561,11 +606,9 @@ def run_strategy(dry_run=True, positions_only=False, show_config=False,
         log(f"  Exists: {'Yes' if config_path.exists() else 'No'}")
         return
 
-    api_key = get_api_key()
-
     if positions_only:
         log("\n📊 Current Tweet Positions:")
-        positions = get_positions(api_key)
+        positions = get_positions()
         tweet_pos = [p for p in positions if TRADE_SOURCE in p.get("sources", [])
                      or ("elon" in (p.get("question") or "").lower() and "tweet" in (p.get("question") or "").lower())]
         if not tweet_pos:
@@ -615,7 +658,7 @@ def run_strategy(dry_run=True, positions_only=False, show_config=False,
 
     # Step 2: Search Simmer for Elon tweet markets
     log("\n📡 Searching for Elon tweet markets on Simmer...")
-    markets = search_markets(api_key, "elon musk tweets")
+    markets = search_markets("elon musk tweets")
 
     # Group by event
     events = {}
@@ -649,7 +692,7 @@ def run_strategy(dry_run=True, positions_only=False, show_config=False,
             pm_url = f"https://polymarket.com/event/{slug}"
             log(f"  Importing: {pm_url}")
 
-            result = import_event(api_key, pm_url)
+            result = import_event(pm_url)
             if result.get("success"):
                 imported_count = result.get("markets_imported", 0)
                 log(f"  ✅ Imported {imported_count} markets")
@@ -681,7 +724,7 @@ def run_strategy(dry_run=True, positions_only=False, show_config=False,
     opportunities_found = 0
 
     if smart_sizing:
-        portfolio = get_portfolio(api_key)
+        portfolio = get_portfolio()
         if portfolio:
             log(f"\n💰 Balance: ${portfolio.get('balance_usdc', 0):.2f}")
 
@@ -749,7 +792,7 @@ def run_strategy(dry_run=True, positions_only=False, show_config=False,
                 # Our probability: projected count landing in this bucket
                 # Higher confidence for center bucket, lower for edges
                 my_prob = 0.50 if bucket["low"] <= projected_count <= bucket["high"] else 0.25
-                context = get_market_context(api_key, market_id, my_probability=my_prob)
+                context = get_market_context(market_id, my_probability=my_prob)
                 should_trade, reasons = check_context_safeguards(context)
                 if not should_trade:
                     log(f"   ⏭️  {bucket_label}: {'; '.join(reasons)}")
@@ -757,7 +800,7 @@ def run_strategy(dry_run=True, positions_only=False, show_config=False,
                 if reasons:
                     log(f"   ⚠️  {bucket_label}: {'; '.join(reasons)}")
 
-            position_size = calculate_position_size(api_key, MAX_POSITION_USD, smart_sizing)
+            position_size = calculate_position_size(MAX_POSITION_USD, smart_sizing)
 
             min_cost = MIN_SHARES_PER_ORDER * price
             if min_cost > position_size:
@@ -775,12 +818,18 @@ def run_strategy(dry_run=True, positions_only=False, show_config=False,
                 log(f"   [DRY RUN] {bucket_label} @ ${price:.2f} — would buy ${position_size:.2f} (~{shares_est:.0f} shares)")
             else:
                 log(f"   Buying {bucket_label} @ ${price:.2f}...", force=True)
-                result = execute_trade(api_key, market_id, "yes", position_size)
+                result = execute_trade(market_id, "yes", position_size)
 
-                if result.get("success"):
+                # Handle both dict and TradeResult object
+                success = result.get("success") if isinstance(result, dict) else getattr(result, "success", False)
+                if success:
                     trades_executed += 1
-                    shares = result.get("shares_bought") or result.get("shares") or 0
-                    trade_id = result.get("trade_id")
+                    if isinstance(result, dict):
+                        shares = result.get("shares_bought") or result.get("shares") or 0
+                        trade_id = result.get("trade_id")
+                    else:
+                        shares = getattr(result, "shares_bought", None) or getattr(result, "shares", 0) or 0
+                        trade_id = getattr(result, "trade_id", None)
                     log(f"   ✅ Bought {shares:.1f} shares of {bucket_label} @ ${price:.2f}", force=True)
 
                     if trade_id and JOURNAL_AVAILABLE:
@@ -794,10 +843,14 @@ def run_strategy(dry_run=True, positions_only=False, show_config=False,
                             current_count=current_count,
                         )
                 else:
-                    log(f"   ❌ Trade failed: {result.get('error', 'Unknown')}", force=True)
+                    if isinstance(result, dict):
+                        error = result.get('error', 'Unknown')
+                    else:
+                        error = getattr(result, 'error', 'Unknown')
+                    log(f"   ❌ Trade failed: {error}", force=True)
 
     # Check exits
-    exits_found, exits_executed = check_exit_opportunities(api_key, dry_run, use_safeguards)
+    exits_found, exits_executed = check_exit_opportunities(dry_run, use_safeguards)
 
     # Summary
     log("\n" + "=" * 50)
