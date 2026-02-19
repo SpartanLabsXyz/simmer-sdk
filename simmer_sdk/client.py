@@ -499,8 +499,10 @@ class SimmerClient:
                 - "GTC": Good Till Cancelled - limit order, stays on book until filled
                 - "GTD": Good Till Date - limit order with expiry
                 Only applies to venue="polymarket". Ignored for simmer.
-            price: Limit price (0.01-0.99) for GTC orders. If omitted, uses current
-                market price. Only applies to venue="polymarket". Ignored for simmer.
+            price: Limit price (0.01-0.99) for the outcome being traded. For side="yes",
+                this is the YES token price. For side="no", this is the NO token price
+                (NOT 1-price). If omitted, uses current market price for that outcome.
+                Only applies to venue="polymarket". Ignored for simmer.
             reasoning: Optional explanation for the trade. This will be displayed
                 publicly on the market's trade history page, allowing spectators
                 to see why your bot made this trade.
