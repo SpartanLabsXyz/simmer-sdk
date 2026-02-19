@@ -889,10 +889,12 @@ class SimmerClient:
         self,
         min_volume: float = 10000,
         limit: int = 50,
-        category: Optional[str] = None
+        category: Optional[str] = None,
+        venue: Optional[str] = None,
+        q: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """
-        List active Polymarket markets that can be imported.
+        List active markets from external venues that can be imported.
 
         Returns markets that are:
         - Open for trading (not resolved)
@@ -904,7 +906,9 @@ class SimmerClient:
         Args:
             min_volume: Minimum 24h volume in USD (default: 10000)
             limit: Max markets to return (default: 50, max: 100)
-            category: Filter by category (e.g., "politics", "crypto", "sports")
+            category: Filter by category (e.g., "politics", "crypto", "sports"). Polymarket only.
+            venue: Filter by venue ("polymarket", "kalshi", or None for both)
+            q: Keyword search on market title (min 2 chars)
 
         Returns:
             List of dicts with question, url, condition_id, current_price, volume_24h
@@ -922,6 +926,10 @@ class SimmerClient:
         }
         if category:
             params["category"] = category
+        if venue:
+            params["venue"] = venue
+        if q:
+            params["q"] = q
 
         data = self._request("GET", "/api/sdk/markets/importable", params=params)
         return data.get("markets", [])

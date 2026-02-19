@@ -473,6 +473,77 @@ def detect_price_trend(history: list) -> dict:
 
 
 # =============================================================================
+# Market Discovery - Auto-import from Polymarket
+# =============================================================================
+
+# Search terms per location (matching Polymarket event naming)
+LOCATION_SEARCH_TERMS = {
+    "NYC": ["temperature new york", "temperature nyc"],
+    "Chicago": ["temperature chicago"],
+    "Seattle": ["temperature seattle"],
+    "Atlanta": ["temperature atlanta"],
+    "Dallas": ["temperature dallas"],
+    "Miami": ["temperature miami"],
+}
+
+
+def discover_and_import_weather_markets(log=print):
+    """Discover weather markets on Polymarket and auto-import to Simmer.
+
+    Searches the importable markets endpoint for weather events matching
+    ACTIVE_LOCATIONS, then imports any that aren't already in Simmer.
+
+    Returns count of newly imported markets.
+    """
+    client = get_client()
+    imported_count = 0
+    seen_urls = set()
+
+    for location in ACTIVE_LOCATIONS:
+        search_terms = LOCATION_SEARCH_TERMS.get(location, [f"temperature {location.lower()}"])
+
+        for term in search_terms:
+            try:
+                results = client.list_importable_markets(
+                    q=term, venue="polymarket", min_volume=0, limit=20
+                )
+            except Exception as e:
+                log(f"  Discovery search failed for '{term}': {e}")
+                continue
+
+            for m in results:
+                url = m.get("url", "")
+                question = (m.get("question") or "").lower()
+                if not url or url in seen_urls:
+                    continue
+                seen_urls.add(url)
+
+                # Filter: must be a temperature market on Polymarket
+                if "temperature" not in question:
+                    continue
+                if not url.startswith("https://polymarket.com/"):
+                    continue
+
+                # Try to import
+                try:
+                    result = client.import_market(url)
+                    status = result.get("status", "") if result else ""
+                    if status == "imported":
+                        imported_count += 1
+                        log(f"  Imported: {m.get('question', url)[:70]}")
+                    elif status == "already_exists":
+                        pass  # Expected for most
+                except Exception as e:
+                    err_str = str(e)
+                    if "rate limit" in err_str.lower() or "429" in err_str:
+                        log(f"  Import rate limit reached — stopping discovery")
+                        return imported_count
+                    log(f"  Import failed for {url[:50]}: {e}")
+
+    return imported_count
+
+
+# =============================================================================
 # Simmer API - Trading
 # =============================================================================
 
@@ -700,6 +771,13 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
                 sources = pos.get('sources', [])
                 log(f"    YES: {pos.get('shares_yes', 0):.1f} | NO: {pos.get('shares_no', 0):.1f} | P&L: ${pos.get('pnl', 0):.2f} | Sources: {sources}")
         return
+
+    log("\n🔍 Discovering new weather markets on Polymarket...")
+    newly_imported = discover_and_import_weather_markets(log=log)
+    if newly_imported:
+        log(f"  Auto-imported {newly_imported} new market(s)")
+    else:
+        log("  No new markets to import")
 
     log("\n📡 Fetching weather markets...")
     markets = fetch_weather_markets()
