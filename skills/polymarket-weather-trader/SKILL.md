@@ -6,7 +6,7 @@ metadata: {"clawdbot":{"emoji":"🌡️","requires":{"env":["SIMMER_API_KEY"],"p
 authors:
   - Simmer (@simmer_markets)
 attribution: "Strategy inspired by gopfan2"
-version: "1.7.7"
+version: "1.8.0"
 published: true
 ---
 
