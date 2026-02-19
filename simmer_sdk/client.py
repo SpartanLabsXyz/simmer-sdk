@@ -474,6 +474,7 @@ class SimmerClient:
         action: str = "buy",
         venue: Optional[str] = None,
         order_type: str = "FAK",
+        price: Optional[float] = None,
         reasoning: Optional[str] = None,
         source: Optional[str] = None
     ) -> TradeResult:
@@ -498,6 +499,8 @@ class SimmerClient:
                 - "GTC": Good Till Cancelled - limit order, stays on book until filled
                 - "GTD": Good Till Date - limit order with expiry
                 Only applies to venue="polymarket". Ignored for simmer.
+            price: Limit price (0.01-0.99) for GTC orders. If omitted, uses current
+                market price. Only applies to venue="polymarket". Ignored for simmer.
             reasoning: Optional explanation for the trade. This will be displayed
                 publicly on the market's trade history page, allowing spectators
                 to see why your bot made this trade.
@@ -554,6 +557,13 @@ class SimmerClient:
         if not is_sell and amount <= 0:
             raise ValueError("amount required for buy orders")
 
+        # Validate price if provided
+        if price is not None:
+            if price < 0.01 or price > 0.99:
+                raise ValueError("price must be between 0.01 and 0.99 (Polymarket share prices)")
+            if effective_venue != "polymarket":
+                raise ValueError(f"price parameter only supported for venue='polymarket' (you specified venue='{effective_venue}')")
+
         payload = {
             "market_id": market_id,
             "side": side,
@@ -567,6 +577,8 @@ class SimmerClient:
             payload["reasoning"] = reasoning
         if source:
             payload["source"] = source
+        if price is not None:
+            payload["price"] = price
 
         # External wallet: ensure linked, check approvals, sign locally
         if self._private_key and effective_venue == "polymarket":
@@ -577,7 +589,7 @@ class SimmerClient:
             # Sign order locally
             signed_order = self._build_signed_order(
                 market_id, side, amount if not is_sell else 0,
-                shares if is_sell else 0, action, order_type
+                shares if is_sell else 0, action, order_type, price
             )
             if signed_order:
                 payload["signed_order"] = signed_order
@@ -1456,6 +1468,7 @@ class SimmerClient:
         shares: float = 0,
         action: str = "buy",
         order_type: str = "FAK",
+        price: Optional[float] = None,
     ) -> Optional[Dict[str, Any]]:
         """
         Build and sign a Polymarket order locally.
@@ -1468,6 +1481,8 @@ class SimmerClient:
             amount: Dollar amount (for buys)
             shares: Number of shares (for sells)
             action: 'buy' or 'sell'
+            order_type: Order type ('FAK', 'GTC', etc.)
+            price: Optional limit price (0.01-0.99). If None, uses current market price.
         """
         if not self._private_key or not self._wallet_address:
             return None
@@ -1497,16 +1512,18 @@ class SimmerClient:
         if not token_id:
             raise ValueError(f"Market {market_id} does not have Polymarket token IDs")
 
-        # Get price - use external price for the side
-        if side.lower() == "yes":
-            price = market_data.get("external_price_yes") or 0.5
-        else:
-            external_yes = market_data.get("external_price_yes") or 0.5
-            price = 1.0 - external_yes
+        # Get price - use custom price if provided, otherwise fetch from market data
+        if price is None:
+            # Fetch current market price for the side
+            if side.lower() == "yes":
+                price = market_data.get("external_price_yes") or 0.5
+            else:
+                external_yes = market_data.get("external_price_yes") or 0.5
+                price = 1.0 - external_yes
 
-        # Clamp price to valid range to avoid division issues
-        if price <= 0 or price >= 1:
-            price = 0.5  # Fallback to 50%
+            # Clamp price to valid range to avoid division issues
+            if price <= 0 or price >= 1:
+                price = 0.5  # Fallback to 50%
 
         # Calculate size based on action
         if is_sell:
