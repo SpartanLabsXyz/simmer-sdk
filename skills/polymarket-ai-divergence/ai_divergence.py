@@ -18,8 +18,6 @@ import sys
 import json
 import argparse
 from pathlib import Path
-from urllib.request import Request, urlopen
-from urllib.error import HTTPError, URLError
 
 # Force line-buffered stdout so output is visible in non-TTY environments (cron, Docker, OpenClaw)
 sys.stdout.reconfigure(line_buffering=True)
@@ -82,33 +80,33 @@ CONFIG_SCHEMA = {
 # Load configuration
 _config = load_config(CONFIG_SCHEMA, __file__)
 
-SIMMER_API_URL = os.environ.get("SIMMER_API_URL", "https://api.simmer.markets")
 DEFAULT_MIN_DIVERGENCE = _config["min_divergence"]
 DEFAULT_DIRECTION = _config["default_direction"]
 
+# SimmerClient singleton
+_client = None
 
-def api_request(api_key: str, endpoint: str) -> dict:
-    """Make authenticated request to Simmer API."""
-    url = f"{SIMMER_API_URL}{endpoint}"
-    req = Request(url, headers={
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json"
-    })
-    try:
-        with urlopen(req, timeout=30) as resp:
-            return json.loads(resp.read().decode())
-    except HTTPError as e:
-        error_body = e.read().decode() if e.fp else ""
-        print(f"❌ API Error {e.code}: {error_body}")
-        sys.exit(1)
-    except URLError as e:
-        print(f"❌ Connection error: {e.reason}")
-        sys.exit(1)
+def get_client():
+    """Lazy-init SimmerClient singleton."""
+    global _client
+    if _client is None:
+        try:
+            from simmer_sdk import SimmerClient
+        except ImportError:
+            print("Error: simmer-sdk not installed. Run: pip install simmer-sdk")
+            sys.exit(1)
+        api_key = os.environ.get("SIMMER_API_KEY")
+        if not api_key:
+            print("Error: SIMMER_API_KEY environment variable not set")
+            print("Get your API key from: simmer.markets/dashboard -> SDK tab")
+            sys.exit(1)
+        _client = SimmerClient(api_key=api_key, venue="polymarket")
+    return _client
 
 
-def get_markets(api_key: str) -> list:
+def get_markets() -> list:
     """Fetch all markets with divergence data."""
-    data = api_request(api_key, "/api/sdk/markets")
+    data = get_client()._request("GET", "/api/sdk/markets")
     return data.get("markets", [])
 
 
@@ -245,19 +243,16 @@ def main():
         print("  --set default_direction=bullish")
         return
     
-    api_key = os.environ.get("SIMMER_API_KEY")
-    if not api_key:
-        print("❌ SIMMER_API_KEY environment variable not set")
-        print("   Get your API key from: https://simmer.markets/dashboard")
-        sys.exit(1)
-    
+    # Validate API key by initializing client
+    get_client()
+
     direction = DEFAULT_DIRECTION or None
     if args.bullish:
         direction = "bullish"
     elif args.bearish:
         direction = "bearish"
-    
-    markets = get_markets(api_key)
+
+    markets = get_markets()
     
     if args.json:
         filtered = [m for m in markets if abs(m.get("divergence") or 0) >= args.min / 100]

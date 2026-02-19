@@ -120,9 +120,25 @@ CONFIG_SCHEMA = {
 # Load configuration
 _config = load_config(CONFIG_SCHEMA, __file__)
 
-# Environment variables (API key still from env for security)
-SIMMER_API_KEY = os.environ.get("SIMMER_API_KEY", "")
-SIMMER_API_URL = os.environ.get("SIMMER_API_URL", "https://api.simmer.markets")
+# SimmerClient singleton
+_client = None
+
+def get_client():
+    """Lazy-init SimmerClient singleton."""
+    global _client
+    if _client is None:
+        try:
+            from simmer_sdk import SimmerClient
+        except ImportError:
+            print("Error: simmer-sdk not installed. Run: pip install simmer-sdk")
+            sys.exit(1)
+        api_key = os.environ.get("SIMMER_API_KEY")
+        if not api_key:
+            print("Error: SIMMER_API_KEY environment variable not set")
+            print("Get your API key from: simmer.markets/dashboard -> SDK tab")
+            sys.exit(1)
+        _client = SimmerClient(api_key=api_key, venue="polymarket")
+    return _client
 
 # Polymarket constraints
 MIN_SHARES_PER_ORDER = 5.0  # Polymarket requires minimum 5 shares
@@ -141,8 +157,7 @@ def get_config() -> dict:
     top_n = int(COPYTRADING_TOP_N) if COPYTRADING_TOP_N else None
 
     return {
-        "api_key_set": bool(SIMMER_API_KEY),
-        "api_url": SIMMER_API_URL,
+        "api_key_set": bool(os.environ.get("SIMMER_API_KEY")),
         "wallets": wallets,
         "top_n": top_n,
         "top_n_mode": "auto" if top_n is None else "manual",
@@ -158,7 +173,6 @@ def print_config():
     print("\n🐋 Simmer Copytrading Configuration")
     print("=" * 40)
     print(f"API Key: {'✅ Set' if config['api_key_set'] else '❌ Not set'}")
-    print(f"API URL: {config['api_url']}")
     print(f"\nTarget Wallets ({len(config['wallets'])}):")
     for i, wallet in enumerate(config['wallets'], 1):
         print(f"  {i}. {wallet[:10]}...{wallet[-6:]}")
@@ -181,55 +195,18 @@ def print_config():
 # API Helpers
 # =============================================================================
 
-def api_request(method: str, endpoint: str, data: dict = None) -> dict:
-    """Make authenticated request to Simmer API."""
-    if not SIMMER_API_KEY:
-        raise ValueError("SIMMER_API_KEY environment variable not set")
-
-    url = f"{SIMMER_API_URL}{endpoint}"
-    headers = {
-        "Authorization": f"Bearer {SIMMER_API_KEY}",
-        "Content-Type": "application/json",
-    }
-
-    if data:
-        body = json.dumps(data).encode("utf-8")
-    else:
-        body = None
-
-    req = Request(url, data=body, headers=headers, method=method)
-
-    try:
-        with urlopen(req, timeout=60) as response:
-            return json.loads(response.read().decode("utf-8"))
-    except HTTPError as e:
-        error_body = e.read().decode("utf-8")
-        try:
-            error_json = json.loads(error_body)
-            raise ValueError(f"API error ({e.code}): {error_json.get('detail', error_body)}")
-        except json.JSONDecodeError:
-            raise ValueError(f"API error ({e.code}): {error_body}")
-    except URLError as e:
-        raise ValueError(f"Network error: {e.reason}")
-
-
 def get_positions() -> dict:
-    """Get current SDK positions."""
-    return api_request("GET", "/api/sdk/positions")
+    """Get current SDK positions as raw dict (preserves original format for show_positions)."""
+    return get_client()._request("GET", "/api/sdk/positions")
 
 
-def set_risk_monitor(market_id: str, side: str, 
+def set_risk_monitor(market_id: str, side: str,
                      stop_loss_pct: float = 0.20, take_profit_pct: float = 0.50) -> dict:
-    """
-    Set stop-loss and take-profit for a position.
-    The backend monitors every 15 min and auto-exits when thresholds hit.
-    """
+    """Set stop-loss and take-profit for a position."""
     try:
-        return api_request("POST", f"/api/sdk/positions/{market_id}/monitor", {
-            "side": side,
-            "stop_loss_pct": stop_loss_pct,
-            "take_profit_pct": take_profit_pct
-        })
+        return get_client().set_monitor(market_id, side,
+                                        stop_loss_pct=stop_loss_pct,
+                                        take_profit_pct=take_profit_pct)
     except Exception as e:
         return {"error": str(e)}
 
@@ -237,7 +214,7 @@ def set_risk_monitor(market_id: str, side: str,
 def get_risk_monitors() -> dict:
     """List all active risk monitors."""
     try:
-        return api_request("GET", "/api/sdk/positions/monitors")
+        return get_client().list_monitors()
     except Exception as e:
         return {"error": str(e)}
 
@@ -245,37 +222,36 @@ def get_risk_monitors() -> dict:
 def remove_risk_monitor(market_id: str, side: str) -> dict:
     """Remove risk monitor for a position."""
     try:
-        return api_request("DELETE", f"/api/sdk/positions/{market_id}/monitor?side={side}")
+        return get_client().delete_monitor(market_id, side)
     except Exception as e:
         return {"error": str(e)}
 
 
 def get_markets() -> list:
     """Get available markets."""
-    result = api_request("GET", "/api/sdk/markets")
+    result = get_client()._request("GET", "/api/sdk/markets")
     return result.get("markets", [])
 
 
 def get_context(market_id: str) -> dict:
     """Get market context (position, trades, slippage)."""
-    return api_request("GET", f"/api/sdk/context/{market_id}")
+    return get_client().get_market_context(market_id)
 
 
 def execute_trade(market_id: str, side: str, action: str, amount_usd: float = None, shares: float = None) -> dict:
     """Execute a trade via SDK."""
-    data = {
-        "market_id": market_id,
-        "side": side,
-        "action": action,
-        "venue": "polymarket",
-    }
-
-    if action == "buy" and amount_usd:
-        data["amount"] = amount_usd
-    elif action == "sell" and shares:
-        data["shares"] = shares
-
-    return api_request("POST", "/api/sdk/trade", data)
+    try:
+        result = get_client().trade(
+            market_id=market_id, side=side, action=action,
+            amount=amount_usd or 0, shares=shares or 0,
+            source=TRADE_SOURCE,
+        )
+        return {
+            "success": result.success, "trade_id": result.trade_id,
+            "shares_bought": result.shares_bought, "error": result.error,
+        }
+    except Exception as e:
+        raise ValueError(str(e))
 
 
 # =============================================================================
@@ -326,7 +302,7 @@ def execute_copytrading(wallets: list, top_n: int = None, max_usd: float = 50.0,
     if max_trades is not None:
         data["max_trades"] = max_trades
 
-    return api_request("POST", "/api/sdk/copytrading/execute", data)
+    return get_client()._request("POST", "/api/sdk/copytrading/execute", json=data)
 
 
 def run_copytrading(wallets: list, top_n: int = None, max_usd: float = 50.0, dry_run: bool = True, buy_only: bool = True, detect_whale_exits: bool = False):
@@ -604,15 +580,8 @@ def main():
         show_positions()
         return
 
-    # Validate API key
-    if not SIMMER_API_KEY:
-        print("❌ Error: SIMMER_API_KEY environment variable not set")
-        print("\nTo get an API key:")
-        print("1. Go to simmer.markets/dashboard")
-        print("2. Click on 'SDK' tab")
-        print("3. Generate a new API key")
-        print("4. Set: export SIMMER_API_KEY=sk_live_...")
-        sys.exit(1)
+    # Validate API key by initializing client
+    get_client()
 
     # Get wallets (from args or env)
     if args.wallets:

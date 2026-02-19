@@ -123,9 +123,25 @@ CONFIG_SCHEMA = {
 # Load configuration
 _config = load_config(CONFIG_SCHEMA, __file__)
 
-# Configuration from environment (API key still from env for security)
-API_KEY = os.environ.get("SIMMER_API_KEY", "")
-API_BASE = os.environ.get("SIMMER_API_BASE", "https://api.simmer.markets")
+# SimmerClient singleton
+_client = None
+
+def get_client():
+    """Lazy-init SimmerClient singleton."""
+    global _client
+    if _client is None:
+        try:
+            from simmer_sdk import SimmerClient
+        except ImportError:
+            print("Error: simmer-sdk not installed. Run: pip install simmer-sdk")
+            sys.exit(1)
+        api_key = os.environ.get("SIMMER_API_KEY")
+        if not api_key:
+            print("Error: SIMMER_API_KEY environment variable not set")
+            print("Get your API key from: simmer.markets/dashboard -> SDK tab")
+            sys.exit(1)
+        _client = SimmerClient(api_key=api_key, venue="polymarket")
+    return _client
 
 # Sniper configuration - from config
 FEEDS = _config["feeds"]
@@ -162,7 +178,6 @@ def get_config() -> Dict[str, Any]:
         "keywords": [k.strip().lower() for k in KEYWORDS.split(",") if k.strip()],
         "confidence_threshold": CONFIDENCE_THRESHOLD,
         "max_usd": MAX_USD,
-        "api_base": API_BASE,
     }
 
 
@@ -172,8 +187,7 @@ def show_config():
     config_path = get_config_path(__file__)
     print("🎯 Signal Sniper Configuration")
     print("=" * 40)
-    print(f"API Base: {config['api_base']}")
-    print(f"API Key: {'✓ Set' if API_KEY else '✗ Missing'}")
+    print(f"API Key: {'✓ Set' if os.environ.get('SIMMER_API_KEY') else '✗ Missing'}")
     print()
     print("RSS Feeds:")
     if config["feeds"]:
@@ -363,66 +377,36 @@ def matches_keywords(article: Dict[str, str], keywords: List[str]) -> bool:
     return any(kw in text for kw in keywords)
 
 
-def sdk_request(method: str, endpoint: str, data: Optional[Dict] = None) -> Dict:
-    """Make authenticated request to Simmer SDK."""
-    url = f"{API_BASE}{endpoint}"
-    headers = {
-        "Authorization": f"Bearer {API_KEY}",
-        "Content-Type": "application/json",
-    }
-
-    if method == "GET":
-        req = Request(url, headers=headers)
-    else:
-        body = json.dumps(data).encode("utf-8") if data else None
-        req = Request(url, data=body, headers=headers, method=method)
-
-    try:
-        with urlopen(req, timeout=REQUEST_TIMEOUT_SECONDS) as response:
-            return json.loads(response.read())
-    except HTTPError as e:
-        # Parse error safely without exposing potentially sensitive content
-        try:
-            error_data = json.loads(e.read().decode("utf-8"))
-            error_msg = error_data.get("detail", error_data.get("error", "Unknown error"))
-        except Exception:
-            error_msg = f"HTTP {e.code}"
-        print(f"  ❌ API Error: {error_msg}")
-        return {"error": error_msg}
-    except URLError as e:
-        print(f"  ❌ Network Error: Connection failed")
-        return {"error": "Network error"}
-
-
 def get_market_context(market_id: str, my_probability: float = None) -> Optional[Dict]:
     """
     Get SDK context for a market (safeguards + optional edge analysis).
-    
+
     Args:
         market_id: Market ID
         my_probability: Your probability estimate (0-1) for edge calculation
     """
-    endpoint = f"/api/sdk/context/{market_id}"
-    if my_probability is not None:
-        endpoint += f"?my_probability={my_probability}"
-    result = sdk_request("GET", endpoint)
-    if "error" in result:
+    try:
+        # get_market_context doesn't support my_probability param, use _request
+        if my_probability is not None:
+            return get_client()._request("GET", f"/api/sdk/context/{market_id}",
+                                         params={"my_probability": my_probability})
+        return get_client().get_market_context(market_id)
+    except Exception:
         return None
-    return result
 
 
-def set_risk_monitor(market_id: str, side: str, 
+def set_risk_monitor(market_id: str, side: str,
                      stop_loss_pct: float = 0.20, take_profit_pct: float = 0.50) -> Dict:
     """
     Set stop-loss and take-profit for a position.
     The backend monitors every 15 min and auto-exits when thresholds hit.
     """
-    result = sdk_request("POST", f"/api/sdk/positions/{market_id}/monitor", {
-        "side": side,
-        "stop_loss_pct": stop_loss_pct,
-        "take_profit_pct": take_profit_pct
-    })
-    return result
+    try:
+        return get_client().set_monitor(market_id, side,
+                                        stop_loss_pct=stop_loss_pct,
+                                        take_profit_pct=take_profit_pct)
+    except Exception as e:
+        return {"error": str(e)}
 
 
 def execute_trade(
@@ -446,18 +430,26 @@ def execute_trade(
                 "error": f"Position size ${amount:.2f} too small for {MIN_SHARES_PER_ORDER} shares at ${price:.2f} (would be {shares:.1f} shares)"
             }
 
-    result = sdk_request("POST", "/api/sdk/trade", {
-        "market_id": market_id,
-        "side": side,
-        "action": "buy",
-        "amount": amount,
-        "venue": "polymarket",
-        "source": source,
-    })
+    try:
+        result = get_client().trade(
+            market_id=market_id,
+            side=side,
+            amount=amount,
+            source=source,
+        )
+        trade_result = {
+            "success": result.success,
+            "trade_id": result.trade_id,
+            "shares_bought": result.shares_bought,
+            "shares": result.shares_bought,
+            "error": result.error,
+        }
+    except Exception as e:
+        return {"error": str(e)}
 
     # Log to journal if successful
-    if result.get("success") and JOURNAL_AVAILABLE:
-        trade_id = result.get("trade_id")
+    if trade_result.get("success") and JOURNAL_AVAILABLE:
+        trade_id = trade_result.get("trade_id")
         if trade_id:
             log_trade(
                 trade_id=trade_id,
@@ -466,7 +458,7 @@ def execute_trade(
                 confidence=confidence,
             )
 
-    return result
+    return trade_result
 
 
 def check_safeguards(context: Dict) -> Tuple[bool, List[str]]:
@@ -598,8 +590,10 @@ def run_scan(
     if dry_run:
         print("\n  [DRY RUN] No trades will be executed. Use --live to enable trading.\n")
 
-    if not API_KEY:
-        print("❌ SIMMER_API_KEY not set")
+    # Validate API key via client init
+    try:
+        get_client()
+    except SystemExit:
         return {"error": "No API key"}
 
     if not feeds:

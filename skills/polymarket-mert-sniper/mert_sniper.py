@@ -92,7 +92,6 @@ CONFIG_SCHEMA = {
 
 _config = load_config(CONFIG_SCHEMA, __file__)
 
-SIMMER_API_BASE = "https://api.simmer.markets"
 TRADE_SOURCE = "sdk:mertsniper"
 
 # Polymarket constraints
@@ -114,77 +113,54 @@ SLIPPAGE_MAX_PCT = 0.15
 # API Helpers
 # =============================================================================
 
-def fetch_json(url, headers=None):
-    try:
-        req = Request(url, headers=headers or {})
-        with urlopen(req, timeout=30) as response:
-            return json.loads(response.read().decode())
-    except HTTPError as e:
-        print(f"  HTTP Error {e.code}: {url}")
-        return None
-    except URLError as e:
-        print(f"  URL Error: {e.reason}")
-        return None
-    except Exception as e:
-        print(f"  Error fetching {url}: {e}")
-        return None
+_client = None
 
-
-def get_api_key():
-    key = os.environ.get("SIMMER_API_KEY")
-    if not key:
-        print("Error: SIMMER_API_KEY environment variable not set")
-        print("Get your API key from: simmer.markets/dashboard -> SDK tab")
-        sys.exit(1)
-    return key
-
-
-def sdk_request(api_key, method, endpoint, data=None):
-    url = f"{SIMMER_API_BASE}{endpoint}"
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-    }
-    try:
-        if method == "GET":
-            req = Request(url, headers=headers)
-        else:
-            body = json.dumps(data).encode() if data else None
-            req = Request(url, data=body, headers=headers, method=method)
-        with urlopen(req, timeout=30) as response:
-            return json.loads(response.read().decode())
-    except HTTPError as e:
-        error_body = e.read().decode() if e.fp else str(e)
-        return {"error": f"HTTP {e.code}: {error_body}"}
-    except Exception as e:
-        return {"error": str(e)}
+def get_client():
+    """Lazy-init SimmerClient singleton."""
+    global _client
+    if _client is None:
+        try:
+            from simmer_sdk import SimmerClient
+        except ImportError:
+            print("Error: simmer-sdk not installed. Run: pip install simmer-sdk")
+            sys.exit(1)
+        api_key = os.environ.get("SIMMER_API_KEY")
+        if not api_key:
+            print("Error: SIMMER_API_KEY environment variable not set")
+            print("Get your API key from: simmer.markets/dashboard -> SDK tab")
+            sys.exit(1)
+        _client = SimmerClient(api_key=api_key, venue="polymarket")
+    return _client
 
 
 # =============================================================================
 # SDK Wrappers
 # =============================================================================
 
-def get_portfolio(api_key):
-    result = sdk_request(api_key, "GET", "/api/sdk/portfolio")
-    if "error" in result:
-        print(f"  Portfolio fetch failed: {result['error']}")
+def get_portfolio():
+    try:
+        return get_client().get_portfolio()
+    except Exception as e:
+        print(f"  Portfolio fetch failed: {e}")
         return None
-    return result
 
 
-def get_positions(api_key):
-    result = sdk_request(api_key, "GET", "/api/sdk/positions")
-    if "error" in result:
-        print(f"  Error fetching positions: {result['error']}")
+def get_positions():
+    """Get current positions as list of dicts."""
+    try:
+        positions = get_client().get_positions()
+        from dataclasses import asdict
+        return [asdict(p) for p in positions]
+    except Exception as e:
+        print(f"  Error fetching positions: {e}")
         return []
-    return result.get("positions", [])
 
 
-def get_market_context(api_key, market_id):
-    result = sdk_request(api_key, "GET", f"/api/sdk/context/{market_id}")
-    if "error" in result:
+def get_market_context(market_id):
+    try:
+        return get_client().get_market_context(market_id)
+    except Exception:
         return None
-    return result
 
 
 def check_context_safeguards(context):
@@ -216,22 +192,31 @@ def check_context_safeguards(context):
     return True, reasons
 
 
-def execute_trade(api_key, market_id, side, amount, reasoning=""):
-    return sdk_request(api_key, "POST", "/api/sdk/trade", {
-        "market_id": market_id,
-        "side": side,
-        "amount": amount,
-        "venue": "polymarket",
-        "source": TRADE_SOURCE,
-        "reasoning": reasoning,
-    })
+def execute_trade(market_id, side, amount, reasoning=""):
+    try:
+        result = get_client().trade(
+            market_id=market_id,
+            side=side,
+            amount=amount,
+            source=TRADE_SOURCE,
+            reasoning=reasoning,
+        )
+        return {
+            "success": result.success,
+            "trade_id": result.trade_id,
+            "shares_bought": result.shares_bought,
+            "shares": result.shares_bought,
+            "error": result.error,
+        }
+    except Exception as e:
+        return {"error": str(e)}
 
 
-def calculate_position_size(api_key, default_size, smart_sizing):
+def calculate_position_size(default_size, smart_sizing):
     if not smart_sizing:
         return default_size
 
-    portfolio = get_portfolio(api_key)
+    portfolio = get_portfolio()
     if not portfolio:
         print(f"  Smart sizing failed, using default ${default_size:.2f}")
         return default_size
@@ -252,33 +237,27 @@ def calculate_position_size(api_key, default_size, smart_sizing):
 # Market Fetching
 # =============================================================================
 
-def fetch_markets(api_key, market_filter=""):
+def fetch_markets(market_filter=""):
     """Fetch markets from Simmer API with optional filter."""
-    params = {"status": "active", "limit": 200}
+    try:
+        params = {"status": "active", "limit": 200}
+        if market_filter:
+            params["tags"] = market_filter
 
-    if market_filter:
-        # Try tag filter first, fall back to text search
-        params["tags"] = market_filter
+        result = get_client()._request("GET", "/api/sdk/markets", params=params)
+        markets = result.get("markets", [])
 
-    endpoint = "/api/sdk/markets?" + urlencode(params)
-    result = sdk_request(api_key, "GET", endpoint)
-
-    if "error" in result:
-        print(f"  Failed to fetch markets: {result['error']}")
-        return []
-
-    markets = result.get("markets", [])
-
-    # If tag filter returned nothing, try text search
-    if not markets and market_filter:
-        params.pop("tags", None)
-        params["q"] = market_filter
-        endpoint = "/api/sdk/markets?" + urlencode(params)
-        result = sdk_request(api_key, "GET", endpoint)
-        if "error" not in result:
+        # If tag filter returned nothing, try text search
+        if not markets and market_filter:
+            params.pop("tags", None)
+            params["q"] = market_filter
+            result = get_client()._request("GET", "/api/sdk/markets", params=params)
             markets = result.get("markets", [])
 
-    return markets
+        return markets
+    except Exception as e:
+        print(f"  Failed to fetch markets: {e}")
+        return []
 
 
 def parse_resolves_at(resolves_at_str):
@@ -346,12 +325,13 @@ def run_mert_strategy(dry_run=True, positions_only=False, show_config=False,
         print("  3. Set env vars: SIMMER_MERT_MAX_BET=5.00")
         return
 
-    api_key = get_api_key()
+    # Initialize client early to validate API key
+    get_client()
 
     # Show portfolio if smart sizing
     if smart_sizing:
         print("\n  Portfolio:")
-        portfolio = get_portfolio(api_key)
+        portfolio = get_portfolio()
         if portfolio:
             print(f"  Balance: ${portfolio.get('balance_usdc', 0):.2f}")
             print(f"  Exposure: ${portfolio.get('total_exposure', 0):.2f}")
@@ -359,7 +339,7 @@ def run_mert_strategy(dry_run=True, positions_only=False, show_config=False,
 
     if positions_only:
         print("\n  Current Positions:")
-        positions = get_positions(api_key)
+        positions = get_positions()
         if not positions:
             print("  No open positions")
         else:
@@ -372,7 +352,7 @@ def run_mert_strategy(dry_run=True, positions_only=False, show_config=False,
 
     # Fetch markets
     print(f"\n  Fetching markets{' (filter: ' + market_filter + ')' if market_filter else ''}...")
-    markets = fetch_markets(api_key, market_filter)
+    markets = fetch_markets(market_filter)
     print(f"  Found {len(markets)} active markets")
 
     if not markets:
@@ -411,7 +391,7 @@ def run_mert_strategy(dry_run=True, positions_only=False, show_config=False,
     expiring_markets.sort(key=lambda m: m["_minutes_remaining"])
 
     # Calculate position size once (avoids repeated portfolio API calls)
-    position_size = calculate_position_size(api_key, MAX_BET_USD, smart_sizing)
+    position_size = calculate_position_size(MAX_BET_USD, smart_sizing)
 
     trades_executed = 0
     strong_split_count = 0
@@ -450,7 +430,7 @@ def run_mert_strategy(dry_run=True, positions_only=False, show_config=False,
 
         # Safeguards
         if use_safeguards:
-            context = get_market_context(api_key, market_id)
+            context = get_market_context(market_id)
             should_trade, reasons = check_context_safeguards(context)
             if not should_trade:
                 print(f"     Safeguard blocked: {'; '.join(reasons)}")
@@ -476,7 +456,7 @@ def run_mert_strategy(dry_run=True, positions_only=False, show_config=False,
             print(f"     [DRY RUN] Would buy ${position_size:.2f} on {side.upper()} (~{est_shares:.1f} shares)")
         else:
             print(f"     Executing trade...")
-            result = execute_trade(api_key, market_id, side, position_size, reasoning=reasoning)
+            result = execute_trade(market_id, side, position_size, reasoning=reasoning)
 
             if result.get("success"):
                 trades_executed += 1

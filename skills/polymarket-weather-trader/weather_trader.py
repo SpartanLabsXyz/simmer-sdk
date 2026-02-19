@@ -111,8 +111,27 @@ CONFIG_SCHEMA = {
 # Load configuration
 _config = load_config(CONFIG_SCHEMA, __file__)
 
-SIMMER_API_BASE = "https://api.simmer.markets"
 NOAA_API_BASE = "https://api.weather.gov"
+
+# SimmerClient singleton
+_client = None
+
+def get_client():
+    """Lazy-init SimmerClient singleton."""
+    global _client
+    if _client is None:
+        try:
+            from simmer_sdk import SimmerClient
+        except ImportError:
+            print("Error: simmer-sdk not installed. Run: pip install simmer-sdk")
+            sys.exit(1)
+        api_key = os.environ.get("SIMMER_API_KEY")
+        if not api_key:
+            print("Error: SIMMER_API_KEY environment variable not set")
+            print("Get your API key from: simmer.markets/dashboard -> SDK tab")
+            sys.exit(1)
+        _client = SimmerClient(api_key=api_key, venue="polymarket")
+    return _client
 
 # Source tag for tracking
 TRADE_SOURCE = "sdk:weather"
@@ -318,126 +337,36 @@ def parse_temperature_bucket(outcome_name: str) -> tuple:
 # Simmer API - Core
 # =============================================================================
 
-def get_api_key():
-    """Get Simmer API key from environment."""
-    key = os.environ.get("SIMMER_API_KEY")
-    if not key:
-        print("Error: SIMMER_API_KEY environment variable not set")
-        print("Get your API key from: simmer.markets/dashboard → SDK tab")
-        sys.exit(1)
-    return key
-
-
-def sdk_request(api_key: str, method: str, endpoint: str, data: dict = None) -> dict:
-    """Make authenticated request to Simmer SDK."""
-    url = f"{SIMMER_API_BASE}{endpoint}"
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-    }
-
-    try:
-        if method == "GET":
-            req = Request(url, headers=headers)
-        else:
-            body = json.dumps(data).encode() if data else None
-            req = Request(url, data=body, headers=headers, method=method)
-
-        with urlopen(req, timeout=30) as response:
-            return json.loads(response.read().decode())
-    except HTTPError as e:
-        error_body = e.read().decode() if e.fp else str(e)
-        return {"error": f"HTTP {e.code}: {error_body}"}
-    except Exception as e:
-        return {"error": str(e)}
-
-
-# =============================================================================
-# Simmer API - Risk Monitoring
-# =============================================================================
-
-def set_risk_monitor(api_key: str, market_id: str, side: str, 
-                     stop_loss_pct: float = 0.20, take_profit_pct: float = 0.50) -> dict:
-    """
-    Set stop-loss and take-profit for a position.
-    The backend monitors every 15 min and auto-exits when thresholds hit.
-    
-    Args:
-        market_id: Market ID
-        side: 'yes' or 'no'
-        stop_loss_pct: Exit if P&L drops below this (default 20% loss)
-        take_profit_pct: Exit if P&L rises above this (default 50% gain)
-    """
-    result = sdk_request(api_key, "POST", f"/api/sdk/positions/{market_id}/monitor", {
-        "side": side,
-        "stop_loss_pct": stop_loss_pct,
-        "take_profit_pct": take_profit_pct
-    })
-    if "error" in result:
-        print(f"  ⚠️  Risk monitor failed: {result['error']}")
-        return None
-    return result
-
-
-def get_risk_monitors(api_key: str) -> dict:
-    """List all active risk monitors."""
-    result = sdk_request(api_key, "GET", "/api/sdk/positions/monitors")
-    if "error" in result:
-        return None
-    return result
-
-
-def remove_risk_monitor(api_key: str, market_id: str, side: str) -> dict:
-    """Remove risk monitor for a position."""
-    result = sdk_request(api_key, "DELETE", f"/api/sdk/positions/{market_id}/monitor?side={side}")
-    return result
-
-
 # =============================================================================
 # Simmer API - Portfolio & Context
 # =============================================================================
 
-def get_portfolio(api_key: str) -> dict:
-    """
-    Get portfolio summary from SDK.
-    Returns: balance_usdc, total_exposure, positions_count, concentration
-    """
-    result = sdk_request(api_key, "GET", "/api/sdk/portfolio")
-    if "error" in result:
-        print(f"  ⚠️  Portfolio fetch failed: {result['error']}")
+def get_portfolio() -> dict:
+    """Get portfolio summary from SDK."""
+    try:
+        return get_client().get_portfolio()
+    except Exception as e:
+        print(f"  ⚠️  Portfolio fetch failed: {e}")
         return None
-    return result
 
 
-def get_market_context(api_key: str, market_id: str, my_probability: float = None) -> dict:
-    """
-    Get market context with safeguards and optional edge analysis.
-    
-    Args:
-        api_key: Simmer API key
-        market_id: Market ID
-        my_probability: Your probability estimate (0-1) for edge calculation
-    
-    Returns: market info, position, warnings, slippage, discipline, edge
-    """
-    endpoint = f"/api/sdk/context/{market_id}"
-    if my_probability is not None:
-        endpoint += f"?my_probability={my_probability}"
-    result = sdk_request(api_key, "GET", endpoint)
-    if "error" in result:
+def get_market_context(market_id: str, my_probability: float = None) -> dict:
+    """Get market context with safeguards and optional edge analysis."""
+    try:
+        if my_probability is not None:
+            return get_client()._request("GET", f"/api/sdk/context/{market_id}",
+                                         params={"my_probability": my_probability})
+        return get_client().get_market_context(market_id)
+    except Exception:
         return None
-    return result
 
 
-def get_price_history(api_key: str, market_id: str) -> list:
-    """
-    Get price history for trend detection.
-    Returns: list of {timestamp, price_yes, price_no}
-    """
-    result = sdk_request(api_key, "GET", f"/api/sdk/markets/{market_id}/history")
-    if "error" in result:
+def get_price_history(market_id: str) -> list:
+    """Get price history for trend detection."""
+    try:
+        return get_client().get_price_history(market_id)
+    except Exception:
         return []
-    return result.get("points", [])
 
 
 def check_context_safeguards(context: dict, use_edge: bool = True) -> tuple:
@@ -549,56 +478,62 @@ def detect_price_trend(history: list) -> dict:
 
 def fetch_weather_markets():
     """Fetch weather-tagged markets from Simmer API."""
-    url = f"{SIMMER_API_BASE}/api/markets?tags=weather&status=active&limit=100"
-    data = fetch_json(url)
-
-    if not data or "markets" not in data:
+    try:
+        result = get_client()._request("GET", "/api/sdk/markets",
+                                       params={"tags": "weather", "status": "active", "limit": 100})
+        return result.get("markets", [])
+    except Exception:
         print("  Failed to fetch markets from Simmer API")
         return []
 
-    return data["markets"]
+
+def execute_trade(market_id: str, side: str, amount: float) -> dict:
+    """Execute a buy trade via Simmer SDK with source tagging."""
+    try:
+        result = get_client().trade(
+            market_id=market_id, side=side, amount=amount, source=TRADE_SOURCE,
+        )
+        return {
+            "success": result.success, "trade_id": result.trade_id,
+            "shares_bought": result.shares_bought, "shares": result.shares_bought,
+            "error": result.error,
+        }
+    except Exception as e:
+        return {"error": str(e)}
 
 
-def execute_trade(api_key: str, market_id: str, side: str, amount: float) -> dict:
-    """Execute a buy trade via Simmer SDK API with source tagging."""
-    return sdk_request(api_key, "POST", "/api/sdk/trade", {
-        "market_id": market_id,
-        "side": side,
-        "amount": amount,
-        "venue": "polymarket",
-        "source": TRADE_SOURCE,  # Track that this trade came from weather skill
-    })
+def execute_sell(market_id: str, shares: float) -> dict:
+    """Execute a sell trade via Simmer SDK with source tagging."""
+    try:
+        result = get_client().trade(
+            market_id=market_id, side="yes", action="sell",
+            shares=shares, source=TRADE_SOURCE,
+        )
+        return {
+            "success": result.success, "trade_id": result.trade_id,
+            "error": result.error,
+        }
+    except Exception as e:
+        return {"error": str(e)}
 
 
-def execute_sell(api_key: str, market_id: str, shares: float) -> dict:
-    """Execute a sell trade via Simmer SDK API with source tagging."""
-    return sdk_request(api_key, "POST", "/api/sdk/trade", {
-        "market_id": market_id,
-        "side": "yes",
-        "action": "sell",
-        "shares": shares,
-        "venue": "polymarket",
-        "source": TRADE_SOURCE,
-    })
-
-
-def get_positions(api_key: str) -> list:
-    """Get current positions from Simmer SDK API."""
-    result = sdk_request(api_key, "GET", "/api/sdk/positions")
-    if "error" in result:
-        print(f"  Error fetching positions: {result['error']}")
+def get_positions() -> list:
+    """Get current positions as list of dicts."""
+    try:
+        positions = get_client().get_positions()
+        from dataclasses import asdict
+        return [asdict(p) for p in positions]
+    except Exception as e:
+        print(f"  Error fetching positions: {e}")
         return []
-    return result.get("positions", [])
 
 
-def calculate_position_size(api_key: str, default_size: float, smart_sizing: bool) -> float:
-    """
-    Calculate position size based on portfolio or fall back to default.
-    """
+def calculate_position_size(default_size: float, smart_sizing: bool) -> float:
+    """Calculate position size based on portfolio or fall back to default."""
     if not smart_sizing:
         return default_size
 
-    portfolio = get_portfolio(api_key)
+    portfolio = get_portfolio()
     if not portfolio:
         print(f"  ⚠️  Smart sizing failed, using default ${default_size:.2f}")
         return default_size
@@ -609,9 +544,7 @@ def calculate_position_size(api_key: str, default_size: float, smart_sizing: boo
         return default_size
 
     smart_size = balance * SMART_SIZING_PCT
-    # Cap at max position size
-    smart_size = min(smart_size, MAX_POSITION_USD)  # Cap at max position size
-    # Floor at minimum viable trade
+    smart_size = min(smart_size, MAX_POSITION_USD)
     smart_size = max(smart_size, 1.0)
 
     print(f"  💡 Smart sizing: ${smart_size:.2f} ({SMART_SIZING_PCT:.0%} of ${balance:.2f} balance)")
@@ -622,9 +555,9 @@ def calculate_position_size(api_key: str, default_size: float, smart_sizing: boo
 # Exit Strategy
 # =============================================================================
 
-def check_exit_opportunities(api_key: str, dry_run: bool = False, use_safeguards: bool = True) -> tuple:
+def check_exit_opportunities(dry_run: bool = False, use_safeguards: bool = True) -> tuple:
     """Check open positions for exit opportunities. Returns: (exits_found, exits_executed)"""
-    positions = get_positions(api_key)
+    positions = get_positions()
 
     if not positions:
         return 0, 0
@@ -661,7 +594,7 @@ def check_exit_opportunities(api_key: str, dry_run: bool = False, use_safeguards
 
             # Check safeguards before selling
             if use_safeguards:
-                context = get_market_context(api_key, market_id)
+                context = get_market_context(market_id)
                 should_trade, reasons = check_context_safeguards(context)
                 if not should_trade:
                     print(f"     ⏭️  Skipped: {'; '.join(reasons)}")
@@ -673,7 +606,7 @@ def check_exit_opportunities(api_key: str, dry_run: bool = False, use_safeguards
                 print(f"     [DRY RUN] Would sell {shares:.1f} shares")
             else:
                 print(f"     Selling {shares:.1f} shares...")
-                result = execute_sell(api_key, market_id, shares)
+                result = execute_sell(market_id, shares)
 
                 if result.get("success"):
                     exits_executed += 1
@@ -741,12 +674,13 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
         log("     SIMMER_WEATHER_ENTRY=0.20")
         return
 
-    api_key = get_api_key()
+    # Initialize client early to validate API key
+    get_client()
 
     # Show portfolio if smart sizing enabled
     if smart_sizing:
         log("\n💰 Portfolio:")
-        portfolio = get_portfolio(api_key)
+        portfolio = get_portfolio()
         if portfolio:
             log(f"  Balance: ${portfolio.get('balance_usdc', 0):.2f}")
             log(f"  Exposure: ${portfolio.get('total_exposure', 0):.2f}")
@@ -757,7 +691,7 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
 
     if positions_only:
         log("\n📊 Current Positions:")
-        positions = get_positions(api_key)
+        positions = get_positions()
         if not positions:
             log("  No open positions")
         else:
@@ -848,7 +782,7 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
         # NOAA forecasts are ~85% accurate for 1-2 day predictions when in-bucket
         noaa_probability = 0.85
         if use_safeguards:
-            context = get_market_context(api_key, market_id, my_probability=noaa_probability)
+            context = get_market_context(market_id, my_probability=noaa_probability)
             should_trade, reasons = check_context_safeguards(context)
             if not should_trade:
                 log(f"  ⏭️  Safeguard blocked: {'; '.join(reasons)}")
@@ -859,7 +793,7 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
         # Check price trend
         trend_bonus = ""
         if use_trends:
-            history = get_price_history(api_key, market_id)
+            history = get_price_history(market_id)
             trend = detect_price_trend(history)
             if trend["is_opportunity"]:
                 trend_bonus = f" 📉 (dropped {abs(trend['change_24h']):.0%} in 24h - stronger signal!)"
@@ -867,7 +801,7 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
                 trend_bonus = f" 📈 (up {trend['change_24h']:.0%} in 24h)"
 
         if price < ENTRY_THRESHOLD:
-            position_size = calculate_position_size(api_key, MAX_POSITION_USD, smart_sizing)
+            position_size = calculate_position_size(MAX_POSITION_USD, smart_sizing)
 
             min_cost_for_shares = MIN_SHARES_PER_ORDER * price
             if min_cost_for_shares > position_size:
@@ -886,7 +820,7 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
                 log(f"  [DRY RUN] Would buy ${position_size:.2f} worth (~{position_size/price:.1f} shares)")
             else:
                 log(f"  Executing trade...", force=True)
-                result = execute_trade(api_key, market_id, "yes", position_size)
+                result = execute_trade(market_id, "yes", position_size)
 
                 if result.get("success"):
                     trades_executed += 1
@@ -919,7 +853,7 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
         else:
             log(f"  ⏸️  Price ${price:.2f} above threshold ${ENTRY_THRESHOLD:.2f} - skip")
 
-    exits_found, exits_executed = check_exit_opportunities(api_key, dry_run, use_safeguards)
+    exits_found, exits_executed = check_exit_opportunities(dry_run, use_safeguards)
 
     log("\n" + "=" * 50)
     total_trades = trades_executed + exits_executed
