@@ -222,6 +222,7 @@ def main():
     parser.add_argument("--opportunities", "-o", action="store_true", help="Show top opportunities only")
     parser.add_argument("--json", action="store_true", help="Output as JSON")
     parser.add_argument("--config", action="store_true", help="Show configuration")
+    parser.add_argument("--quiet", "-q", action="store_true", help="Only output on trades/errors")
     parser.add_argument("--set", action="append", metavar="KEY=VALUE",
                         help="Set config value (e.g., --set min_divergence=10)")
     args = parser.parse_args()

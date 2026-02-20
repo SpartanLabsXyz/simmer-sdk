@@ -492,6 +492,7 @@ if __name__ == "__main__":
                         help="Set config value (e.g., --set max_bet_usd=5.00)")
     parser.add_argument("--smart-sizing", action="store_true", help="Use portfolio-based position sizing")
     parser.add_argument("--no-safeguards", action="store_true", help="Disable context safeguards")
+    parser.add_argument("--quiet", "-q", action="store_true", help="Only output on trades/errors")
     args = parser.parse_args()
 
     # Handle --set config updates

@@ -771,6 +771,7 @@ def main():
     parser.add_argument("--keywords", type=str, help="Override keywords (comma-separated)")
     parser.add_argument("--set", action="append", metavar="KEY=VALUE",
                         help="Set config value (e.g., --set feeds=url1,url2 --set keywords=a,b)")
+    parser.add_argument("--quiet", "-q", action="store_true", help="Only output on trades/errors")
 
     args = parser.parse_args()
 

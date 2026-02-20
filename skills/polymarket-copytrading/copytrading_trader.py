@@ -543,6 +543,11 @@ def main():
         metavar="KEY=VALUE",
         help="Set config value (e.g., --set wallets=0x123,0x456 --set max_usd=100)"
     )
+    parser.add_argument(
+        "--quiet", "-q",
+        action="store_true",
+        help="Only output on trades/errors"
+    )
 
     args = parser.parse_args()
 
