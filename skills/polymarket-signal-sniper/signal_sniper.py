@@ -126,7 +126,7 @@ _config = load_config(CONFIG_SCHEMA, __file__)
 # SimmerClient singleton
 _client = None
 
-def get_client():
+def get_client(live=True):
     """Lazy-init SimmerClient singleton."""
     global _client
     if _client is None:
@@ -140,7 +140,7 @@ def get_client():
             print("Error: SIMMER_API_KEY environment variable not set")
             print("Get your API key from: simmer.markets/dashboard -> SDK tab")
             sys.exit(1)
-        _client = SimmerClient(api_key=api_key, venue="polymarket")
+        _client = SimmerClient(api_key=api_key, venue="polymarket", live=live)
     return _client
 
 # Sniper configuration - from config
@@ -588,11 +588,11 @@ def run_scan(
     Returns summary of results.
     """
     if dry_run:
-        print("\n  [DRY RUN] No trades will be executed. Use --live to enable trading.\n")
+        print("\n  [PAPER MODE] Trades will be simulated with real prices. Use --live for real trades.\n")
 
     # Validate API key via client init
     try:
-        get_client()
+        get_client(live=not dry_run)
     except SystemExit:
         return {"error": "No API key"}
 

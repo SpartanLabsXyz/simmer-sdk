@@ -116,7 +116,7 @@ NOAA_API_BASE = "https://api.weather.gov"
 # SimmerClient singleton
 _client = None
 
-def get_client():
+def get_client(live=True):
     """Lazy-init SimmerClient singleton."""
     global _client
     if _client is None:
@@ -130,7 +130,7 @@ def get_client():
             print("Error: SIMMER_API_KEY environment variable not set")
             print("Get your API key from: simmer.markets/dashboard -> SDK tab")
             sys.exit(1)
-        _client = SimmerClient(api_key=api_key, venue="polymarket")
+        _client = SimmerClient(api_key=api_key, venue="polymarket", live=live)
     return _client
 
 # Source tag for tracking
@@ -567,7 +567,7 @@ def execute_trade(market_id: str, side: str, amount: float) -> dict:
         return {
             "success": result.success, "trade_id": result.trade_id,
             "shares_bought": result.shares_bought, "shares": result.shares_bought,
-            "error": result.error,
+            "error": result.error, "simulated": result.simulated,
         }
     except Exception as e:
         return {"error": str(e)}
@@ -582,7 +582,7 @@ def execute_sell(market_id: str, shares: float) -> dict:
         )
         return {
             "success": result.success, "trade_id": result.trade_id,
-            "error": result.error,
+            "error": result.error, "simulated": result.simulated,
         }
     except Exception as e:
         return {"error": str(e)}
@@ -673,28 +673,26 @@ def check_exit_opportunities(dry_run: bool = False, use_safeguards: bool = True)
                 if reasons:
                     print(f"     ⚠️  Warnings: {'; '.join(reasons)}")
 
-            if dry_run:
-                print(f"     [DRY RUN] Would sell {shares:.1f} shares")
+            tag = "SIMULATED" if dry_run else "LIVE"
+            print(f"     Selling {shares:.1f} shares ({tag})...")
+            result = execute_sell(market_id, shares)
+
+            if result.get("success"):
+                exits_executed += 1
+                trade_id = result.get("trade_id")
+                print(f"     ✅ {'[PAPER] ' if result.get('simulated') else ''}Sold {shares:.1f} shares @ ${current_price:.2f}")
+
+                # Log sell trade context for journal (skip for paper trades)
+                if trade_id and JOURNAL_AVAILABLE and not result.get("simulated"):
+                    log_trade(
+                        trade_id=trade_id,
+                        source=TRADE_SOURCE,
+                        thesis=f"Exit: price ${current_price:.2f} reached exit threshold ${EXIT_THRESHOLD:.2f}",
+                        action="sell",
+                    )
             else:
-                print(f"     Selling {shares:.1f} shares...")
-                result = execute_sell(market_id, shares)
-
-                if result.get("success"):
-                    exits_executed += 1
-                    trade_id = result.get("trade_id")
-                    print(f"     ✅ Sold {shares:.1f} shares @ ${current_price:.2f}")
-
-                    # Log sell trade context for journal
-                    if trade_id and JOURNAL_AVAILABLE:
-                        log_trade(
-                            trade_id=trade_id,
-                            source=TRADE_SOURCE,
-                            thesis=f"Exit: price ${current_price:.2f} reached exit threshold ${EXIT_THRESHOLD:.2f}",
-                            action="sell",
-                        )
-                else:
-                    error = result.get("error", "Unknown error")
-                    print(f"     ❌ Sell failed: {error}")
+                error = result.get("error", "Unknown error")
+                print(f"     ❌ Sell failed: {error}")
         else:
             print(f"  📊 {question}...")
             print(f"     Price ${current_price:.2f} < exit threshold ${EXIT_THRESHOLD:.2f} - hold")
@@ -720,7 +718,7 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
     log("=" * 50)
 
     if dry_run:
-        log("\n  [DRY RUN] No trades will be executed. Use --live to enable trading.")
+        log("\n  [PAPER MODE] Trades will be simulated with real prices. Use --live for real trades.")
 
     log(f"\n⚙️  Configuration:")
     log(f"  Entry threshold: {ENTRY_THRESHOLD:.0%} (buy below this)")
@@ -746,7 +744,7 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
         return
 
     # Initialize client early to validate API key
-    get_client()
+    get_client(live=not dry_run)
 
     # Show portfolio if smart sizing enabled
     if smart_sizing:
@@ -894,40 +892,38 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
                 log(f"  ⏸️  Max trades per run ({MAX_TRADES_PER_RUN}) reached - skipping")
                 continue
 
-            if dry_run:
-                log(f"  [DRY RUN] Would buy ${position_size:.2f} worth (~{position_size/price:.1f} shares)")
+            tag = "SIMULATED" if dry_run else "LIVE"
+            log(f"  Executing trade ({tag})...", force=True)
+            result = execute_trade(market_id, "yes", position_size)
+
+            if result.get("success"):
+                trades_executed += 1
+                shares = result.get("shares_bought") or result.get("shares") or 0
+                trade_id = result.get("trade_id")
+                log(f"  ✅ {'[PAPER] ' if result.get('simulated') else ''}Bought {shares:.1f} shares @ ${price:.2f}", force=True)
+
+                # Log trade context for journal (skip for paper trades)
+                if trade_id and JOURNAL_AVAILABLE and not result.get("simulated"):
+                    # Confidence based on price gap from threshold (guard against div by zero)
+                    if ENTRY_THRESHOLD > 0:
+                        confidence = min(0.95, (ENTRY_THRESHOLD - price) / ENTRY_THRESHOLD + 0.5)
+                    else:
+                        confidence = 0.7  # Default confidence if threshold is zero
+                    log_trade(
+                        trade_id=trade_id,
+                        source=TRADE_SOURCE,
+                        thesis=f"NOAA forecasts {forecast_temp}°F for {location} on {date_str}, "
+                               f"bucket '{outcome_name}' underpriced at ${price:.2f}",
+                        confidence=round(confidence, 2),
+                        location=location,
+                        forecast_temp=forecast_temp,
+                        target_date=date_str,
+                        metric=metric,
+                    )
+                # Risk monitors are now auto-set via SDK settings (dashboard)
             else:
-                log(f"  Executing trade...", force=True)
-                result = execute_trade(market_id, "yes", position_size)
-
-                if result.get("success"):
-                    trades_executed += 1
-                    shares = result.get("shares_bought") or result.get("shares") or 0
-                    trade_id = result.get("trade_id")
-                    log(f"  ✅ Bought {shares:.1f} shares @ ${price:.2f}", force=True)
-
-                    # Log trade context for journal
-                    if trade_id and JOURNAL_AVAILABLE:
-                        # Confidence based on price gap from threshold (guard against div by zero)
-                        if ENTRY_THRESHOLD > 0:
-                            confidence = min(0.95, (ENTRY_THRESHOLD - price) / ENTRY_THRESHOLD + 0.5)
-                        else:
-                            confidence = 0.7  # Default confidence if threshold is zero
-                        log_trade(
-                            trade_id=trade_id,
-                            source=TRADE_SOURCE,
-                            thesis=f"NOAA forecasts {forecast_temp}°F for {location} on {date_str}, "
-                                   f"bucket '{outcome_name}' underpriced at ${price:.2f}",
-                            confidence=round(confidence, 2),
-                            location=location,
-                            forecast_temp=forecast_temp,
-                            target_date=date_str,
-                            metric=metric,
-                        )
-                    # Risk monitors are now auto-set via SDK settings (dashboard)
-                else:
-                    error = result.get("error", "Unknown error")
-                    log(f"  ❌ Trade failed: {error}", force=True)
+                error = result.get("error", "Unknown error")
+                log(f"  ❌ Trade failed: {error}", force=True)
         else:
             log(f"  ⏸️  Price ${price:.2f} above threshold ${ENTRY_THRESHOLD:.2f} - skip")
 
@@ -944,7 +940,7 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
         print(f"  Trades executed:     {total_trades}")
 
     if dry_run and show_summary:
-        print("\n  [DRY RUN MODE - no real trades executed]")
+        print("\n  [PAPER MODE - trades simulated with real prices]")
 
 
 # =============================================================================

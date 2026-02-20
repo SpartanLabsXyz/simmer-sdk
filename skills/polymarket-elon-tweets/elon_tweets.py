@@ -155,7 +155,7 @@ TIME_TO_RESOLUTION_MIN_HOURS = 1  # Tweet markets are shorter, allow closer-to-r
 
 _client = None
 
-def get_client():
+def get_client(live=True):
     """Lazy-init SimmerClient singleton."""
     global _client
     if _client is None:
@@ -169,7 +169,7 @@ def get_client():
             print("Error: SIMMER_API_KEY environment variable not set")
             print("Get your API key from: simmer.markets/dashboard → SDK tab")
             sys.exit(1)
-        _client = SimmerClient(api_key=api_key, venue="polymarket")
+        _client = SimmerClient(api_key=api_key, venue="polymarket", live=live)
     return _client
 
 # =============================================================================
@@ -299,6 +299,7 @@ def execute_trade(market_id, side, amount):
             "shares_bought": result.shares_bought,
             "shares": result.shares_bought,
             "error": result.error,
+            "simulated": result.simulated,
         }
     except Exception as e:
         return {"error": str(e)}
@@ -318,6 +319,7 @@ def execute_sell(market_id, shares):
             "success": result.success,
             "trade_id": result.trade_id,
             "error": result.error,
+            "simulated": result.simulated,
         }
     except Exception as e:
         return {"error": str(e)}
@@ -517,24 +519,22 @@ def check_exit_opportunities(dry_run=True, use_safeguards=True):
                     print(f"     ⏭️  Skipped: {'; '.join(reasons)}")
                     continue
 
-            if dry_run:
-                print(f"     [DRY RUN] Would sell {shares:.1f} shares")
+            tag = "SIMULATED" if dry_run else "LIVE"
+            print(f"     Selling {shares:.1f} shares ({tag})...")
+            result = execute_sell(market_id, shares)
+            if result.get("success"):
+                exits_executed += 1
+                trade_id = result.get("trade_id")
+                print(f"     ✅ {'[PAPER] ' if result.get('simulated') else ''}Sold {shares:.1f} shares @ ${current_price:.2f}")
+                if trade_id and JOURNAL_AVAILABLE and not result.get("simulated"):
+                    log_trade(
+                        trade_id=trade_id,
+                        source=TRADE_SOURCE,
+                        thesis=f"Exit: price ${current_price:.2f} reached exit threshold",
+                        action="sell",
+                    )
             else:
-                print(f"     Selling {shares:.1f} shares...")
-                result = execute_sell(market_id, shares)
-                if result.get("success"):
-                    exits_executed += 1
-                    trade_id = result.get("trade_id")
-                    print(f"     ✅ Sold {shares:.1f} shares @ ${current_price:.2f}")
-                    if trade_id and JOURNAL_AVAILABLE:
-                        log_trade(
-                            trade_id=trade_id,
-                            source=TRADE_SOURCE,
-                            thesis=f"Exit: price ${current_price:.2f} reached exit threshold",
-                            action="sell",
-                        )
-                else:
-                    print(f"     ❌ Sell failed: {result.get('error', 'Unknown')}")
+                print(f"     ❌ Sell failed: {result.get('error', 'Unknown')}")
         else:
             print(f"  📊 {question}...")
             print(f"     Price ${current_price:.2f} < exit ${EXIT_THRESHOLD:.2f} - hold")
@@ -557,8 +557,11 @@ def run_strategy(dry_run=True, positions_only=False, show_config=False,
     log("🐦 Simmer Elon Tweet Trader")
     log("=" * 50)
 
+    # Initialize client with paper mode when not live
+    get_client(live=not dry_run)
+
     if dry_run:
-        log("\n  [DRY RUN] No trades will be executed. Use --live to enable trading.")
+        log("\n  [PAPER MODE] Trades will be simulated with real prices. Use --live for real trades.")
 
     log(f"\n⚙️  Configuration:")
     log(f"  Max bucket sum:  ${MAX_BUCKET_SUM:.2f} (buy cluster if total < this)")
@@ -576,8 +579,7 @@ def run_strategy(dry_run=True, positions_only=False, show_config=False,
         log(f"  Exists: {'Yes' if config_path.exists() else 'No'}")
         return
 
-    # Initialize SDK client (validates API key, sets up wallet)
-    get_client()
+    # Client already initialized above with live=not dry_run
 
     if positions_only:
         log("\n📊 Current Tweet Positions:")
@@ -802,31 +804,28 @@ def run_strategy(dry_run=True, positions_only=False, show_config=False,
 
             opportunities_found += 1
 
-            if dry_run:
-                shares_est = position_size / price if price > 0 else 0
-                log(f"   [DRY RUN] {bucket_label} @ ${price:.2f} — would buy ${position_size:.2f} (~{shares_est:.0f} shares)")
+            tag = "SIMULATED" if dry_run else "LIVE"
+            log(f"   Buying {bucket_label} @ ${price:.2f} ({tag})...", force=True)
+            result = execute_trade(market_id, "yes", position_size)
+
+            if result.get("success"):
+                trades_executed += 1
+                shares = result.get("shares_bought") or result.get("shares") or 0
+                trade_id = result.get("trade_id")
+                log(f"   ✅ {'[PAPER] ' if result.get('simulated') else ''}Bought {shares:.1f} shares of {bucket_label} @ ${price:.2f}", force=True)
+
+                if trade_id and JOURNAL_AVAILABLE and not result.get("simulated"):
+                    log_trade(
+                        trade_id=trade_id,
+                        source=TRADE_SOURCE,
+                        thesis=f"XTracker projects {projected_count} posts, bucket {bucket_label} "
+                               f"underpriced at ${price:.2f} (cluster cost ${total_cost:.2f})",
+                        confidence=round(0.7 if bucket["low"] <= projected_count <= bucket["high"] else 0.4, 2),
+                        projected_count=projected_count,
+                        current_count=current_count,
+                    )
             else:
-                log(f"   Buying {bucket_label} @ ${price:.2f}...", force=True)
-                result = execute_trade(market_id, "yes", position_size)
-
-                if result.get("success"):
-                    trades_executed += 1
-                    shares = result.get("shares_bought") or result.get("shares") or 0
-                    trade_id = result.get("trade_id")
-                    log(f"   ✅ Bought {shares:.1f} shares of {bucket_label} @ ${price:.2f}", force=True)
-
-                    if trade_id and JOURNAL_AVAILABLE:
-                        log_trade(
-                            trade_id=trade_id,
-                            source=TRADE_SOURCE,
-                            thesis=f"XTracker projects {projected_count} posts, bucket {bucket_label} "
-                                   f"underpriced at ${price:.2f} (cluster cost ${total_cost:.2f})",
-                            confidence=round(0.7 if bucket["low"] <= projected_count <= bucket["high"] else 0.4, 2),
-                            projected_count=projected_count,
-                            current_count=current_count,
-                        )
-                else:
-                    log(f"   ❌ Trade failed: {result.get('error', 'Unknown')}", force=True)
+                log(f"   ❌ Trade failed: {result.get('error', 'Unknown')}", force=True)
 
     # Check exits
     exits_found, exits_executed = check_exit_opportunities(dry_run, use_safeguards)
@@ -843,7 +842,7 @@ def run_strategy(dry_run=True, positions_only=False, show_config=False,
         print(f"  Trades executed:     {total_trades}")
 
     if dry_run and show_summary:
-        print("\n  [DRY RUN MODE - no real trades executed]")
+        print("\n  [PAPER MODE - trades simulated with real prices]")
 
 
 # =============================================================================

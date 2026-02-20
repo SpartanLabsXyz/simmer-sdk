@@ -65,6 +65,7 @@ class TradeResult:
     new_price: float = 0
     balance: Optional[float] = None  # Remaining $SIM balance (simmer only, None for real venues)
     error: Optional[str] = None
+    simulated: bool = False  # True for paper trades (dry-run with real prices)
 
     @property
     def fully_filled(self) -> bool:
@@ -130,7 +131,8 @@ class SimmerClient:
         api_key: str,
         base_url: str = "https://api.simmer.markets",
         venue: str = "simmer",
-        private_key: Optional[str] = None
+        private_key: Optional[str] = None,
+        live: bool = True
     ):
         """
         Initialize the Simmer client.
@@ -145,6 +147,10 @@ class SimmerClient:
                 - "kalshi": Execute real trades on Kalshi via DFlow
                   (requires SOLANA_PRIVATE_KEY env var with base58 secret key)
                 Note: "sandbox" is a deprecated alias for "simmer" (will be removed in 30 days)
+            live: Whether to execute real trades (default: True).
+                When False, trades are simulated with real market prices
+                and tracked in memory for the duration of the run. All read
+                endpoints (get_markets, get_context, etc.) work normally.
             private_key: Optional EVM wallet private key for Polymarket trading.
                 When provided, orders are signed locally instead of server-side.
                 This enables trading with your own Polymarket wallet.
@@ -238,6 +244,14 @@ class SimmerClient:
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json"
         })
+
+        # Paper trading mode
+        self.live = live
+        self._paper_portfolio = None
+        if not self.live:
+            from .paper import PaperPortfolio
+            self._paper_portfolio = PaperPortfolio()
+            logger.info("Paper trading mode enabled. Trades will be simulated with real prices.")
 
     def _validate_and_set_wallet(self, private_key: str) -> None:
         """Validate private key format and derive wallet address."""
@@ -559,6 +573,12 @@ class SimmerClient:
         if not is_sell and amount <= 0:
             raise ValueError("amount required for buy orders")
 
+        # Paper trading: simulate with real prices
+        if not self.live:
+            return self._paper_trade(
+                market_id, side, amount, shares, action, effective_venue
+            )
+
         # Validate price if provided
         if price is not None:
             if price < 0.01 or price > 0.99:
@@ -632,6 +652,62 @@ class SimmerClient:
             new_price=data.get("new_price", 0),
             balance=balance,
             error=data.get("error")
+        )
+
+    def _paper_trade(self, market_id, side, amount, shares, action, venue):
+        """Simulate a trade using real market prices."""
+        import time as _time
+
+        # Fetch current price from the venue
+        try:
+            ctx = self.get_market_context(market_id)
+        except Exception as e:
+            return TradeResult(
+                success=False, market_id=market_id,
+                error=f"Could not fetch market price: {e}", simulated=True
+            )
+
+        if not ctx or "market" not in ctx:
+            return TradeResult(
+                success=False, market_id=market_id,
+                error="Could not fetch market price", simulated=True
+            )
+
+        market = ctx["market"]
+        price = float(market.get("external_price_yes") or market.get("current_probability") or 0.5)
+        if side == "no":
+            price = 1.0 - price
+        price = max(price, 0.01)  # Floor to avoid division by zero
+
+        if action == "buy":
+            shares_filled = amount / price
+            cost = amount
+        else:
+            pos = self._paper_portfolio.get_position(market_id)
+            available = getattr(pos, f"shares_{side}", 0)
+            shares_filled = min(shares, available)
+            if shares_filled <= 0:
+                return TradeResult(
+                    success=False, market_id=market_id, side=side,
+                    error=f"No paper position to sell (have {available:.2f} {side} shares)",
+                    simulated=True
+                )
+            cost = shares_filled * price
+
+        self._paper_portfolio.log_trade(market_id, side, action, shares_filled, cost, price)
+
+        return TradeResult(
+            success=True,
+            trade_id=f"paper_{int(_time.time())}",
+            market_id=market_id,
+            side=side,
+            venue=venue,
+            shares_bought=shares_filled,
+            shares_requested=shares_filled,
+            order_status="simulated",
+            cost=round(cost, 4),
+            new_price=price,
+            simulated=True,
         )
 
     def prepare_real_trade(

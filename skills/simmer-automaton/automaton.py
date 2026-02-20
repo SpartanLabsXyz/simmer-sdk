@@ -96,7 +96,7 @@ _config = _load_config(CONFIG_SCHEMA, __file__)
 _client = None
 
 
-def get_client():
+def get_client(live=True):
     """Lazy-init SimmerClient singleton."""
     global _client
     if _client is None:
@@ -110,7 +110,7 @@ def get_client():
             print("Error: SIMMER_API_KEY environment variable not set")
             print("Get your API key from: simmer.markets/dashboard -> SDK tab")
             sys.exit(1)
-        _client = SimmerClient(api_key=api_key, venue="polymarket")
+        _client = SimmerClient(api_key=api_key, venue="polymarket", live=live)
     return _client
 
 

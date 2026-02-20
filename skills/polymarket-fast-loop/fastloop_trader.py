@@ -190,7 +190,7 @@ def _save_daily_spend(skill_file, spend_data):
 
 _client = None
 
-def get_client():
+def get_client(live=True):
     """Lazy-init SimmerClient singleton."""
     global _client
     if _client is None:
@@ -204,7 +204,7 @@ def get_client():
             print("Error: SIMMER_API_KEY environment variable not set")
             print("Get your API key from: simmer.markets/dashboard → SDK tab")
             sys.exit(1)
-        _client = SimmerClient(api_key=api_key, venue="polymarket")
+        _client = SimmerClient(api_key=api_key, venue="polymarket", live=live)
     return _client
 
 
@@ -478,6 +478,7 @@ def execute_trade(market_id, side, amount):
             "shares_bought": result.shares_bought,
             "shares": result.shares_bought,
             "error": result.error,
+            "simulated": result.simulated,
         }
     except Exception as e:
         return {"error": str(e)}
@@ -514,7 +515,7 @@ def run_fast_market_strategy(dry_run=True, positions_only=False, show_config=Fal
     log("=" * 50)
 
     if dry_run:
-        log("\n  [DRY RUN] No trades will be executed. Use --live to enable trading.")
+        log("\n  [PAPER MODE] Trades will be simulated with real prices. Use --live for real trades.")
 
     log(f"\n⚙️  Configuration:")
     log(f"  Asset:            {ASSET}")
@@ -538,8 +539,8 @@ def run_fast_market_strategy(dry_run=True, positions_only=False, show_config=Fal
         log(f'    Or edit config.json directly')
         return
 
-    # Initialize client early to validate API key
-    get_client()
+    # Initialize client early to validate API key (paper mode when not live)
+    get_client(live=not dry_run)
 
     # Show positions if requested
     if positions_only:
@@ -708,48 +709,46 @@ def run_fast_market_strategy(dry_run=True, positions_only=False, show_config=Fal
 
     log(f"  ✅ Market ID: {market_id[:16]}...", force=True)
 
-    if dry_run:
-        est_shares = position_size / price if price > 0 else 0
-        log(f"  [DRY RUN] Would buy {side.upper()} ${position_size:.2f} (~{est_shares:.1f} shares)", force=True)
-    else:
-        log(f"  Executing {side.upper()} trade for ${position_size:.2f}...", force=True)
-        result = execute_trade(market_id, side, position_size)
+    tag = "SIMULATED" if dry_run else "LIVE"
+    log(f"  Executing {side.upper()} trade for ${position_size:.2f} ({tag})...", force=True)
+    result = execute_trade(market_id, side, position_size)
 
-        if result and result.get("success"):
-            shares = result.get("shares_bought") or result.get("shares") or 0
-            trade_id = result.get("trade_id")
-            log(f"  ✅ Bought {shares:.1f} {side.upper()} shares @ ${price:.3f}", force=True)
+    if result and result.get("success"):
+        shares = result.get("shares_bought") or result.get("shares") or 0
+        trade_id = result.get("trade_id")
+        log(f"  ✅ {'[PAPER] ' if result.get('simulated') else ''}Bought {shares:.1f} {side.upper()} shares @ ${price:.3f}", force=True)
 
-            # Update daily spend
+        # Update daily spend (skip for paper trades)
+        if not result.get("simulated"):
             daily_spend["spent"] += position_size
             daily_spend["trades"] += 1
             _save_daily_spend(__file__, daily_spend)
 
-            # Log to trade journal
-            if trade_id and JOURNAL_AVAILABLE:
-                confidence = min(0.9, 0.5 + divergence + (momentum_pct / 100))
-                log_trade(
-                    trade_id=trade_id,
-                    source=TRADE_SOURCE,
-                    thesis=trade_rationale,
-                    confidence=round(confidence, 2),
-                    asset=ASSET,
-                    momentum_pct=round(momentum["momentum_pct"], 3),
-                    volume_ratio=round(momentum["volume_ratio"], 2),
-                    signal_source=SIGNAL_SOURCE,
-                )
-        else:
-            error = result.get("error", "Unknown error") if result else "No response"
-            log(f"  ❌ Trade failed: {error}", force=True)
+        # Log to trade journal (skip for paper trades)
+        if trade_id and JOURNAL_AVAILABLE and not result.get("simulated"):
+            confidence = min(0.9, 0.5 + divergence + (momentum_pct / 100))
+            log_trade(
+                trade_id=trade_id,
+                source=TRADE_SOURCE,
+                thesis=trade_rationale,
+                confidence=round(confidence, 2),
+                asset=ASSET,
+                momentum_pct=round(momentum["momentum_pct"], 3),
+                volume_ratio=round(momentum["volume_ratio"], 2),
+                signal_source=SIGNAL_SOURCE,
+            )
+    else:
+        error = result.get("error", "Unknown error") if result else "No response"
+        log(f"  ❌ Trade failed: {error}", force=True)
 
     # Summary
-    total_trades = 0 if dry_run else (1 if result and result.get("success") else 0)
+    total_trades = 1 if result and result.get("success") else 0
     show_summary = not quiet or total_trades > 0
     if show_summary:
         print(f"\n📊 Summary:")
         print(f"  Sprint: {best['question'][:50]}")
         print(f"  Signal: {direction} {momentum_pct:.3f}% | YES ${market_yes_price:.3f}")
-        print(f"  Action: {'DRY RUN' if dry_run else ('TRADED' if total_trades else 'FAILED')}")
+        print(f"  Action: {'PAPER' if dry_run else ('TRADED' if total_trades else 'FAILED')}")
 
 
 # =============================================================================

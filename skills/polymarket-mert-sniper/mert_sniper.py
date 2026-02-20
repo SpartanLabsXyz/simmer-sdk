@@ -115,7 +115,7 @@ SLIPPAGE_MAX_PCT = 0.15
 
 _client = None
 
-def get_client():
+def get_client(live=True):
     """Lazy-init SimmerClient singleton."""
     global _client
     if _client is None:
@@ -129,7 +129,7 @@ def get_client():
             print("Error: SIMMER_API_KEY environment variable not set")
             print("Get your API key from: simmer.markets/dashboard -> SDK tab")
             sys.exit(1)
-        _client = SimmerClient(api_key=api_key, venue="polymarket")
+        _client = SimmerClient(api_key=api_key, venue="polymarket", live=live)
     return _client
 
 
@@ -207,6 +207,7 @@ def execute_trade(market_id, side, amount, reasoning=""):
             "shares_bought": result.shares_bought,
             "shares": result.shares_bought,
             "error": result.error,
+            "simulated": result.simulated,
         }
     except Exception as e:
         return {"error": str(e)}
@@ -303,8 +304,11 @@ def run_mert_strategy(dry_run=True, positions_only=False, show_config=False,
     market_filter = filter_override if filter_override is not None else MARKET_FILTER
     expiry_mins = expiry_override if expiry_override is not None else EXPIRY_WINDOW_MINS
 
+    # Initialize client early (paper mode when not live)
+    get_client(live=not dry_run)
+
     if dry_run:
-        print("\n  [DRY RUN] No trades will be executed. Use --live to enable trading.")
+        print("\n  [PAPER MODE] Trades will be simulated with real prices. Use --live for real trades.")
 
     print(f"\n  Configuration:")
     print(f"  Filter:        {market_filter or '(all markets)'}")
@@ -324,9 +328,6 @@ def run_mert_strategy(dry_run=True, positions_only=False, show_config=False,
         print("  2. Use --set: python mert_sniper.py --set max_bet_usd=5.00")
         print("  3. Set env vars: SIMMER_MERT_MAX_BET=5.00")
         return
-
-    # Initialize client early to validate API key
-    get_client()
 
     # Show portfolio if smart sizing
     if smart_sizing:
@@ -384,7 +385,7 @@ def run_mert_strategy(dry_run=True, positions_only=False, show_config=False,
         print(f"  Markets scanned: {len(markets)}")
         print(f"  Near expiry:     0")
         if dry_run:
-            print("\n  [DRY RUN MODE - no real trades executed]")
+            print("\n  [PAPER MODE - trades simulated with real prices]")
         return
 
     # Sort by soonest expiry
@@ -451,20 +452,17 @@ def run_mert_strategy(dry_run=True, positions_only=False, show_config=False,
 
         reasoning = f"Near-expiry snipe: {side.upper()} at {side_price:.0%} with {format_duration(mins_left)} to resolution"
 
-        if dry_run:
-            est_shares = position_size / side_price
-            print(f"     [DRY RUN] Would buy ${position_size:.2f} on {side.upper()} (~{est_shares:.1f} shares)")
-        else:
-            print(f"     Executing trade...")
-            result = execute_trade(market_id, side, position_size, reasoning=reasoning)
+        tag = "SIMULATED" if dry_run else "LIVE"
+        print(f"     Executing trade ({tag})...")
+        result = execute_trade(market_id, side, position_size, reasoning=reasoning)
 
-            if result.get("success"):
-                trades_executed += 1
-                shares = result.get("shares_bought") or result.get("shares") or 0
-                print(f"     Bought {shares:.1f} {side.upper()} shares @ ${side_price:.2f}")
-            else:
-                error = result.get("error", "Unknown error")
-                print(f"     Trade failed: {error}")
+        if result.get("success"):
+            trades_executed += 1
+            shares = result.get("shares_bought") or result.get("shares") or 0
+            print(f"     {'[PAPER] ' if result.get('simulated') else ''}Bought {shares:.1f} {side.upper()} shares @ ${side_price:.2f}")
+        else:
+            error = result.get("error", "Unknown error")
+            print(f"     Trade failed: {error}")
 
     # Summary
     print("\n" + "=" * 50)
@@ -475,7 +473,7 @@ def run_mert_strategy(dry_run=True, positions_only=False, show_config=False,
     print(f"  Trades executed: {trades_executed}")
 
     if dry_run:
-        print("\n  [DRY RUN MODE - no real trades executed]")
+        print("\n  [PAPER MODE - trades simulated with real prices]")
 
 
 # =============================================================================

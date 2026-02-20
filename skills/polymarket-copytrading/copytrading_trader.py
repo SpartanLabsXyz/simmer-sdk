@@ -123,7 +123,7 @@ _config = load_config(CONFIG_SCHEMA, __file__)
 # SimmerClient singleton
 _client = None
 
-def get_client():
+def get_client(live=True):
     """Lazy-init SimmerClient singleton."""
     global _client
     if _client is None:
@@ -137,7 +137,7 @@ def get_client():
             print("Error: SIMMER_API_KEY environment variable not set")
             print("Get your API key from: simmer.markets/dashboard -> SDK tab")
             sys.exit(1)
-        _client = SimmerClient(api_key=api_key, venue="polymarket")
+        _client = SimmerClient(api_key=api_key, venue="polymarket", live=live)
     return _client
 
 # Polymarket constraints
@@ -342,7 +342,7 @@ def run_copytrading(wallets: list, top_n: int = None, max_usd: float = 50.0, dry
     print(f"  Whale exits: {'Enabled (sell when whale exits)' if detect_whale_exits else 'Disabled'}")
 
     if dry_run:
-        print("\n  [DRY RUN] No trades will be executed. Use --live to enable trading.")
+        print("\n  [DRY RUN] Trades will be simulated server-side. Use --live for real trades.")
 
     # Execute copytrading via SDK
     print("\n📡 Calling Simmer API...")
@@ -580,8 +580,11 @@ def main():
         show_positions()
         return
 
+    # Default to dry-run unless --live is explicitly passed
+    dry_run = not args.live
+
     # Validate API key by initializing client
-    get_client()
+    get_client(live=not dry_run)
 
     # Get wallets (from args or env)
     if args.wallets:
@@ -596,9 +599,6 @@ def main():
 
     # Get max_usd (from args or env)
     max_usd = args.max_usd if args.max_usd else COPYTRADING_MAX_USD
-
-    # Default to dry-run unless --live is explicitly passed
-    dry_run = not args.live
 
     # Run copytrading
     run_copytrading(
