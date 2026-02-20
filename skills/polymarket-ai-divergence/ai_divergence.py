@@ -105,9 +105,24 @@ def get_client():
 
 
 def get_markets() -> list:
-    """Fetch all markets with divergence data."""
-    data = get_client()._request("GET", "/api/sdk/markets")
-    return data.get("markets", [])
+    """Fetch markets with meaningful divergence data.
+
+    Uses /opportunities endpoint which filters out tracking-only markets
+    (no AI cycles) where divergence is just LMSR drift noise.
+    """
+    data = get_client()._request("GET", "/api/sdk/markets/opportunities", params={"limit": 50, "min_divergence": 0.01})
+    return [
+        {
+            "question": m.get("question"),
+            "current_probability": m.get("current_probability"),
+            "external_price_yes": m.get("external_price_yes"),
+            "divergence": m.get("divergence"),
+            "import_source": m.get("import_source"),
+            "resolves_at": m.get("resolves_at"),
+            "opportunity_score": m.get("opportunity_score"),
+        }
+        for m in data.get("opportunities", [])
+    ]
 
 
 def format_divergence(markets: list, min_div: float = 0, direction: str = None) -> None:
