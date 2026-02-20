@@ -616,16 +616,11 @@ def run_cycle(config, live=False, quiet=False):
     if not quiet:
         print(f"\U0001f3b0 Selected: {', '.join(selected) if selected else 'none'}")
 
-    if not live:
-        if not quiet:
-            print(f"\n[DRY RUN] Would run: {', '.join(selected)}")
-            print("Add --live to execute trades.")
-        state["cycle_count"] += 1
-        save_state(state)
-        return
+    if not live and not quiet:
+        print(f"\n[PAPER MODE] Running skills with simulated trades. Add --live for real trades.")
 
-    # 7. Fetch pre-run P&L snapshot for bandit delta
-    pnl_before = fetch_skill_pnl(client, state["skills"])
+    # 7. Fetch pre-run P&L snapshot for bandit delta (live only)
+    pnl_before = fetch_skill_pnl(client, state["skills"]) if live else {}
 
     # 8. Run selected skills
     skill_dir_map = {sk["slug"]: sk["dir"] for sk in discovered}
@@ -643,7 +638,7 @@ def run_cycle(config, live=False, quiet=False):
         if not quiet:
             print(f"\U0001f3c3 Running {slug}...")
 
-        result = run_skill(slug, entrypoint, skill_dir, live=True)
+        result = run_skill(slug, entrypoint, skill_dir, live=live)
         run_results[slug] = result
 
         if not quiet:
@@ -653,17 +648,18 @@ def run_cycle(config, live=False, quiet=False):
                 first_line = result["stderr"].strip().split("\n")[0]
                 print(f"   {first_line}")
 
-    # 9. Fetch post-run P&L
-    pnl_after = fetch_skill_pnl(client, state["skills"])
+    # 9. Fetch post-run P&L and update bandit (live only — paper trades don't affect real P&L)
+    if live:
+        pnl_after = fetch_skill_pnl(client, state["skills"])
 
-    # 10. Update bandit weights (only for successful runs)
-    for slug in selected:
-        if not run_results.get(slug, {}).get("success"):
-            continue
-        skill_entry = state["skills"].get(slug)
-        if not skill_entry:
-            continue
-        update_bandit(state, slug, pnl_before, pnl_after)
+        # 10. Update bandit weights (only for successful runs)
+        for slug in selected:
+            if not run_results.get(slug, {}).get("success"):
+                continue
+            skill_entry = state["skills"].get(slug)
+            if not skill_entry:
+                continue
+            update_bandit(state, slug, pnl_before, pnl_after)
 
     # Decay epsilon
     state["epsilon"] = max(
