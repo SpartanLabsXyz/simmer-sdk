@@ -55,6 +55,20 @@ result = client.trade(market_id, side="yes", amount=10.0, venue="polymarket")
 
 > **Note:** Simmer uses LMSR (automated market maker) while Polymarket uses a CLOB (orderbook). The SDK abstracts this, but execution differs: simmer trades are instant with predictable price impact, while real trades depend on orderbook liquidity and may experience slippage.
 
+### `TRADING_VENUE` Environment Variable
+
+Skills and the automaton read `TRADING_VENUE` to select venue at startup:
+
+```bash
+TRADING_VENUE=simmer python my_skill.py        # Paper trading with $SIM
+TRADING_VENUE=polymarket python my_skill.py --live  # Real money
+TRADING_VENUE=kalshi python my_skill.py --live      # Real money
+```
+
+When not set, skills default to `polymarket`. $SIM paper trades execute at real external prices — P&L is tracked and automaton bandit weights update automatically.
+
+> **Spread caveat:** $SIM fills instantly (AMM, no spread). Real venues have orderbook spreads of 2-5%. Target edges >5% in $SIM before graduating to real money.
+
 ## Trading Modes
 
 ### Training Mode (Simmer)
