@@ -110,7 +110,8 @@ def get_client(live=True):
             print("Error: SIMMER_API_KEY environment variable not set")
             print("Get your API key from: simmer.markets/dashboard -> SDK tab")
             sys.exit(1)
-        _client = SimmerClient(api_key=api_key, venue="polymarket", live=live)
+        venue = os.environ.get("TRADING_VENUE", "polymarket")
+        _client = SimmerClient(api_key=api_key, venue=venue, live=live)
     return _client
 
 
@@ -271,7 +272,7 @@ def fetch_skill_pnl(client, skills):
     Returns dict[source_tag] = net_pnl (float).
     """
     all_trades = []
-    for venue in ("polymarket", "kalshi"):
+    for venue in ("polymarket", "kalshi", "simmer"):
         try:
             resp = client._request("GET", "/api/sdk/trades", params={
                 "venue": venue, "limit": 200

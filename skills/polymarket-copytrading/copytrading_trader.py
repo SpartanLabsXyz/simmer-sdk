@@ -137,7 +137,8 @@ def get_client(live=True):
             print("Error: SIMMER_API_KEY environment variable not set")
             print("Get your API key from: simmer.markets/dashboard -> SDK tab")
             sys.exit(1)
-        _client = SimmerClient(api_key=api_key, venue="polymarket", live=live)
+        venue = os.environ.get("TRADING_VENUE", "polymarket")
+        _client = SimmerClient(api_key=api_key, venue=venue, live=live)
     return _client
 
 # Polymarket constraints
@@ -439,11 +440,12 @@ def show_positions():
         data = get_positions()
         positions = data.get("positions", [])
 
-        # Filter to Polymarket positions
-        poly_positions = [p for p in positions if p.get("venue") == "polymarket"]
+        # Filter to active venue positions
+        active_venue = os.environ.get("TRADING_VENUE", "polymarket")
+        venue_positions = [p for p in positions if p.get("venue") == active_venue]
 
-        if not poly_positions:
-            print("No Polymarket positions found.")
+        if not venue_positions:
+            print(f"No {active_venue} positions found.")
             print("\nTo start copytrading:")
             print("1. Configure target wallets in SIMMER_COPYTRADING_WALLETS")
             print("2. Run: python copytrading_trader.py")
@@ -452,7 +454,7 @@ def show_positions():
         total_value = 0
         total_pnl = 0
 
-        for i, pos in enumerate(poly_positions, 1):
+        for i, pos in enumerate(venue_positions, 1):
             question = pos.get("question", "Unknown market")[:50]
             shares_yes = pos.get("shares_yes", 0)
             shares_no = pos.get("shares_no", 0)
@@ -478,7 +480,7 @@ def show_positions():
         pnl_color = "+" if total_pnl >= 0 else ""
         print(f"Total Value: ${total_value:.2f}")
         print(f"Total P&L: {pnl_color}${total_pnl:.2f}")
-        print(f"Positions: {len(poly_positions)}")
+        print(f"Positions: {len(venue_positions)}")
 
     except Exception as e:
         print(f"❌ Error fetching positions: {e}")
