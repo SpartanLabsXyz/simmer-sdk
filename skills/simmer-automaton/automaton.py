@@ -97,7 +97,11 @@ _client = None
 
 
 def get_client(live=True):
-    """Lazy-init SimmerClient singleton."""
+    """Lazy-init SimmerClient singleton.
+
+    When venue is 'simmer', always sets live=True since $SIM trades
+    are the paper trading mechanism (no --live flag needed).
+    """
     global _client
     if _client is None:
         try:
@@ -111,8 +115,15 @@ def get_client(live=True):
             print("Get your API key from: simmer.markets/dashboard -> SDK tab")
             sys.exit(1)
         venue = os.environ.get("TRADING_VENUE", "polymarket")
-        _client = SimmerClient(api_key=api_key, venue=venue, live=live)
+        # $SIM venue is inherently paper trading — always live
+        effective_live = True if venue == "simmer" else live
+        _client = SimmerClient(api_key=api_key, venue=venue, live=effective_live)
     return _client
+
+
+def _is_paper_venue():
+    """Check if we're on the simmer (paper trading) venue."""
+    return os.environ.get("TRADING_VENUE", "polymarket") == "simmer"
 
 
 # =============================================================================
@@ -575,9 +586,11 @@ def run_cycle(config, live=False, quiet=False):
         save_state(state)
         return
 
-    # 3. Refresh P&L from API (if live) before computing tier
-    if live:
-        client = get_client()
+    # 3. Refresh P&L from API before computing tier
+    # Always fetch when live or on paper venue (simmer) — $SIM trades produce real P&L
+    track_pnl = live or _is_paper_venue()
+    if track_pnl:
+        client = get_client(live=live)
         pnl_snapshot = fetch_skill_pnl(client, state["skills"])
         unrealized, by_source = fetch_unrealized(client)
         state["unrealized_pnl"] = unrealized
@@ -617,11 +630,11 @@ def run_cycle(config, live=False, quiet=False):
     if not quiet:
         print(f"\U0001f3b0 Selected: {', '.join(selected) if selected else 'none'}")
 
-    if not live and not quiet:
-        print(f"\n[PAPER MODE] Running skills with simulated trades. Add --live for real trades.")
+    if not live and not _is_paper_venue() and not quiet:
+        print(f"\n[DRY RUN] Simulating without trades. Use --live for real trades or TRADING_VENUE=simmer for paper trading.")
 
-    # 7. Fetch pre-run P&L snapshot for bandit delta (live only)
-    pnl_before = fetch_skill_pnl(client, state["skills"]) if live else {}
+    # 7. Fetch pre-run P&L snapshot for bandit delta
+    pnl_before = fetch_skill_pnl(client, state["skills"]) if track_pnl else {}
 
     # 8. Run selected skills
     skill_dir_map = {sk["slug"]: sk["dir"] for sk in discovered}
@@ -639,7 +652,9 @@ def run_cycle(config, live=False, quiet=False):
         if not quiet:
             print(f"\U0001f3c3 Running {slug}...")
 
-        result = run_skill(slug, entrypoint, skill_dir, live=live)
+        # Paper venue ($SIM) runs skills in live mode — trades are the paper trading mechanism
+        effective_live = live or _is_paper_venue()
+        result = run_skill(slug, entrypoint, skill_dir, live=effective_live)
         run_results[slug] = result
 
         if not quiet:
@@ -649,8 +664,8 @@ def run_cycle(config, live=False, quiet=False):
                 first_line = result["stderr"].strip().split("\n")[0]
                 print(f"   {first_line}")
 
-    # 9. Fetch post-run P&L and update bandit (live only — paper trades don't affect real P&L)
-    if live:
+    # 9. Fetch post-run P&L and update bandit
+    if track_pnl:
         pnl_after = fetch_skill_pnl(client, state["skills"])
 
         # 10. Update bandit weights (only for successful runs)
