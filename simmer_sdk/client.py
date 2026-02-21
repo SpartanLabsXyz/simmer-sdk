@@ -876,8 +876,9 @@ class SimmerClient:
         """
         Get open (on-book) orders placed through Simmer.
 
-        Returns GTC/GTD orders still sitting on the CLOB. Only includes orders
-        placed through the Simmer API — not orders placed directly on Polymarket.
+        Returns GTC/GTD orders that Simmer believes are still on the CLOB.
+        May include stale entries if filled/cancelled but not synced back.
+        Only includes orders placed through the Simmer API.
 
         Returns:
             Dict with 'orders' list and 'count'
