@@ -872,6 +872,18 @@ class SimmerClient:
         query_lower = query.lower()
         return [m for m in markets if query_lower in m.question.lower()]
 
+    def get_open_orders(self) -> Dict[str, Any]:
+        """
+        Get open (on-book) orders placed through Simmer.
+
+        Returns GTC/GTD orders still sitting on the CLOB. Only includes orders
+        placed through the Simmer API — not orders placed directly on Polymarket.
+
+        Returns:
+            Dict with 'orders' list and 'count'
+        """
+        return self._request("GET", "/api/sdk/orders/open")
+
     def import_market(self, polymarket_url: str, sandbox: bool = None) -> Dict[str, Any]:
         """
         Import a Polymarket market to Simmer.
