@@ -592,9 +592,9 @@ def run_cycle(config, live=False, quiet=False):
     if track_pnl:
         client = get_client(live=live)
         pnl_snapshot = fetch_skill_pnl(client, state["skills"])
-        unrealized, by_source = fetch_unrealized(client)
-        state["unrealized_pnl"] = unrealized
         state["realized_pnl"] = sum(pnl_snapshot.values())
+        # unrealized_pnl fetched on-demand in show_status() only — avoids
+        # hitting /portfolio rate limit (18 req/min) every cycle
 
     # 4. Compute survival tier
     old_tier = state.get("tier", "normal")
@@ -697,11 +697,20 @@ def run_cycle(config, live=False, quiet=False):
 # =============================================================================
 
 def show_status(state=None):
-    """Display survival stats."""
+    """Display survival stats. Fetches live unrealized P&L from API."""
     state = state or load_state()
     if not state:
         print("No state found. Run the automaton first.")
         return
+
+    # Fetch fresh unrealized P&L on demand (not during run_cycle to avoid rate limits)
+    try:
+        client = get_client()
+        unrealized, _ = fetch_unrealized(client)
+        state["unrealized_pnl"] = unrealized
+        save_state(state)
+    except Exception:
+        pass  # Use stale value if API unavailable
 
     tier = state.get("tier", "unknown")
     emoji = TIER_EMOJIS.get(tier, "")
