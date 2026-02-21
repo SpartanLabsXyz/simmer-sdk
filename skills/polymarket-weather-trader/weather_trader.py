@@ -788,10 +788,15 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
 
     events = {}
     for market in markets:
-        event_id = market.get("event_id") or market.get("event_name", "unknown")
-        if event_id not in events:
-            events[event_id] = []
-        events[event_id].append(market)
+        # Group by event_id if available, otherwise derive from question
+        event_key = market.get("event_id")
+        if not event_key:
+            # Fall back: parse question to derive (location, date) grouping key
+            info = parse_weather_event(market.get("event_name") or market.get("question", ""))
+            event_key = f"{info['location']}_{info['date']}" if info else "unknown"
+        if event_key not in events:
+            events[event_key] = []
+        events[event_key].append(market)
 
     log(f"  Grouped into {len(events)} events")
 
@@ -800,7 +805,8 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
     opportunities_found = 0
 
     for event_id, event_markets in events.items():
-        event_name = event_markets[0].get("event_name", "") if event_markets else ""
+        # Use event_name from API if available, otherwise parse from question
+        event_name = event_markets[0].get("event_name") or event_markets[0].get("question", "")
         event_info = parse_weather_event(event_name)
 
         if not event_info:
@@ -831,7 +837,7 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
 
         matching_market = None
         for market in event_markets:
-            outcome_name = market.get("outcome_name", "")
+            outcome_name = market.get("outcome_name") or market.get("question", "")
             bucket = parse_temperature_bucket(outcome_name)
 
             if bucket and bucket[0] <= forecast_temp <= bucket[1]:
