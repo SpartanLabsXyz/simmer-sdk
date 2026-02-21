@@ -11,7 +11,7 @@ never sells existing positions. This prevents conflicts with other strategies
 
 Exit handling:
 - --whale-exits: Sell positions when whales exit (strategy-specific exit)
-- SDK Risk Management: Stop-loss/take-profit (generic safety net) - coming soon
+- SDK Risk Management: Stop-loss/take-profit (server-side, auto-set on every buy)
 
 Usage:
     python copytrading_trader.py              # Dry run (show what would trade)
