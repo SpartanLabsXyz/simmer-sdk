@@ -23,6 +23,7 @@ import json
 import hashlib
 import argparse
 import fcntl
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, List, Dict, Any, Tuple
@@ -237,9 +238,26 @@ def load_processed() -> Dict[str, Dict]:
         return {}
 
 
+PROCESSED_TTL_DAYS = 7  # Prune entries older than this on save
+
+
 def save_processed(processed: Dict[str, Dict]):
-    """Save processed articles to state file with file locking."""
+    """Save processed articles to state file with file locking. Prunes entries older than TTL."""
     STATE_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Prune stale entries
+    cutoff_dt = datetime.now(timezone.utc)
+    pruned = {}
+    for k, v in processed.items():
+        processed_at = v.get("processed_at", "")
+        try:
+            entry_dt = datetime.fromisoformat(processed_at.replace("Z", "+00:00"))
+            if (cutoff_dt - entry_dt).days <= PROCESSED_TTL_DAYS:
+                pruned[k] = v
+        except (ValueError, TypeError):
+            pruned[k] = v  # Keep entries with unparseable timestamps
+    processed = pruned
+
     # Write to temp file then atomic rename to prevent corruption
     temp_file = PROCESSED_FILE.with_suffix(".tmp")
     with open(temp_file, "w") as f:
@@ -376,6 +394,75 @@ def matches_keywords(article: Dict[str, str], keywords: List[str]) -> bool:
 
     text = f"{article['title']} {article['summary']}".lower()
     return any(kw in text for kw in keywords)
+
+
+def discover_markets(keywords: List[str], log=print) -> List[str]:
+    """Auto-discover markets by matching keywords against active Simmer markets.
+
+    Fetches all active markets from Simmer and returns IDs of markets whose
+    question text matches any of the configured keywords.
+    """
+    try:
+        markets = get_client().get_markets(status="active", limit=200)
+    except Exception as e:
+        log(f"  ⚠️ Market discovery failed: {e}")
+        return []
+
+    if not keywords:
+        return []
+
+    matched_ids = []
+    for market in markets:
+        question = (market.question or "").lower()
+        if any(kw in question for kw in keywords):
+            matched_ids.append(market.id)
+
+    return matched_ids
+
+
+# Bearish keywords — if article contains these, lean toward selling YES / buying NO
+# Uses word boundary matching via _count_keyword_hits() to avoid substring false positives
+BEARISH_KEYWORDS = [
+    "fail", "decline", "drop", "fall", "crash", "reject", "unlikely",
+    "delay", "cancel", "oppose", "block", "veto", "lose", "defeat",
+    "miss", "below", "under", "down", "negative", "bearish",
+    "denied", "collapses", "plunges", "slumps",
+]
+
+# Bullish keywords — lean toward buying YES
+BULLISH_KEYWORDS = [
+    "pass", "approve", "rise", "gain", "surge", "confirm", "likely",
+    "agree", "support", "win", "above", "over", "positive",
+    "bullish", "succeed", "advance", "rally", "soars", "jumps",
+    "launches", "announces", "breakthrough",
+]
+
+
+def _count_keyword_hits(text: str, keywords: List[str]) -> int:
+    """Count keyword matches using word boundaries to avoid substring false positives."""
+    count = 0
+    for kw in keywords:
+        # \b word boundary ensures "down" doesn't match "download"
+        if re.search(r'\b' + re.escape(kw) + r'\b', text):
+            count += 1
+    return count
+
+
+def infer_side(article: Dict[str, str]) -> Optional[str]:
+    """Infer trade side from article sentiment using keyword matching.
+
+    Returns 'yes', 'no', or None if unclear.
+    """
+    text = f"{article['title']} {article['summary']}".lower()
+
+    bull_score = _count_keyword_hits(text, BULLISH_KEYWORDS)
+    bear_score = _count_keyword_hits(text, BEARISH_KEYWORDS)
+
+    if bull_score > bear_score and bull_score >= 2:
+        return "yes"
+    elif bear_score > bull_score and bear_score >= 2:
+        return "no"
+    return None
 
 
 def get_market_context(market_id: str, my_probability: float = None) -> Optional[Dict]:
@@ -603,9 +690,19 @@ def run_scan(
         return {"error": "No feeds"}
 
     if not markets:
-        print("❌ No target markets configured")
-        print("   Set SIMMER_SNIPER_MARKETS or use --market ID")
-        return {"error": "No markets"}
+        if keywords:
+            print("🔍 No markets configured — auto-discovering from keywords...")
+            markets = discover_markets(keywords)
+            if markets:
+                print(f"   Found {len(markets)} matching markets")
+            else:
+                print("❌ No markets found matching keywords")
+                print("   Set SIMMER_SNIPER_MARKETS or use --market ID")
+                return {"error": "No markets"}
+        else:
+            print("❌ No target markets configured and no keywords for discovery")
+            print("   Set SIMMER_SNIPER_MARKETS or use --market ID")
+            return {"error": "No markets"}
 
     results = {
         "feeds_scanned": len(feeds),
@@ -662,9 +759,9 @@ def run_scan(
         for market_id in markets:
             print(f"\n   → Checking market: {market_id[:20]}...")
 
-            # Get context with safeguards + edge analysis
-            # Use confidence threshold as probability estimate
-            context = get_market_context(market_id, my_probability=CONFIDENCE_THRESHOLD)
+            # Get context with safeguards (no probability estimate — we don't
+            # have a calibrated signal yet, so edge calculation would be misleading)
+            context = get_market_context(market_id)
             if not context:
                 print(f"     ⚠️ Could not fetch context")
                 continue
@@ -699,45 +796,68 @@ def run_scan(
                 })
                 continue
 
-            # At this point, safeguards passed
-            # In a real run, Claude (the Clawdbot runtime) would analyze the article
-            # and decide whether to trade based on:
-            # 1. Article content vs resolution_criteria
-            # 2. Confidence in the signal
-            # 3. Current position and market state
+            # Safeguards passed — infer trade direction from article sentiment
+            side = infer_side(article)
+            market_price = context.get("market", {}).get("current_price", 0.5)
 
-            print(f"\n     🧠 SIGNAL DETECTED - Awaiting analysis")
-            print(f"     Article: {article['title']}")
-            print(f"     Resolution: {context.get('market', {}).get('resolution_criteria', 'N/A')[:100]}")
-            print()
-            print("     → Claude should analyze this signal and decide:")
-            print("       1. Does this signal relate to the resolution criteria?")
-            print("       2. Is it bullish or bearish for YES?")
-            print("       3. Confidence level (needs > {:.0%} to trade)".format(CONFIDENCE_THRESHOLD))
-            print()
+            if not side:
+                print(f"     🤷 Signal unclear — can't determine direction, skipping")
+                processed[h] = {
+                    "title": article["title"],
+                    "url": article["url"],
+                    "market_id": market_id,
+                    "action": "unclear_signal",
+                    "processed_at": datetime.now(timezone.utc).isoformat(),
+                }
+                continue
 
-            # Mark as processed (Claude will handle the actual trade decision)
+            print(f"\n     🧠 SIGNAL: {side.upper()} on {market_id[:20]}")
+            print(f"     Article: {article['title'][:60]}")
+            print(f"     Market price: {market_price:.1%}")
+
+            if dry_run:
+                print(f"     🏜️ [DRY RUN] Would buy {side.upper()} for ${MAX_USD:.2f}")
+                action = "dry_run"
+            elif results["trades_executed"] >= MAX_TRADES_PER_RUN:
+                print(f"     ⏭️ Max trades per run ({MAX_TRADES_PER_RUN}) reached")
+                action = "max_trades_reached"
+            else:
+                print(f"     💰 Executing: BUY {side.upper()} for ${MAX_USD:.2f}")
+                trade_result = execute_trade(
+                    market_id=market_id,
+                    side=side,
+                    amount=MAX_USD,
+                    price=market_price,
+                    source=TRADE_SOURCE,
+                    thesis=f"Signal: {article['title'][:100]}",
+                    confidence=CONFIDENCE_THRESHOLD,
+                )
+                if trade_result.get("success"):
+                    shares = trade_result.get("shares", 0)
+                    print(f"     ✅ Bought {shares:.1f} shares")
+                    results["trades_executed"] += 1
+                    action = "traded"
+                else:
+                    error = trade_result.get("error", "Unknown error")
+                    print(f"     ❌ Trade failed: {error}")
+                    action = "trade_failed"
+
             results["signals"].append({
                 "article": article["title"],
                 "url": article["url"],
                 "market_id": market_id,
-                "context_summary": {
-                    "price": context.get("market", {}).get("current_price"),
-                    "resolution_criteria": context.get("market", {}).get("resolution_criteria"),
-                    "warnings": context.get("warnings", []),
-                },
+                "side": side,
+                "action": action,
             })
 
             processed[h] = {
                 "title": article["title"],
                 "url": article["url"],
                 "market_id": market_id,
-                "action": "signal_detected",
+                "side": side,
+                "action": action,
                 "processed_at": datetime.now(timezone.utc).isoformat(),
             }
-
-            if dry_run:
-                print(f"     🏜️ [DRY RUN] Would present signal for analysis")
 
     # Save processed state
     save_processed(processed)

@@ -476,6 +476,14 @@ def detect_price_trend(history: list) -> dict:
 # =============================================================================
 # Market Discovery - Auto-import from Polymarket
 # =============================================================================
+# NOTE: Unlike fastloop (which queries Gamma API directly with tag=crypto),
+# weather uses Simmer's list_importable_markets (Dome-backed keyword search).
+# Gamma API has no weather/temperature tag and no public text search endpoint
+# (/search requires auth). Tested Feb 2026: 600+ events paginated, zero weather.
+# This path is slower but is the only way to discover weather markets by keyword.
+# Trading does NOT depend on discovery — v1.10.1+ trades from already-imported
+# markets via GET /api/sdk/markets?tags=weather.
+# =============================================================================
 
 # Search terms per location (matching Polymarket event naming)
 LOCATION_SEARCH_TERMS = {
