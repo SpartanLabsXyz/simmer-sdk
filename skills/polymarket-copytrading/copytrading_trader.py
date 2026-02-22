@@ -430,6 +430,13 @@ def run_copytrading(wallets: list, top_n: int = None, max_usd: float = 50.0, dry
     else:
         print("\n✅ Scan complete")
 
+    # Structured report for automaton
+    if os.environ.get("AUTOMATON_MANAGED"):
+        positions_found = result.get('positions_found', 0) if result else 0
+        _trades_needed = result.get('trades_needed', 0) if result else 0
+        _trades_exec = result.get('trades_executed', 0) if result else 0
+        print(json.dumps({"automaton": {"signals": positions_found, "trades_attempted": _trades_needed, "trades_executed": _trades_exec}}))
+
 
 def show_positions():
     """Show current SDK positions."""
@@ -616,6 +623,10 @@ def main():
         buy_only=not args.rebalance,  # Default buy_only=True, --rebalance sets it to False
         detect_whale_exits=args.whale_exits
     )
+
+    # Fallback report for automaton if the strategy returned early (no signal)
+    if os.environ.get("AUTOMATON_MANAGED"):
+        print(json.dumps({"automaton": {"signals": 0, "trades_attempted": 0, "trades_executed": 0, "skip_reason": "no_signal"}}))
 
 
 if __name__ == "__main__":

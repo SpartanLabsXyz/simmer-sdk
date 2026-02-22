@@ -751,6 +751,10 @@ def run_fast_market_strategy(dry_run=True, positions_only=False, show_config=Fal
         print(f"  Signal: {direction} {momentum_pct:.3f}% | YES ${market_yes_price:.3f}")
         print(f"  Action: {'PAPER' if dry_run else ('TRADED' if total_trades else 'FAILED')}")
 
+    # Structured report for automaton (takes priority over fallback in __main__)
+    if os.environ.get("AUTOMATON_MANAGED"):
+        print(json.dumps({"automaton": {"signals": 1, "trades_attempted": 1, "trades_executed": total_trades}}))
+
 
 # =============================================================================
 # CLI Entry Point
@@ -803,3 +807,8 @@ if __name__ == "__main__":
         smart_sizing=args.smart_sizing,
         quiet=args.quiet,
     )
+
+    # Fallback report for automaton if the strategy returned early (no signal)
+    # The function emits its own report when it reaches a trade; this covers early exits.
+    if os.environ.get("AUTOMATON_MANAGED") and not getattr(sys.stdout, '_automaton_reported', False):
+        print(json.dumps({"automaton": {"signals": 0, "trades_attempted": 0, "trades_executed": 0, "skip_reason": "no_signal"}}))

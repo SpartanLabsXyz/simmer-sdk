@@ -473,6 +473,10 @@ def run_mert_strategy(dry_run=True, positions_only=False, show_config=False,
     print(f"  Strong split:    {strong_split_count}")
     print(f"  Trades executed: {trades_executed}")
 
+    # Structured report for automaton
+    if os.environ.get("AUTOMATON_MANAGED"):
+        print(json.dumps({"automaton": {"signals": strong_split_count, "trades_attempted": strong_split_count, "trades_executed": trades_executed}}))
+
     if dry_run:
         print("\n  [PAPER MODE - trades simulated with real prices]")
 
@@ -532,3 +536,7 @@ if __name__ == "__main__":
         filter_override=args.filter,
         expiry_override=args.expiry,
     )
+
+    # Fallback report for automaton if the strategy returned early (no signal)
+    if os.environ.get("AUTOMATON_MANAGED"):
+        print(json.dumps({"automaton": {"signals": 0, "trades_attempted": 0, "trades_executed": 0, "skip_reason": "no_signal"}}))

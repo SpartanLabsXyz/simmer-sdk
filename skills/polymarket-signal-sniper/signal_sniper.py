@@ -877,6 +877,10 @@ def run_scan(
             print(f"   • {signal['article'][:50]}...")
             print(f"     Market: {signal['market_id']}")
 
+    # Structured report for automaton
+    if os.environ.get("AUTOMATON_MANAGED"):
+        print(json.dumps({"automaton": {"signals": len(results['signals']), "trades_attempted": results['trades_executed'] + results['trades_skipped'], "trades_executed": results['trades_executed']}}))
+
     return results
 
 
@@ -947,6 +951,10 @@ def main():
         dry_run=dry_run,
         scan_only=args.scan_only,
     )
+
+    # Fallback report for automaton if the strategy returned early (no signal)
+    if os.environ.get("AUTOMATON_MANAGED"):
+        print(json.dumps({"automaton": {"signals": 0, "trades_attempted": 0, "trades_executed": 0, "skip_reason": "no_signal"}}))
 
 
 if __name__ == "__main__":

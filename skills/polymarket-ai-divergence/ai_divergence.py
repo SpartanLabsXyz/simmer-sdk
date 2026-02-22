@@ -283,6 +283,11 @@ def main():
         format_divergence(markets, args.min, direction)
         show_opportunities(markets)
 
+    # Structured report for automaton
+    if os.environ.get("AUTOMATON_MANAGED"):
+        filtered_count = len([m for m in markets if abs(m.get("divergence") or 0) >= args.min / 100])
+        print(json.dumps({"automaton": {"signals": filtered_count, "trades_attempted": 0, "trades_executed": 0, "skip_reason": "scanner only"}}))
+
 
 if __name__ == "__main__":
     main()

@@ -449,10 +449,30 @@ def _avg_reward(skill_entry):
 # Skill execution
 # =============================================================================
 
+def _parse_skill_report(stdout):
+    """Extract structured report from skill stdout.
+
+    Skills emit a JSON line like: {"automaton": {"signals": 3, ...}}
+    Returns the inner dict or None if not found.
+    """
+    if not stdout:
+        return None
+    for line in stdout.strip().split("\n"):
+        line = line.strip()
+        if line.startswith('{"automaton"'):
+            try:
+                parsed = json.loads(line)
+                return parsed.get("automaton")
+            except (json.JSONDecodeError, AttributeError):
+                pass
+    return None
+
+
 def run_skill(slug, entrypoint, skill_dir, live=False):
     """Run a skill as a subprocess.
 
-    Returns {success, returncode, output, stderr}.
+    Returns {success, returncode, output, stderr, report}.
+    report is the parsed {"automaton": ...} dict or None.
     """
     cmd = [sys.executable, entrypoint]
     if live:
@@ -471,11 +491,13 @@ def run_skill(slug, entrypoint, skill_dir, live=False):
             text=True,
             timeout=120,
         )
+        stdout = result.stdout[-2000:] if result.stdout else ""
         return {
             "success": result.returncode == 0,
             "returncode": result.returncode,
-            "output": result.stdout[-2000:] if result.stdout else "",
+            "output": stdout,
             "stderr": result.stderr[-1000:] if result.stderr else "",
+            "report": _parse_skill_report(stdout),
         }
     except subprocess.TimeoutExpired:
         return {
@@ -483,6 +505,7 @@ def run_skill(slug, entrypoint, skill_dir, live=False):
             "returncode": -1,
             "output": "",
             "stderr": f"Timeout: {slug} exceeded 120s",
+            "report": None,
         }
     except Exception as e:
         return {
@@ -490,6 +513,7 @@ def run_skill(slug, entrypoint, skill_dir, live=False):
             "returncode": -1,
             "output": "",
             "stderr": str(e),
+            "report": None,
         }
 
 
@@ -569,6 +593,11 @@ def run_cycle(config, live=False, quiet=False):
                 "times_rewarded": 0,
                 "last_run": None,
                 "enabled": True,
+                "signals_found_total": 0,
+                "trades_attempted_total": 0,
+                "trades_executed_total": 0,
+                "errors_total": 0,
+                "last_cycle": None,
             }
         else:
             # Update entrypoint/source_tag in case they changed
@@ -664,11 +693,36 @@ def run_cycle(config, live=False, quiet=False):
                 first_line = result["stderr"].strip().split("\n")[0]
                 print(f"   {first_line}")
 
-    # 9. Fetch post-run P&L and update bandit
+    # 9. Store skill reports in state
+    for slug in selected:
+        res = run_results.get(slug)
+        if not res:
+            continue
+        skill_entry = state["skills"].get(slug)
+        if not skill_entry:
+            continue
+        report = res.get("report")
+        if report:
+            cycle_data = {
+                "signals": report.get("signals", 0),
+                "trades_attempted": report.get("trades_attempted", 0),
+                "trades_executed": report.get("trades_executed", 0),
+                "skip_reason": report.get("skip_reason"),
+                "error": report.get("error"),
+            }
+            skill_entry["last_cycle"] = cycle_data
+            skill_entry["signals_found_total"] = skill_entry.get("signals_found_total", 0) + cycle_data["signals"]
+            skill_entry["trades_attempted_total"] = skill_entry.get("trades_attempted_total", 0) + cycle_data["trades_attempted"]
+            skill_entry["trades_executed_total"] = skill_entry.get("trades_executed_total", 0) + cycle_data["trades_executed"]
+            if cycle_data.get("error"):
+                skill_entry["errors_total"] = skill_entry.get("errors_total", 0) + 1
+        else:
+            skill_entry["last_cycle"] = None
+
+    # 10. Fetch post-run P&L and update bandit
     if track_pnl:
         pnl_after = fetch_skill_pnl(client, state["skills"])
 
-        # 10. Update bandit weights (only for successful runs)
         for slug in selected:
             if not run_results.get(slug, {}).get("success"):
                 continue
@@ -683,11 +737,33 @@ def run_cycle(config, live=False, quiet=False):
         state.get("epsilon", config["epsilon"]) * config["epsilon_decay"],
     )
 
-    # 10. Save state
+    # 11. Save state
     state["cycle_count"] += 1
     save_state(state)
 
-    if not quiet:
+    # 12. Print cycle summary
+    if not quiet and selected:
+        cycle_num = state["cycle_count"]
+        print(f"\n\u2500\u2500 Cycle #{cycle_num} Summary \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500")
+        for slug in selected:
+            res = run_results.get(slug, {})
+            ok = "\u2713" if res.get("success") else "\u2717"
+            report = res.get("report")
+            if report:
+                sig = report.get("signals", 0)
+                att = report.get("trades_attempted", 0)
+                exe = report.get("trades_executed", 0)
+                skip = report.get("skip_reason")
+                detail = f"signals={sig}  attempted={att}  executed={exe}"
+                if skip:
+                    detail += f"  ({skip})"
+                print(f"  {slug:<28} {detail}  {ok}")
+            else:
+                print(f"  {slug:<28} (no report){'':>24}  {ok}")
+        total_pnl = sum(s.get("total_pnl", 0) for s in state["skills"].values())
+        print(f"\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500")
+        print(f"\U0001f4be P&L: ${total_pnl:+.2f} | Epsilon: {state['epsilon']:.3f}")
+    elif not quiet:
         total_pnl = sum(s.get("total_pnl", 0) for s in state["skills"].values())
         print(f"\U0001f4be Cycle complete. Total P&L: ${total_pnl:+.2f} | Epsilon: {state['epsilon']:.3f}")
 
@@ -762,23 +838,26 @@ def show_skills(state=None):
         print("No skills tracked yet.")
         return
 
-    print(f"\n{'='*70}")
+    print(f"\n{'='*85}")
     print(f"  SKILL PERFORMANCE")
-    print(f"{'='*70}")
-    print(f"  {'Skill':<30} {'P&L':>8} {'Runs':>6} {'Win%':>6} {'Avg':>8} {'Status':<8}")
-    print(f"  {'-'*30} {'-'*8} {'-'*6} {'-'*6} {'-'*8} {'-'*8}")
+    print(f"{'='*85}")
+    print(f"  {'Skill':<28} {'P&L':>8} {'Runs':>5} {'Win%':>5} {'Sig':>5} {'Att':>5} {'Exe':>5} {'Err':>4} {'Status':<8}")
+    print(f"  {'-'*28} {'-'*8} {'-'*5} {'-'*5} {'-'*5} {'-'*5} {'-'*5} {'-'*4} {'-'*8}")
 
     for slug, sk in sorted(skills.items()):
         pnl = sk.get("total_pnl", 0)
         runs = sk.get("times_selected", 0)
         wins = sk.get("times_rewarded", 0)
         win_pct = (wins / runs * 100) if runs > 0 else 0
-        avg = pnl / runs if runs > 0 else 0
+        sig = sk.get("signals_found_total", 0)
+        att = sk.get("trades_attempted_total", 0)
+        exe = sk.get("trades_executed_total", 0)
+        err = sk.get("errors_total", 0)
         status = "active" if sk.get("enabled") else "disabled"
 
-        print(f"  {slug:<30} ${pnl:>+7.2f} {runs:>6} {win_pct:>5.0f}% ${avg:>+7.2f} {status:<8}")
+        print(f"  {slug:<28} ${pnl:>+7.2f} {runs:>5} {win_pct:>4.0f}% {sig:>5} {att:>5} {exe:>5} {err:>4} {status:<8}")
 
-    print(f"{'='*70}\n")
+    print(f"{'='*85}\n")
 
 
 def show_config():
