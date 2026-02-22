@@ -716,6 +716,11 @@ def run_cycle(config, live=False, quiet=False):
             skill_entry["trades_executed_total"] = skill_entry.get("trades_executed_total", 0) + cycle_data["trades_executed"]
             if cycle_data.get("error"):
                 skill_entry["errors_total"] = skill_entry.get("errors_total", 0) + 1
+            # Track consecutive zero-signal cycles
+            if cycle_data["signals"] == 0:
+                skill_entry["consecutive_zero_signals"] = skill_entry.get("consecutive_zero_signals", 0) + 1
+            else:
+                skill_entry["consecutive_zero_signals"] = 0
         else:
             skill_entry["last_cycle"] = None
 
@@ -763,6 +768,14 @@ def run_cycle(config, live=False, quiet=False):
         total_pnl = sum(s.get("total_pnl", 0) for s in state["skills"].values())
         print(f"\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500")
         print(f"\U0001f4be P&L: ${total_pnl:+.2f} | Epsilon: {state['epsilon']:.3f}")
+        # Tuning hints for skills stuck at zero signals
+        for slug in selected:
+            sk = state["skills"].get(slug, {})
+            zeros = sk.get("consecutive_zero_signals", 0)
+            if zeros >= 3:
+                ep = sk.get("entrypoint", "skill.py")
+                print(f"\n  \u2139\ufe0f  {slug}: 0 signals for {zeros} consecutive cycles.")
+                print(f"     Consider loosening thresholds: python {ep} --config")
     elif not quiet:
         total_pnl = sum(s.get("total_pnl", 0) for s in state["skills"].values())
         print(f"\U0001f4be Cycle complete. Total P&L: ${total_pnl:+.2f} | Epsilon: {state['epsilon']:.3f}")
