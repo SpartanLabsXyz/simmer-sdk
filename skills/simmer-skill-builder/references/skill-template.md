@@ -408,6 +408,37 @@ if __name__ == "__main__":
     )
 ```
 
+### 10. Automaton Reporting
+
+The automaton runs skills as subprocesses and parses a structured JSON report line from stdout. Every skill **must** emit this report so the automaton can track signals, trades, and errors.
+
+**In `run_strategy()`**, at the end (after the summary print):
+
+```python
+    # Structured report for automaton
+    if os.environ.get("AUTOMATON_MANAGED"):
+        print(json.dumps({"automaton": {"signals": signals_found, "trades_attempted": trades_attempted, "trades_executed": trades_executed}}))
+```
+
+**In `__main__`**, add a fallback report after the `run_strategy()` call. This covers early-return paths (no markets, config display, etc.) where `run_strategy()` exits before reaching its report line:
+
+```python
+    run_strategy(...)
+
+    # Fallback report for automaton if the strategy returned early (no signal)
+    if os.environ.get("AUTOMATON_MANAGED"):
+        print(json.dumps({"automaton": {"signals": 0, "trades_attempted": 0, "trades_executed": 0, "skip_reason": "no_signal"}}))
+```
+
+The automaton's parser takes the **first** `{"automaton": ...}` line it finds. When `run_strategy()` emits the real report, that's found first. If it returned early, only the fallback is emitted.
+
+**Fields:**
+- `signals` — Number of opportunities/signals found
+- `trades_attempted` — Number of trades attempted (including failed)
+- `trades_executed` — Number of successful trades
+- `skip_reason` (optional) — Why no trades happened (e.g. `"no_signal"`, `"budget_exhausted"`)
+- `error` (optional) — Error description if the skill crashed
+
 ## Key Rules
 
 1. **Always default to dry-run.** `--live` must be explicit.
@@ -418,3 +449,4 @@ if __name__ == "__main__":
 6. **Polymarket minimum:** 5 shares per order, $0.01 min tick.
 7. **Include reasoning** in trades — it's displayed publicly.
 8. **`get_positions()` returns dataclasses** — convert with `asdict()`.
+9. **Always emit automaton report** — include the `{"automaton": ...}` JSON line and `__main__` fallback (section 10).
