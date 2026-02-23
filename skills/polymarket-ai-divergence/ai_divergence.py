@@ -472,7 +472,7 @@ def run_divergence_trades(markets, dry_run=True, quiet=False):
     if dry_run:
         log("  [PAPER MODE — use --live for real trades]")
 
-    return signals_found, trades_attempted, trades_executed, skip_reasons
+    return signals_found, trades_attempted, trades_executed, skip_reasons, total_usd_spent
 
 
 # =============================================================================
@@ -556,11 +556,12 @@ def main():
     is_paper_venue = os.environ.get("TRADING_VENUE", "polymarket") == "simmer"
     if args.live or is_paper_venue:
         effective_dry_run = dry_run and not is_paper_venue
-        signals, attempted, executed, skip_reasons = run_divergence_trades(markets, dry_run=effective_dry_run, quiet=args.quiet)
+        signals, attempted, executed, skip_reasons, total_usd_spent = run_divergence_trades(markets, dry_run=effective_dry_run, quiet=args.quiet)
     else:
         signals = len([m for m in markets if abs(m.get("divergence") or 0) >= MIN_EDGE])
         attempted = 0
         executed = 0
+        total_usd_spent = 0.0
 
     # Structured report for automaton
     if os.environ.get("AUTOMATON_MANAGED"):
