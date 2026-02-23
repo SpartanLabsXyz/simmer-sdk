@@ -274,7 +274,7 @@ def fetch_wallet_positions(wallet: str) -> list:
     return []
 
 
-def execute_copytrading(wallets: list, top_n: int = None, max_usd: float = 50.0, dry_run: bool = True, buy_only: bool = True, detect_whale_exits: bool = False, max_trades: int = None) -> dict:
+def execute_copytrading(wallets: list, top_n: int = None, max_usd: float = 50.0, dry_run: bool = True, buy_only: bool = True, detect_whale_exits: bool = False, max_trades: int = None, venue: str = None) -> dict:
     """
     Execute copytrading via Simmer SDK.
 
@@ -288,6 +288,11 @@ def execute_copytrading(wallets: list, top_n: int = None, max_usd: float = 50.0,
     - Filters to buy-only by default (prevents selling positions from other strategies)
     - Detects whale exits (sells positions whales no longer hold)
     - Limits trades per run via max_trades
+
+    Venue:
+    - 'simmer': Execute on Simmer LMSR with $SIM (paper trading)
+    - 'polymarket': Execute on Polymarket with real USDC
+    - None: Auto-detect based on user's real_trading_enabled setting
     """
     data = {
         "wallets": wallets,
@@ -299,14 +304,17 @@ def execute_copytrading(wallets: list, top_n: int = None, max_usd: float = 50.0,
 
     if top_n is not None:
         data["top_n"] = top_n
-    
+
     if max_trades is not None:
         data["max_trades"] = max_trades
+
+    if venue is not None:
+        data["venue"] = venue
 
     return get_client()._request("POST", "/api/sdk/copytrading/execute", json=data)
 
 
-def run_copytrading(wallets: list, top_n: int = None, max_usd: float = 50.0, dry_run: bool = True, buy_only: bool = True, detect_whale_exits: bool = False):
+def run_copytrading(wallets: list, top_n: int = None, max_usd: float = 50.0, dry_run: bool = True, buy_only: bool = True, detect_whale_exits: bool = False, venue: str = None):
     """
     Run copytrading scan and execute trades.
 
@@ -321,6 +329,8 @@ def run_copytrading(wallets: list, top_n: int = None, max_usd: float = 50.0, dry
 
     By default, only BUY trades are executed (buy_only=True). This prevents
     copytrading from selling positions opened by other strategies (weather, etc.)
+
+    Venue: 'simmer' for $SIM paper trading, 'polymarket' for real USDC, None for auto-detect.
     """
     print("\n🐋 Starting Copytrading Scan...")
     print("=" * 50)
@@ -339,6 +349,8 @@ def run_copytrading(wallets: list, top_n: int = None, max_usd: float = 50.0, dry
     print(f"  Top N: {top_n if top_n else 'auto (based on balance)'}")
     print(f"  Max per position: ${max_usd:.2f}")
     print(f"  Max trades/run:  {MAX_TRADES_PER_RUN}")
+    venue_label = venue or "auto-detect"
+    print(f"  Venue: {venue_label}")
     print(f"  Mode: {'Buy only (accumulate)' if buy_only else 'Full rebalance (buy + sell)'}")
     print(f"  Whale exits: {'Enabled (sell when whale exits)' if detect_whale_exits else 'Disabled'}")
 
@@ -348,7 +360,7 @@ def run_copytrading(wallets: list, top_n: int = None, max_usd: float = 50.0, dry
     # Execute copytrading via SDK
     print("\n📡 Calling Simmer API...")
     try:
-        result = execute_copytrading(wallets, top_n, max_usd, dry_run, buy_only, detect_whale_exits, MAX_TRADES_PER_RUN)
+        result = execute_copytrading(wallets, top_n, max_usd, dry_run, buy_only, detect_whale_exits, MAX_TRADES_PER_RUN, venue=venue)
     except Exception as e:
         print(f"\n❌ Error: {e}")
         return
@@ -547,6 +559,12 @@ def main():
         help="Sell positions when whales exit (only affects copytrading-opened positions)"
     )
     parser.add_argument(
+        "--venue",
+        type=str,
+        choices=["simmer", "polymarket"],
+        help="Trading venue: 'simmer' for $SIM paper trading, 'polymarket' for real USDC (default: auto-detect)"
+    )
+    parser.add_argument(
         "--set",
         action="append",
         metavar="KEY=VALUE",
@@ -621,7 +639,8 @@ def main():
         max_usd=max_usd,
         dry_run=dry_run,
         buy_only=not args.rebalance,  # Default buy_only=True, --rebalance sets it to False
-        detect_whale_exits=args.whale_exits
+        detect_whale_exits=args.whale_exits,
+        venue=args.venue
     )
 
     # Fallback report for automaton if the strategy returned early (no signal)

@@ -5,7 +5,7 @@ description: Mirror positions from top Polymarket traders using Simmer API. Size
 metadata: {"clawdbot":{"emoji":"🐋","requires":{"env":["SIMMER_API_KEY"],"pip":["simmer-sdk"]},"cron":null,"autostart":false,"automaton":{"managed":true,"entrypoint":"copytrading_trader.py"}}}
 authors:
   - Simmer (@simmer_markets)
-version: "1.3.8"
+version: "1.4.0"
 published: true
 ---
 
@@ -19,6 +19,7 @@ Mirror positions from successful Polymarket traders using the Simmer SDK.
 
 Use this skill when the user wants to:
 - Copytrade whale wallets on Polymarket
+- Paper trade (copytrade with $SIM) to test strategies without real money
 - Check what positions a wallet holds
 - Follow specific trader addresses
 - Check their copytrading positions
@@ -96,6 +97,24 @@ Each cycle the script:
 6. Calculates rebalance trades to match target allocations
 7. Executes trades via Simmer SDK (respects spending limits)
 8. Reports results back to user
+
+## $SIM Paper Trading
+
+Copytrading supports $SIM mode — mirror whale positions using simulated money on Simmer's LMSR markets. No wallet or USDC required.
+
+```bash
+# Paper trade with $SIM (explicit)
+python copytrading_trader.py --venue simmer --wallets 0x123... --live
+
+# Auto-detect: if your account has no linked wallet, $SIM is used automatically
+python copytrading_trader.py --wallets 0x123... --live
+```
+
+In $SIM mode:
+- Trades execute on Simmer's LMSR at real Polymarket prices
+- Each market gets an independent $10K $SIM balance
+- Positions tracked in your Simmer portfolio (source: `sdk:copytrading`)
+- Whale signals still come from real Polymarket data
 
 ## Running the Skill
 
@@ -228,7 +247,7 @@ The skill works best when:
 - Or set SIMMER_COPYTRADING_WALLETS environment variable for recurring scans
 
 **"Agent has no USDC balance"**
-- Need USDC in your Polymarket wallet
+- Need USDC in your Polymarket wallet, or use `--venue simmer` for $SIM paper trading
 - Check wallet is linked at simmer.markets/dashboard
 
 **"Conflict skipped"**
