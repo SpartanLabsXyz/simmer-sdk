@@ -125,12 +125,17 @@ python automaton.py --config
 # Update config
 python automaton.py --set KEY=VALUE
 
+# View cycle journal (last N cycles with skip reasons, errors, hints)
+python automaton.py --journal 20
+
 # Reset state (fresh start)
 python automaton.py --reset
 
 # Dry run (no trades, just show what would happen)
 python automaton.py --budget 50 --days 30
 ```
+
+**Debugging tip:** When trades aren't executing, check the journal first: `python automaton.py --journal 10`. It shows per-cycle skip reasons, execution errors, and tuning hints — everything you need to diagnose why signals aren't converting to trades.
 
 ## How It Works
 

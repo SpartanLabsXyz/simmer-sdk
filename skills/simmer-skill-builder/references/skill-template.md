@@ -412,12 +412,31 @@ if __name__ == "__main__":
 
 The automaton runs skills as subprocesses and parses a structured JSON report line from stdout. Every skill **must** emit this report so the automaton can track signals, trades, and errors.
 
-**In `run_strategy()`**, at the end (after the summary print):
+**In `run_strategy()`**, collect skip reasons and errors from trade results, then emit the report:
 
 ```python
+    # Track skip reasons and errors from trade() results
+    skip_reasons = []
+    execution_errors = []
+
+    for market in candidates:
+        result = client.trade(market.id, side, amount, source=TRADE_SOURCE, reasoning=reasoning)
+        trades_attempted += 1
+        if result.success:
+            trades_executed += 1
+        elif result.skip_reason:
+            skip_reasons.append(result.skip_reason)
+        elif result.error:
+            execution_errors.append(result.error)
+
     # Structured report for automaton
     if os.environ.get("AUTOMATON_MANAGED"):
-        print(json.dumps({"automaton": {"signals": signals_found, "trades_attempted": trades_attempted, "trades_executed": trades_executed}}))
+        report = {"signals": signals_found, "trades_attempted": trades_attempted, "trades_executed": trades_executed}
+        if skip_reasons:
+            report["skip_reason"] = ", ".join(dict.fromkeys(skip_reasons))
+        if execution_errors:
+            report["execution_errors"] = execution_errors
+        print(json.dumps({"automaton": report}))
 ```
 
 **In `__main__`**, add a fallback report after the `run_strategy()` call. This covers early-return paths (no markets, config display, etc.) where `run_strategy()` exits before reaching its report line:
@@ -436,8 +455,8 @@ The automaton's parser takes the **first** `{"automaton": ...}` line it finds. W
 - `signals` — Number of opportunities/signals found
 - `trades_attempted` — Number of trades attempted (including failed)
 - `trades_executed` — Number of successful trades
-- `skip_reason` (optional) — Why no trades happened (e.g. `"no_signal"`, `"budget_exhausted"`)
-- `error` (optional) — Error description if the skill crashed
+- `skip_reason` (optional) — Comma-separated reasons from `result.skip_reason` (e.g. `"conflicts skipped, budget exhausted"`)
+- `execution_errors` (optional) — List of error strings from `result.error` (e.g. `["insufficient liquidity"]`)
 
 ## Key Rules
 

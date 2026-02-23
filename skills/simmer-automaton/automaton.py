@@ -435,13 +435,14 @@ def select_skills(state, n):
     """Select up to n skills using epsilon-greedy bandit.
 
     Unplayed skills (times_selected=0) are always explored first.
-    Returns list of skill slugs.
+    Returns (list of skill slugs, list of selection metadata dicts).
+    Each metadata dict: {"slug": str, "reason": str, "score": float|None}.
     """
     skills = state.get("skills", {})
     enabled = {k: v for k, v in skills.items() if v.get("enabled", True)}
 
     if not enabled:
-        return []
+        return [], []
 
     tier = state.get("tier", "normal")
     epsilon = tier_effective_epsilon(tier, state.get("epsilon", 0.2))
@@ -453,18 +454,24 @@ def select_skills(state, n):
     unplayed = [s for s in slugs if enabled[s].get("times_selected", 0) == 0]
     if unplayed:
         selected = random.sample(unplayed, min(n, len(unplayed)))
+        meta = [{"slug": s, "reason": "unplayed", "score": None} for s in selected]
         if len(selected) < n:
             remaining = [s for s in slugs if s not in selected]
-            selected.extend(random.sample(remaining, min(n - len(selected), len(remaining))))
-        return selected[:n]
+            extra = random.sample(remaining, min(n - len(selected), len(remaining)))
+            selected.extend(extra)
+            meta.extend({"slug": s, "reason": "backfill", "score": round(_avg_reward(enabled[s]), 4)} for s in extra)
+        return selected[:n], meta[:n]
 
     # Critical tier: always pick best
     if tier == "critical":
         ranked = sorted(slugs, key=lambda s: _avg_reward(enabled[s]), reverse=True)
-        return ranked[:n]
+        picks = ranked[:n]
+        meta = [{"slug": s, "reason": "critical_exploit", "score": round(_avg_reward(enabled[s]), 4)} for s in picks]
+        return picks, meta
 
     # Epsilon-greedy
     selected = []
+    meta = []
     available = slugs[:]
     for _ in range(n):
         if not available:
@@ -472,13 +479,16 @@ def select_skills(state, n):
         if random.random() < epsilon:
             # Explore: random
             pick = random.choice(available)
+            selected.append(pick)
+            meta.append({"slug": pick, "reason": f"explore (ε={epsilon:.2f})", "score": round(_avg_reward(enabled[pick]), 4)})
         else:
             # Exploit: best avg reward
             pick = max(available, key=lambda s: _avg_reward(enabled[s]))
-        selected.append(pick)
+            selected.append(pick)
+            meta.append({"slug": pick, "reason": "exploit", "score": round(_avg_reward(enabled[pick]), 4)})
         available.remove(pick)
 
-    return selected
+    return selected, meta
 
 
 def _avg_reward(skill_entry):
@@ -534,10 +544,10 @@ SKIP_CATEGORY_PATTERNS = {
     "fees eat the edge": "signal_quality",
     "projection unreliable": "signal_quality",
     "cooldown": "cooldown",
-    "already holding": "other",
+    "already holding": "already_holding",
     "fee market": "other",
-    "conflicts skipped": "other",
-    "cluster too expensive": "other",
+    "conflicts skipped": "conflict",
+    "cluster too expensive": "cluster_cost",
     "copytrading failed": "other",
 }
 
@@ -862,10 +872,13 @@ def run_cycle(config, live=False, quiet=False):
 
     # 6. Select skills via bandit
     max_n = tier_max_skills(new_tier, config["max_concurrent"])
-    selected = select_skills(state, max_n)
+    selected, selection_meta = select_skills(state, max_n)
 
     if not quiet:
         print(f"\U0001f3b0 Selected: {', '.join(selected) if selected else 'none'}")
+        for m in selection_meta:
+            score_str = f" score={m['score']}" if m["score"] is not None else ""
+            print(f"   ↳ {m['slug']}: {m['reason']}{score_str}")
 
     if not live and not _is_paper_venue() and not quiet:
         print(f"\n[DRY RUN] Simulating without trades. Use --live for real trades or TRADING_VENUE=simmer for paper trading.")
@@ -1022,6 +1035,7 @@ def run_cycle(config, live=False, quiet=False):
             / max(state["budget_usd"], 0.01), 3
         ),
         "selected_skills": list(selected),
+        "selection_reasoning": selection_meta,
         "results": {},
         "pnl_total": round(state.get("total_pnl", 0), 2),
         "spent_total": round(sum(s.get("spent_usd", 0) for s in state["skills"].values()), 2),
