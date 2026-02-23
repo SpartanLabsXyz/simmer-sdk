@@ -160,7 +160,8 @@ def write_journal_entry(entry):
     # Rotate if needed
     if JOURNAL_FILE.exists():
         try:
-            line_count = sum(1 for _ in open(JOURNAL_FILE))
+            with open(JOURNAL_FILE) as jf:
+                line_count = sum(1 for _ in jf)
             if line_count >= JOURNAL_MAX_ENTRIES:
                 if JOURNAL_PREV_FILE.exists():
                     JOURNAL_PREV_FILE.unlink()
@@ -177,7 +178,8 @@ def read_journal(n=20):
     if not JOURNAL_FILE.exists():
         return []
     try:
-        lines = open(JOURNAL_FILE).readlines()
+        with open(JOURNAL_FILE) as f:
+            lines = f.readlines()
         entries = []
         for line in lines[-n:]:
             try:
@@ -792,6 +794,7 @@ def run_cycle(config, live=False, quiet=False):
         if amount > 0 and amount > state["budget_usd"] * 0.10:
             skill_entry["enabled"] = False
             skill_entry["disabled_reason"] = "rapid_bleed"
+            # +1 because cycle_count is incremented in step 10 after this
             skill_entry["disabled_at_cycle"] = state["cycle_count"] + 1
             if not quiet:
                 print(f"  🛑 Circuit breaker: {slug} disabled (rapid bleed: ${amount:.2f} in one cycle)")
@@ -835,6 +838,7 @@ def run_cycle(config, live=False, quiet=False):
                 if skill_entry["consecutive_negative_pnl"] >= 3 and skill_entry.get("enabled"):
                     skill_entry["enabled"] = False
                     skill_entry["disabled_reason"] = "loss_streak"
+                    # +1 because cycle_count is incremented in step 10 after this
                     skill_entry["disabled_at_cycle"] = state["cycle_count"] + 1
                     if not quiet:
                         print(f"  🛑 Circuit breaker: {slug} disabled (3 consecutive losses)")
