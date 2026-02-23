@@ -557,6 +557,87 @@ def categorize_skip_reasons(skip_reason_str):
     return counts
 
 
+def generate_tuning_hints(state):
+    """Analyze skill state and generate actionable tuning hints.
+
+    Returns list of hint dicts for the Clawbot LLM to reason about.
+    Pure pattern detection — no LLM calls, no external API calls.
+    """
+    hints = []
+    skills = state.get("skills", {})
+    budget = state.get("budget_usd", 100)
+
+    for slug, sk in skills.items():
+        if not sk.get("enabled", True):
+            continue
+
+        runs = sk.get("times_selected", 0)
+        if runs == 0:
+            continue
+
+        # 1. Zero signals streak — skill can't find opportunities
+        zeros = sk.get("consecutive_zero_signals", 0)
+        if zeros >= 5:
+            hints.append({
+                "skill": slug,
+                "issue": "zero_signals_streak",
+                "cycles": zeros,
+                "suggestion": f"0 signals for {zeros} cycles — loosen thresholds or widen time windows",
+            })
+
+        # 2. Concentrated loss — single skill dominates losses
+        pnl = sk.get("total_pnl", 0)
+        if pnl < 0 and budget > 0:
+            loss_pct = abs(pnl) / budget * 100
+            if loss_pct > 20:
+                hints.append({
+                    "skill": slug,
+                    "issue": "concentrated_loss",
+                    "pnl": round(pnl, 2),
+                    "pct_of_budget": round(loss_pct, 1),
+                    "suggestion": f"Lost ${abs(pnl):.2f} ({loss_pct:.0f}% of budget) — consider disabling or reducing max bet",
+                })
+
+        # 3. Inert — finds signals but never executes
+        sig_total = sk.get("signals_found_total", 0)
+        exe_total = sk.get("trades_executed_total", 0)
+        if sig_total > 50 and exe_total == 0:
+            hints.append({
+                "skill": slug,
+                "issue": "inert",
+                "signals": sig_total,
+                "suggestion": f"{sig_total} signals found, 0 executed — execution thresholds likely too tight",
+            })
+
+        # 4. Win rate collapse — was working, now failing
+        rewarded = sk.get("times_rewarded", 0)
+        if runs >= 10:
+            win_rate = rewarded / runs
+            if win_rate < 0.20:
+                hints.append({
+                    "skill": slug,
+                    "issue": "win_rate_collapse",
+                    "win_rate": round(win_rate * 100, 1),
+                    "runs": runs,
+                    "suggestion": f"Win rate {win_rate:.0%} over {runs} cycles — strategy may not suit current markets",
+                })
+
+        # 5. Safeguard dominant — most skips are safeguards (uses P2j skip_counts)
+        last = sk.get("last_cycle") or {}
+        skip_counts = last.get("skip_counts", {})
+        total_skips = sum(skip_counts.values())
+        safeguard_skips = skip_counts.get("safeguard", 0)
+        if total_skips >= 3 and safeguard_skips / total_skips > 0.8:
+            hints.append({
+                "skill": slug,
+                "issue": "safeguard_dominant",
+                "safeguard_pct": round(safeguard_skips / total_skips * 100),
+                "suggestion": "Most skips are safeguard blocks — markets may be too volatile or near resolution",
+            })
+
+    return hints
+
+
 def run_skill(slug, entrypoint, skill_dir, live=False, state=None):
     """Run a skill as a subprocess.
 
@@ -928,6 +1009,7 @@ def run_cycle(config, live=False, quiet=False):
         "spent_total": round(sum(s.get("spent_usd", 0) for s in state["skills"].values()), 2),
         "runtime_sec": round(elapsed, 1),
         "circuit_breakers": [],
+        "tuning_hints": [],  # populated below
     }
     # Record any circuit breaker events
     for slug, sk in state["skills"].items():
@@ -950,6 +1032,9 @@ def run_cycle(config, live=False, quiet=False):
             "exit_code": res.get("returncode", -1),
             "success": res.get("success", False),
         }
+    # Generate tuning hints once (used in journal + summary)
+    hints = generate_tuning_hints(state)
+    journal_entry["tuning_hints"] = hints
     write_journal_entry(journal_entry)
 
     # 11. Print cycle summary
@@ -980,14 +1065,10 @@ def run_cycle(config, live=False, quiet=False):
         elapsed = (datetime.now(timezone.utc) - cycle_start).total_seconds()
         print(f"\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500")
         print(f"\U0001f4be P&L: ${total_pnl:+.2f} | Epsilon: {state['epsilon']:.3f} | {elapsed:.1f}s")
-        # Tuning hints for skills stuck at zero signals
-        for slug in selected:
-            sk = state["skills"].get(slug, {})
-            zeros = sk.get("consecutive_zero_signals", 0)
-            if zeros >= 3:
-                ep = sk.get("entrypoint", "skill.py")
-                print(f"\n  \u2139\ufe0f  {slug}: 0 signals for {zeros} consecutive cycles.")
-                print(f"     Consider loosening thresholds: python {ep} --config")
+        if hints:
+            print(f"\n  Tuning hints ({len(hints)}):")
+            for h in hints:
+                print(f"    [{h['issue']}] {h['skill']}: {h['suggestion']}")
     elif not quiet:
         total_pnl = sum(s.get("total_pnl", 0) for s in state["skills"].values())
         elapsed = (datetime.now(timezone.utc) - cycle_start).total_seconds()
@@ -1134,6 +1215,10 @@ def show_journal(n=20):
                 line += f"  ({skip})"
             print(line)
         print(f"    P&L: ${pnl:+.2f}  |  Spent: ${spent:.2f}")
+        hints = e.get("tuning_hints", [])
+        if hints:
+            for h in hints:
+                print(f"    hint: [{h['issue']}] {h['skill']}: {h['suggestion']}")
     print()
 
 

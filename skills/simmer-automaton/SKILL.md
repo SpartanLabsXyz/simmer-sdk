@@ -155,6 +155,38 @@ On each cycle, the automaton scans sibling skill directories for SKILL.md files 
 
 All state persists in `state.json` — budget tracking, bandit weights, tier history. Each cycle loads, updates, and saves state. Reset anytime with `--reset`.
 
+## Post-Cycle Analysis (for your Clawbot)
+
+After each cycle, the automaton emits `tuning_hints` — deterministic pattern detections that your Clawbot's LLM can reason about and act on. No extra inference cost; the automaton just surfaces the data.
+
+**Hint types and recommended actions:**
+
+| Hint | Meaning | What to do |
+|------|---------|------------|
+| `zero_signals_streak` | Skill found 0 signals for 5+ cycles | Loosen thresholds: `python <skill>.py --set <param>=<value>` |
+| `concentrated_loss` | Single skill lost >20% of total budget | Disable or reduce max bet size |
+| `inert` | 50+ signals found, 0 executed | Execution thresholds too tight — lower confidence or min_edge |
+| `win_rate_collapse` | Win rate <20% over 10+ cycles | Strategy may not suit current market conditions |
+| `safeguard_dominant` | >80% of skips are safeguard blocks | Markets may be too volatile or near resolution |
+
+**Example Clawbot actions:**
+
+```bash
+# Widen mert-sniper's window
+cd polymarket-mert-sniper && python mert_sniper.py --set expiry_window_mins=10
+
+# Reduce signal-sniper's bet size
+cd polymarket-signal-sniper && python signal_sniper.py --set max_usd=2.00
+
+# Check a skill's current config
+cd polymarket-weather-trader && python weather_trader.py --config
+
+# Review cycle history for patterns
+cd simmer-automaton && python automaton.py --journal 50
+```
+
+The automaton handles skill selection; your Clawbot handles skill tuning.
+
 ## Troubleshooting
 
 **No skills found**
