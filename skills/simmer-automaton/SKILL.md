@@ -73,8 +73,21 @@ Use this skill when the user wants to:
    ```
 
 5. **Schedule with cron** (run every 5 minutes):
+
+   **Linux crontab** (local/VPS installs):
    ```
    */5 * * * * cd /path/to/simmer-automaton && python automaton.py --live --quiet
+   ```
+
+   **OpenClaw native cron** (containerized or OpenClaw-managed setups):
+   ```bash
+   openclaw cron add \
+     --name "Simmer Automaton" \
+     --cron "*/5 * * * *" \
+     --tz "UTC" \
+     --session isolated \
+     --message "Run the simmer automaton: cd /path/to/simmer-automaton && python automaton.py --live --quiet. Show the output summary." \
+     --announce
    ```
 
 ## Configuration

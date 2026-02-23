@@ -80,14 +80,24 @@ python fastloop_trader.py --live --smart-sizing --quiet
 
 The script runs **one cycle** — your bot drives the loop. Set up a cron job or heartbeat:
 
-**Every 5 minutes (one per fast market window):**
+**Linux crontab** (local/VPS installs):
 ```
+# Every 5 minutes (one per fast market window)
 */5 * * * * cd /path/to/skill && python fastloop_trader.py --live --quiet
+
+# Every 1 minute (more aggressive, catches mid-window opportunities)
+* * * * * cd /path/to/skill && python fastloop_trader.py --live --quiet
 ```
 
-**Every 1 minute (more aggressive, catches mid-window opportunities):**
-```
-* * * * * cd /path/to/skill && python fastloop_trader.py --live --quiet
+**OpenClaw native cron** (containerized or OpenClaw-managed setups):
+```bash
+openclaw cron add \
+  --name "Fast Loop Trader" \
+  --cron "*/5 * * * *" \
+  --tz "UTC" \
+  --session isolated \
+  --message "Run fast loop trader: cd /path/to/skill && python fastloop_trader.py --live --quiet. Show the output summary." \
+  --announce
 ```
 
 **Via OpenClaw heartbeat:** Add to your HEARTBEAT.md:
