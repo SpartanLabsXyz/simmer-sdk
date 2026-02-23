@@ -131,6 +131,9 @@ def _is_paper_venue():
 # =============================================================================
 
 STATE_FILE = Path(__file__).parent / "state.json"
+JOURNAL_FILE = Path(__file__).parent / "cycle_journal.jsonl"
+JOURNAL_PREV_FILE = Path(__file__).parent / "cycle_journal.prev.jsonl"
+JOURNAL_MAX_ENTRIES = 1000  # ~3 days at 5-min interval
 
 
 def load_state(path=None):
@@ -150,6 +153,40 @@ def save_state(state, path=None):
     p = Path(path) if path else STATE_FILE
     with open(p, "w") as f:
         json.dump(state, f, indent=2)
+
+
+def write_journal_entry(entry):
+    """Append a cycle journal entry to JSONL file. Rotates when over max entries."""
+    # Rotate if needed
+    if JOURNAL_FILE.exists():
+        try:
+            line_count = sum(1 for _ in open(JOURNAL_FILE))
+            if line_count >= JOURNAL_MAX_ENTRIES:
+                if JOURNAL_PREV_FILE.exists():
+                    JOURNAL_PREV_FILE.unlink()
+                JOURNAL_FILE.rename(JOURNAL_PREV_FILE)
+        except IOError:
+            pass
+
+    with open(JOURNAL_FILE, "a") as f:
+        f.write(json.dumps(entry, default=str) + "\n")
+
+
+def read_journal(n=20):
+    """Read last N journal entries."""
+    if not JOURNAL_FILE.exists():
+        return []
+    try:
+        lines = open(JOURNAL_FILE).readlines()
+        entries = []
+        for line in lines[-n:]:
+            try:
+                entries.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+        return entries
+    except IOError:
+        return []
 
 
 def init_state(budget, days):
@@ -766,6 +803,37 @@ def run_cycle(config, live=False, quiet=False):
     state["cycle_count"] += 1
     save_state(state)
 
+    # 10b. Write cycle journal
+    elapsed = (datetime.now(timezone.utc) - cycle_start).total_seconds()
+    journal_entry = {
+        "cycle": state["cycle_count"],
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "tier": state.get("tier", "normal"),
+        "epsilon": round(state.get("epsilon", 0), 4),
+        "budget_remaining_pct": round(
+            (state["budget_usd"] - sum(s.get("spent_usd", 0) for s in state["skills"].values()))
+            / max(state["budget_usd"], 0.01), 3
+        ),
+        "selected_skills": list(selected),
+        "results": {},
+        "pnl_total": round(state.get("realized_pnl", 0), 2),
+        "spent_total": round(sum(s.get("spent_usd", 0) for s in state["skills"].values()), 2),
+        "runtime_sec": round(elapsed, 1),
+    }
+    for slug in selected:
+        res = run_results.get(slug, {})
+        report = res.get("report", {}) or {}
+        journal_entry["results"][slug] = {
+            "signals": report.get("signals", 0),
+            "trades_attempted": report.get("trades_attempted", 0),
+            "trades_executed": report.get("trades_executed", 0),
+            "amount_usd": report.get("amount_usd", 0),
+            "skip_reason": report.get("skip_reason"),
+            "exit_code": res.get("returncode", -1),
+            "success": res.get("success", False),
+        }
+    write_journal_entry(journal_entry)
+
     # 11. Print cycle summary
     if not quiet and selected:
         cycle_num = state["cycle_count"]
@@ -907,6 +975,41 @@ def show_config():
     print(f"{'='*40}\n")
 
 
+def show_journal(n=20):
+    """Display last N cycle journal entries."""
+    entries = read_journal(n)
+    if not entries:
+        print("No journal entries. Run a cycle first.")
+        return
+
+    print(f"\n📓 Cycle Journal (last {len(entries)} entries)")
+    print("=" * 70)
+    for e in entries:
+        cycle = e.get("cycle", "?")
+        ts = e.get("timestamp", "")[:19].replace("T", " ")
+        tier = e.get("tier", "?")
+        eps = e.get("epsilon", 0)
+        pnl = e.get("pnl_total", 0)
+        spent = e.get("spent_total", 0)
+        runtime = e.get("runtime_sec", 0)
+        selected = e.get("selected_skills", [])
+
+        print(f"\n  Cycle #{cycle}  {ts} UTC  [{tier}]  ε={eps:.3f}  {runtime:.1f}s")
+        for slug in selected:
+            r = e.get("results", {}).get(slug, {})
+            sig = r.get("signals", 0)
+            exe = r.get("trades_executed", 0)
+            amt = r.get("amount_usd", 0)
+            skip = r.get("skip_reason")
+            ok = "✓" if r.get("success") else "✗"
+            line = f"    {slug:<28} sig={sig}  exe={exe}  ${amt:.2f}  {ok}"
+            if skip:
+                line += f"  ({skip})"
+            print(line)
+        print(f"    P&L: ${pnl:+.2f}  |  Spent: ${spent:.2f}")
+    print()
+
+
 # =============================================================================
 # CLI
 # =============================================================================
@@ -922,6 +1025,7 @@ def main():
     parser.add_argument("--quiet", action="store_true", help="Minimal output (cron mode)")
     parser.add_argument("--status", action="store_true", help="Show survival stats")
     parser.add_argument("--skills", action="store_true", help="Show skill performance")
+    parser.add_argument("--journal", type=int, nargs="?", const=20, metavar="N", help="Show last N cycle journal entries (default: 20)")
     parser.add_argument("--config", action="store_true", help="Show configuration")
     parser.add_argument("--set", metavar="KEY=VALUE", help="Update a config value")
     parser.add_argument("--reset", action="store_true", help="Reset state (fresh start)")
@@ -935,6 +1039,10 @@ def main():
 
     if args.skills:
         show_skills()
+        return
+
+    if args.journal is not None:
+        show_journal(args.journal)
         return
 
     if args.config:
@@ -963,7 +1071,10 @@ def main():
     if args.reset:
         if STATE_FILE.exists():
             STATE_FILE.unlink()
-            print("State reset. Fresh start on next run.")
+            for jf in [JOURNAL_FILE, JOURNAL_PREV_FILE]:
+                if jf.exists():
+                    jf.unlink()
+            print("State and journal reset. Fresh start on next run.")
         else:
             print("No state file to reset.")
         return
