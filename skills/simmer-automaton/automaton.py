@@ -505,6 +505,58 @@ def _parse_skill_report(stdout):
     return None
 
 
+# Skip reason categorization — maps skill-emitted flat strings to categories.
+# Skills keep their simple contract; automaton owns the intelligence.
+SKIP_CATEGORY_PATTERNS = {
+    # (prefix/substring, category)
+    "safeguard": "safeguard",
+    "flip-flop": "safeguard",
+    "slippage": "safeguard",
+    "market already resolved": "safeguard",
+    "resolves in": "safeguard",
+    "time decay": "safeguard",
+    "price at extreme": "price_extreme",
+    "split too narrow": "price_extreme",
+    "budget exhausted": "budget",  # covers "daily budget exhausted" too
+    "budget too small": "budget",
+    "position too small": "budget",
+    "max trades reached": "max_trades",
+    "unclear signal": "signal_quality",
+    "low volume": "signal_quality",
+    "market already priced in": "signal_quality",
+    "fees eat the edge": "signal_quality",
+    "projection unreliable": "signal_quality",
+    "cooldown": "cooldown",
+    "already holding": "other",
+    "fee market": "other",
+    "conflicts skipped": "other",
+    "cluster too expensive": "other",
+    "copytrading failed": "other",
+}
+
+
+def categorize_skip_reasons(skip_reason_str):
+    """Parse a comma-separated skip_reason string into categorized counts.
+
+    Returns dict like {"safeguard": 3, "budget": 1, "other": 2}.
+    Unrecognized reasons go to "other".
+    """
+    if not skip_reason_str:
+        return {}
+    counts = {}
+    for reason in skip_reason_str.split(","):
+        reason = reason.strip().lower()
+        if not reason:
+            continue
+        category = "other"
+        for pattern, cat in SKIP_CATEGORY_PATTERNS.items():
+            if pattern in reason:
+                category = cat
+                break
+        counts[category] = counts.get(category, 0) + 1
+    return counts
+
+
 def run_skill(slug, entrypoint, skill_dir, live=False, state=None):
     """Run a skill as a subprocess.
 
@@ -758,11 +810,13 @@ def run_cycle(config, live=False, quiet=False):
             continue
         report = res.get("report")
         if report:
+            skip_reason = report.get("skip_reason")
             cycle_data = {
                 "signals": report.get("signals", 0),
                 "trades_attempted": report.get("trades_attempted", 0),
                 "trades_executed": report.get("trades_executed", 0),
-                "skip_reason": report.get("skip_reason"),
+                "skip_reason": skip_reason,
+                "skip_counts": categorize_skip_reasons(skip_reason),
                 "error": report.get("error"),
             }
             skill_entry["last_cycle"] = cycle_data
@@ -885,12 +939,14 @@ def run_cycle(config, live=False, quiet=False):
     for slug in selected:
         res = run_results.get(slug, {})
         report = res.get("report", {}) or {}
+        skip_reason = report.get("skip_reason")
         journal_entry["results"][slug] = {
             "signals": report.get("signals", 0),
             "trades_attempted": report.get("trades_attempted", 0),
             "trades_executed": report.get("trades_executed", 0),
             "amount_usd": report.get("amount_usd", 0),
-            "skip_reason": report.get("skip_reason"),
+            "skip_reason": skip_reason,
+            "skip_counts": categorize_skip_reasons(skip_reason),
             "exit_code": res.get("returncode", -1),
             "success": res.get("success", False),
         }
@@ -911,7 +967,12 @@ def run_cycle(config, live=False, quiet=False):
                 skip = report.get("skip_reason")
                 detail = f"signals={sig}  attempted={att}  executed={exe}"
                 if skip:
-                    detail += f"  ({skip})"
+                    cats = categorize_skip_reasons(skip)
+                    if cats:
+                        cat_str = " ".join(f"{k}={v}" for k, v in sorted(cats.items()))
+                        detail += f"  skips:[{cat_str}]"
+                    else:
+                        detail += f"  ({skip})"
                 print(f"  {slug:<28} {detail}  {ok}")
             else:
                 print(f"  {slug:<28} (no report){'':>24}  {ok}")
@@ -1063,9 +1124,13 @@ def show_journal(n=20):
             exe = r.get("trades_executed", 0)
             amt = r.get("amount_usd", 0)
             skip = r.get("skip_reason")
+            skip_cats = r.get("skip_counts") or categorize_skip_reasons(skip)
             ok = "✓" if r.get("success") else "✗"
             line = f"    {slug:<28} sig={sig}  exe={exe}  ${amt:.2f}  {ok}"
-            if skip:
+            if skip_cats:
+                cat_str = " ".join(f"{k}={v}" for k, v in sorted(skip_cats.items()))
+                line += f"  skips:[{cat_str}]"
+            elif skip:
                 line += f"  ({skip})"
             print(line)
         print(f"    P&L: ${pnl:+.2f}  |  Spent: ${spent:.2f}")
