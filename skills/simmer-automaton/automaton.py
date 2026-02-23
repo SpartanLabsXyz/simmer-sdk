@@ -143,7 +143,11 @@ def load_state(path=None):
         return None
     try:
         with open(p) as f:
-            return json.load(f)
+            state = json.load(f)
+        # Migrate: realized_pnl → total_pnl (v1.0 → v1.1)
+        if "realized_pnl" in state and "total_pnl" not in state:
+            state["total_pnl"] = state.pop("realized_pnl")
+        return state
     except (json.JSONDecodeError, IOError):
         return None
 
@@ -199,7 +203,7 @@ def init_state(budget, days):
         "budget_usd": budget,
         "horizon_days": days,
         "spent_usd": 0.0,
-        "realized_pnl": 0.0,
+        "total_pnl": 0.0,
         "unrealized_pnl": 0.0,
         "tier": "normal",
         "epsilon": _config["epsilon"],
@@ -299,7 +303,10 @@ def discover_skills(skills_dir=None):
             continue
 
         slug = child.name  # Use directory name as stable state key
-        source_tag = _find_source_tag(child) or f"sdk:{child.name}"
+        source_tag = _find_source_tag(child)
+        if not source_tag:
+            print(f"  Warning: {slug} has no TRADE_SOURCE — P&L tracking and registry attribution won't work")
+            source_tag = f"sdk:{child.name}"
 
         discovered.append({
             "slug": slug,
@@ -380,8 +387,8 @@ def compute_tier(state):
         return "dead"
 
     spent = state["spent_usd"]
-    realized = state["realized_pnl"]
-    budget_remaining_pct = (budget - spent + realized) / budget
+    pnl = state["total_pnl"]
+    budget_remaining_pct = (budget - spent + pnl) / budget
 
     started = datetime.fromisoformat(state["started_at"])
     now = datetime.now(timezone.utc)
@@ -397,7 +404,7 @@ def compute_tier(state):
         return "critical"
     if budget_remaining_pct < 0.30:
         return "conserving"
-    if realized > 0 and budget_remaining_pct > 0.70:
+    if pnl > 0 and budget_remaining_pct > 0.70:
         return "thriving"
     return "normal"
 
@@ -705,19 +712,25 @@ def run_skill(slug, entrypoint, skill_dir, live=False, state=None):
 # =============================================================================
 
 def update_bandit(state, slug, pnl_by_source):
-    """Update bandit stats — set absolute P&L from portfolio positions.
+    """Update bandit stats using cross-cycle P&L deltas.
 
-    Uses total P&L (realized + unrealized) per source tag rather than
-    per-cycle deltas, giving the bandit a meaningful reward signal.
+    Stores total_pnl snapshot each cycle. Reward = delta since last run.
+    This captures value accrued between selections (trades resolving,
+    price moves) without the within-cycle timing problem.
     """
     if slug not in state["skills"]:
         return
 
     skill = state["skills"][slug]
     source_tag = skill.get("source_tag", "")
-    skill["total_pnl"] = pnl_by_source.get(source_tag, 0.0)
+    current_pnl = pnl_by_source.get(source_tag, 0.0)
+    prev_pnl = skill.get("total_pnl", 0.0)
+    delta = current_pnl - prev_pnl
+
+    skill["total_pnl"] = current_pnl
     skill["times_selected"] = skill.get("times_selected", 0) + 1
-    if skill["total_pnl"] > 0:
+    # Reward based on delta (positive change since last run), not absolute P&L
+    if delta > 0:
         skill["times_rewarded"] = skill.get("times_rewarded", 0) + 1
     skill["last_run"] = datetime.now(timezone.utc).isoformat()
 
@@ -834,7 +847,7 @@ def run_cycle(config, live=False, quiet=False):
         print(f"\n[{ts}]")
         print(f"\U0001f480 DEAD. Budget depleted or horizon expired.")
         print(f"   Cycles completed: {state['cycle_count']}")
-        print(f"   Realized P&L: ${state['realized_pnl']:+.2f}")
+        print(f"   Total P&L: ${state['total_pnl']:+.2f}")
         save_state(state)
         return
 
@@ -952,7 +965,7 @@ def run_cycle(config, live=False, quiet=False):
     # 9. Fetch P&L from positions and update bandit
     if track_pnl:
         pnl_by_source = fetch_pnl_by_source(client)
-        state["realized_pnl"] = sum(pnl_by_source.values())
+        state["total_pnl"] = sum(pnl_by_source.values())
 
         for slug in selected:
             if not run_results.get(slug, {}).get("success"):
@@ -1005,7 +1018,7 @@ def run_cycle(config, live=False, quiet=False):
         ),
         "selected_skills": list(selected),
         "results": {},
-        "pnl_total": round(state.get("realized_pnl", 0), 2),
+        "pnl_total": round(state.get("total_pnl", 0), 2),
         "spent_total": round(sum(s.get("spent_usd", 0) for s in state["skills"].values()), 2),
         "runtime_sec": round(elapsed, 1),
         "circuit_breakers": [],
@@ -1099,9 +1112,9 @@ def show_status(state=None):
     emoji = TIER_EMOJIS.get(tier, "")
     budget = state["budget_usd"]
     spent = state["spent_usd"]
-    realized = state["realized_pnl"]
+    pnl = state["total_pnl"]
     unrealized = state.get("unrealized_pnl", 0)
-    remaining = budget - spent + realized
+    remaining = budget - spent + pnl
     remaining_pct = (remaining / budget * 100) if budget > 0 else 0
 
     started = datetime.fromisoformat(state["started_at"])
@@ -1116,7 +1129,7 @@ def show_status(state=None):
     print(f"{'='*50}")
     print(f"  Budget:       ${budget:.2f}")
     print(f"  Spent:        ${spent:.2f}")
-    print(f"  Realized P&L: ${realized:+.2f}")
+    print(f"  Total P&L: ${pnl:+.2f}")
     print(f"  Unrealized:   ${unrealized:+.2f}")
     print(f"  Remaining:    ${remaining:.2f} ({remaining_pct:.0f}%)")
     print(f"  Days left:    {days_left:.1f} / {state['horizon_days']}")
