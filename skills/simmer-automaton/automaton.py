@@ -500,19 +500,21 @@ def run_skill(slug, entrypoint, skill_dir, live=False):
             "report": _parse_skill_report(stdout),
         }
     except subprocess.TimeoutExpired:
+        ts_err = datetime.now(timezone.utc).strftime("%H:%M:%S")
         return {
             "success": False,
             "returncode": -1,
             "output": "",
-            "stderr": f"Timeout: {slug} exceeded 120s",
+            "stderr": f"[{ts_err}] Timeout: {slug} exceeded 120s",
             "report": None,
         }
     except Exception as e:
+        ts_err = datetime.now(timezone.utc).strftime("%H:%M:%S")
         return {
             "success": False,
             "returncode": -1,
             "output": "",
-            "stderr": str(e),
+            "stderr": f"[{ts_err}] {e}",
             "report": None,
         }
 
@@ -560,6 +562,9 @@ def run_cycle(config, live=False, quiet=False):
     10. Update bandit weights (successful runs only)
     11. Save state
     """
+    cycle_start = datetime.now(timezone.utc)
+    ts = cycle_start.strftime("%Y-%m-%d %H:%M:%S UTC")
+
     # 1. Load or init state
     state = load_state()
     if state is None:
@@ -642,6 +647,7 @@ def run_cycle(config, live=False, quiet=False):
 
     # 5. Check for death
     if new_tier == "dead":
+        print(f"\n[{ts}]")
         print(f"\U0001f480 DEAD. Budget depleted or horizon expired.")
         print(f"   Cycles completed: {state['cycle_count']}")
         print(f"   Realized P&L: ${state['realized_pnl']:+.2f}")
@@ -650,6 +656,7 @@ def run_cycle(config, live=False, quiet=False):
 
     if not quiet:
         emoji = TIER_EMOJIS.get(new_tier, "")
+        print(f"\n[{ts}]")
         print(f"{emoji} Tier: {new_tier} | Cycle #{state['cycle_count'] + 1}")
 
     # 6. Select skills via bandit
@@ -766,8 +773,9 @@ def run_cycle(config, live=False, quiet=False):
             else:
                 print(f"  {slug:<28} (no report){'':>24}  {ok}")
         total_pnl = sum(s.get("total_pnl", 0) for s in state["skills"].values())
+        elapsed = (datetime.now(timezone.utc) - cycle_start).total_seconds()
         print(f"\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500")
-        print(f"\U0001f4be P&L: ${total_pnl:+.2f} | Epsilon: {state['epsilon']:.3f}")
+        print(f"\U0001f4be P&L: ${total_pnl:+.2f} | Epsilon: {state['epsilon']:.3f} | {elapsed:.1f}s")
         # Tuning hints for skills stuck at zero signals
         for slug in selected:
             sk = state["skills"].get(slug, {})
@@ -778,7 +786,8 @@ def run_cycle(config, live=False, quiet=False):
                 print(f"     Consider loosening thresholds: python {ep} --config")
     elif not quiet:
         total_pnl = sum(s.get("total_pnl", 0) for s in state["skills"].values())
-        print(f"\U0001f4be Cycle complete. Total P&L: ${total_pnl:+.2f} | Epsilon: {state['epsilon']:.3f}")
+        elapsed = (datetime.now(timezone.utc) - cycle_start).total_seconds()
+        print(f"\U0001f4be Cycle complete. Total P&L: ${total_pnl:+.2f} | Epsilon: {state['epsilon']:.3f} | {elapsed:.1f}s")
 
 
 # =============================================================================
