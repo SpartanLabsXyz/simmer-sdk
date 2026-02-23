@@ -628,12 +628,13 @@ def main():
             updated = update_config(updates, __file__)
             print(f"✅ Config updated: {updates}")
             print(f"   Saved to: {get_config_path(__file__)}")
-            # Reload config
-            _config = load_config(CONFIG_SCHEMA, __file__)
-            globals()["COPYTRADING_WALLETS"] = _config["wallets"]
-            globals()["COPYTRADING_TOP_N"] = _config["top_n"]
-            globals()["COPYTRADING_MAX_USD"] = _config["max_usd"]
-            globals()["MAX_TRADES_PER_RUN"] = _config["max_trades_per_run"]
+            # Reload config into module-level _config
+            reloaded = load_config(CONFIG_SCHEMA, __file__)
+            globals()["_config"] = reloaded
+            globals()["COPYTRADING_WALLETS"] = reloaded["wallets"]
+            globals()["COPYTRADING_TOP_N"] = reloaded["top_n"]
+            globals()["COPYTRADING_MAX_USD"] = reloaded["max_usd"]
+            globals()["MAX_TRADES_PER_RUN"] = reloaded["max_trades_per_run"]
 
     # Show config
     if args.config:
