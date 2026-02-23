@@ -2,7 +2,7 @@
 name: polymarket-wallet-autopsy
 displayName: Polymarket Wallet Autopsy
 description: Forensic analysis of ANY Polymarket wallet. Spot skill, entry quality, bot detection, and arbitrage opportunities. Queries Polymarket's public APIs — no authentication needed. Inspired by @thejayden's "Autopsy of a Polymarket Whale" analysis.
-metadata: {"clawdbot":{"emoji":"🔍","requires":{"env":[],"pip":[]},"cron":null,"autostart":false,"automaton":{"managed":true,"entrypoint":"wallet_autopsy.py"}}}
+metadata: {"clawdbot":{"emoji":"🔍","requires":{"env":[],"pip":[]},"cron":null,"autostart":false}}
 authors:
   - Simmer (@simmer_markets)
 inspired_by:
