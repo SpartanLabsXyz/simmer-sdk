@@ -361,7 +361,7 @@ def run_divergence_trades(markets, dry_run=True, quiet=False):
     execution_errors = []
     if not candidates:
         log("  No markets above min edge threshold")
-        return signals_found, 0, 0, skip_reasons
+        return signals_found, 0, 0, skip_reasons, 0.0, []
 
     # Load daily spend
     daily_spend = _load_daily_spend()
@@ -369,7 +369,7 @@ def run_divergence_trades(markets, dry_run=True, quiet=False):
     if remaining_budget <= 0:
         log(f"  Daily budget exhausted (${daily_spend['spent']:.2f}/${DAILY_BUDGET:.2f})", force=True)
         skip_reasons.append("daily budget exhausted")
-        return signals_found, 0, 0, skip_reasons
+        return signals_found, 0, 0, skip_reasons, 0.0, []
 
     # Get existing positions to avoid doubling up
     positions = get_positions()
