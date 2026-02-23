@@ -276,34 +276,32 @@ def discover_skills(skills_dir=None):
 # P&L fetching
 # =============================================================================
 
-def fetch_skill_pnl(client, skills):
-    """Fetch realized P&L per source tag from trade history.
+def fetch_pnl_by_source(client):
+    """Fetch total P&L per source tag from current positions.
 
-    Queries all venues and merges by source tag.
-    Returns dict[source_tag] = net_pnl (float).
+    Uses /api/sdk/positions which includes both realized and unrealized P&L.
+    Returns dict[source_tag] = total_pnl (float).
     """
-    all_trades = []
+    pnl_by_source = {}
     for venue in ("polymarket", "kalshi", "simmer"):
         try:
-            resp = client._request("GET", "/api/sdk/trades", params={
-                "venue": venue, "limit": 200
+            resp = client._request("GET", "/api/sdk/positions", params={
+                "venue": venue
             })
-            trades = resp.get("trades", []) if resp else []
-            all_trades.extend(trades)
+            positions = resp.get("positions", []) if resp else []
+            for pos in positions:
+                pnl = float(pos.get("pnl", 0) or 0)
+                # sources is a list (e.g. ["sdk:divergence"]); split P&L
+                # evenly across sources to avoid double-counting
+                sources = pos.get("sources", [])
+                if sources:
+                    share = pnl / len(sources)
+                    for src in sources:
+                        pnl_by_source[src] = pnl_by_source.get(src, 0.0) + share
+                else:
+                    pnl_by_source["unknown"] = pnl_by_source.get("unknown", 0.0) + pnl
         except Exception:
             pass
-
-    # Group by source, compute net P&L: sells - buys
-    pnl_by_source = {}
-    for trade in all_trades:
-        source = trade.get("source", "unknown")
-        side = trade.get("side", "").lower()
-        cost = float(trade.get("cost", 0) or trade.get("amount", 0) or 0)
-        if side == "sell":
-            pnl_by_source[source] = pnl_by_source.get(source, 0.0) + cost
-        elif side == "buy":
-            pnl_by_source[source] = pnl_by_source.get(source, 0.0) - cost
-
     return pnl_by_source
 
 
@@ -523,21 +521,20 @@ def run_skill(slug, entrypoint, skill_dir, live=False):
 # Bandit update
 # =============================================================================
 
-def update_bandit(state, slug, pnl_before, pnl_after):
-    """Update bandit stats for a skill after execution.
+def update_bandit(state, slug, pnl_by_source):
+    """Update bandit stats — set absolute P&L from portfolio positions.
 
-    Only updates if the skill ran successfully.
+    Uses total P&L (realized + unrealized) per source tag rather than
+    per-cycle deltas, giving the bandit a meaningful reward signal.
     """
     if slug not in state["skills"]:
         return
 
     skill = state["skills"][slug]
     source_tag = skill.get("source_tag", "")
-    delta = pnl_after.get(source_tag, 0.0) - pnl_before.get(source_tag, 0.0)
-
-    skill["total_pnl"] = skill.get("total_pnl", 0.0) + delta
+    skill["total_pnl"] = pnl_by_source.get(source_tag, 0.0)
     skill["times_selected"] = skill.get("times_selected", 0) + 1
-    if delta > 0:
+    if skill["total_pnl"] > 0:
         skill["times_rewarded"] = skill.get("times_rewarded", 0) + 1
     skill["last_run"] = datetime.now(timezone.utc).isoformat()
 
@@ -552,15 +549,14 @@ def run_cycle(config, live=False, quiet=False):
     Steps:
     1. Load or init state
     2. Discover skills
-    3. Refresh P&L from API (live only)
+    3. Init client (live only)
     4. Compute survival tier
     5. Check for death
     6. Select skills via bandit
-    7. Fetch pre-run P&L snapshot
-    8. Run selected skills
-    9. Fetch post-run P&L
-    10. Update bandit weights (successful runs only)
-    11. Save state
+    7. Run selected skills
+    8. Store skill reports
+    9. Fetch P&L from positions and update bandit weights
+    10. Save state
     """
     cycle_start = datetime.now(timezone.utc)
     ts = cycle_start.strftime("%Y-%m-%d %H:%M:%S UTC")
@@ -625,10 +621,6 @@ def run_cycle(config, live=False, quiet=False):
     track_pnl = live or _is_paper_venue()
     if track_pnl:
         client = get_client(live=live)
-        pnl_snapshot = fetch_skill_pnl(client, state["skills"])
-        state["realized_pnl"] = sum(pnl_snapshot.values())
-        # unrealized_pnl fetched on-demand in show_status() only — avoids
-        # hitting /portfolio rate limit (18 req/min) every cycle
 
     # 4. Compute survival tier
     old_tier = state.get("tier", "normal")
@@ -669,10 +661,7 @@ def run_cycle(config, live=False, quiet=False):
     if not live and not _is_paper_venue() and not quiet:
         print(f"\n[DRY RUN] Simulating without trades. Use --live for real trades or TRADING_VENUE=simmer for paper trading.")
 
-    # 7. Fetch pre-run P&L snapshot for bandit delta
-    pnl_before = fetch_skill_pnl(client, state["skills"]) if track_pnl else {}
-
-    # 8. Run selected skills
+    # 7. Run selected skills
     skill_dir_map = {sk["slug"]: sk["dir"] for sk in discovered}
     run_results = {}
     for slug in selected:
@@ -700,7 +689,7 @@ def run_cycle(config, live=False, quiet=False):
                 first_line = result["stderr"].strip().split("\n")[0]
                 print(f"   {first_line}")
 
-    # 9. Store skill reports in state
+    # 8. Store skill reports in state
     for slug in selected:
         res = run_results.get(slug)
         if not res:
@@ -731,9 +720,10 @@ def run_cycle(config, live=False, quiet=False):
         else:
             skill_entry["last_cycle"] = None
 
-    # 10. Fetch post-run P&L and update bandit
+    # 9. Fetch P&L from positions and update bandit
     if track_pnl:
-        pnl_after = fetch_skill_pnl(client, state["skills"])
+        pnl_by_source = fetch_pnl_by_source(client)
+        state["realized_pnl"] = sum(pnl_by_source.values())
 
         for slug in selected:
             if not run_results.get(slug, {}).get("success"):
@@ -741,7 +731,7 @@ def run_cycle(config, live=False, quiet=False):
             skill_entry = state["skills"].get(slug)
             if not skill_entry:
                 continue
-            update_bandit(state, slug, pnl_before, pnl_after)
+            update_bandit(state, slug, pnl_by_source)
 
     # Decay epsilon
     state["epsilon"] = max(
@@ -749,11 +739,11 @@ def run_cycle(config, live=False, quiet=False):
         state.get("epsilon", config["epsilon"]) * config["epsilon_decay"],
     )
 
-    # 11. Save state
+    # 10. Save state
     state["cycle_count"] += 1
     save_state(state)
 
-    # 12. Print cycle summary
+    # 11. Print cycle summary
     if not quiet and selected:
         cycle_num = state["cycle_count"]
         print(f"\n\u2500\u2500 Cycle #{cycle_num} Summary \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500")
