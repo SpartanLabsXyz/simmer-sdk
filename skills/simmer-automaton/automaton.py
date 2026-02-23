@@ -855,6 +855,10 @@ def run_cycle(config, live=False, quiet=False):
         emoji = TIER_EMOJIS.get(new_tier, "")
         print(f"\n[{ts}]")
         print(f"{emoji} Tier: {new_tier} | Cycle #{state['cycle_count'] + 1}")
+        venue = os.environ.get("TRADING_VENUE")
+        venue_label = venue if venue else "polymarket (default — set TRADING_VENUE=simmer for paper trading)"
+        wallet_mode = "external" if os.environ.get("WALLET_PRIVATE_KEY") else "managed"
+        print(f"   Venue: {venue_label} | Wallet: {wallet_mode}")
 
     # 6. Select skills via bandit
     max_n = tier_max_skills(new_tier, config["max_concurrent"])

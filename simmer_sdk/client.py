@@ -183,6 +183,12 @@ class SimmerClient:
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
         self.venue = venue
+        if not os.environ.get("TRADING_VENUE"):
+            logger.info(
+                "TRADING_VENUE not set, using venue='%s'. "
+                "Set TRADING_VENUE=simmer for paper trading with $SIM.",
+                venue
+            )
         self._private_key: Optional[str] = None  # EVM private key (Polymarket)
         self._wallet_address: Optional[str] = None  # EVM wallet address
         self._wallet_linked: Optional[bool] = None  # Cached linking status
