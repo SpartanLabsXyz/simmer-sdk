@@ -789,6 +789,7 @@ def run_strategy(dry_run=True, positions_only=False, show_config=False,
     total_usd_spent = 0.0
     opportunities_found = 0
     skip_reasons = []
+    execution_errors = []
 
     if smart_sizing:
         portfolio = get_portfolio()
@@ -921,6 +922,7 @@ def run_strategy(dry_run=True, positions_only=False, show_config=False,
             else:
                 error_msg = result.get('error', 'Unknown')
                 log(f"   ❌ Trade failed: {error_msg}", force=True)
+                execution_errors.append(error_msg[:120])
                 record_failed_trade(market_id, "yes", error_msg)
 
     # Check exits
@@ -943,6 +945,8 @@ def run_strategy(dry_run=True, positions_only=False, show_config=False,
         report = {"signals": opportunities_found + exits_found, "trades_attempted": opportunities_found + exits_found, "trades_executed": total_trades, "amount_usd": round(total_usd_spent, 2)}
         if (opportunities_found + exits_found) > 0 and total_trades == 0 and skip_reasons:
             report["skip_reason"] = ", ".join(dict.fromkeys(skip_reasons))
+        if execution_errors:
+            report["execution_errors"] = execution_errors
         print(json.dumps({"automaton": report}))
         _automaton_reported = True
 

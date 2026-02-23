@@ -709,6 +709,7 @@ def run_scan(
             return {"error": "No markets"}
 
     skip_reasons = []
+    execution_errors = []
     results = {
         "feeds_scanned": len(feeds),
         "articles_found": 0,
@@ -850,6 +851,7 @@ def run_scan(
                 else:
                     error = trade_result.get("error", "Unknown error")
                     print(f"     ❌ Trade failed: {error}")
+                    execution_errors.append(error[:120])
                     action = "trade_failed"
 
             results["signals"].append({
@@ -894,6 +896,8 @@ def run_scan(
         report = {"signals": signals_count, "trades_attempted": results['trades_executed'] + results['trades_skipped'], "trades_executed": results['trades_executed'], "amount_usd": round(results['total_usd_spent'], 2)}
         if signals_count > 0 and results['trades_executed'] == 0 and skip_reasons:
             report["skip_reason"] = ", ".join(dict.fromkeys(skip_reasons))
+        if execution_errors:
+            report["execution_errors"] = execution_errors
         print(json.dumps({"automaton": report}))
         _automaton_reported = True
 

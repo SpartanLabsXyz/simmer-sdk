@@ -817,6 +817,7 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
     total_usd_spent = 0.0
     opportunities_found = 0
     skip_reasons = []
+    execution_errors = []
 
     for event_id, event_markets in events.items():
         # Use event_name from API if available, otherwise parse from question
@@ -951,6 +952,7 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
             else:
                 error = result.get("error", "Unknown error")
                 log(f"  ❌ Trade failed: {error}", force=True)
+                execution_errors.append(error[:120])
         else:
             log(f"  ⏸️  Price ${price:.2f} above threshold ${ENTRY_THRESHOLD:.2f} - skip")
 
@@ -972,6 +974,8 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
         report = {"signals": opportunities_found + exits_found, "trades_attempted": opportunities_found + exits_found, "trades_executed": total_trades, "amount_usd": round(total_usd_spent, 2)}
         if (opportunities_found + exits_found) > 0 and total_trades == 0 and skip_reasons:
             report["skip_reason"] = ", ".join(dict.fromkeys(skip_reasons))
+        if execution_errors:
+            report["execution_errors"] = execution_errors
         print(json.dumps({"automaton": report}))
         _automaton_reported = True
 

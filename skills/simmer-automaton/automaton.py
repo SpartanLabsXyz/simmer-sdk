@@ -911,6 +911,7 @@ def run_cycle(config, live=False, quiet=False):
                 "trades_executed": report.get("trades_executed", 0),
                 "skip_reason": skip_reason,
                 "skip_counts": categorize_skip_reasons(skip_reason),
+                "execution_errors": report.get("execution_errors", []),
                 "error": report.get("error"),
             }
             skill_entry["last_cycle"] = cycle_data
@@ -1042,6 +1043,7 @@ def run_cycle(config, live=False, quiet=False):
             "amount_usd": report.get("amount_usd", 0),
             "skip_reason": skip_reason,
             "skip_counts": categorize_skip_reasons(skip_reason),
+            "execution_errors": report.get("execution_errors", []),
             "exit_code": res.get("returncode", -1),
             "success": res.get("success", False),
         }
@@ -1071,6 +1073,9 @@ def run_cycle(config, live=False, quiet=False):
                         detail += f"  skips:[{cat_str}]"
                     else:
                         detail += f"  ({skip})"
+                exec_errs = report.get("execution_errors", [])
+                if exec_errs:
+                    detail += f"  errors:[{'; '.join(exec_errs[:3])}]"
                 print(f"  {slug:<28} {detail}  {ok}")
             else:
                 print(f"  {slug:<28} (no report){'':>24}  {ok}")
@@ -1226,6 +1231,9 @@ def show_journal(n=20):
                 line += f"  skips:[{cat_str}]"
             elif skip:
                 line += f"  ({skip})"
+            exec_errs = r.get("execution_errors", [])
+            if exec_errs:
+                line += f"  errors:[{'; '.join(exec_errs[:3])}]"
             print(line)
         print(f"    P&L: ${pnl:+.2f}  |  Spent: ${spent:.2f}")
         hints = e.get("tuning_hints", [])

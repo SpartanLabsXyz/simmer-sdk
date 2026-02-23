@@ -736,6 +736,7 @@ def run_fast_market_strategy(dry_run=True, positions_only=False, show_config=Fal
 
     log(f"  ✅ Market ID: {market_id[:16]}...", force=True)
 
+    execution_error = None
     tag = "SIMULATED" if dry_run else "LIVE"
     log(f"  Executing {side.upper()} trade for ${position_size:.2f} ({tag})...", force=True)
     result = execute_trade(market_id, side, position_size)
@@ -767,6 +768,7 @@ def run_fast_market_strategy(dry_run=True, positions_only=False, show_config=Fal
     else:
         error = result.get("error", "Unknown error") if result else "No response"
         log(f"  ❌ Trade failed: {error}", force=True)
+        execution_error = error[:120]
 
     # Summary
     total_trades = 1 if result and result.get("success") else 0
@@ -781,7 +783,10 @@ def run_fast_market_strategy(dry_run=True, positions_only=False, show_config=Fal
     if os.environ.get("AUTOMATON_MANAGED"):
         global _automaton_reported
         amount = round(position_size, 2) if total_trades > 0 else 0
-        print(json.dumps({"automaton": {"signals": 1, "trades_attempted": 1, "trades_executed": total_trades, "amount_usd": amount}}))
+        report = {"signals": 1, "trades_attempted": 1, "trades_executed": total_trades, "amount_usd": amount}
+        if execution_error:
+            report["execution_errors"] = [execution_error]
+        print(json.dumps({"automaton": report}))
         _automaton_reported = True
 
 

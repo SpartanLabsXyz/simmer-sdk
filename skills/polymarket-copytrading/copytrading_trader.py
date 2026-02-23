@@ -467,6 +467,13 @@ def run_copytrading(wallets: list, top_n: int = None, max_usd: float = 50.0, dry
                 skip_reasons.append("copytrading failed")
             if skip_reasons:
                 report["skip_reason"] = ", ".join(dict.fromkeys(skip_reasons))
+        # Collect execution errors from failed trades
+        execution_errors = []
+        for t in (result.get('trades', []) if result else []):
+            if not t.get('success') and t.get('error') and 'dry_run' not in str(t.get('error', '')):
+                execution_errors.append(str(t['error'])[:120])
+        if execution_errors:
+            report["execution_errors"] = execution_errors
         print(json.dumps({"automaton": report}))
         _automaton_reported = True
 

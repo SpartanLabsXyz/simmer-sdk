@@ -358,6 +358,7 @@ def run_divergence_trades(markets, dry_run=True, quiet=False):
 
     signals_found = len(candidates)
     skip_reasons = []
+    execution_errors = []
     if not candidates:
         log("  No markets above min edge threshold")
         return signals_found, 0, 0, skip_reasons
@@ -467,12 +468,13 @@ def run_divergence_trades(markets, dry_run=True, quiet=False):
         else:
             error = result.get("error", "Unknown error") if result else "No response"
             log(f"  ❌ Trade failed: {error}", force=True)
+            execution_errors.append(error[:120])
 
     log(f"\n  Signals: {signals_found} | Attempted: {trades_attempted} | Executed: {trades_executed}")
     if dry_run:
         log("  [PAPER MODE — use --live for real trades]")
 
-    return signals_found, trades_attempted, trades_executed, skip_reasons, total_usd_spent
+    return signals_found, trades_attempted, trades_executed, skip_reasons, total_usd_spent, execution_errors
 
 
 # =============================================================================
@@ -556,12 +558,13 @@ def main():
     is_paper_venue = os.environ.get("TRADING_VENUE", "polymarket") == "simmer"
     if args.live or is_paper_venue:
         effective_dry_run = dry_run and not is_paper_venue
-        signals, attempted, executed, skip_reasons, total_usd_spent = run_divergence_trades(markets, dry_run=effective_dry_run, quiet=args.quiet)
+        signals, attempted, executed, skip_reasons, total_usd_spent, execution_errors = run_divergence_trades(markets, dry_run=effective_dry_run, quiet=args.quiet)
     else:
         signals = len([m for m in markets if abs(m.get("divergence") or 0) >= MIN_EDGE])
         attempted = 0
         executed = 0
         total_usd_spent = 0.0
+        execution_errors = []
 
     # Structured report for automaton
     if os.environ.get("AUTOMATON_MANAGED"):
@@ -569,6 +572,8 @@ def main():
         report = {"signals": signals, "trades_attempted": attempted, "trades_executed": executed, "amount_usd": round(total_usd_spent, 2)}
         if signals > 0 and executed == 0 and skip_reasons:
             report["skip_reason"] = ", ".join(dict.fromkeys(skip_reasons))
+        if execution_errors:
+            report["execution_errors"] = execution_errors
         print(json.dumps({"automaton": report}))
         _automaton_reported = True
 

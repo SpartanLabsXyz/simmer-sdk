@@ -404,6 +404,7 @@ def run_mert_strategy(dry_run=True, positions_only=False, show_config=False,
     total_usd_spent = 0.0
     strong_split_count = 0
     skip_reasons = []
+    execution_errors = []
 
     for market in expiring_markets:
         market_id = market.get("id")
@@ -476,6 +477,7 @@ def run_mert_strategy(dry_run=True, positions_only=False, show_config=False,
         else:
             error = result.get("error", "Unknown error")
             print(f"     Trade failed: {error}")
+            execution_errors.append(error[:120])
 
     # Summary
     print("\n" + "=" * 50)
@@ -491,6 +493,8 @@ def run_mert_strategy(dry_run=True, positions_only=False, show_config=False,
         report = {"signals": strong_split_count, "trades_attempted": strong_split_count, "trades_executed": trades_executed, "amount_usd": round(total_usd_spent, 2)}
         if strong_split_count > 0 and trades_executed == 0 and skip_reasons:
             report["skip_reason"] = ", ".join(dict.fromkeys(skip_reasons))
+        if execution_errors:
+            report["execution_errors"] = execution_errors
         print(json.dumps({"automaton": report}))
         _automaton_reported = True
 
