@@ -69,6 +69,7 @@ CONFIG_SCHEMA = {
 }
 
 TRADE_SOURCE = "sdk:fastloop"
+_automaton_reported = False
 SMART_SIZING_PCT = 0.05  # 5% of balance per trade
 MIN_SHARES_PER_ORDER = 5  # Polymarket minimum
 
@@ -144,6 +145,9 @@ cfg = _load_config(CONFIG_SCHEMA, __file__)
 ENTRY_THRESHOLD = cfg["entry_threshold"]
 MIN_MOMENTUM_PCT = cfg["min_momentum_pct"]
 MAX_POSITION_USD = cfg["max_position"]
+_automaton_max = os.environ.get("AUTOMATON_MAX_BET")
+if _automaton_max:
+    MAX_POSITION_USD = min(MAX_POSITION_USD, float(_automaton_max))
 SIGNAL_SOURCE = cfg["signal_source"]
 LOOKBACK_MINUTES = cfg["lookback_minutes"]
 MIN_TIME_REMAINING = cfg["min_time_remaining"]
@@ -624,10 +628,12 @@ def run_fast_market_strategy(dry_run=True, positions_only=False, show_config=Fal
 
     def _emit_skip_report(signals=1, attempted=0):
         """Emit automaton JSON with skip_reason before early return."""
+        global _automaton_reported
         if os.environ.get("AUTOMATON_MANAGED") and skip_reasons:
             report = {"signals": signals, "trades_attempted": attempted, "trades_executed": 0,
                       "skip_reason": ", ".join(dict.fromkeys(skip_reasons))}
             print(json.dumps({"automaton": report}))
+            _automaton_reported = True
 
     # Check minimum momentum
     if momentum_pct < MIN_MOMENTUM_PCT:
@@ -773,7 +779,9 @@ def run_fast_market_strategy(dry_run=True, positions_only=False, show_config=Fal
 
     # Structured report for automaton (takes priority over fallback in __main__)
     if os.environ.get("AUTOMATON_MANAGED"):
+        global _automaton_reported
         print(json.dumps({"automaton": {"signals": 1, "trades_attempted": 1, "trades_executed": total_trades}}))
+        _automaton_reported = True
 
 
 # =============================================================================
@@ -830,5 +838,5 @@ if __name__ == "__main__":
 
     # Fallback report for automaton if the strategy returned early (no signal)
     # The function emits its own report when it reaches a trade; this covers early exits.
-    if os.environ.get("AUTOMATON_MANAGED") and not getattr(sys.stdout, '_automaton_reported', False):
+    if os.environ.get("AUTOMATON_MANAGED") and not _automaton_reported:
         print(json.dumps({"automaton": {"signals": 0, "trades_attempted": 0, "trades_executed": 0, "skip_reason": "no_signal"}}))

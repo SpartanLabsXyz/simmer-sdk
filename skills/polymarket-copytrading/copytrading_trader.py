@@ -51,6 +51,7 @@ except ImportError:
 
 # Source tag for tracking
 TRADE_SOURCE = "sdk:copytrading"
+_automaton_reported = False
 
 
 # =============================================================================
@@ -149,6 +150,9 @@ MIN_TICK_SIZE = 0.01        # Minimum price increment
 COPYTRADING_WALLETS = _config["wallets"]
 COPYTRADING_TOP_N = _config["top_n"]
 COPYTRADING_MAX_USD = _config["max_usd"]
+_automaton_max = os.environ.get("AUTOMATON_MAX_BET")
+if _automaton_max:
+    COPYTRADING_MAX_USD = min(COPYTRADING_MAX_USD, float(_automaton_max))
 MAX_TRADES_PER_RUN = _config["max_trades_per_run"]
 
 
@@ -444,6 +448,7 @@ def run_copytrading(wallets: list, top_n: int = None, max_usd: float = 50.0, dry
 
     # Structured report for automaton
     if os.environ.get("AUTOMATON_MANAGED"):
+        global _automaton_reported
         positions_found = result.get('positions_found', 0) if result else 0
         _trades_needed = result.get('trades_needed', 0) if result else 0
         _trades_exec = result.get('trades_executed', 0) if result else 0
@@ -462,6 +467,7 @@ def run_copytrading(wallets: list, top_n: int = None, max_usd: float = 50.0, dry
             if skip_reasons:
                 report["skip_reason"] = ", ".join(dict.fromkeys(skip_reasons))
         print(json.dumps({"automaton": report}))
+        _automaton_reported = True
 
 
 def show_positions():
@@ -658,7 +664,7 @@ def main():
     )
 
     # Fallback report for automaton if the strategy returned early (no signal)
-    if os.environ.get("AUTOMATON_MANAGED"):
+    if os.environ.get("AUTOMATON_MANAGED") and not _automaton_reported:
         print(json.dumps({"automaton": {"signals": 0, "trades_attempted": 0, "trades_executed": 0, "skip_reason": "no_signal"}}))
 
 

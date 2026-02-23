@@ -58,6 +58,7 @@ except ImportError:
 
 # Source tag for tracking
 TRADE_SOURCE = "sdk:signalsniper"
+_automaton_reported = False
 
 def _load_config(schema, skill_file, config_filename="config.json"):
     """Load config with priority: config.json > env vars > defaults."""
@@ -151,6 +152,9 @@ MARKETS = _config["markets"]
 KEYWORDS = _config["keywords"]
 CONFIDENCE_THRESHOLD = _config["confidence_threshold"]
 MAX_USD = _config["max_usd"]
+_automaton_max = os.environ.get("AUTOMATON_MAX_BET")
+if _automaton_max:
+    MAX_USD = min(MAX_USD, float(_automaton_max))
 MAX_TRADES_PER_RUN = _config["max_trades_per_run"]
 
 # Polymarket constraints
@@ -883,11 +887,13 @@ def run_scan(
 
     # Structured report for automaton
     if os.environ.get("AUTOMATON_MANAGED"):
+        global _automaton_reported
         signals_count = len(results['signals'])
         report = {"signals": signals_count, "trades_attempted": results['trades_executed'] + results['trades_skipped'], "trades_executed": results['trades_executed']}
         if signals_count > 0 and results['trades_executed'] == 0 and skip_reasons:
             report["skip_reason"] = ", ".join(dict.fromkeys(skip_reasons))
         print(json.dumps({"automaton": report}))
+        _automaton_reported = True
 
     return results
 
@@ -961,7 +967,7 @@ def main():
     )
 
     # Fallback report for automaton if the strategy returned early (no signal)
-    if os.environ.get("AUTOMATON_MANAGED"):
+    if os.environ.get("AUTOMATON_MANAGED") and not _automaton_reported:
         print(json.dumps({"automaton": {"signals": 0, "trades_attempted": 0, "trades_executed": 0, "skip_reason": "no_signal"}}))
 
 

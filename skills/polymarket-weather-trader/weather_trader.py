@@ -136,6 +136,7 @@ def get_client(live=True):
 
 # Source tag for tracking
 TRADE_SOURCE = "sdk:weather"
+_automaton_reported = False
 
 # Polymarket constraints
 MIN_SHARES_PER_ORDER = 5.0  # Polymarket requires minimum 5 shares
@@ -145,6 +146,9 @@ MIN_TICK_SIZE = 0.01        # Minimum tradeable price
 ENTRY_THRESHOLD = _config["entry_threshold"]
 EXIT_THRESHOLD = _config["exit_threshold"]
 MAX_POSITION_USD = _config["max_position_usd"]
+_automaton_max = os.environ.get("AUTOMATON_MAX_BET")
+if _automaton_max:
+    MAX_POSITION_USD = min(MAX_POSITION_USD, float(_automaton_max))
 
 # Smart sizing parameters
 SMART_SIZING_PCT = _config["sizing_pct"]
@@ -962,10 +966,12 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
 
     # Structured report for automaton
     if os.environ.get("AUTOMATON_MANAGED"):
+        global _automaton_reported
         report = {"signals": opportunities_found + exits_found, "trades_attempted": opportunities_found + exits_found, "trades_executed": total_trades}
         if (opportunities_found + exits_found) > 0 and total_trades == 0 and skip_reasons:
             report["skip_reason"] = ", ".join(dict.fromkeys(skip_reasons))
         print(json.dumps({"automaton": report}))
+        _automaton_reported = True
 
     if dry_run and show_summary:
         print("\n  [PAPER MODE - trades simulated with real prices]")
@@ -1032,5 +1038,5 @@ if __name__ == "__main__":
     )
 
     # Fallback report for automaton if the strategy returned early (no signal)
-    if os.environ.get("AUTOMATON_MANAGED"):
+    if os.environ.get("AUTOMATON_MANAGED") and not _automaton_reported:
         print(json.dumps({"automaton": {"signals": 0, "trades_attempted": 0, "trades_executed": 0, "skip_reason": "no_signal"}}))

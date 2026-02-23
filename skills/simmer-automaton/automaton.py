@@ -466,7 +466,7 @@ def _parse_skill_report(stdout):
     return None
 
 
-def run_skill(slug, entrypoint, skill_dir, live=False):
+def run_skill(slug, entrypoint, skill_dir, live=False, state=None):
     """Run a skill as a subprocess.
 
     Returns {success, returncode, output, stderr, report}.
@@ -479,6 +479,17 @@ def run_skill(slug, entrypoint, skill_dir, live=False):
 
     env = os.environ.copy()
     env["AUTOMATON_MANAGED"] = "1"
+
+    # Pass per-skill budget cap based on allocation and survival tier
+    if state and slug:
+        skill_state = state.get("skills", {}).get(slug, {})
+        allocated = skill_state.get("allocated_budget", 0)
+        spent = skill_state.get("spent_usd", 0)
+        remaining = max(0, allocated - spent)
+        tier = state.get("tier", "normal")
+        tier_scale = {"thriving": 1.0, "normal": 0.8, "conserving": 0.5, "critical": 0.25, "dead": 0}
+        max_bet = max(0.50, remaining * tier_scale.get(tier, 0.5))
+        env["AUTOMATON_MAX_BET"] = str(round(max_bet, 2))
 
     try:
         result = subprocess.run(
@@ -599,6 +610,8 @@ def run_cycle(config, live=False, quiet=False):
                 "trades_executed_total": 0,
                 "errors_total": 0,
                 "last_cycle": None,
+                "allocated_budget": 0.0,
+                "spent_usd": 0.0,
             }
         else:
             # Update entrypoint/source_tag in case they changed
@@ -610,6 +623,13 @@ def run_cycle(config, live=False, quiet=False):
     for slug in state["skills"]:
         if slug not in discovered_slugs:
             state["skills"][slug]["enabled"] = False
+
+    # Allocate per-skill budgets (equal split among enabled skills)
+    enabled_skills = [s for s in state["skills"].values() if s.get("enabled")]
+    if enabled_skills:
+        per_skill = state["budget_usd"] / len(enabled_skills)
+        for s in enabled_skills:
+            s["allocated_budget"] = per_skill
 
     if not state["skills"]:
         print("\U0001f6ab No managed skills found. Add automaton metadata to your skills' SKILL.md files.")
@@ -679,7 +699,7 @@ def run_cycle(config, live=False, quiet=False):
 
         # Paper venue ($SIM) runs skills in live mode — trades are the paper trading mechanism
         effective_live = live or _is_paper_venue()
-        result = run_skill(slug, entrypoint, skill_dir, live=effective_live)
+        result = run_skill(slug, entrypoint, skill_dir, live=effective_live, state=state)
         run_results[slug] = result
 
         if not quiet:
@@ -710,6 +730,9 @@ def run_cycle(config, live=False, quiet=False):
             skill_entry["signals_found_total"] = skill_entry.get("signals_found_total", 0) + cycle_data["signals"]
             skill_entry["trades_attempted_total"] = skill_entry.get("trades_attempted_total", 0) + cycle_data["trades_attempted"]
             skill_entry["trades_executed_total"] = skill_entry.get("trades_executed_total", 0) + cycle_data["trades_executed"]
+            # Track per-skill spending from reports
+            if report.get("amount_usd"):
+                skill_entry["spent_usd"] = skill_entry.get("spent_usd", 0) + report["amount_usd"]
             if cycle_data.get("error"):
                 skill_entry["errors_total"] = skill_entry.get("errors_total", 0) + 1
             # Track consecutive zero-signal cycles

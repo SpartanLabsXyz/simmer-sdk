@@ -96,12 +96,16 @@ _config = load_config(CONFIG_SCHEMA, __file__)
 DEFAULT_MIN_DIVERGENCE = _config["min_divergence"]
 DEFAULT_DIRECTION = _config["default_direction"]
 MAX_BET_USD = _config["max_bet_usd"]
+_automaton_max = os.environ.get("AUTOMATON_MAX_BET")
+if _automaton_max:
+    MAX_BET_USD = min(MAX_BET_USD, float(_automaton_max))
 MAX_TRADES_PER_RUN = _config["max_trades_per_run"]
 MIN_EDGE = _config["min_edge"]
 KELLY_CAP = _config["kelly_cap"]
 DAILY_BUDGET = _config["daily_budget"]
 
 TRADE_SOURCE = "sdk:divergence"
+_automaton_reported = False
 MIN_SHARES_PER_ORDER = 5.0
 
 
@@ -558,15 +562,17 @@ def main():
 
     # Structured report for automaton
     if os.environ.get("AUTOMATON_MANAGED"):
+        global _automaton_reported
         report = {"signals": signals, "trades_attempted": attempted, "trades_executed": executed}
         if signals > 0 and executed == 0 and skip_reasons:
             report["skip_reason"] = ", ".join(dict.fromkeys(skip_reasons))
         print(json.dumps({"automaton": report}))
+        _automaton_reported = True
 
 
 if __name__ == "__main__":
     main()
 
     # Fallback report for automaton if main() returned early (no signal)
-    if os.environ.get("AUTOMATON_MANAGED"):
+    if os.environ.get("AUTOMATON_MANAGED") and not _automaton_reported:
         print(json.dumps({"automaton": {"signals": 0, "trades_attempted": 0, "trades_executed": 0, "skip_reason": "no_signal"}}))

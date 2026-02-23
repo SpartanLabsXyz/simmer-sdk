@@ -205,6 +205,7 @@ XTRACKER_API_BASE = "https://xtracker.polymarket.com/api"
 
 # Source tag for tracking
 TRADE_SOURCE = "sdk:elon-tweets"
+_automaton_reported = False
 
 # Polymarket constraints
 MIN_SHARES_PER_ORDER = 5.0
@@ -213,6 +214,9 @@ MIN_TICK_SIZE = 0.01
 # Strategy parameters
 MAX_BUCKET_SUM = _config["max_bucket_sum"]
 MAX_POSITION_USD = _config["max_position_usd"]
+_automaton_max = os.environ.get("AUTOMATON_MAX_BET")
+if _automaton_max:
+    MAX_POSITION_USD = min(MAX_POSITION_USD, float(_automaton_max))
 BUCKET_SPREAD = _config["bucket_spread"]
 SMART_SIZING_PCT = _config["sizing_pct"]
 MAX_TRADES_PER_RUN = _config["max_trades_per_run"]
@@ -933,10 +937,12 @@ def run_strategy(dry_run=True, positions_only=False, show_config=False,
 
     # Structured report for automaton
     if os.environ.get("AUTOMATON_MANAGED"):
+        global _automaton_reported
         report = {"signals": opportunities_found + exits_found, "trades_attempted": opportunities_found + exits_found, "trades_executed": total_trades}
         if (opportunities_found + exits_found) > 0 and total_trades == 0 and skip_reasons:
             report["skip_reason"] = ", ".join(dict.fromkeys(skip_reasons))
         print(json.dumps({"automaton": report}))
+        _automaton_reported = True
 
     if dry_run and show_summary:
         print("\n  [PAPER MODE - trades simulated with real prices]")
@@ -991,5 +997,5 @@ if __name__ == "__main__":
     )
 
     # Fallback report for automaton if the strategy returned early (no signal)
-    if os.environ.get("AUTOMATON_MANAGED"):
+    if os.environ.get("AUTOMATON_MANAGED") and not _automaton_reported:
         print(json.dumps({"automaton": {"signals": 0, "trades_attempted": 0, "trades_executed": 0, "skip_reason": "no_signal"}}))

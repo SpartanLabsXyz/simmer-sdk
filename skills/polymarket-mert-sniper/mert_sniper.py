@@ -84,7 +84,7 @@ update_config = _update_config
 CONFIG_SCHEMA = {
     "market_filter": {"env": "SIMMER_MERT_FILTER", "default": "", "type": str},
     "max_bet_usd": {"env": "SIMMER_MERT_MAX_BET", "default": 10.00, "type": float},
-    "expiry_window_mins": {"env": "SIMMER_MERT_EXPIRY_MINS", "default": 2, "type": int},
+    "expiry_window_mins": {"env": "SIMMER_MERT_EXPIRY_MINS", "default": 8, "type": int},
     "min_split": {"env": "SIMMER_MERT_MIN_SPLIT", "default": 0.60, "type": float},
     "max_trades_per_run": {"env": "SIMMER_MERT_MAX_TRADES", "default": 5, "type": int},
     "sizing_pct": {"env": "SIMMER_MERT_SIZING_PCT", "default": 0.05, "type": float},
@@ -93,6 +93,7 @@ CONFIG_SCHEMA = {
 _config = load_config(CONFIG_SCHEMA, __file__)
 
 TRADE_SOURCE = "sdk:mertsniper"
+_automaton_reported = False
 
 # Polymarket constraints
 MIN_SHARES_PER_ORDER = 5.0
@@ -101,6 +102,10 @@ MIN_TICK_SIZE = 0.01
 # Strategy parameters
 MARKET_FILTER = _config["market_filter"]
 MAX_BET_USD = _config["max_bet_usd"]
+# Automaton budget isolation — cap max bet if managed
+_automaton_max = os.environ.get("AUTOMATON_MAX_BET")
+if _automaton_max:
+    MAX_BET_USD = min(MAX_BET_USD, float(_automaton_max))
 EXPIRY_WINDOW_MINS = _config["expiry_window_mins"]
 MIN_SPLIT = _config["min_split"]
 MAX_TRADES_PER_RUN = _config["max_trades_per_run"]
@@ -480,10 +485,12 @@ def run_mert_strategy(dry_run=True, positions_only=False, show_config=False,
 
     # Structured report for automaton
     if os.environ.get("AUTOMATON_MANAGED"):
+        global _automaton_reported
         report = {"signals": strong_split_count, "trades_attempted": strong_split_count, "trades_executed": trades_executed}
         if strong_split_count > 0 and trades_executed == 0 and skip_reasons:
             report["skip_reason"] = ", ".join(dict.fromkeys(skip_reasons))
         print(json.dumps({"automaton": report}))
+        _automaton_reported = True
 
     if dry_run:
         print("\n  [PAPER MODE - trades simulated with real prices]")
@@ -546,5 +553,5 @@ if __name__ == "__main__":
     )
 
     # Fallback report for automaton if the strategy returned early (no signal)
-    if os.environ.get("AUTOMATON_MANAGED"):
+    if os.environ.get("AUTOMATON_MANAGED") and not _automaton_reported:
         print(json.dumps({"automaton": {"signals": 0, "trades_attempted": 0, "trades_executed": 0, "skip_reason": "no_signal"}}))
