@@ -447,7 +447,21 @@ def run_copytrading(wallets: list, top_n: int = None, max_usd: float = 50.0, dry
         positions_found = result.get('positions_found', 0) if result else 0
         _trades_needed = result.get('trades_needed', 0) if result else 0
         _trades_exec = result.get('trades_executed', 0) if result else 0
-        print(json.dumps({"automaton": {"signals": positions_found, "trades_attempted": _trades_needed, "trades_executed": _trades_exec}}))
+        report = {"signals": positions_found, "trades_attempted": _trades_needed, "trades_executed": _trades_exec}
+        if positions_found > 0 and _trades_exec == 0:
+            # Derive skip reasons from server response
+            skip_reasons = []
+            conflicts = result.get('conflicts_skipped', 0) if result else 0
+            if conflicts > 0:
+                skip_reasons.append(f"{conflicts} conflicts skipped")
+            errors = result.get('errors', []) if result else []
+            for err in errors:
+                skip_reasons.append(str(err)[:80])
+            if not result.get('success'):
+                skip_reasons.append("copytrading failed")
+            if skip_reasons:
+                report["skip_reason"] = ", ".join(dict.fromkeys(skip_reasons))
+        print(json.dumps({"automaton": report}))
 
 
 def show_positions():

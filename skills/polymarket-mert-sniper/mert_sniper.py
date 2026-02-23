@@ -397,6 +397,7 @@ def run_mert_strategy(dry_run=True, positions_only=False, show_config=False,
 
     trades_executed = 0
     strong_split_count = 0
+    skip_reasons = []
 
     for market in expiring_markets:
         market_id = market.get("id")
@@ -428,6 +429,7 @@ def run_mert_strategy(dry_run=True, positions_only=False, show_config=False,
         # Price sanity check
         if side_price < MIN_TICK_SIZE or side_price > (1 - MIN_TICK_SIZE):
             print(f"     Skip: price at extreme (${side_price:.4f})")
+            skip_reasons.append("price at extreme")
             continue
 
         # Safeguards
@@ -436,6 +438,7 @@ def run_mert_strategy(dry_run=True, positions_only=False, show_config=False,
             should_trade, reasons = check_context_safeguards(context)
             if not should_trade:
                 print(f"     Safeguard blocked: {'; '.join(reasons)}")
+                skip_reasons.append(f"safeguard: {reasons[0]}")
                 continue
             if reasons:
                 print(f"     Warnings: {'; '.join(reasons)}")
@@ -443,12 +446,14 @@ def run_mert_strategy(dry_run=True, positions_only=False, show_config=False,
         # Rate limit
         if trades_executed >= MAX_TRADES_PER_RUN:
             print(f"     Max trades ({MAX_TRADES_PER_RUN}) reached - skipping")
+            skip_reasons.append("max trades reached")
             continue
 
         # Check minimum order size
         min_cost = MIN_SHARES_PER_ORDER * side_price
         if min_cost > position_size:
             print(f"     Skip: ${position_size:.2f} too small for {MIN_SHARES_PER_ORDER} shares at ${side_price:.2f}")
+            skip_reasons.append("position too small")
             continue
 
         reasoning = f"Near-expiry snipe: {side.upper()} at {side_price:.0%} with {format_duration(mins_left)} to resolution"
@@ -475,7 +480,10 @@ def run_mert_strategy(dry_run=True, positions_only=False, show_config=False,
 
     # Structured report for automaton
     if os.environ.get("AUTOMATON_MANAGED"):
-        print(json.dumps({"automaton": {"signals": strong_split_count, "trades_attempted": strong_split_count, "trades_executed": trades_executed}}))
+        report = {"signals": strong_split_count, "trades_attempted": strong_split_count, "trades_executed": trades_executed}
+        if strong_split_count > 0 and trades_executed == 0 and skip_reasons:
+            report["skip_reason"] = ", ".join(dict.fromkeys(skip_reasons))
+        print(json.dumps({"automaton": report}))
 
     if dry_run:
         print("\n  [PAPER MODE - trades simulated with real prices]")

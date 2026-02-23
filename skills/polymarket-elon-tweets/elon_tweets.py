@@ -783,6 +783,7 @@ def run_strategy(dry_run=True, positions_only=False, show_config=False,
     # Step 4: Match events to tracking periods and evaluate
     trades_executed = 0
     opportunities_found = 0
+    skip_reasons = []
 
     if smart_sizing:
         portfolio = get_portfolio()
@@ -849,9 +850,11 @@ def run_strategy(dry_run=True, positions_only=False, show_config=False,
 
             if price < MIN_TICK_SIZE:
                 log(f"   ⏸️  {bucket_label}: price ${price:.4f} below min tick - skip")
+                skip_reasons.append("price at extreme")
                 continue
             if price > (1 - MIN_TICK_SIZE):
                 log(f"   ⏸️  {bucket_label}: price ${price:.4f} too high - skip")
+                skip_reasons.append("price at extreme")
                 continue
 
             # Check safeguards
@@ -863,6 +866,7 @@ def run_strategy(dry_run=True, positions_only=False, show_config=False,
                 should_trade, reasons = check_context_safeguards(context)
                 if not should_trade:
                     log(f"   ⏭️  {bucket_label}: {'; '.join(reasons)}")
+                    skip_reasons.append(f"safeguard: {reasons[0]}")
                     continue
                 if reasons:
                     log(f"   ⚠️  {bucket_label}: {'; '.join(reasons)}")
@@ -872,15 +876,18 @@ def run_strategy(dry_run=True, positions_only=False, show_config=False,
             min_cost = MIN_SHARES_PER_ORDER * price
             if min_cost > position_size:
                 log(f"   ⚠️  {bucket_label}: position ${position_size:.2f} too small for min shares at ${price:.2f}")
+                skip_reasons.append("position too small")
                 continue
 
             if trades_executed >= MAX_TRADES_PER_RUN:
                 log(f"   ⏸️  Max trades per run ({MAX_TRADES_PER_RUN}) reached")
+                skip_reasons.append("max trades reached")
                 break
 
             # Check cooldown from previous failures
             if is_on_cooldown(market_id, "yes"):
                 log(f"   ⏭️  {bucket_label}: on cooldown (failed recently)")
+                skip_reasons.append("cooldown")
                 continue
 
             opportunities_found += 1
@@ -926,7 +933,10 @@ def run_strategy(dry_run=True, positions_only=False, show_config=False,
 
     # Structured report for automaton
     if os.environ.get("AUTOMATON_MANAGED"):
-        print(json.dumps({"automaton": {"signals": opportunities_found + exits_found, "trades_attempted": opportunities_found + exits_found, "trades_executed": total_trades}}))
+        report = {"signals": opportunities_found + exits_found, "trades_attempted": opportunities_found + exits_found, "trades_executed": total_trades}
+        if (opportunities_found + exits_found) > 0 and total_trades == 0 and skip_reasons:
+            report["skip_reason"] = ", ".join(dict.fromkeys(skip_reasons))
+        print(json.dumps({"automaton": report}))
 
     if dry_run and show_summary:
         print("\n  [PAPER MODE - trades simulated with real prices]")

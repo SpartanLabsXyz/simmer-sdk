@@ -353,16 +353,18 @@ def run_divergence_trades(markets, dry_run=True, quiet=False):
     candidates.sort(key=lambda m: abs(m.get("divergence") or 0), reverse=True)
 
     signals_found = len(candidates)
+    skip_reasons = []
     if not candidates:
         log("  No markets above min edge threshold")
-        return signals_found, 0, 0
+        return signals_found, 0, 0, skip_reasons
 
     # Load daily spend
     daily_spend = _load_daily_spend()
     remaining_budget = DAILY_BUDGET - daily_spend["spent"]
     if remaining_budget <= 0:
         log(f"  Daily budget exhausted (${daily_spend['spent']:.2f}/${DAILY_BUDGET:.2f})", force=True)
-        return signals_found, 0, 0
+        skip_reasons.append("daily budget exhausted")
+        return signals_found, 0, 0, skip_reasons
 
     # Get existing positions to avoid doubling up
     positions = get_positions()
@@ -389,6 +391,7 @@ def run_divergence_trades(markets, dry_run=True, quiet=False):
         # Skip if already holding
         if market_id in held_market_ids:
             log(f"  ⏭️  {question}... — already holding position")
+            skip_reasons.append("already holding")
             continue
 
         # Fetch context for fee rate + safeguards
@@ -401,6 +404,7 @@ def run_divergence_trades(markets, dry_run=True, quiet=False):
         fee_rate_bps = ctx_market.get("fee_rate_bps", 0)
         if fee_rate_bps > 0:
             log(f"  ⏭️  {question}... — fee {fee_rate_bps}bps, skipping")
+            skip_reasons.append("fee market")
             continue
 
         # Check flip-flop safeguard
@@ -408,6 +412,7 @@ def run_divergence_trades(markets, dry_run=True, quiet=False):
         warning_level = discipline.get("warning_level", "none")
         if warning_level == "severe":
             log(f"  ⏭️  {question}... — flip-flop warning (severe)")
+            skip_reasons.append("safeguard: flip-flop severe")
             continue
 
         # Determine side and price
@@ -423,6 +428,7 @@ def run_divergence_trades(markets, dry_run=True, quiet=False):
         position_size = calculate_kelly_size(edge, price, MAX_BET_USD, KELLY_CAP)
         if position_size < 0.50:
             log(f"  ⏭️  {question}... — Kelly size ${position_size:.2f} too small")
+            skip_reasons.append("position too small")
             continue
 
         # Cap to remaining budget
@@ -460,7 +466,7 @@ def run_divergence_trades(markets, dry_run=True, quiet=False):
     if dry_run:
         log("  [PAPER MODE — use --live for real trades]")
 
-    return signals_found, trades_attempted, trades_executed
+    return signals_found, trades_attempted, trades_executed, skip_reasons
 
 
 # =============================================================================
@@ -540,10 +546,11 @@ def main():
             show_opportunities(markets)
 
     # Trade execution
+    skip_reasons = []
     is_paper_venue = os.environ.get("TRADING_VENUE", "polymarket") == "simmer"
     if args.live or is_paper_venue:
         effective_dry_run = dry_run and not is_paper_venue
-        signals, attempted, executed = run_divergence_trades(markets, dry_run=effective_dry_run, quiet=args.quiet)
+        signals, attempted, executed, skip_reasons = run_divergence_trades(markets, dry_run=effective_dry_run, quiet=args.quiet)
     else:
         signals = len([m for m in markets if abs(m.get("divergence") or 0) >= MIN_EDGE])
         attempted = 0
@@ -551,7 +558,10 @@ def main():
 
     # Structured report for automaton
     if os.environ.get("AUTOMATON_MANAGED"):
-        print(json.dumps({"automaton": {"signals": signals, "trades_attempted": attempted, "trades_executed": executed}}))
+        report = {"signals": signals, "trades_attempted": attempted, "trades_executed": executed}
+        if signals > 0 and executed == 0 and skip_reasons:
+            report["skip_reason"] = ", ".join(dict.fromkeys(skip_reasons))
+        print(json.dumps({"automaton": report}))
 
 
 if __name__ == "__main__":

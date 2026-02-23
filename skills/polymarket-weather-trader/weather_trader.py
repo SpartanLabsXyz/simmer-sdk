@@ -811,6 +811,7 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
     forecast_cache = {}
     trades_executed = 0
     opportunities_found = 0
+    skip_reasons = []
 
     for event_id, event_markets in events.items():
         # Use event_name from API if available, otherwise parse from question
@@ -864,9 +865,11 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
 
         if price < MIN_TICK_SIZE:
             log(f"  ⏸️  Price ${price:.4f} below min tick ${MIN_TICK_SIZE} - skip (market at extreme)")
+            skip_reasons.append("price at extreme")
             continue
         if price > (1 - MIN_TICK_SIZE):
             log(f"  ⏸️  Price ${price:.4f} above max tradeable - skip (market at extreme)")
+            skip_reasons.append("price at extreme")
             continue
 
         # Check safeguards with edge analysis
@@ -877,6 +880,7 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
             should_trade, reasons = check_context_safeguards(context)
             if not should_trade:
                 log(f"  ⏭️  Safeguard blocked: {'; '.join(reasons)}")
+                skip_reasons.append(f"safeguard: {reasons[0]}")
                 continue
             if reasons:
                 log(f"  ⚠️  Warnings: {'; '.join(reasons)}")
@@ -897,6 +901,7 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
             min_cost_for_shares = MIN_SHARES_PER_ORDER * price
             if min_cost_for_shares > position_size:
                 log(f"  ⚠️  Position size ${position_size:.2f} too small for {MIN_SHARES_PER_ORDER} shares at ${price:.2f}")
+                skip_reasons.append("position too small")
                 continue
 
             opportunities_found += 1
@@ -905,6 +910,7 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
             # Check rate limit
             if trades_executed >= MAX_TRADES_PER_RUN:
                 log(f"  ⏸️  Max trades per run ({MAX_TRADES_PER_RUN}) reached - skipping")
+                skip_reasons.append("max trades reached")
                 continue
 
             tag = "SIMULATED" if dry_run else "LIVE"
@@ -956,7 +962,10 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
 
     # Structured report for automaton
     if os.environ.get("AUTOMATON_MANAGED"):
-        print(json.dumps({"automaton": {"signals": opportunities_found + exits_found, "trades_attempted": opportunities_found + exits_found, "trades_executed": total_trades}}))
+        report = {"signals": opportunities_found + exits_found, "trades_attempted": opportunities_found + exits_found, "trades_executed": total_trades}
+        if (opportunities_found + exits_found) > 0 and total_trades == 0 and skip_reasons:
+            report["skip_reason"] = ", ".join(dict.fromkeys(skip_reasons))
+        print(json.dumps({"automaton": report}))
 
     if dry_run and show_summary:
         print("\n  [PAPER MODE - trades simulated with real prices]")

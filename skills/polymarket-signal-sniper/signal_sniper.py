@@ -704,6 +704,7 @@ def run_scan(
             print("   Set SIMMER_SNIPER_MARKETS or use --market ID")
             return {"error": "No markets"}
 
+    skip_reasons = []
     results = {
         "feeds_scanned": len(feeds),
         "articles_found": 0,
@@ -777,6 +778,7 @@ def run_scan(
             if not should_trade:
                 print(f"     ⏭️ Skipping: safeguards failed")
                 results["trades_skipped"] += 1
+                skip_reasons.append(f"safeguard: {reasons[0]}" if reasons else "safeguard")
                 processed[h] = {
                     "title": article["title"],
                     "url": article["url"],
@@ -802,6 +804,7 @@ def run_scan(
 
             if not side:
                 print(f"     🤷 Signal unclear — can't determine direction, skipping")
+                skip_reasons.append("unclear signal")
                 processed[h] = {
                     "title": article["title"],
                     "url": article["url"],
@@ -820,6 +823,7 @@ def run_scan(
                 action = "dry_run"
             elif results["trades_executed"] >= MAX_TRADES_PER_RUN:
                 print(f"     ⏭️ Max trades per run ({MAX_TRADES_PER_RUN}) reached")
+                skip_reasons.append("max trades reached")
                 action = "max_trades_reached"
             else:
                 print(f"     💰 Executing: BUY {side.upper()} for ${MAX_USD:.2f}")
@@ -879,7 +883,11 @@ def run_scan(
 
     # Structured report for automaton
     if os.environ.get("AUTOMATON_MANAGED"):
-        print(json.dumps({"automaton": {"signals": len(results['signals']), "trades_attempted": results['trades_executed'] + results['trades_skipped'], "trades_executed": results['trades_executed']}}))
+        signals_count = len(results['signals'])
+        report = {"signals": signals_count, "trades_attempted": results['trades_executed'] + results['trades_skipped'], "trades_executed": results['trades_executed']}
+        if signals_count > 0 and results['trades_executed'] == 0 and skip_reasons:
+            report["skip_reason"] = ", ".join(dict.fromkeys(skip_reasons))
+        print(json.dumps({"automaton": report}))
 
     return results
 

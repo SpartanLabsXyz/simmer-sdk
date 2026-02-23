@@ -620,6 +620,14 @@ def run_fast_market_strategy(dry_run=True, positions_only=False, show_config=Fal
 
     momentum_pct = abs(momentum["momentum_pct"])
     direction = momentum["direction"]
+    skip_reasons = []
+
+    def _emit_skip_report(signals=1, attempted=0):
+        """Emit automaton JSON with skip_reason before early return."""
+        if os.environ.get("AUTOMATON_MANAGED") and skip_reasons:
+            report = {"signals": signals, "trades_attempted": attempted, "trades_executed": 0,
+                      "skip_reason": ", ".join(dict.fromkeys(skip_reasons))}
+            print(json.dumps({"automaton": report}))
 
     # Check minimum momentum
     if momentum_pct < MIN_MOMENTUM_PCT:
@@ -645,6 +653,8 @@ def run_fast_market_strategy(dry_run=True, positions_only=False, show_config=Fal
         log(f"  ⏸️  Low volume ({momentum['volume_ratio']:.2f}x avg) — weak signal, skip")
         if not quiet:
             print(f"📊 Summary: No trade (low volume)")
+        skip_reasons.append("low volume")
+        _emit_skip_report()
         return
     elif VOLUME_CONFIDENCE and momentum["volume_ratio"] > 2.0:
         vol_note = f" 📊 (high volume: {momentum['volume_ratio']:.1f}x avg)"
@@ -654,6 +664,8 @@ def run_fast_market_strategy(dry_run=True, positions_only=False, show_config=Fal
         log(f"  ⏸️  Market already priced in: divergence {divergence:.3f} ≤ 0 — skip")
         if not quiet:
             print(f"📊 Summary: No trade (market already priced in)")
+        skip_reasons.append("market already priced in")
+        _emit_skip_report()
         return
 
     # Fee-aware EV check: require enough divergence to cover fees
@@ -668,6 +680,8 @@ def run_fast_market_strategy(dry_run=True, positions_only=False, show_config=Fal
             log(f"  ⏸️  Divergence {divergence:.3f} < fee-adjusted minimum {min_divergence:.3f} — skip")
             if not quiet:
                 print(f"📊 Summary: No trade (fees eat the edge)")
+            skip_reasons.append("fees eat the edge")
+            _emit_skip_report()
             return
 
     # We have a signal!
@@ -680,6 +694,8 @@ def run_fast_market_strategy(dry_run=True, positions_only=False, show_config=Fal
         log(f"  ⏸️  Daily budget exhausted (${daily_spend['spent']:.2f}/${DAILY_BUDGET:.2f} spent) — skip")
         if not quiet:
             print(f"📊 Summary: No trade (daily budget exhausted)")
+        skip_reasons.append("daily budget exhausted")
+        _emit_skip_report()
         return
     if position_size > remaining_budget:
         position_size = remaining_budget
@@ -688,6 +704,8 @@ def run_fast_market_strategy(dry_run=True, positions_only=False, show_config=Fal
         log(f"  ⏸️  Remaining budget ${position_size:.2f} < $0.50 — skip")
         if not quiet:
             print(f"📊 Summary: No trade (remaining budget too small)")
+        skip_reasons.append("budget too small")
+        _emit_skip_report()
         return
 
     # Check minimum order size
@@ -695,6 +713,8 @@ def run_fast_market_strategy(dry_run=True, positions_only=False, show_config=Fal
         min_cost = MIN_SHARES_PER_ORDER * price
         if min_cost > position_size:
             log(f"  ⚠️  Position ${position_size:.2f} too small for {MIN_SHARES_PER_ORDER} shares at ${price:.2f}")
+            skip_reasons.append("position too small")
+            _emit_skip_report(attempted=1)
             return
 
     log(f"  ✅ Signal: {side.upper()} — {trade_rationale}{vol_note}", force=True)
