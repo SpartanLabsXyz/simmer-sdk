@@ -116,6 +116,7 @@ CONFIG_SCHEMA = {
     "top_n": {"env": "SIMMER_COPYTRADING_TOP_N", "default": "", "type": str},  # Empty = auto
     "max_usd": {"env": "SIMMER_COPYTRADING_MAX_USD", "default": 50.0, "type": float},
     "max_trades_per_run": {"env": "SIMMER_COPYTRADING_MAX_TRADES", "default": 10, "type": int},
+    "venue": {"env": "TRADING_VENUE", "default": "", "type": str},  # simmer or polymarket
 }
 
 # Load configuration
@@ -296,8 +297,12 @@ def execute_copytrading(wallets: list, top_n: int = None, max_usd: float = 50.0,
     Venue:
     - 'simmer': Execute on Simmer LMSR with $SIM (paper trading)
     - 'polymarket': Execute on Polymarket with real USDC
-    - None: Auto-detect based on user's real_trading_enabled setting
+    - None: Fall back to TRADING_VENUE env var, then server auto-detect
     """
+    # Default to TRADING_VENUE env var so automaton/cron venue choice propagates
+    if venue is None:
+        venue = os.environ.get("TRADING_VENUE")
+
     data = {
         "wallets": wallets,
         "max_usd_per_position": max_usd,
@@ -660,6 +665,9 @@ def main():
     # Get max_usd (from args or env)
     max_usd = args.max_usd if args.max_usd else COPYTRADING_MAX_USD
 
+    # Determine venue: CLI flag > config.json > TRADING_VENUE env var > None (server auto-detect)
+    venue = args.venue or _config.get("venue") or None
+
     # Run copytrading
     run_copytrading(
         wallets=wallets,
@@ -668,7 +676,7 @@ def main():
         dry_run=dry_run,
         buy_only=not args.rebalance,  # Default buy_only=True, --rebalance sets it to False
         detect_whale_exits=args.whale_exits,
-        venue=args.venue
+        venue=venue
     )
 
     # Fallback report for automaton if the strategy returned early (no signal)
