@@ -780,6 +780,37 @@ def run_cycle(config, live=False, quiet=False):
         else:
             skill_entry["last_cycle"] = None
 
+    # 8b. Circuit breakers — auto-disable skills on loss streak or rapid bleed
+    for slug in selected:
+        skill_entry = state["skills"].get(slug)
+        if not skill_entry or not skill_entry.get("enabled"):
+            continue
+        report = run_results.get(slug, {}).get("report") or {}
+        amount = report.get("amount_usd", 0)
+
+        # Rapid bleed: single cycle spent > 10% of total budget
+        if amount > 0 and amount > state["budget_usd"] * 0.10:
+            skill_entry["enabled"] = False
+            skill_entry["disabled_reason"] = "rapid_bleed"
+            skill_entry["disabled_at_cycle"] = state["cycle_count"] + 1
+            if not quiet:
+                print(f"  🛑 Circuit breaker: {slug} disabled (rapid bleed: ${amount:.2f} in one cycle)")
+
+    # 8c. Check cooldowns — re-enable skills after cooldown expires (only in normal/thriving tiers)
+    tier = state.get("tier", "normal")
+    if tier in ("normal", "thriving"):
+        for slug, sk in state["skills"].items():
+            if not sk.get("enabled") and sk.get("disabled_reason") == "loss_streak":
+                cooldown_cycles = 10
+                disabled_at = sk.get("disabled_at_cycle", 0)
+                if state["cycle_count"] - disabled_at >= cooldown_cycles:
+                    sk["enabled"] = True
+                    sk.pop("disabled_reason", None)
+                    sk.pop("disabled_at_cycle", None)
+                    sk["consecutive_negative_pnl"] = 0
+                    if not quiet:
+                        print(f"  🔄 Re-enabled {slug} after cooldown")
+
     # 9. Fetch P&L from positions and update bandit
     if track_pnl:
         pnl_by_source = fetch_pnl_by_source(client)
@@ -791,6 +822,25 @@ def run_cycle(config, live=False, quiet=False):
             skill_entry = state["skills"].get(slug)
             if not skill_entry:
                 continue
+            # Track P&L delta for loss streak circuit breaker
+            prev_pnl = skill_entry.get("prev_cycle_pnl", 0)
+            source_tag = skill_entry.get("source_tag", "")
+            current_pnl = pnl_by_source.get(source_tag, 0)
+            delta = current_pnl - prev_pnl
+            skill_entry["prev_cycle_pnl"] = current_pnl
+
+            if delta < 0:
+                skill_entry["consecutive_negative_pnl"] = skill_entry.get("consecutive_negative_pnl", 0) + 1
+                # Loss streak: 3 consecutive negative P&L cycles → disable with cooldown
+                if skill_entry["consecutive_negative_pnl"] >= 3 and skill_entry.get("enabled"):
+                    skill_entry["enabled"] = False
+                    skill_entry["disabled_reason"] = "loss_streak"
+                    skill_entry["disabled_at_cycle"] = state["cycle_count"] + 1
+                    if not quiet:
+                        print(f"  🛑 Circuit breaker: {slug} disabled (3 consecutive losses)")
+            elif delta >= 0:
+                skill_entry["consecutive_negative_pnl"] = 0
+
             update_bandit(state, slug, pnl_by_source)
 
     # Decay epsilon
@@ -819,7 +869,15 @@ def run_cycle(config, live=False, quiet=False):
         "pnl_total": round(state.get("realized_pnl", 0), 2),
         "spent_total": round(sum(s.get("spent_usd", 0) for s in state["skills"].values()), 2),
         "runtime_sec": round(elapsed, 1),
+        "circuit_breakers": [],
     }
+    # Record any circuit breaker events
+    for slug, sk in state["skills"].items():
+        if sk.get("disabled_reason") and sk.get("disabled_at_cycle") == state["cycle_count"]:
+            journal_entry["circuit_breakers"].append({
+                "skill": slug,
+                "reason": sk["disabled_reason"],
+            })
     for slug in selected:
         res = run_results.get(slug, {})
         report = res.get("report", {}) or {}
