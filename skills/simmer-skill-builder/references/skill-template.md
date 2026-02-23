@@ -442,7 +442,7 @@ The automaton's parser takes the **first** `{"automaton": ...}` line it finds. W
 ## Key Rules
 
 1. **Always default to dry-run.** `--live` must be explicit.
-2. **Always tag trades** with `source=TRADE_SOURCE` (e.g. `"sdk:myskill"`).
+2. **Always tag trades** with `source=TRADE_SOURCE` (e.g. `"sdk:myskill"`). This enables cross-skill conflict detection — `trade()` automatically skips buys on markets where another skill has an open position.
 3. **Always check safeguards** before trading (unless `--no-safeguards`).
 4. **Never import `py_clob_client` or call Polymarket directly for trades.** Use `SimmerClient` for all trade execution.
 5. **Use `get_client()` singleton** — never instantiate `SimmerClient` inline.

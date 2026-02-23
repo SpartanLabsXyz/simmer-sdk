@@ -66,6 +66,7 @@ class TradeResult:
     balance: Optional[float] = None  # Remaining $SIM balance (simmer only, None for real venues)
     error: Optional[str] = None
     simulated: bool = False  # True for paper trades (dry-run with real prices)
+    skip_reason: Optional[str] = None  # Why trade was skipped (e.g. "conflicts skipped")
 
     @property
     def fully_filled(self) -> bool:
@@ -195,6 +196,8 @@ class SimmerClient:
         self._approvals_checked: bool = False  # Track if we've warned about approvals
         self._solana_key_available: bool = False  # Solana key configured (Kalshi)
         self._solana_wallet_address: Optional[str] = None  # Solana wallet address
+        self._held_markets_cache: Optional[dict] = None  # {market_id: [source_tags]}
+        self._held_markets_ts: float = 0  # Cache timestamp
 
         # EVM key: Use provided private_key, or auto-detect from environment
         # Check WALLET_PRIVATE_KEY first, fall back to deprecated SIMMER_PRIVATE_KEY
@@ -579,11 +582,30 @@ class SimmerClient:
         if not is_sell and amount <= 0:
             raise ValueError("amount required for buy orders")
 
-        # Paper trading: simulate with real prices
+        # Paper trading: simulate with real prices (no live API calls)
         if not self.live:
             return self._paper_trade(
                 market_id, side, amount, shares, action, effective_venue
             )
+
+        # Cross-skill conflict check (buy only — sells always allowed)
+        if action == "buy" and source:
+            held = self._get_held_markets()
+            market_sources = held.get(market_id, [])
+            if market_sources:
+                other_sources = [s for s in market_sources if s != source]
+                if other_sources:
+                    logger.debug(
+                        "Cross-skill conflict on %s: my_source=%r, other_sources=%r",
+                        market_id, source, other_sources
+                    )
+                    return TradeResult(
+                        success=False,
+                        market_id=market_id,
+                        side=side,
+                        error=f"Cross-skill conflict: {other_sources} already hold position on this market",
+                        skip_reason="conflicts skipped",
+                    )
 
         # Validate price if provided
         if price is not None:
@@ -645,7 +667,7 @@ class SimmerClient:
         position = data.get("position") or {}
         balance = position.get("sim_balance") if effective_venue == "simmer" else None
 
-        return TradeResult(
+        result = TradeResult(
             success=data.get("success", False),
             trade_id=data.get("trade_id"),
             market_id=data.get("market_id", market_id),
@@ -659,6 +681,9 @@ class SimmerClient:
             balance=balance,
             error=data.get("error")
         )
+        if result.success:
+            self._held_markets_cache = None  # Invalidate so next check sees new position
+        return result
 
     def _paper_trade(self, market_id, side, amount, shares, action, venue):
         """Simulate a trade using real market prices."""
@@ -829,6 +854,49 @@ class SimmerClient:
                 sources=p.get("sources"),
             ))
         return positions
+
+    _HELD_MARKETS_TTL = 30  # seconds
+
+    def _get_held_markets(self) -> dict:
+        """Get market_id -> [source_tags] for all held positions. Cached 30s."""
+        import time as _t
+        now = _t.time()
+        if self._held_markets_cache is not None and (now - self._held_markets_ts) < self._HELD_MARKETS_TTL:
+            return self._held_markets_cache
+
+        positions = self.get_positions()
+        held = {}
+        for p in positions:
+            if (p.shares_yes or 0) > 0 or (p.shares_no or 0) > 0:
+                held[p.market_id] = p.sources or []
+        self._held_markets_cache = held
+        self._held_markets_ts = now
+        return held
+
+    def get_held_markets(self) -> dict:
+        """
+        Get map of market_id -> source tags for all held positions.
+
+        Returns:
+            Dict mapping market_id to list of source tags (e.g. ["sdk:signal-sniper"])
+        """
+        return self._get_held_markets()
+
+    def check_conflict(self, market_id: str, my_source: str) -> bool:
+        """
+        Check if another skill has an open position on this market.
+
+        Args:
+            market_id: Market to check
+            my_source: This skill's source tag (e.g. "sdk:signal-sniper")
+
+        Returns:
+            True if another skill holds a position on this market
+        """
+        sources = self._get_held_markets().get(market_id, [])
+        if not sources:
+            return False
+        return any(s != my_source for s in sources)
 
     def get_total_pnl(self) -> float:
         """Get total unrealized P&L across all positions."""
@@ -1792,7 +1860,7 @@ class SimmerClient:
                 error=f"Failed to submit trade: {e}"
             )
 
-        return TradeResult(
+        result = TradeResult(
             success=data.get("success", False),
             trade_id=data.get("trade_id"),
             market_id=data.get("market_id", market_id),
@@ -1806,6 +1874,9 @@ class SimmerClient:
             balance=None,  # Real trading doesn't track $SIM balance
             error=data.get("error")
         )
+        if result.success:
+            self._held_markets_cache = None  # Invalidate so next check sees new position
+        return result
 
     def link_wallet(self, signature_type: int = 0) -> Dict[str, Any]:
         """

@@ -89,6 +89,8 @@ markets = client.list_importable_markets(venue="polymarket", category="crypto")
 | `get_markets()` | List markets (filter by status, source, venue) |
 | `trade()` | Buy or sell shares |
 | `get_positions()` | All positions with P&L |
+| `get_held_markets()` | Map of market_id → source tags for held positions |
+| `check_conflict()` | Check if another skill holds a position on a market |
 | `get_open_orders()` | Open GTC/GTD orders on the CLOB |
 | `get_portfolio()` | Portfolio summary with balance and exposure |
 | `get_market_context()` | Trading safeguards (slippage, flip-flop detection) |
