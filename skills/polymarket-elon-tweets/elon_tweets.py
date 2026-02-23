@@ -126,6 +126,81 @@ def _reload_config_globals():
     DATA_SOURCE = _config["data_source"]
 
 
+# =============================================================================
+# Failed trade cooldown (prevent retry loops on the same market)
+# =============================================================================
+
+FAILED_TRADE_COOLDOWN_MINS = 60
+FAILED_TRADE_TTL_HOURS = 24
+
+def _failed_trades_path():
+    from pathlib import Path
+    state_dir = Path(__file__).parent / "state"
+    state_dir.mkdir(exist_ok=True)
+    return state_dir / "failed_trades.json"
+
+def _load_failed_trades():
+    """Load failed trades, pruning entries older than TTL."""
+    from datetime import datetime, timezone, timedelta
+    path = _failed_trades_path()
+    if not path.exists():
+        return {}
+    try:
+        with open(path) as f:
+            data = json.load(f)
+    except (json.JSONDecodeError, IOError):
+        return {}
+    # Prune old entries
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=FAILED_TRADE_TTL_HOURS)
+    pruned = {}
+    for k, v in data.items():
+        try:
+            ts = datetime.fromisoformat(v["failed_at"])
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=timezone.utc)
+            if ts > cutoff:
+                pruned[k] = v
+        except (KeyError, ValueError):
+            pass
+    return pruned
+
+def _save_failed_trades(data):
+    path = _failed_trades_path()
+    tmp = path.with_suffix(".tmp")
+    with open(tmp, "w") as f:
+        json.dump(data, f, indent=2)
+    os.replace(str(tmp), str(path))
+
+def is_on_cooldown(market_id, side):
+    """Check if a market+side is on cooldown from a recent failure."""
+    from datetime import datetime, timezone, timedelta
+    failed = _load_failed_trades()
+    key = f"{market_id}:{side}"
+    entry = failed.get(key)
+    if not entry:
+        return False
+    try:
+        ts = datetime.fromisoformat(entry["failed_at"])
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        return (datetime.now(timezone.utc) - ts).total_seconds() < FAILED_TRADE_COOLDOWN_MINS * 60
+    except (KeyError, ValueError):
+        return False
+
+def record_failed_trade(market_id, side, error):
+    """Record a failed trade for cooldown tracking."""
+    from datetime import datetime, timezone
+    failed = _load_failed_trades()
+    key = f"{market_id}:{side}"
+    failed[key] = {
+        "market_id": market_id,
+        "side": side,
+        "error": str(error)[:200],
+        "failed_at": datetime.now(timezone.utc).isoformat(),
+    }
+    _save_failed_trades(failed)
+
+
 XTRACKER_API_BASE = "https://xtracker.polymarket.com/api"
 
 # Source tag for tracking
@@ -803,6 +878,11 @@ def run_strategy(dry_run=True, positions_only=False, show_config=False,
                 log(f"   ⏸️  Max trades per run ({MAX_TRADES_PER_RUN}) reached")
                 break
 
+            # Check cooldown from previous failures
+            if is_on_cooldown(market_id, "yes"):
+                log(f"   ⏭️  {bucket_label}: on cooldown (failed recently)")
+                continue
+
             opportunities_found += 1
 
             tag = "SIMULATED" if dry_run else "LIVE"
@@ -826,7 +906,9 @@ def run_strategy(dry_run=True, positions_only=False, show_config=False,
                         current_count=current_count,
                     )
             else:
-                log(f"   ❌ Trade failed: {result.get('error', 'Unknown')}", force=True)
+                error_msg = result.get('error', 'Unknown')
+                log(f"   ❌ Trade failed: {error_msg}", force=True)
+                record_failed_trade(market_id, "yes", error_msg)
 
     # Check exits
     exits_found, exits_executed = check_exit_opportunities(dry_run, use_safeguards)
