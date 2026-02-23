@@ -21,17 +21,47 @@ Analyze **any** Polymarket wallet's trading patterns, skill level, and edge dete
 
 > This skill implements the forensic trading analysis framework developed by @thejayden. Read the original post to understand the philosophy behind Time Profitable, hedge checks, bot detection, and accumulation signals.
 
-> **This is a template.** The skill returns forensic metrics for ANY Polymarket wallet — your agent decides what to do with them: copytrade skilled wallets, fade bots, find arbitrage opportunities, or track competitors. The skill handles data fetching and metric computation; your agent provides the strategy.
+> **This is an analysis tool, not a trading signal.** The skill returns forensic metrics for ANY Polymarket wallet — your agent uses them to UNDERSTAND traders, learn patterns, and make informed decisions. This is for education and research, not for blindly copying positions.
+
+## ⚠️ Important Disclaimer
+
+**Past performance does not guarantee future results.** A wallet's historical metrics tell you about:
+- ✅ How they traded *in the past*
+- ✅ Their *historical* win rate and entry quality
+- ❌ NOT whether their strategy will work going forward
+
+**Why copying is risky:**
+- Market conditions change constantly
+- A trader's edge might have been luck, timing, or specific to historical events
+- Slippage and fees erode thin edges to zero
+- Other traders copying the same strategy destroy the edge
+
+**Use this skill to:**
+- ✅ Learn what skilled traders look like (metrics, behavior)
+- ✅ Identify potential anomalies (bots, arbitrageurs)
+- ✅ Understand trader psychology (FOMO vs. discipline)
+- ✅ Inform your own strategy decisions
+
+**DO NOT use this skill to:**
+- ❌ Automatically copytrade wallets
+- ❌ Expect to replicate their returns
+- ❌ Trade on these metrics without understanding why
+- ❌ Risk significant capital on patterns you don't understand
 
 ## When to Use This Skill
 
-Use this skill when you need to:
-- **Identify skilled traders** before copying their positions
-- **Detect bots** that might frontrun or manipulate
-- **Find arbitrage opportunities** (wallets with hedged positions)
-- **Analyze a specific wallet's edge** (entry quality, consistency, timing)
-- **Compare multiple wallets** to pick the best to follow
-- **Understand trader behavior** (FOMO chasing vs. disciplined accumulation)
+Use this skill when you want to:
+- **Learn how skilled traders operate** — What metrics separate winners from losers?
+- **Understand trading psychology** — Who chases prices? Who has discipline?
+- **Detect bots and anomalies** — Identify suspicious patterns for research
+- **Research arbitrage activity** — Find wallets with hedged positions (educational)
+- **Compare trader profiles** — What does a consistent trader look like vs. a lucky one?
+- **Inform your own strategy** — Use patterns as input to YOUR decision-making, not as direct signals
+
+**NOT for:**
+- Copying trades blindly or automatically
+- Assuming past returns = future returns
+- Making large bets on these metrics alone
 
 ## Quick Commands
 
@@ -94,7 +124,7 @@ The skill returns comprehensive forensic metrics:
     "volatility": "medium",
     "max_position_concentration": 0.22
   },
-  "recommendation": "Good trader. Skilled entries, disciplined sizing. Safe to copytrade with 10-25% of capital."
+  "recommendation": "Good trader. Skilled entries, disciplined sizing. Good metrics for learning from. Not advice to copytrade."
 }
 ```
 
@@ -113,9 +143,9 @@ The skill returns comprehensive forensic metrics:
 ### ⏱️ **Time Profitable** (e.g., 75.3%)
 Wallet was profitable (not underwater) for 75% of their trading period. This wallet endured only 25% painful drawdowns — that's discipline.
 
-- **>80%** = Sniper. Copy them.
-- **50-80%** = Solid. Good risk/reward.
-- **<50%** = Risky. They panic-held losses.
+- **>80%** = Sniper-like (skilled entries, holds through drawdowns)
+- **50-80%** = Solid (good discipline)
+- **<50%** = Risky (likely panic-held losses)
 
 ### 🎯 **Entry Quality** (e.g., 28 bps average slippage)
 They buy near the best available price. 28 basis points is normal for active traders. No evidence of FOMO market orders.
@@ -142,14 +172,13 @@ If combined < $1.00, they locked in risk-free profit (arbitrage).
 
 ## Usage Examples
 
-### **Example 1: Agent vetting a copytrading target**
+### **Example 1: Learning from a skilled trader (Analysis)**
 
 ```python
-from simmer_sdk import SimmerClient
 import subprocess
 import json
 
-# Run wallet autopsy
+# Analyze a wallet known for skilled trading
 result = subprocess.run(
     ["python", "wallet_autopsy.py", "0x123...abc", "--json"],
     capture_output=True,
@@ -157,20 +186,28 @@ result = subprocess.run(
 )
 data = json.loads(result.stdout)
 
-if data["profitability"]["time_profitable_pct"] > 75:
-    if not data["behavior"]["is_bot_detected"]:
-        print("✅ Safe to copytrade. Good trader.")
-    else:
-        print("⚠️ Skip. Bot detected.")
-else:
-    print("❌ Too risky. Low Time Profitable.")
+# LEARN from their profile, don't copy blindly
+time_prof = data["profitability"]["time_profitable_pct"]
+entry_qual = data["entry_quality"]["quality_rating"]
+
+print(f"📊 What this trader does well:")
+print(f"  • Time Profitable: {time_prof}% (disciplined)")
+print(f"  • Entry Quality: {entry_qual} (patient buyer)")
+print(f"  • Behavior: {data['behavior']['accumulation_signal']} (not FOMO)")
+
+# THEN: Ask yourself
+# - Why are they profitable? (skill or luck?)
+# - Can I replicate their decision-making process?
+# - Do I have their capital size, timing, or information?
 ```
 
-### **Example 2: Finding arbitrage wallets**
+### **Example 2: Research anomalies (Education)**
 
 ```python
+# Analyze multiple wallets to understand patterns
 wallets = ["0x111...", "0x222...", "0x333..."]
 
+print("Comparing trader profiles:")
 for wallet in wallets:
     result = subprocess.run(
         ["python", "wallet_autopsy.py", wallet, "--json"],
@@ -178,26 +215,42 @@ for wallet in wallets:
         text=True
     )
     data = json.loads(result.stdout)
-    if data["edge_detection"]["has_arbitrage_edge"]:
-        print(f"Found arbitrage wallet: {wallet}")
-        print(f"  Combined avg: {data['edge_detection']['hedge_check_combined_avg']}")
+
+    is_bot = "🤖 BOT" if data["behavior"]["is_bot_detected"] else "👤 HUMAN"
+    print(f"\n{wallet}: {is_bot}")
+    print(f"  Win Rate: {data['profitability']['win_rate_pct']}%")
+    print(f"  Time Profitable: {data['profitability']['time_profitable_pct']}%")
+
+# Use this data to understand what successful trading LOOKS LIKE
+# Then build your own strategy based on these insights
 ```
 
-### **Example 3: Learning from competitors**
+### **Example 3: Informed decision-making (NOT blind copying)**
 
 ```python
-competitors = ["0xaaa...", "0xbbb..."]
+# Analyze before you decide what to do
+result = subprocess.run(
+    ["python", "wallet_autopsy.py", "0x123...abc", "--json"],
+    capture_output=True,
+    text=True
+)
+data = json.loads(result.stdout)
 
-for wallet in competitors:
-    result = subprocess.run(
-        ["python", "wallet_autopsy.py", wallet, "Bitcoin", "--json"],
-        capture_output=True,
-        text=True
-    )
-    data = json.loads(result.stdout)
-    print(f"{wallet}:")
-    print(f"  Entry quality: {data['entry_quality']['quality_rating']}")
-    print(f"  Behavior: {data['behavior']['price_chasing']}")
+# Make an INFORMED decision based on analysis + YOUR OWN JUDGMENT
+if data["profitability"]["time_profitable_pct"] > 75 and \
+   data["entry_quality"]["quality_rating"] in ["A", "A+"]:
+
+    print(f"✅ This wallet shows skill (high Time Profitable, good entries)")
+    print(f"⚠️  But I will NOT copytrade blindly.")
+    print(f"📋 Instead, I'll:")
+    print(f"   1. Backtest their patterns on fresh data")
+    print(f"   2. Add my own market signals")
+    print(f"   3. Start with small position (1-2% of capital)")
+    print(f"   4. Monitor for next 30 days")
+    print(f"   5. Adjust if it stops working")
+else:
+    print(f"❌ This wallet doesn't show strong enough metrics.")
+    print(f"   Safer to avoid or research further before deciding.")
 ```
 
 ## Running the Skill
