@@ -452,7 +452,8 @@ def run_copytrading(wallets: list, top_n: int = None, max_usd: float = 50.0, dry
         positions_found = result.get('positions_found', 0) if result else 0
         _trades_needed = result.get('trades_needed', 0) if result else 0
         _trades_exec = result.get('trades_executed', 0) if result else 0
-        report = {"signals": positions_found, "trades_attempted": _trades_needed, "trades_executed": _trades_exec}
+        _total_cost = sum(t.get('estimated_cost', 0) for t in (result.get('trades', []) if result else []) if t.get('success'))
+        report = {"signals": positions_found, "trades_attempted": _trades_needed, "trades_executed": _trades_exec, "amount_usd": round(_total_cost, 2)}
         if positions_found > 0 and _trades_exec == 0:
             # Derive skip reasons from server response
             skip_reasons = []

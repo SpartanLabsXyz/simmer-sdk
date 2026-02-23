@@ -376,6 +376,7 @@ def run_divergence_trades(markets, dry_run=True, quiet=False):
 
     trades_attempted = 0
     trades_executed = 0
+    total_usd_spent = 0.0
 
     log(f"\n{'=' * 50}")
     log(f"  🎯 Divergence Trading")
@@ -452,6 +453,7 @@ def run_divergence_trades(markets, dry_run=True, quiet=False):
 
         if result and result.get("success"):
             trades_executed += 1
+            total_usd_spent += position_size
             shares = result.get("shares_bought") or result.get("shares") or 0
             simulated = result.get("simulated", False)
             prefix = "[PAPER] " if simulated else ""
@@ -563,7 +565,7 @@ def main():
     # Structured report for automaton
     if os.environ.get("AUTOMATON_MANAGED"):
         global _automaton_reported
-        report = {"signals": signals, "trades_attempted": attempted, "trades_executed": executed}
+        report = {"signals": signals, "trades_attempted": attempted, "trades_executed": executed, "amount_usd": round(total_usd_spent, 2)}
         if signals > 0 and executed == 0 and skip_reasons:
             report["skip_reason"] = ", ".join(dict.fromkeys(skip_reasons))
         print(json.dumps({"automaton": report}))

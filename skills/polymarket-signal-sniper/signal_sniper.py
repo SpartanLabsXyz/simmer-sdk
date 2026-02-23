@@ -716,6 +716,7 @@ def run_scan(
         "articles_new": 0,
         "trades_executed": 0,
         "trades_skipped": 0,
+        "total_usd_spent": 0.0,
         "signals": [],
     }
 
@@ -844,6 +845,7 @@ def run_scan(
                     shares = trade_result.get("shares", 0)
                     print(f"     ✅ Bought {shares:.1f} shares")
                     results["trades_executed"] += 1
+                    results["total_usd_spent"] += MAX_USD
                     action = "traded"
                 else:
                     error = trade_result.get("error", "Unknown error")
@@ -889,7 +891,7 @@ def run_scan(
     if os.environ.get("AUTOMATON_MANAGED"):
         global _automaton_reported
         signals_count = len(results['signals'])
-        report = {"signals": signals_count, "trades_attempted": results['trades_executed'] + results['trades_skipped'], "trades_executed": results['trades_executed']}
+        report = {"signals": signals_count, "trades_attempted": results['trades_executed'] + results['trades_skipped'], "trades_executed": results['trades_executed'], "amount_usd": round(results['total_usd_spent'], 2)}
         if signals_count > 0 and results['trades_executed'] == 0 and skip_reasons:
             report["skip_reason"] = ", ".join(dict.fromkeys(skip_reasons))
         print(json.dumps({"automaton": report}))

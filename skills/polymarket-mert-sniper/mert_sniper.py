@@ -401,6 +401,7 @@ def run_mert_strategy(dry_run=True, positions_only=False, show_config=False,
     position_size = calculate_position_size(MAX_BET_USD, smart_sizing)
 
     trades_executed = 0
+    total_usd_spent = 0.0
     strong_split_count = 0
     skip_reasons = []
 
@@ -469,6 +470,7 @@ def run_mert_strategy(dry_run=True, positions_only=False, show_config=False,
 
         if result.get("success"):
             trades_executed += 1
+            total_usd_spent += position_size
             shares = result.get("shares_bought") or result.get("shares") or 0
             print(f"     {'[PAPER] ' if result.get('simulated') else ''}Bought {shares:.1f} {side.upper()} shares @ ${side_price:.2f}")
         else:
@@ -486,7 +488,7 @@ def run_mert_strategy(dry_run=True, positions_only=False, show_config=False,
     # Structured report for automaton
     if os.environ.get("AUTOMATON_MANAGED"):
         global _automaton_reported
-        report = {"signals": strong_split_count, "trades_attempted": strong_split_count, "trades_executed": trades_executed}
+        report = {"signals": strong_split_count, "trades_attempted": strong_split_count, "trades_executed": trades_executed, "amount_usd": round(total_usd_spent, 2)}
         if strong_split_count > 0 and trades_executed == 0 and skip_reasons:
             report["skip_reason"] = ", ".join(dict.fromkeys(skip_reasons))
         print(json.dumps({"automaton": report}))

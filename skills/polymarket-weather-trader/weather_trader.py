@@ -814,6 +814,7 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
 
     forecast_cache = {}
     trades_executed = 0
+    total_usd_spent = 0.0
     opportunities_found = 0
     skip_reasons = []
 
@@ -923,6 +924,7 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
 
             if result.get("success"):
                 trades_executed += 1
+                total_usd_spent += position_size
                 shares = result.get("shares_bought") or result.get("shares") or 0
                 trade_id = result.get("trade_id")
                 log(f"  ✅ {'[PAPER] ' if result.get('simulated') else ''}Bought {shares:.1f} shares @ ${price:.2f}", force=True)
@@ -967,7 +969,7 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
     # Structured report for automaton
     if os.environ.get("AUTOMATON_MANAGED"):
         global _automaton_reported
-        report = {"signals": opportunities_found + exits_found, "trades_attempted": opportunities_found + exits_found, "trades_executed": total_trades}
+        report = {"signals": opportunities_found + exits_found, "trades_attempted": opportunities_found + exits_found, "trades_executed": total_trades, "amount_usd": round(total_usd_spent, 2)}
         if (opportunities_found + exits_found) > 0 and total_trades == 0 and skip_reasons:
             report["skip_reason"] = ", ".join(dict.fromkeys(skip_reasons))
         print(json.dumps({"automaton": report}))

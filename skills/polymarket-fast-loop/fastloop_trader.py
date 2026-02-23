@@ -780,7 +780,8 @@ def run_fast_market_strategy(dry_run=True, positions_only=False, show_config=Fal
     # Structured report for automaton (takes priority over fallback in __main__)
     if os.environ.get("AUTOMATON_MANAGED"):
         global _automaton_reported
-        print(json.dumps({"automaton": {"signals": 1, "trades_attempted": 1, "trades_executed": total_trades}}))
+        amount = round(position_size, 2) if total_trades > 0 else 0
+        print(json.dumps({"automaton": {"signals": 1, "trades_attempted": 1, "trades_executed": total_trades, "amount_usd": amount}}))
         _automaton_reported = True
 
 
