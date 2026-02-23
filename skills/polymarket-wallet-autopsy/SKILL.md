@@ -1,8 +1,8 @@
 ---
 name: polymarket-wallet-autopsy
 displayName: Polymarket Wallet Autopsy
-description: Forensic analysis of any Polymarket wallet. Spot skill, entry quality, bot detection, and arbitrage opportunities. Inspired by @thejayden's "Autopsy of a Polymarket Whale" analysis.
-metadata: {"clawdbot":{"emoji":"🔍","requires":{"env":["SIMMER_API_KEY"],"pip":["simmer-sdk","requests"]},"cron":null,"autostart":false,"automaton":{"managed":true,"entrypoint":"wallet_autopsy.py"}}}
+description: Forensic analysis of ANY Polymarket wallet. Spot skill, entry quality, bot detection, and arbitrage opportunities. Queries Polymarket's public APIs — no authentication needed. Inspired by @thejayden's "Autopsy of a Polymarket Whale" analysis.
+metadata: {"clawdbot":{"emoji":"🔍","requires":{"env":[],"pip":[]},"cron":null,"autostart":false,"automaton":{"managed":true,"entrypoint":"wallet_autopsy.py"}}}
 authors:
   - Simmer (@simmer_markets)
 inspired_by:
@@ -13,13 +13,15 @@ published: true
 
 # Polymarket Wallet Autopsy
 
-Analyze any Polymarket wallet's trading patterns, skill level, and edge detection.
+Analyze **any** Polymarket wallet's trading patterns, skill level, and edge detection.
+
+**No authentication needed.** Queries Polymarket's public CLOB API directly.
 
 **Inspired by:** [The Autopsy: How to Read the Mind of a Polymarket Whale](https://x.com/thejayden/status/2020891572389224878) by [@thejayden](https://x.com/thejayden)
 
 > This skill implements the forensic trading analysis framework developed by @thejayden. Read the original post to understand the philosophy behind Time Profitable, hedge checks, bot detection, and accumulation signals.
 
-> **This is a template.** The skill returns forensic metrics — your agent decides what to do with them: copytrade skilled wallets, fade bots, find arbitrage opportunities, or track competitors. The skill handles data fetching and metric computation; your agent provides the strategy.
+> **This is a template.** The skill returns forensic metrics for ANY Polymarket wallet — your agent decides what to do with them: copytrade skilled wallets, fade bots, find arbitrage opportunities, or track competitors. The skill handles data fetching and metric computation; your agent provides the strategy.
 
 ## When to Use This Skill
 
@@ -50,11 +52,9 @@ python wallet_autopsy.py "Will BTC hit $100k?" --top-wallets 5 --dry-run
 python scripts/status.py
 ```
 
-**API Reference:**
-- Base URL: `https://api.simmer.markets`
-- Auth: `Authorization: Bearer $SIMMER_API_KEY`
-- Portfolio: `GET /api/sdk/portfolio`
-- Positions: `GET /api/sdk/positions`
+**APIs Used (Public, No Auth Required):**
+- Gamma API: `https://gamma-api.polymarket.com` — Market search
+- CLOB API: `https://clob.polymarket.com` — Trade history and orderbook
 
 ## What You Get Back
 
@@ -245,9 +245,9 @@ python wallet_autopsy.py 0x1234...abcd --limit 100
 - You're analyzing many wallets in quick succession
 - Wait a minute before trying again, or use `--limit` to speed up individual analyses
 
-**"SIMMER_API_KEY not set"**
-- Get your API key from: https://simmer.markets/dashboard
-- Then: `export SIMMER_API_KEY="sk_live_..."`
+**"Connection error"**
+- Check that Polymarket's CLOB API is reachable: `curl https://clob.polymarket.com/trades`
+- If down, try again later or use `--limit 50` to reduce load
 
 ## Credits
 

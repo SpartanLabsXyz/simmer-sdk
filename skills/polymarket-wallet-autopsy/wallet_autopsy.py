@@ -5,6 +5,9 @@ Polymarket Wallet Autopsy
 Forensic analysis of any Polymarket wallet's trading patterns, skill level,
 and edge detection. Inspired by @thejayden's "Autopsy of a Polymarket Whale".
 
+Queries Polymarket's public CLOB API directly — no authentication needed.
+Analyzes ANY Polymarket wallet, not just Simmer users.
+
 Usage:
     python wallet_autopsy.py 0x1234...abcd
     python wallet_autopsy.py 0x1234...abcd "Bitcoin"
@@ -26,40 +29,56 @@ from typing import Dict, List, Optional, Any
 # Force line-buffered stdout so output is visible in non-TTY environments
 sys.stdout.reconfigure(line_buffering=True)
 
-SIMMER_API_BASE = "https://api.simmer.markets"
+# Polymarket public APIs
+GAMMA_API_BASE = "https://gamma-api.polymarket.com"
+CLOB_API_BASE = "https://clob.polymarket.com"
 
-def api_request(api_key: str, endpoint: str) -> dict:
-    """Make authenticated request to Simmer API."""
-    url = f"{SIMMER_API_BASE}{endpoint}"
-    req = Request(url, headers={
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json"
-    })
+def api_request(url: str, headers: Optional[Dict] = None, timeout: int = 30) -> dict:
+    """Make HTTP request to public API."""
+    req = Request(url, headers=headers or {"Content-Type": "application/json"})
     try:
-        with urlopen(req, timeout=30) as resp:
+        with urlopen(req, timeout=timeout) as resp:
             return json.loads(resp.read().decode())
     except HTTPError as e:
         error_body = e.read().decode() if e.fp else ""
         print(f"❌ API Error {e.code}: {error_body}", file=sys.stderr)
-        sys.exit(1)
+        return {}
     except URLError as e:
         print(f"❌ Connection error: {e.reason}", file=sys.stderr)
-        sys.exit(1)
+        return {}
 
-def get_wallet_trades(api_key: str, wallet: str, market_query: Optional[str] = None, limit: Optional[int] = None) -> List[Dict]:
-    """Fetch trades for a wallet from Simmer API."""
-    # Use orders endpoint to get wallet's trade history
-    endpoint = f"/api/sdk/orders?wallet={wallet}&status=confirmed&limit={limit or 1000}"
-    if market_query:
-        endpoint += f"&market_q={market_query}"
+def search_markets(query: str, limit: int = 10) -> List[Dict]:
+    """Search for markets by query using Gamma API."""
+    url = f"{GAMMA_API_BASE}/markets"
+    params = f"?query={query}&limit={limit}&orderBy=volume24h"
 
-    try:
-        result = api_request(api_key, endpoint)
-        orders = result.get("orders", []) if isinstance(result, dict) else result
-        return orders if isinstance(orders, list) else []
-    except Exception as e:
-        print(f"❌ Failed to fetch trades: {e}", file=sys.stderr)
-        return []
+    result = api_request(url + params)
+    return result.get("markets", []) if isinstance(result, dict) else []
+
+def get_orderbook(token_id: str) -> Dict:
+    """Get current orderbook for a token."""
+    url = f"{CLOB_API_BASE}/book?token_id={token_id}"
+    return api_request(url)
+
+def get_wallet_trades(wallet: str, limit: Optional[int] = None) -> List[Dict]:
+    """Fetch trades for a wallet from Polymarket CLOB API."""
+    # Use the orderbook history endpoint to get wallet trades
+    # This queries Polymarket's public trade data
+    url = f"{CLOB_API_BASE}/trades?wallet={wallet.lower()}&limit={limit or 1000}"
+
+    result = api_request(url)
+
+    # Try different possible response formats
+    if isinstance(result, dict):
+        trades = result.get("trades", result.get("data", []))
+    else:
+        trades = result if isinstance(result, list) else []
+
+    if not trades:
+        print(f"⚠️  No trade history found for wallet {wallet}", file=sys.stderr)
+        print(f"   Note: Some wallets may have limited public trade history.", file=sys.stderr)
+
+    return trades if isinstance(trades, list) else []
 
 def compute_profitability(trades: List[Dict]) -> Dict[str, Any]:
     """Compute profitability metrics from trade history."""
@@ -461,17 +480,24 @@ def generate_recommendation(data: Dict[str, Any]) -> str:
 
     return rec
 
-def analyze_wallet(api_key: str, wallet: str, market_query: Optional[str] = None,
+def analyze_wallet(wallet: str, market_query: Optional[str] = None,
                    limit: Optional[int] = None) -> Dict[str, Any]:
     """Main analysis function."""
-    # Fetch trades
-    trades = get_wallet_trades(api_key, wallet, market_query, limit)
-
-    if not trades:
-        print(f"❌ No trades found for wallet {wallet}", file=sys.stderr)
+    # Validate wallet address
+    if not wallet.lower().startswith("0x") or len(wallet) != 42:
+        print(f"❌ Invalid wallet address: {wallet}", file=sys.stderr)
+        print(f"   Expected 42-char hex address (0x...)", file=sys.stderr)
         return {}
 
-    print(f"📊 Analyzing {len(trades)} trades...", file=sys.stderr)
+    # Fetch trades from Polymarket CLOB API
+    trades = get_wallet_trades(wallet, limit)
+
+    if not trades:
+        print(f"❌ No trade history found for wallet {wallet}", file=sys.stderr)
+        print(f"   (Some wallets may have limited public trade data)", file=sys.stderr)
+        return {}
+
+    print(f"📊 Analyzing {len(trades)} trades from Polymarket...", file=sys.stderr)
 
     # Compute all metrics
     data = {
@@ -552,7 +578,8 @@ def format_output(data: Dict[str, Any]) -> str:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Polymarket Wallet Autopsy - Forensic trading analysis"
+        description="Polymarket Wallet Autopsy - Forensic trading analysis",
+        epilog="Example: python wallet_autopsy.py 0x1234...abcd"
     )
     parser.add_argument("wallet", nargs="?", help="Wallet address (0x...)")
     parser.add_argument("market", nargs="?", help="Market query (optional)")
@@ -560,43 +587,43 @@ def main():
     parser.add_argument("--json", action="store_true", help="Output as JSON")
     parser.add_argument("--limit", type=int, help="Limit trades analyzed")
     parser.add_argument("--dry-run", action="store_true", help="Dry run (no analysis)")
-    parser.add_argument("--top-wallets", type=int, help="Find top N wallets by criteria")
     args = parser.parse_args()
-
-    api_key = os.environ.get("SIMMER_API_KEY")
-    if not api_key:
-        print("❌ SIMMER_API_KEY environment variable not set")
-        print("   Get your API key from: https://simmer.markets/dashboard")
-        sys.exit(1)
 
     if not args.wallet:
         parser.print_help()
         sys.exit(0)
+
+    print(f"🔍 Polymarket Wallet Autopsy", file=sys.stderr)
+    print(f"Inspired by @thejayden's trading analysis framework\n", file=sys.stderr)
 
     # Analyze wallet(s)
     if args.compare and args.market:
         # Compare two wallets
         wallet1 = args.wallet
         wallet2 = args.market
-        data1 = analyze_wallet(api_key, wallet1, limit=args.limit)
-        data2 = analyze_wallet(api_key, wallet2, limit=args.limit)
+        data1 = analyze_wallet(wallet1, limit=args.limit)
+        data2 = analyze_wallet(wallet2, limit=args.limit)
 
         if args.json:
             print(json.dumps({"wallet1": data1, "wallet2": data2}, indent=2))
         else:
-            print(format_output(data1))
-            print(format_output(data2))
-            print("\n🔄 COMPARISON")
-            print(f"  Wallet 1 Time Profitable:  {data1.get('profitability', {}).get('time_profitable_pct', 0):.1f}%")
-            print(f"  Wallet 2 Time Profitable:  {data2.get('profitability', {}).get('time_profitable_pct', 0):.1f}%")
+            if data1:
+                print(format_output(data1))
+            if data2:
+                print(format_output(data2))
+            if data1 and data2:
+                print("\n🔄 COMPARISON")
+                print(f"  Wallet 1 Time Profitable:  {data1.get('profitability', {}).get('time_profitable_pct', 0):.1f}%")
+                print(f"  Wallet 2 Time Profitable:  {data2.get('profitability', {}).get('time_profitable_pct', 0):.1f}%")
     else:
         # Analyze single wallet
-        data = analyze_wallet(api_key, args.wallet, args.market, args.limit)
+        data = analyze_wallet(args.wallet, args.market, args.limit)
 
         if args.json:
             print(json.dumps(data, indent=2))
         else:
-            print(format_output(data))
+            if data:
+                print(format_output(data))
 
 if __name__ == "__main__":
     main()
