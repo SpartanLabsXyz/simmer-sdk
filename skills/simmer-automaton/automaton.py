@@ -322,10 +322,11 @@ def discover_skills(skills_dir=None):
 # P&L fetching
 # =============================================================================
 
-def fetch_pnl_by_source(client):
-    """Fetch total P&L per source tag from current positions.
+def fetch_pnl_by_source(client, phase3_start=None):
+    """Fetch total P&L per source tag from positions (optionally filtered by timestamp).
 
     Uses /api/sdk/positions which includes both realized and unrealized P&L.
+    If phase3_start provided, only includes positions created at/after that timestamp.
     Returns dict[source_tag] = total_pnl (float).
     """
     pnl_by_source = {}
@@ -336,6 +337,12 @@ def fetch_pnl_by_source(client):
             })
             positions = resp.get("positions", []) if resp else []
             for pos in positions:
+                # Optional timestamp filter (for Phase 3 legacy position exclusion)
+                if phase3_start:
+                    created = pos.get("created_at", "")
+                    if created < phase3_start:
+                        continue
+                
                 pnl = float(pos.get("pnl", 0) or 0)
                 # sources is a list (e.g. ["sdk:divergence"]); split P&L
                 # evenly across sources to avoid double-counting
@@ -995,7 +1002,9 @@ def run_cycle(config, live=False, quiet=False):
 
     # 9. Fetch P&L from positions and update bandit
     if track_pnl:
-        pnl_by_source = fetch_pnl_by_source(client)
+        # Filter by phase3_start if available (exclude legacy positions)
+        phase3_start = state.get("phase3_start_timestamp")
+        pnl_by_source = fetch_pnl_by_source(client, phase3_start=phase3_start)
         state["total_pnl"] = sum(pnl_by_source.values())
 
         for slug in selected:
