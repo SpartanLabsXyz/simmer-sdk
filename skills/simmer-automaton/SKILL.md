@@ -137,6 +137,74 @@ python automaton.py --budget 50 --days 30
 
 **Debugging tip:** When trades aren't executing, check the journal first: `python automaton.py --journal 10`. It shows per-cycle skip reasons, execution errors, and tuning hints — everything you need to diagnose why signals aren't converting to trades.
 
+## Journal Schema (`cycle_journal.jsonl`)
+
+Each line is a JSON object representing one cycle. Your agent can read this file programmatically to build custom dashboards, alerts, or insights.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `cycle` | int | Cycle number (monotonically increasing) |
+| `timestamp` | string | ISO 8601 UTC time of cycle completion |
+| `tier` | string | Budget tier: `"normal"`, `"cautious"`, or `"critical"` |
+| `epsilon` | float | Current bandit exploration rate (0.05–0.2) |
+| `budget_remaining_pct` | float | Fraction of budget remaining (0.0–1.0) |
+| `selected_skills` | string[] | Skill slugs selected this cycle |
+| `selection_reasoning` | object | `{slug: {reason, score}}` — why bandit picked each skill |
+| `results` | object | Per-skill results (see below) |
+| `pnl_total` | float | Cumulative P&L across all skills ($USD) |
+| `spent_total` | float | Cumulative spend across all skills ($USD) |
+| `runtime_sec` | float | Cycle wall-clock time in seconds |
+| `circuit_breakers` | array | `[{skill, reason}]` — skills disabled this cycle |
+| `tuning_hints` | string[] | Actionable suggestions (see Post-Cycle Analysis) |
+
+**`results[slug]` fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `signals` | int | Number of trading signals found |
+| `trades_attempted` | int | Signals that passed filters |
+| `trades_executed` | int | Trades that filled on-chain |
+| `amount_usd` | float | Total USD spent this cycle |
+| `skip_reason` | string\|null | Comma-separated skip reasons (e.g., `"already_holding, spread_too_wide"`) |
+| `skip_counts` | object | `{category: count}` — skip reasons bucketed |
+| `execution_errors` | string[] | Error messages from failed trades |
+| `exit_code` | int | Skill process exit code (0 = success) |
+| `success` | bool | Whether the skill ran without crashing |
+
+**Example: build your own insights**
+
+```python
+import json
+from datetime import datetime, timezone, timedelta
+
+# Read last 6 hours of cycles
+cutoff = datetime.now(timezone.utc) - timedelta(hours=6)
+cycles = []
+for line in open("cycle_journal.jsonl"):
+    entry = json.loads(line)
+    if datetime.fromisoformat(entry["timestamp"]) > cutoff:
+        cycles.append(entry)
+
+# Per-skill P&L (aggregate trades_executed and amount_usd)
+skill_stats = {}
+for c in cycles:
+    for slug, r in c["results"].items():
+        s = skill_stats.setdefault(slug, {"executed": 0, "spent": 0})
+        s["executed"] += r["trades_executed"]
+        s["spent"] += r["amount_usd"]
+
+# Circuit breaker events
+cb_events = [cb for c in cycles for cb in c["circuit_breakers"]]
+
+# Tuning hints (deduplicated)
+hints = list(set(h for c in cycles for h in c["tuning_hints"]))
+
+print(f"Cycles: {len(cycles)} | P&L: ${cycles[-1]['pnl_total'] if cycles else 0}")
+print(f"Circuit breakers: {len(cb_events)} | Hints: {hints}")
+```
+
+Your agent can run this on a schedule, pipe it to Telegram/Discord, or use it as context for LLM-driven tuning decisions. The automaton handles trading; your agent handles analysis.
+
 ## How It Works
 
 ### Multi-Armed Bandit
