@@ -330,7 +330,7 @@ def parse_temperature_bucket(outcome_name: str) -> tuple:
     if above_match:
         return (int(above_match.group(1)), 999)
 
-    range_match = re.search(r'(\d+)\s*[-–to]+\s*(\d+)', outcome_name)
+    range_match = re.search(r'(\d+)\s*(?:°?\s*[fF])?\s*(?:-|–|to)\s*(\d+)', outcome_name)
     if range_match:
         low, high = int(range_match.group(1)), int(range_match.group(2))
         return (min(low, high), max(low, high))
