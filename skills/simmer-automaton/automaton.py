@@ -1101,6 +1101,24 @@ def run_cycle(config, live=False, quiet=False):
         elapsed = (datetime.now(timezone.utc) - cycle_start).total_seconds()
         print(f"\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500")
         print(f"\U0001f4be P&L: ${total_pnl:+.2f} | Epsilon: {state['epsilon']:.3f} | {elapsed:.1f}s")
+        # Alert: circuit breakers fired this cycle
+        if journal_entry["circuit_breakers"]:
+            print(f"\n  ⚠️  CIRCUIT BREAKERS FIRED:")
+            for cb in journal_entry["circuit_breakers"]:
+                print(f"    🛑 {cb['skill']} disabled — {cb['reason']}")
+        # Alert: budget running low
+        budget_pct = journal_entry.get("budget_remaining_pct", 1.0)
+        if budget_pct < 0.25:
+            spent = sum(s.get("spent_usd", 0) for s in state["skills"].values())
+            remaining = state["budget_usd"] - spent
+            print(f"\n  ⚠️  LOW BUDGET: ${remaining:.2f} remaining ({budget_pct:.0%} of ${state['budget_usd']:.0f})")
+        # Alert: most skills disabled
+        all_skills = state.get("skills", {})
+        disabled = [s for s, v in all_skills.items() if not v.get("enabled", True)]
+        enabled = [s for s, v in all_skills.items() if v.get("enabled", True)]
+        if disabled and len(disabled) >= len(all_skills) // 2:
+            print(f"\n  ⚠️  {len(disabled)}/{len(all_skills)} SKILLS DISABLED: {', '.join(disabled)}")
+            print(f"      Still active: {', '.join(enabled) if enabled else 'NONE'}")
         if hints:
             print(f"\n  Tuning hints ({len(hints)}):")
             for h in hints:
