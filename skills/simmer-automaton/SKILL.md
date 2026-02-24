@@ -137,6 +137,103 @@ python automaton.py --budget 50 --days 30
 
 **Debugging tip:** When trades aren't executing, check the journal first: `python automaton.py --journal 10`. It shows per-cycle skip reasons, execution errors, and tuning hints — everything you need to diagnose why signals aren't converting to trades.
 
+## Skill Report Protocol
+
+Skills emit a JSON report line during execution. The automaton parses this to populate the cycle journal and update state.
+
+**Skill report format:**
+```json
+{
+  "automaton": {
+    "signals": 5,
+    "trades_attempted": 3,
+    "trades_executed": 2,
+    "amount_usd": 15.50,
+    "skip_reason": "safeguard: slippage > 10%",
+    "execution_errors": ["insufficient_funds on trade 2"],
+    "trades": [
+      {
+        "market_id": "abc123xyz",
+        "question": "Will Bitcoin hit $100k by Feb 28?",
+        "side": "yes",
+        "shares": 45.2,
+        "entry_price": 0.475,
+        "amount_usd": 21.47,
+        "success": true,
+        "notes": "Kelly-sized position"
+      },
+      {
+        "market_id": "def456uvw",
+        "question": "Will Fed raise rates?",
+        "side": "no",
+        "shares": 22.8,
+        "entry_price": 0.625,
+        "amount_usd": 14.25,
+        "success": true,
+        "notes": "Positioned for deflationary signal"
+      }
+    ]
+  }
+}
+```
+
+**Fields:**
+- `signals` (required) — Number of opportunities identified this cycle
+- `trades_attempted` (required) — Number of trades tried to execute
+- `trades_executed` (required) — Number that actually filled
+- `amount_usd` (required) — Total USD spent this cycle
+- `skip_reason` (optional) — Comma-separated skip reasons (e.g. "safeguard: slippage, already_holding")
+- `execution_errors` (optional) — Array of error messages from failed trade attempts
+- `trades` (optional but **recommended**) — Array of trade detail objects (see below)
+
+**Trade detail object (when `trades_executed > 0`):**
+- `market_id` (required) — Polymarket/Kalshi market ID
+- `question` (required) — Market question (for audit trail)
+- `side` (required) — `"yes"` or `"no"`
+- `shares` (required) — Number of shares bought
+- `entry_price` (required) — Price per share when filled
+- `amount_usd` (required) — Total USD spent on this trade
+- `success` (required) — `true` if fill confirmed, `false` if rejected/failed
+- `notes` (optional) — Why this trade was chosen (e.g. "Kelly-sized", "sentiment spike")
+
+**How to emit the report:**
+
+From within your skill script (Python):
+```python
+import json
+import sys
+
+# ... trading logic ...
+
+report = {
+  "automaton": {
+    "signals": 5,
+    "trades_attempted": 2,
+    "trades_executed": 1,
+    "amount_usd": 10.0,
+    "skip_reason": "position too small, already_holding",
+    "execution_errors": [],
+    "trades": [
+      {
+        "market_id": "abc123",
+        "question": "Will X?",
+        "side": "yes",
+        "shares": 50,
+        "entry_price": 0.20,
+        "amount_usd": 10.0,
+        "success": True,
+      }
+    ]
+  }
+}
+
+# Emit as final JSON line to stdout
+print(json.dumps(report))
+sys.exit(0)
+```
+
+The automaton reads your last JSON line, extracts the `automaton` key, and logs it to the cycle journal. Include trade details for full audit trails and debugging.
+
 ## Journal Schema (`cycle_journal.jsonl`)
 
 Each line is a JSON object representing one cycle. Your agent can read this file programmatically to build custom dashboards, alerts, or insights.
