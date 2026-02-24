@@ -506,7 +506,20 @@ def _avg_reward(skill_entry):
 def _parse_skill_report(stdout):
     """Extract structured report from skill stdout.
 
-    Skills emit a JSON line like: {"automaton": {"signals": 3, ...}}
+    Skills emit a JSON line like: {"automaton": {"signals": 3, "trades": [...], ...}}
+    Trades array format (optional, for detail logging):
+      [
+        {
+          "market_id": "abc123",
+          "question": "Will X happen?",
+          "side": "yes" | "no",
+          "shares": 45.2,
+          "entry_price": 0.22,
+          "amount_usd": 10.0,
+          "success": true | false
+        },
+        ...
+      ]
     Returns the inner dict or None if not found.
     """
     if not stdout:
@@ -1054,7 +1067,7 @@ def run_cycle(config, live=False, quiet=False):
         res = run_results.get(slug, {})
         report = res.get("report", {}) or {}
         skip_reason = report.get("skip_reason")
-        journal_entry["results"][slug] = {
+        entry = {
             "signals": report.get("signals", 0),
             "trades_attempted": report.get("trades_attempted", 0),
             "trades_executed": report.get("trades_executed", 0),
@@ -1065,6 +1078,10 @@ def run_cycle(config, live=False, quiet=False):
             "exit_code": res.get("returncode", -1),
             "success": res.get("success", False),
         }
+        # Include trade details if skill provided them
+        if report.get("trades"):
+            entry["trades"] = report["trades"]
+        journal_entry["results"][slug] = entry
     # Generate tuning hints once (used in journal + summary)
     hints = generate_tuning_hints(state)
     journal_entry["tuning_hints"] = hints
