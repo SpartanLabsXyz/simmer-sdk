@@ -2,7 +2,7 @@
 name: prediction-trade-journal
 displayName: Prediction Trade Journal
 description: Auto-log trades with context, track outcomes, generate calibration reports to improve trading.
-metadata: {"clawdbot":{"emoji":"📓","requires":{"env":["SIMMER_API_KEY"]},"cron":null,"autostart":false}}
+metadata: {"clawdbot":{"emoji":"📓","requires":{"env":["SIMMER_API_KEY"],"pip":["simmer-sdk"]},"cron":null,"autostart":false}}
 authors:
   - Simmer (@simmer_markets)
 version: "1.1.5"
