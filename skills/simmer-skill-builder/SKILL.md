@@ -1,7 +1,7 @@
 ---
 name: simmer-skill-builder
 displayName: Simmer Skill Builder
-description: Generate complete, installable OpenClaw trading skills from natural language strategy descriptions. Use when a user wants to create a new trading strategy, build a bot, generate a skill, automate a trade idea, turn a tweet into a strategy, or asks "build me a skill that...". Produces a full skill folder (SKILL.md + Python script + config) ready to install and run.
+description: Generate complete, installable OpenClaw trading skills from natural language strategy descriptions. Use when your human wants to create a new trading strategy, build a bot, generate a skill, automate a trade idea, turn a tweet into a strategy, or asks "build me a skill that...". Produces a full skill folder (SKILL.md + Python script + config) ready to install and run.
 metadata: {"clawdbot":{"emoji":"🛠️","requires":{"env":["SIMMER_API_KEY"],"pip":["simmer-sdk"]},"cron":null,"autostart":false,"automaton":{"managed":false,"entrypoint":null}}}
 authors:
   - Simmer (@simmer_markets)
@@ -13,13 +13,13 @@ published: true
 
 Generate complete, runnable Simmer trading skills from a strategy description.
 
-> You are building an OpenClaw skill that trades prediction markets through the Simmer SDK. The skill you generate will be installed and run by the user's Clawbot — it must be a complete, self-contained folder that works out of the box.
+> You are building an OpenClaw skill that trades prediction markets through the Simmer SDK. The skill you generate will be installed into your skill library and run by you — it must be a complete, self-contained folder that works out of the box.
 
 ## Workflow
 
 ### Step 1: Understand the Strategy
 
-Ask the user what their strategy does. They might:
+Ask your human what their strategy does. They might:
 - Describe a trading thesis in plain language
 - Paste a tweet or thread about a strategy
 - Reference an external data source (Synth, NOAA, Binance, RSS, etc.)
@@ -54,7 +54,7 @@ If the strategy uses an external data source:
   - `GET https://clob.polymarket.com/midpoint?token_id=<token_id>` — midpoint price
   - `GET https://clob.polymarket.com/prices-history?market=<token_id>&interval=1w&fidelity=60` — price history
   - Get `polymarket_token_id` from the Simmer market response.
-- **Other APIs (Synth, NOAA, Binance, RSS, etc.):** Ask the user to provide the relevant API docs, or web-fetch them if you have access.
+- **Other APIs (Synth, NOAA, Binance, RSS, etc.):** Ask your human to provide the relevant API docs, or web-fetch them if you have access.
 
 ### Step 4: Generate the Skill
 
@@ -62,7 +62,7 @@ Create a complete folder on disk:
 
 ```
 <skill-slug>/
-├── SKILL.md          # Metadata + user documentation
+├── SKILL.md          # Metadata + documentation
 ├── <script>.py       # Main trading script
 └── scripts/
     └── status.py     # Portfolio viewer (copy from references)
@@ -88,7 +88,7 @@ Copy these verbatim from `references/skill-template.md`:
 Customize:
 - `CONFIG_SCHEMA` — skill-specific params with `SIMMER_<SKILLNAME>_<PARAM>` env vars
 - `TRADE_SOURCE` — unique tag like `"sdk:<skillname>"`
-- Signal logic — the user's strategy
+- Signal logic — your human's strategy
 - Market fetching/filtering — how to find relevant markets
 - Main strategy function — the core loop
 
@@ -100,7 +100,7 @@ Run the validator against the generated skill:
 python /path/to/simmer-skill-builder/scripts/validate_skill.py /path/to/generated-skill/
 ```
 
-Fix any FAIL results before delivering to the user.
+Fix any FAIL results before delivering to your human.
 
 ## Hard Rules
 
@@ -108,8 +108,8 @@ Fix any FAIL results before delivering to the user.
 2. **Always default to dry-run.** The `--live` flag must be explicitly passed for real trades.
 3. **Always tag trades** with `source=TRADE_SOURCE` (e.g. `"sdk:synth-volatility"`).
 4. **Always include safeguards** — the `check_context_safeguards()` function, skippable with `--no-safeguards`.
-5. **Always include reasoning** in `execute_trade()` — it's displayed publicly and builds the user's reputation.
-6. **Use stdlib only** for HTTP (urllib). Don't add `requests`, `httpx`, or `aiohttp` as dependencies unless the user specifically needs them. The only pip dependency should be `simmer-sdk`.
+5. **Always include reasoning** in `execute_trade()` — it's displayed publicly and builds your reputation.
+6. **Use stdlib only** for HTTP (urllib). Don't add `requests`, `httpx`, or `aiohttp` as dependencies unless your human specifically needs them. The only pip dependency should be `simmer-sdk`.
 7. **Polymarket minimums:** 5 shares per order, $0.01 min tick. Always check before trading.
 8. **Include `sys.stdout.reconfigure(line_buffering=True)`** — required for cron/Docker/OpenClaw visibility.
 9. **`get_positions()` returns dataclasses** — always convert with `from dataclasses import asdict`.
@@ -124,7 +124,7 @@ Fix any FAIL results before delivering to the user.
 
 ## Example: Tweet to Skill
 
-User pastes:
+Your human pastes:
 > "Build a bot that uses Synth volatility forecasts to trade Polymarket crypto hourly contracts. Buy YES when Synth probability > market price by 7%+ and Kelly size based on edge."
 
 You would:
@@ -132,7 +132,7 @@ You would:
 2. Read `references/skill-template.md` for the skeleton.
 3. Read `references/simmer-api.md` for SDK methods.
 4. Read `references/example-weather-trader.md` — closest pattern (external API signal).
-5. Ask user for Synth API docs or web-fetch them.
+5. Ask your human for Synth API docs or web-fetch them.
 6. Generate `polymarket-synth-volatility/` with:
    - SKILL.md (setup, config table, commands)
    - `synth_volatility.py` (fetch Synth forecast, compare to market price, Kelly size, trade)
