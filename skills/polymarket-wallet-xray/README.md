@@ -1,6 +1,6 @@
-# Polymarket Wallet Autopsy
+# Polymarket Wallet X-Ray
 
-Forensic analysis of any Polymarket wallet's trading patterns, skill level, and edge detection.
+X-ray any Polymarket wallet — trading patterns, skill level, and edge detection.
 
 ## Files
 
