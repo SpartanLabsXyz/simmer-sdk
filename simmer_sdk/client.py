@@ -499,7 +499,8 @@ class SimmerClient:
         order_type: str = "FAK",
         price: Optional[float] = None,
         reasoning: Optional[str] = None,
-        source: Optional[str] = None
+        source: Optional[str] = None,
+        allow_rebuy: bool = False
     ) -> TradeResult:
         """
         Execute a trade on a market.
@@ -531,6 +532,8 @@ class SimmerClient:
                 to see why your bot made this trade.
             source: Optional source tag for tracking (e.g., "sdk:weather", "sdk:copytrading").
                 Used to track which strategy opened each position.
+            allow_rebuy: If False (default), skip buying a market you already hold a
+                position on (same source). Set True for DCA or averaging-in strategies.
 
         Returns:
             TradeResult with execution details
@@ -588,11 +591,23 @@ class SimmerClient:
                 market_id, side, amount, shares, action, effective_venue
             )
 
-        # Cross-skill conflict check (buy only — sells always allowed)
+        # Position conflict checks (buy only — sells always allowed)
+        if action == "buy" and not allow_rebuy and not source:
+            held = self._get_held_markets()
+            if market_id in held:
+                logger.debug("Rebuy skipped on %s: already hold position", market_id)
+                return TradeResult(
+                    success=False,
+                    market_id=market_id,
+                    side=side,
+                    error="Already hold position on this market. Pass allow_rebuy=True to override.",
+                    skip_reason="rebuy skipped",
+                )
         if action == "buy" and source:
             held = self._get_held_markets()
             market_sources = held.get(market_id, [])
             if market_sources:
+                # Cross-skill conflict: different skill holds this market
                 other_sources = [s for s in market_sources if s != source]
                 if other_sources:
                     logger.debug(
@@ -605,6 +620,19 @@ class SimmerClient:
                         side=side,
                         error=f"Cross-skill conflict: {other_sources} already hold position on this market",
                         skip_reason="conflicts skipped",
+                    )
+                # Same-skill rebuy: already hold from this source
+                if not allow_rebuy and source in market_sources:
+                    logger.debug(
+                        "Rebuy skipped on %s: already hold position from source=%r",
+                        market_id, source
+                    )
+                    return TradeResult(
+                        success=False,
+                        market_id=market_id,
+                        side=side,
+                        error=f"Already hold position on this market (source: {source}). Pass allow_rebuy=True to override.",
+                        skip_reason="rebuy skipped",
                     )
 
         # Validate price if provided
