@@ -67,16 +67,16 @@ Use this skill when you want to:
 
 ```bash
 # Analyze a single wallet
-python wallet_autopsy.py 0x1234...abcd
+python wallet_xray.py 0x1234...abcd
 
 # Analyze wallet + only look at specific market
-python wallet_autopsy.py 0x1234...abcd "Bitcoin"
+python wallet_xray.py 0x1234...abcd "Bitcoin"
 
 # Compare two wallets head-to-head
-python wallet_autopsy.py 0x1111... 0x2222... --compare
+python wallet_xray.py 0x1111... 0x2222... --compare
 
 # Find wallets matching criteria (top Time Profitable in market)
-python wallet_autopsy.py "Will BTC hit $100k?" --top-wallets 5 --dry-run
+python wallet_xray.py "Will BTC hit $100k?" --top-wallets 5 --dry-run
 
 # Check your account status
 python scripts/status.py
@@ -180,7 +180,7 @@ import json
 
 # Analyze a wallet known for skilled trading
 result = subprocess.run(
-    ["python", "wallet_autopsy.py", "0x123...abc", "--json"],
+    ["python", "wallet_xray.py", "0x123...abc", "--json"],
     capture_output=True,
     text=True
 )
@@ -210,7 +210,7 @@ wallets = ["0x111...", "0x222...", "0x333..."]
 print("Comparing trader profiles:")
 for wallet in wallets:
     result = subprocess.run(
-        ["python", "wallet_autopsy.py", wallet, "--json"],
+        ["python", "wallet_xray.py", wallet, "--json"],
         capture_output=True,
         text=True
     )
@@ -230,7 +230,7 @@ for wallet in wallets:
 ```python
 # Analyze before you decide what to do
 result = subprocess.run(
-    ["python", "wallet_autopsy.py", "0x123...abc", "--json"],
+    ["python", "wallet_xray.py", "0x123...abc", "--json"],
     capture_output=True,
     text=True
 )
@@ -257,27 +257,27 @@ else:
 
 **Analyze a single wallet (default):**
 ```bash
-python wallet_autopsy.py 0x1234...abcd
+python wallet_xray.py 0x1234...abcd
 ```
 
 **Analyze wallet for a specific market:**
 ```bash
-python wallet_autopsy.py 0x1234...abcd "Bitcoin"
+python wallet_xray.py 0x1234...abcd "Bitcoin"
 ```
 
 **Output as JSON (for scripts):**
 ```bash
-python wallet_autopsy.py 0x1234...abcd --json
+python wallet_xray.py 0x1234...abcd --json
 ```
 
 **Compare two wallets:**
 ```bash
-python wallet_autopsy.py 0x1111... 0x2222... --compare
+python wallet_xray.py 0x1111... 0x2222... --compare
 ```
 
 **Limit analysis to recent trades (faster):**
 ```bash
-python wallet_autopsy.py 0x1234...abcd --limit 100
+python wallet_xray.py 0x1234...abcd --limit 100
 ```
 
 ## Troubleshooting

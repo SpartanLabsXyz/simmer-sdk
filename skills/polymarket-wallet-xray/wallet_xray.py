@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Polymarket Wallet Autopsy
+Polymarket Wallet Xray
 
 Forensic analysis of any Polymarket wallet's trading patterns, skill level,
 and edge detection. Inspired by @thejayden's "Autopsy of a Polymarket Whale".
@@ -9,11 +9,11 @@ Queries Polymarket's public CLOB API directly — no authentication needed.
 Analyzes ANY Polymarket wallet, not just Simmer users.
 
 Usage:
-    python wallet_autopsy.py 0x1234...abcd
-    python wallet_autopsy.py 0x1234...abcd "Bitcoin"
-    python wallet_autopsy.py 0x1111... 0x2222... --compare
-    python wallet_autopsy.py 0x1234...abcd --json
-    python wallet_autopsy.py 0x1234...abcd --limit 100
+    python wallet_xray.py 0x1234...abcd
+    python wallet_xray.py 0x1234...abcd "Bitcoin"
+    python wallet_xray.py 0x1111... 0x2222... --compare
+    python wallet_xray.py 0x1234...abcd --json
+    python wallet_xray.py 0x1234...abcd --limit 100
 """
 
 import os
@@ -528,7 +528,7 @@ def format_output(data: Dict[str, Any]) -> str:
     output = []
     wallet = data.get("wallet", "unknown")
     output.append(f"\n{'='*60}")
-    output.append(f"🔍 WALLET AUTOPSY: {wallet[:16]}...")
+    output.append(f"🔍 WALLET XRAY: {wallet[:16]}...")
     output.append(f"{'='*60}\n")
 
     # Profitability
@@ -581,8 +581,8 @@ def format_output(data: Dict[str, Any]) -> str:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Polymarket Wallet Autopsy - Forensic trading analysis",
-        epilog="Example: python wallet_autopsy.py 0x1234...abcd"
+        description="Polymarket Wallet Xray - Forensic trading analysis",
+        epilog="Example: python wallet_xray.py 0x1234...abcd"
     )
     parser.add_argument("wallet", nargs="?", help="Wallet address (0x...)")
     parser.add_argument("market", nargs="?", help="Market query (optional)")
@@ -596,7 +596,7 @@ def main():
         parser.print_help()
         sys.exit(0)
 
-    print(f"🔍 Polymarket Wallet Autopsy", file=sys.stderr)
+    print(f"🔍 Polymarket Wallet Xray", file=sys.stderr)
     print(f"Inspired by @thejayden's trading analysis framework\n", file=sys.stderr)
 
     # Analyze wallet(s)

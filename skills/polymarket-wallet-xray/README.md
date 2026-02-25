@@ -5,23 +5,23 @@ X-ray any Polymarket wallet — trading patterns, skill level, and edge detectio
 ## Files
 
 - **SKILL.md** — User documentation, quick start, usage examples, troubleshooting
-- **wallet_autopsy.py** — Main analysis script
+- **wallet_xray.py** — Main analysis script
 - **scripts/status.py** — Portfolio status helper
 
 ## Quick Start
 
 ```bash
 # Analyze a wallet
-python wallet_autopsy.py 0x1234...abcd
+python wallet_xray.py 0x1234...abcd
 
 # Analyze wallet for specific market
-python wallet_autopsy.py 0x1234...abcd "Bitcoin"
+python wallet_xray.py 0x1234...abcd "Bitcoin"
 
 # Output as JSON
-python wallet_autopsy.py 0x1234...abcd --json
+python wallet_xray.py 0x1234...abcd --json
 
 # Compare two wallets
-python wallet_autopsy.py 0xaaa... 0xbbb... --compare
+python wallet_xray.py 0xaaa... 0xbbb... --compare
 ```
 
 ## Installation
