@@ -35,7 +35,10 @@ CLOB_API_BASE = "https://clob.polymarket.com"
 
 def api_request(url: str, headers: Optional[Dict] = None, timeout: int = 30) -> dict:
     """Make HTTP request to public API."""
-    req = Request(url, headers=headers or {"Content-Type": "application/json"})
+    req = Request(url, headers=headers or {
+        "Content-Type": "application/json",
+        "User-Agent": "SimmerSDK/1.0",
+    })
     try:
         with urlopen(req, timeout=timeout) as resp:
             return json.loads(resp.read().decode())
