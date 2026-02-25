@@ -6,7 +6,7 @@ metadata: {"clawdbot":{"emoji":"🌡️","requires":{"env":["SIMMER_API_KEY"],"p
 authors:
   - Simmer (@simmer_markets)
 attribution: "Strategy inspired by gopfan2"
-version: "1.10.1"
+version: "1.11.0"
 published: true
 ---
 
@@ -25,8 +25,11 @@ Use this skill when the user wants to:
 - Check their weather trading positions
 - Configure trading thresholds or locations
 
-## What's New in v1.2.0
+## What's New in v1.11.0
 
+- **Binary Only Mode**: New `SIMMER_WEATHER_BINARY_ONLY` config to skip range-bucket events (e.g., "NYC 34-35°F") and only trade binary yes/no weather markets
+
+### v1.2.0
 - **Max Trades Per Run**: New `SIMMER_WEATHER_MAX_TRADES` config to limit trades per scan cycle (default: 5)
 
 ### v1.1.1
@@ -70,6 +73,7 @@ When user asks to install or configure this skill:
 | Exit threshold | `SIMMER_WEATHER_EXIT` | 0.45 | Sell when price above this |
 | Max position | `SIMMER_WEATHER_MAX_POSITION` | 2.00 | Maximum USD per trade |
 | Max trades/run | `SIMMER_WEATHER_MAX_TRADES` | 5 | Maximum trades per scan cycle |
+| Binary only | `SIMMER_WEATHER_BINARY_ONLY` | false | Skip range-bucket events (e.g., "34-35°F"), only trade binary yes/no markets |
 | Locations | `SIMMER_WEATHER_LOCATIONS` | NYC | Comma-separated cities |
 | Smart sizing % | `SIMMER_WEATHER_SIZING_PCT` | 0.05 | % of balance per trade |
 

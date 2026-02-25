@@ -106,6 +106,7 @@ CONFIG_SCHEMA = {
     "sizing_pct": {"env": "SIMMER_WEATHER_SIZING_PCT", "default": 0.05, "type": float},
     "max_trades_per_run": {"env": "SIMMER_WEATHER_MAX_TRADES", "default": 5, "type": int},
     "locations": {"env": "SIMMER_WEATHER_LOCATIONS", "default": "NYC", "type": str},
+    "binary_only": {"env": "SIMMER_WEATHER_BINARY_ONLY", "default": False, "type": bool},
 }
 
 # Load configuration
@@ -155,6 +156,9 @@ SMART_SIZING_PCT = _config["sizing_pct"]
 
 # Rate limiting
 MAX_TRADES_PER_RUN = _config["max_trades_per_run"]
+
+# Market type filter
+BINARY_ONLY = _config["binary_only"]
 
 # Context safeguard thresholds
 SLIPPAGE_MAX_PCT = 0.15  # Skip if slippage > 15%
@@ -834,6 +838,11 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
         if location not in ACTIVE_LOCATIONS:
             continue
 
+        # Skip range-bucket events (multi-outcome) if binary_only is set
+        if BINARY_ONLY and len(event_markets) > 2:
+            log(f"  ⏭️  Skipping range event ({len(event_markets)} outcomes) — binary_only=true")
+            continue
+
         log(f"\n📍 {location} {date_str} ({metric} temp)")
 
         if location not in forecast_cache:
@@ -1027,6 +1036,7 @@ if __name__ == "__main__":
             globals()["MAX_POSITION_USD"] = _config["max_position_usd"]
             globals()["SMART_SIZING_PCT"] = _config["sizing_pct"]
             globals()["MAX_TRADES_PER_RUN"] = _config["max_trades_per_run"]
+            globals()["BINARY_ONLY"] = _config["binary_only"]
             _locations_str = _config["locations"]
             globals()["ACTIVE_LOCATIONS"] = [loc.strip().upper() for loc in _locations_str.split(",") if loc.strip()]
 
