@@ -53,11 +53,11 @@ CONFIG_SCHEMA = {
     "max_position": {"default": 5.0, "env": "SIMMER_SPRINT_MAX_POSITION", "type": float,
                      "help": "Max $ per trade"},
     "signal_source": {"default": "binance", "env": "SIMMER_SPRINT_SIGNAL", "type": str,
-                      "help": "Price feed source (binance, coingecko)"},
+                      "help": "Price feed source (binance)"},
     "lookback_minutes": {"default": 5, "env": "SIMMER_SPRINT_LOOKBACK", "type": int,
                          "help": "Minutes of price history for momentum calc"},
-    "min_time_remaining": {"default": 60, "env": "SIMMER_SPRINT_MIN_TIME", "type": int,
-                           "help": "Skip fast_markets with less than this many seconds remaining"},
+    "min_time_remaining": {"default": 0, "env": "SIMMER_SPRINT_MIN_TIME", "type": int,
+                           "help": "Skip fast_markets with less than this many seconds remaining (0 = auto: 10%% of window)"},
     "asset": {"default": "BTC", "env": "SIMMER_SPRINT_ASSET", "type": str,
               "help": "Asset to trade (BTC, ETH, SOL)"},
     "window": {"default": "5m", "env": "SIMMER_SPRINT_WINDOW", "type": str,
@@ -150,9 +150,16 @@ if _automaton_max:
     MAX_POSITION_USD = min(MAX_POSITION_USD, float(_automaton_max))
 SIGNAL_SOURCE = cfg["signal_source"]
 LOOKBACK_MINUTES = cfg["lookback_minutes"]
-MIN_TIME_REMAINING = cfg["min_time_remaining"]
 ASSET = cfg["asset"].upper()
 WINDOW = cfg["window"]  # "5m" or "15m"
+
+# Dynamic min_time_remaining: 0 = auto (10% of window duration)
+_window_seconds = {"5m": 300, "15m": 900, "1h": 3600}
+_configured_min_time = cfg["min_time_remaining"]
+if _configured_min_time > 0:
+    MIN_TIME_REMAINING = _configured_min_time
+else:
+    MIN_TIME_REMAINING = max(30, _window_seconds.get(WINDOW, 300) // 10)
 VOLUME_CONFIDENCE = cfg["volume_confidence"]
 DAILY_BUDGET = cfg["daily_budget"]
 
@@ -367,29 +374,6 @@ def get_binance_momentum(symbol="BTCUSDT", lookback_minutes=5):
         return None
 
 
-def get_coingecko_momentum(asset="bitcoin", lookback_minutes=5):
-    """Fallback: get price from CoinGecko (less accurate, ~1-2 min lag)."""
-    url = f"https://api.coingecko.com/api/v3/simple/price?ids={asset}&vs_currencies=usd"
-    result = _api_request(url)
-    if not result or isinstance(result, dict) and result.get("error"):
-        return None
-    price_now = result.get(asset, {}).get("usd")
-    if not price_now:
-        return None
-    # CoinGecko doesn't give candle data on free tier, so just return current price
-    # Agent would need to track history across calls for momentum
-    return {
-        "momentum_pct": 0,  # Can't calculate without history
-        "direction": "neutral",
-        "price_now": price_now,
-        "price_then": price_now,
-        "avg_volume": 0,
-        "latest_volume": 0,
-        "volume_ratio": 1.0,
-        "candles": 0,
-    }
-
-
 COINGECKO_ASSETS = {"BTC": "bitcoin", "ETH": "ethereum", "SOL": "solana"}
 
 
@@ -399,8 +383,9 @@ def get_momentum(asset="BTC", source="binance", lookback=5):
         symbol = ASSET_SYMBOLS.get(asset, "BTCUSDT")
         return get_binance_momentum(symbol, lookback)
     elif source == "coingecko":
-        cg_id = COINGECKO_ASSETS.get(asset, "bitcoin")
-        return get_coingecko_momentum(cg_id, lookback)
+        print("  ⚠️  CoinGecko free tier doesn't provide candle data — switch to binance")
+        print("  Run: python fastloop_trader.py --set signal_source=binance")
+        return None
     else:
         return None
 
@@ -573,7 +558,8 @@ def run_fast_market_strategy(dry_run=True, positions_only=False, show_config=Fal
     log(f"  Found {len(markets)} active fast markets")
 
     if not markets:
-        log("  No active fast markets found")
+        log("  No active fast markets found — may be outside market hours or wrong asset/window")
+        log(f"  Check: asset={ASSET}, window={WINDOW}")
         if not quiet:
             print("📊 Summary: No markets available")
         return
@@ -581,9 +567,16 @@ def run_fast_market_strategy(dry_run=True, positions_only=False, show_config=Fal
     # Step 2: Find best fast_market to trade
     best = find_best_fast_market(markets)
     if not best:
-        log(f"  No fast_markets with >{MIN_TIME_REMAINING}s remaining")
+        # Show what we skipped so users understand the gap
+        now = datetime.now(timezone.utc)
+        for m in markets:
+            end_time = m.get("end_time")
+            if end_time:
+                secs_left = (end_time - now).total_seconds()
+                log(f"  Skipped: {m['question'][:50]}... ({secs_left:.0f}s left < {MIN_TIME_REMAINING}s min)")
+        log(f"  All {len(markets)} markets have <{MIN_TIME_REMAINING}s remaining — waiting for next window")
         if not quiet:
-            print("📊 Summary: No tradeable fast_markets (too close to expiry)")
+            print(f"📊 Summary: No tradeable markets (all {len(markets)} too close to expiry)")
         return
 
     end_time = best.get("end_time")
