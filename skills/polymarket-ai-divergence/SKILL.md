@@ -2,7 +2,7 @@
 name: polymarket-ai-divergence
 displayName: Polymarket AI Divergence
 description: Find markets where Simmer's AI consensus diverges from the real market price, then trade on the mispriced side using Kelly sizing. Scans for divergence, checks fees and safeguards, and executes trades on zero-fee markets with sufficient edge.
-metadata: {"clawdbot":{"emoji":"🔮","requires":{"env":["SIMMER_API_KEY"],"pip":["simmer-sdk"]},"cron":null,"autostart":false,"automaton":{"managed":true,"entrypoint":"ai_divergence.py"}}}
+metadata: {"clawdbot":{"emoji":"🔮","requires":{"env":["SIMMER_API_KEY"],"pip":["simmer-sdk"]},"cron":null,"autostart":false,"automaton":{"managed":true,"entrypoint":"ai_divergence.py"},"tunables":[{"env":"SIMMER_DIVERGENCE_MIN_EDGE","type":"number","default":0.05,"range":[0.01,0.30],"step":0.01,"label":"Minimum edge threshold"},{"env":"SIMMER_DIVERGENCE_MAX_BET_USD","type":"number","default":50,"range":[1,200],"step":5,"label":"Max bet per trade"},{"env":"SIMMER_DIVERGENCE_KELLY_CAP","type":"number","default":0.25,"range":[0.01,1.0],"step":0.01,"label":"Kelly fraction cap"},{"env":"SIMMER_DIVERGENCE_DAILY_BUDGET_USD","type":"number","default":100,"range":[10,500],"step":10,"label":"Daily budget"},{"env":"SIMMER_DIVERGENCE_MAX_TRADES_PER_RUN","type":"number","default":5,"range":[1,20],"step":1,"label":"Max trades per run"},{"env":"SIMMER_DIVERGENCE_DIRECTION_FILTER","type":"enum","default":"any","options":["any","yes_only","no_only"],"label":"Direction filter"}]}}
 authors:
   - Simmer (@simmer_markets)
 version: "2.0.2"

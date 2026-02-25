@@ -2,7 +2,7 @@
 name: polymarket-elon-tweets
 displayName: Polymarket Elon Tweet Trader
 description: 'Trade Polymarket "Elon Musk # tweets" markets using XTracker post count data. Buys adjacent range buckets when combined cost < $1 for structural edge. Use when user wants to trade tweet count markets, automate Elon tweet bets, check XTracker stats, or run noovd-style trading.'
-metadata: {"clawdbot":{"emoji":"🐦","requires":{"env":["SIMMER_API_KEY"],"pip":["simmer-sdk"]},"cron":null,"autostart":false,"automaton":{"managed":true,"entrypoint":"elon_tweets.py"}}}
+metadata: {"clawdbot":{"emoji":"🐦","requires":{"env":["SIMMER_API_KEY"],"pip":["simmer-sdk"]},"cron":null,"autostart":false,"automaton":{"managed":true,"entrypoint":"elon_tweets.py"},"tunables":[{"env":"SIMMER_ELON_MAX_POSITION_USD","type":"number","default":50,"range":[1,200],"step":5,"label":"Max position size"},{"env":"SIMMER_ELON_BUCKET_SPREAD","type":"number","default":0.05,"range":[0.01,0.20],"step":0.01,"label":"Bucket spread"},{"env":"SIMMER_ELON_SIZING_PCT","type":"number","default":0.10,"range":[0.01,1.0],"step":0.01,"label":"Position sizing percentage"},{"env":"SIMMER_ELON_MAX_TRADES_PER_RUN","type":"number","default":5,"range":[1,20],"step":1,"label":"Max trades per run"},{"env":"SIMMER_ELON_EXIT_THRESHOLD","type":"number","default":0.85,"range":[0.5,0.99],"step":0.01,"label":"Exit probability threshold"},{"env":"SIMMER_ELON_SLIPPAGE_BPS","type":"number","default":100,"range":[10,500],"step":10,"label":"Slippage tolerance (basis points)"}]}}
 authors:
   - Simmer (@simmer_markets)
 attribution: "Strategy inspired by @noovd"
