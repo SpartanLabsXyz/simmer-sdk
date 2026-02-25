@@ -32,6 +32,7 @@ sys.stdout.reconfigure(line_buffering=True)
 # Polymarket public APIs
 GAMMA_API_BASE = "https://gamma-api.polymarket.com"
 CLOB_API_BASE = "https://clob.polymarket.com"
+DATA_API_BASE = "https://data-api.polymarket.com"
 
 def api_request(url: str, headers: Optional[Dict] = None, timeout: int = 30) -> dict:
     """Make HTTP request to public API."""
@@ -64,24 +65,41 @@ def get_orderbook(token_id: str) -> Dict:
     return api_request(url)
 
 def get_wallet_trades(wallet: str, limit: Optional[int] = None) -> List[Dict]:
-    """Fetch trades for a wallet from Polymarket CLOB API."""
-    # Use the orderbook history endpoint to get wallet trades
-    # This queries Polymarket's public trade data
-    url = f"{CLOB_API_BASE}/trades?wallet={wallet.lower()}&limit={limit or 1000}"
+    """Fetch trades for a wallet from Polymarket data API (public, no auth)."""
+    max_trades = limit or 1000
+    url = f"{DATA_API_BASE}/trades?maker={wallet.lower()}&limit={max_trades}"
 
     result = api_request(url)
 
-    # Try different possible response formats
-    if isinstance(result, dict):
-        trades = result.get("trades", result.get("data", []))
-    else:
-        trades = result if isinstance(result, list) else []
+    raw = result if isinstance(result, list) else []
+
+    # Normalize data-api fields to the format the rest of the script expects
+    trades = []
+    for r in raw:
+        ts = r.get("timestamp", 0)
+        created_at = datetime.utcfromtimestamp(ts).isoformat() + "Z" if ts else ""
+        outcome = r.get("outcome", "").lower()  # "Yes" or "No"
+        side_raw = r.get("side", "").upper()  # "BUY" or "SELL"
+        # action = buy_yes / buy_no / sell_yes / sell_no
+        action = f"{side_raw.lower()}_{outcome}" if outcome else side_raw.lower()
+
+        trades.append({
+            "created_at": created_at,
+            "market_id": r.get("conditionId", ""),
+            "side": outcome if outcome else "unknown",
+            "action": action,
+            "shares": r.get("size", 0),
+            "price": r.get("price", 0.5),
+            "cost_usdc": r.get("size", 0) * r.get("price", 0.5),
+            "title": r.get("title", ""),
+            "transaction_hash": r.get("transactionHash", ""),
+        })
 
     if not trades:
         print(f"⚠️  No trade history found for wallet {wallet}", file=sys.stderr)
         print(f"   Note: Some wallets may have limited public trade history.", file=sys.stderr)
 
-    return trades if isinstance(trades, list) else []
+    return trades
 
 def compute_profitability(trades: List[Dict]) -> Dict[str, Any]:
     """Compute profitability metrics from trade history."""
