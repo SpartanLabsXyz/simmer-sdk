@@ -5,7 +5,7 @@ Polymarket Wallet Xray
 Forensic analysis of any Polymarket wallet's trading patterns, skill level,
 and edge detection. Inspired by @thejayden's "Autopsy of a Polymarket Whale".
 
-Queries Polymarket's public CLOB API directly — no authentication needed.
+Queries Polymarket's public data API (data-api.polymarket.com) — no authentication needed.
 Analyzes ANY Polymarket wallet, not just Simmer users.
 
 Usage:
@@ -25,13 +25,12 @@ from datetime import datetime
 from urllib.request import urlopen, Request
 from urllib.error import HTTPError, URLError
 from typing import Dict, List, Optional, Any
+from urllib.parse import quote
 
 # Force line-buffered stdout so output is visible in non-TTY environments
 sys.stdout.reconfigure(line_buffering=True)
 
 # Polymarket public APIs
-GAMMA_API_BASE = "https://gamma-api.polymarket.com"
-CLOB_API_BASE = "https://clob.polymarket.com"
 DATA_API_BASE = "https://data-api.polymarket.com"
 
 def api_request(url: str, headers: Optional[Dict] = None, timeout: int = 30) -> dict:
@@ -51,23 +50,10 @@ def api_request(url: str, headers: Optional[Dict] = None, timeout: int = 30) -> 
         print(f"❌ Connection error: {e.reason}", file=sys.stderr)
         return {}
 
-def search_markets(query: str, limit: int = 10) -> List[Dict]:
-    """Search for markets by query using Gamma API."""
-    url = f"{GAMMA_API_BASE}/markets"
-    params = f"?query={query}&limit={limit}&orderBy=volume24h"
-
-    result = api_request(url + params)
-    return result.get("markets", []) if isinstance(result, dict) else []
-
-def get_orderbook(token_id: str) -> Dict:
-    """Get current orderbook for a token."""
-    url = f"{CLOB_API_BASE}/book?token_id={token_id}"
-    return api_request(url)
-
 def get_wallet_trades(wallet: str, limit: Optional[int] = None) -> List[Dict]:
     """Fetch trades for a wallet from Polymarket data API (public, no auth)."""
     max_trades = limit or 1000
-    url = f"{DATA_API_BASE}/activity?user={wallet.lower()}&limit={max_trades}"
+    url = f"{DATA_API_BASE}/activity?user={quote(wallet.lower(), safe='')}&limit={max_trades}"
 
     result = api_request(url)
 
@@ -82,11 +68,12 @@ def get_wallet_trades(wallet: str, limit: Optional[int] = None) -> List[Dict]:
         outcome = r.get("outcome", "").lower()  # "yes", "no", "up", "down", etc.
         side_raw = r.get("side", "").upper()  # "BUY" or "SELL"
 
-        # REDEEMs are position closures (winning outcome resolved)
+        # REDEEMs are position closures (winning outcome resolved, payout = $1/share)
         if activity_type == "REDEEM":
             side_raw = "SELL"
 
         action = f"{side_raw.lower()}_{outcome}" if outcome else side_raw.lower()
+        default_price = 1.0 if activity_type == "REDEEM" else 0.5
 
         trades.append({
             "created_at": created_at,
@@ -94,7 +81,7 @@ def get_wallet_trades(wallet: str, limit: Optional[int] = None) -> List[Dict]:
             "side": outcome if outcome else "unknown",
             "action": action,
             "shares": r.get("size", 0),
-            "price": r.get("price", 0.5),
+            "price": r.get("price", default_price),
             "cost_usdc": r.get("usdcSize", r.get("size", 0) * r.get("price", 0.5)),
             "title": r.get("title", ""),
             "transaction_hash": r.get("transactionHash", ""),
@@ -255,7 +242,7 @@ def detect_bot_behavior(trades: List[Dict]) -> Dict[str, Any]:
             diff_seconds = (t2 - t1).total_seconds()
             if diff_seconds > 0:
                 time_diffs.append(diff_seconds)
-        except:
+        except (ValueError, TypeError, OSError):
             continue
 
     if not time_diffs:
@@ -395,10 +382,17 @@ def compute_risk_profile(trades: List[Dict]) -> Dict[str, Any]:
         cumulative.append(running)
 
     if cumulative:
-        peak = max(cumulative)
-        trough = min(cumulative)
+        # Standard high-water-mark drawdown
+        peak = cumulative[0]
+        max_drawdown_abs = 0.0
+        for val in cumulative:
+            if val > peak:
+                peak = val
+            dd = peak - val
+            if dd > max_drawdown_abs:
+                max_drawdown_abs = dd
         total_spent = sum(float(t.get("cost_usdc", 0)) for t in trades if t.get("action", "").startswith("buy"))
-        max_drawdown = abs(trough) / max(total_spent, 1) * 100
+        max_drawdown = max_drawdown_abs / max(total_spent, 1) * 100
     else:
         max_drawdown = 0
 
@@ -514,8 +508,7 @@ def generate_recommendation(data: Dict[str, Any]) -> str:
 
     return rec
 
-def analyze_wallet(wallet: str, market_query: Optional[str] = None,
-                   limit: Optional[int] = None) -> Dict[str, Any]:
+def analyze_wallet(wallet: str, limit: Optional[int] = None) -> Dict[str, Any]:
     """Main analysis function."""
     # Validate wallet address
     if not wallet.lower().startswith("0x") or len(wallet) != 42:
@@ -533,11 +526,20 @@ def analyze_wallet(wallet: str, market_query: Optional[str] = None,
 
     print(f"📊 Analyzing {len(trades)} trades from Polymarket...", file=sys.stderr)
 
+    # Compute trading period from first/last trade timestamps
+    sorted_by_time = sorted(trades, key=lambda t: t.get("created_at", ""))
+    try:
+        t_first = datetime.fromisoformat(sorted_by_time[0]["created_at"].replace("Z", "+00:00"))
+        t_last = datetime.fromisoformat(sorted_by_time[-1]["created_at"].replace("Z", "+00:00"))
+        period_hours = round((t_last - t_first).total_seconds() / 3600, 1)
+    except (ValueError, KeyError, IndexError):
+        period_hours = 0
+
     # Compute all metrics
     data = {
         "wallet": wallet,
         "total_trades": len(trades),
-        "total_period_hours": 0,  # Would require timestamp analysis
+        "total_period_hours": period_hours,
         "analysis_timestamp": datetime.utcnow().isoformat(),
         "profitability": compute_profitability(trades),
         "entry_quality": compute_entry_quality(trades),
@@ -651,7 +653,7 @@ def main():
                 print(f"  Wallet 2 Time Profitable:  {data2.get('profitability', {}).get('time_profitable_pct', 0):.1f}%")
     else:
         # Analyze single wallet
-        data = analyze_wallet(args.wallet, args.market, args.limit)
+        data = analyze_wallet(args.wallet, args.limit)
 
         if args.json:
             print(json.dumps(data, indent=2))
