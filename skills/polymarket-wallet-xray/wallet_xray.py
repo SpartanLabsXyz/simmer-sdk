@@ -67,20 +67,25 @@ def get_orderbook(token_id: str) -> Dict:
 def get_wallet_trades(wallet: str, limit: Optional[int] = None) -> List[Dict]:
     """Fetch trades for a wallet from Polymarket data API (public, no auth)."""
     max_trades = limit or 1000
-    url = f"{DATA_API_BASE}/trades?maker={wallet.lower()}&limit={max_trades}"
+    url = f"{DATA_API_BASE}/activity?user={wallet.lower()}&limit={max_trades}"
 
     result = api_request(url)
 
     raw = result if isinstance(result, list) else []
 
-    # Normalize data-api fields to the format the rest of the script expects
+    # Normalize activity fields to the format the rest of the script expects
     trades = []
     for r in raw:
+        activity_type = r.get("type", "TRADE")  # TRADE, REDEEM, MERGE
         ts = r.get("timestamp", 0)
         created_at = datetime.utcfromtimestamp(ts).isoformat() + "Z" if ts else ""
-        outcome = r.get("outcome", "").lower()  # "Yes" or "No"
+        outcome = r.get("outcome", "").lower()  # "yes", "no", "up", "down", etc.
         side_raw = r.get("side", "").upper()  # "BUY" or "SELL"
-        # action = buy_yes / buy_no / sell_yes / sell_no
+
+        # REDEEMs are position closures (winning outcome resolved)
+        if activity_type == "REDEEM":
+            side_raw = "SELL"
+
         action = f"{side_raw.lower()}_{outcome}" if outcome else side_raw.lower()
 
         trades.append({
@@ -90,9 +95,10 @@ def get_wallet_trades(wallet: str, limit: Optional[int] = None) -> List[Dict]:
             "action": action,
             "shares": r.get("size", 0),
             "price": r.get("price", 0.5),
-            "cost_usdc": r.get("size", 0) * r.get("price", 0.5),
+            "cost_usdc": r.get("usdcSize", r.get("size", 0) * r.get("price", 0.5)),
             "title": r.get("title", ""),
             "transaction_hash": r.get("transactionHash", ""),
+            "activity_type": activity_type,
         })
 
     if not trades:
@@ -113,52 +119,37 @@ def compute_profitability(trades: List[Dict]) -> Dict[str, Any]:
             "total_trades": 0
         }
 
-    # Track positions over time
-    positions = {}  # market_id -> {shares_yes, shares_no, cost_basis_yes, cost_basis_no}
+    # Track positions per (market, outcome) — works for any outcome label
+    # Key: (conditionId, outcome) -> {shares, cost}
+    positions = {}
     trade_outcomes = []  # List of realized P&Ls from closed positions
 
     for trade in sorted(trades, key=lambda t: t.get("created_at", "")):
         market_id = trade.get("market_id", "")
-        side = trade.get("side", "").lower()
+        outcome = trade.get("side", "").lower()  # outcome label: yes/no/up/down
         action = trade.get("action", "").lower()
         shares = float(trade.get("shares", 0))
         price = float(trade.get("price", 0.5))
         cost = float(trade.get("cost_usdc", shares * price))
+        is_buy = action.startswith("buy")
+        is_sell = action.startswith("sell")
 
-        if market_id not in positions:
-            positions[market_id] = {
-                "shares_yes": 0,
-                "shares_no": 0,
-                "cost_yes": 0,
-                "cost_no": 0
-            }
+        pos_key = (market_id, outcome)
+        if pos_key not in positions:
+            positions[pos_key] = {"shares": 0, "cost": 0}
 
-        pos = positions[market_id]
+        pos = positions[pos_key]
 
-        # Update position
-        if action == "buy" or action == "buy_yes":
-            if side == "yes":
-                pos["shares_yes"] += shares
-                pos["cost_yes"] += cost
-            else:  # side == "no"
-                pos["shares_no"] += shares
-                pos["cost_no"] += cost
-        elif action == "sell" or action == "sell_yes":
-            if side == "yes":
-                if pos["shares_yes"] > 0:
-                    # Realize P&L
-                    avg_entry = pos["cost_yes"] / pos["shares_yes"] if pos["shares_yes"] > 0 else 0
-                    pnl = (price - avg_entry) * min(shares, pos["shares_yes"])
-                    trade_outcomes.append(pnl)
-                    pos["shares_yes"] = max(0, pos["shares_yes"] - shares)
-                    pos["cost_yes"] = max(0, pos["cost_yes"] - (avg_entry * shares))
-            else:  # side == "no"
-                if pos["shares_no"] > 0:
-                    avg_entry = pos["cost_no"] / pos["shares_no"] if pos["shares_no"] > 0 else 0
-                    pnl = ((1 - price) - (1 - avg_entry)) * min(shares, pos["shares_no"])
-                    trade_outcomes.append(pnl)
-                    pos["shares_no"] = max(0, pos["shares_no"] - shares)
-                    pos["cost_no"] = max(0, pos["cost_no"] - (avg_entry * shares))
+        if is_buy:
+            pos["shares"] += shares
+            pos["cost"] += cost
+        elif is_sell and pos["shares"] > 0:
+            avg_entry = pos["cost"] / pos["shares"]
+            sold = min(shares, pos["shares"])
+            pnl = (price - avg_entry) * sold
+            trade_outcomes.append(pnl)
+            pos["shares"] = max(0, pos["shares"] - shares)
+            pos["cost"] = max(0, pos["cost"] - (avg_entry * sold))
 
     # Calculate metrics
     profitable_trades = [p for p in trade_outcomes if p > 0.001]
@@ -182,48 +173,63 @@ def compute_profitability(trades: List[Dict]) -> Dict[str, Any]:
     }
 
 def compute_entry_quality(trades: List[Dict]) -> Dict[str, Any]:
-    """Analyze entry quality by measuring slippage."""
+    """Analyze entry quality by measuring price consistency per market.
+
+    Without spot-price data, we measure how consistent the trader's buy
+    prices are within each market.  Low variance = patient limit orders,
+    high variance = chasing / market orders at shifting prices.
+    """
     if not trades:
         return {
-            "avg_slippage_bps": 0,
+            "avg_price_spread_bps": 0,
             "quality_rating": "N/A",
             "assessment": "No trades to analyze"
         }
 
-    slippages = []
+    # Group buy prices by (market, outcome)
+    buy_prices: Dict[tuple, List[float]] = {}
     for trade in trades:
         action = trade.get("action", "").lower()
-        if action in ["buy", "buy_yes", "buy_no"]:
-            spot_price = float(trade.get("spot_price_at_trade", 0.5))
-            execution_price = float(trade.get("price", 0.5))
-            slippage_bps = abs(execution_price - spot_price) / max(spot_price, 0.01) * 10000
-            slippages.append(slippage_bps)
+        if action.startswith("buy"):
+            price = float(trade.get("price", 0.5))
+            key = (trade.get("market_id", ""), trade.get("side", ""))
+            buy_prices.setdefault(key, []).append(price)
 
-    if not slippages:
+    # Compute spread (max-min) in bps for each market with 2+ buys
+    spreads = []
+    for prices in buy_prices.values():
+        if len(prices) >= 2:
+            avg_p = statistics.mean(prices)
+            if avg_p > 0.01:
+                spread_bps = (max(prices) - min(prices)) / avg_p * 10000
+                spreads.append(spread_bps)
+
+    total_buys = sum(len(v) for v in buy_prices.values())
+    if not spreads:
+        # Only single buys per market — can't measure consistency
         return {
-            "avg_slippage_bps": 0,
-            "quality_rating": "N/A",
-            "assessment": "No buy trades to analyze"
+            "avg_price_spread_bps": 0,
+            "quality_rating": "B" if total_buys > 0 else "N/A",
+            "assessment": f"Single entries across {len(buy_prices)} markets. No re-entries to measure consistency." if total_buys else "No buy trades to analyze"
         }
 
-    avg_slippage = statistics.mean(slippages)
+    avg_spread = statistics.mean(spreads)
 
-    # Rating based on slippage
-    if avg_slippage < 20:
+    if avg_spread < 50:
         rating = "A"
-        assessment = "Expert. Limit orders, excellent patience."
-    elif avg_slippage < 40:
+        assessment = "Tight entries. Patient limit orders."
+    elif avg_spread < 150:
         rating = "B+"
-        assessment = "Good entries, balanced speed/price."
-    elif avg_slippage < 60:
+        assessment = "Good consistency. Balanced speed/price."
+    elif avg_spread < 400:
         rating = "B"
-        assessment = "Decent, but some FOMO buying."
+        assessment = "Moderate spread. Some price chasing."
     else:
         rating = "C"
-        assessment = "Weak entries. Chasing prices."
+        assessment = "Wide spread across entries. Chasing prices."
 
     return {
-        "avg_slippage_bps": round(avg_slippage, 1),
+        "avg_price_spread_bps": round(avg_spread, 1),
         "quality_rating": rating,
         "assessment": assessment
     }
@@ -272,7 +278,7 @@ def detect_bot_behavior(trades: List[Dict]) -> Dict[str, Any]:
     # Detect price chasing (buying at increasingly higher prices)
     yes_prices = []
     for trade in sorted_trades:
-        if trade.get("action", "").lower() in ["buy", "buy_yes"]:
+        if trade.get("action", "").lower().startswith("buy"):
             yes_prices.append(float(trade.get("price", 0.5)))
 
     price_chasing = "unknown"
@@ -316,32 +322,35 @@ def detect_arbitrage_edge(trades: List[Dict]) -> Dict[str, Any]:
             "assessment": "No trades to analyze"
         }
 
-    # Group by market and side
-    positions = {}
+    # Group buys by (market, outcome)
+    # For arb detection, check if user bought both sides of the same market
+    outcome_costs: Dict[str, Dict[str, dict]] = {}  # market -> {outcome -> {cost, shares}}
     for trade in trades:
+        action = trade.get("action", "").lower()
+        if not action.startswith("buy"):
+            continue
         market_id = trade.get("market_id", "")
-        side = trade.get("side", "").lower()
+        outcome = trade.get("side", "").lower()
         price = float(trade.get("price", 0.5))
         shares = float(trade.get("shares", 0))
 
-        if market_id not in positions:
-            positions[market_id] = {"yes_cost": 0, "yes_shares": 0, "no_cost": 0, "no_shares": 0}
+        if market_id not in outcome_costs:
+            outcome_costs[market_id] = {}
+        if outcome not in outcome_costs[market_id]:
+            outcome_costs[market_id][outcome] = {"cost": 0, "shares": 0}
+        outcome_costs[market_id][outcome]["cost"] += price * shares
+        outcome_costs[market_id][outcome]["shares"] += shares
 
-        if side == "yes":
-            positions[market_id]["yes_cost"] += price * shares
-            positions[market_id]["yes_shares"] += shares
-        else:
-            positions[market_id]["no_cost"] += price * shares
-            positions[market_id]["no_shares"] += shares
-
-    # Calculate combined averages
+    # For markets with exactly 2 outcomes traded, compute combined avg price
     combined_avgs = []
-    for market_id, pos in positions.items():
-        if pos["yes_shares"] > 0 and pos["no_shares"] > 0:
-            yes_avg = pos["yes_cost"] / pos["yes_shares"]
-            no_avg = pos["no_cost"] / pos["no_shares"]
-            combined = yes_avg + no_avg
-            combined_avgs.append(combined)
+    for market_id, outcomes in outcome_costs.items():
+        if len(outcomes) == 2:
+            avgs = []
+            for data in outcomes.values():
+                if data["shares"] > 0:
+                    avgs.append(data["cost"] / data["shares"])
+            if len(avgs) == 2:
+                combined_avgs.append(sum(avgs))
 
     if not combined_avgs:
         return {
@@ -373,34 +382,38 @@ def compute_risk_profile(trades: List[Dict]) -> Dict[str, Any]:
             "max_position_concentration": 0
         }
 
-    # Calculate max drawdown (simplified)
-    balances = []
-    running_balance = 10000  # Assume starting balance
+    # Estimate drawdown from cumulative cost flow (buys = outflow, sells = inflow)
+    cumulative = []
+    running = 0.0
     for trade in sorted(trades, key=lambda t: t.get("created_at", "")):
-        pnl = float(trade.get("pnl", 0)) if "pnl" in trade else 0
-        running_balance += pnl
-        balances.append(running_balance)
+        cost = float(trade.get("cost_usdc", 0))
+        action = trade.get("action", "").lower()
+        if action.startswith("buy"):
+            running -= cost  # spending
+        elif action.startswith("sell"):
+            running += cost  # receiving
+        cumulative.append(running)
 
-    if balances:
-        max_balance = max(balances)
-        min_balance = min(balances)
-        max_drawdown = (max_balance - min_balance) / max_balance * 100 if max_balance > 0 else 0
+    if cumulative:
+        peak = max(cumulative)
+        trough = min(cumulative)
+        total_spent = sum(float(t.get("cost_usdc", 0)) for t in trades if t.get("action", "").startswith("buy"))
+        max_drawdown = abs(trough) / max(total_spent, 1) * 100
     else:
         max_drawdown = 0
 
-    # Volatility (std dev of balance changes)
-    if len(balances) > 1:
-        changes = [balances[i+1] - balances[i] for i in range(len(balances)-1)]
-        if changes:
-            volatility_std = statistics.stdev(changes) if len(changes) > 1 else 0
-            if volatility_std < 50:
-                volatility = "low"
-            elif volatility_std < 200:
-                volatility = "medium"
-            else:
-                volatility = "high"
+    # Volatility from trade size variance
+    costs = [float(t.get("cost_usdc", 0)) for t in trades if float(t.get("cost_usdc", 0)) > 0]
+    if len(costs) > 1:
+        volatility_std = statistics.stdev(costs)
+        avg_cost = statistics.mean(costs)
+        cv = volatility_std / avg_cost if avg_cost > 0 else 0  # coefficient of variation
+        if cv < 0.5:
+            volatility = "low"
+        elif cv < 1.5:
+            volatility = "medium"
         else:
-            volatility = "unknown"
+            volatility = "high"
     else:
         volatility = "unknown"
 
@@ -562,7 +575,7 @@ def format_output(data: Dict[str, Any]) -> str:
     # Entry Quality
     entry = data.get("entry_quality", {})
     output.append("🎯 ENTRY QUALITY")
-    output.append(f"  Avg Slippage:       {entry.get('avg_slippage_bps', 0):.1f} bps")
+    output.append(f"  Price Spread:       {entry.get('avg_price_spread_bps', 0):.1f} bps")
     output.append(f"  Rating:             {entry.get('quality_rating', 'N/A')}")
     output.append(f"  Assessment:         {entry.get('assessment', 'N/A')}\n")
 
