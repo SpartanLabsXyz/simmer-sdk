@@ -5,7 +5,7 @@ description: Generate complete, installable OpenClaw trading skills from natural
 metadata: {"clawdbot":{"emoji":"🛠️","requires":{"env":["SIMMER_API_KEY"],"pip":["simmer-sdk"]},"cron":null,"autostart":false,"automaton":{"managed":false,"entrypoint":null}}}
 authors:
   - Simmer (@simmer_markets)
-version: "1.0.1"
+version: "1.0.2"
 published: true
 ---
 
