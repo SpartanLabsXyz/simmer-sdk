@@ -5,7 +5,7 @@ description: Find markets where Simmer's AI consensus diverges from the real mar
 metadata: {"clawdbot":{"emoji":"🔮","requires":{"env":["SIMMER_API_KEY"],"pip":["simmer-sdk"]},"cron":null,"autostart":false,"automaton":{"managed":true,"entrypoint":"ai_divergence.py"}}}
 authors:
   - Simmer (@simmer_markets)
-version: "2.0.1"
+version: "2.0.2"
 published: true
 ---
 
