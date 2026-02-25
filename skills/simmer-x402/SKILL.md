@@ -5,7 +5,7 @@ description: Make x402 payments to access paid APIs and gated content. Use when 
 metadata: {"clawdbot":{"emoji":"💳","requires":{"env":["EVM_PRIVATE_KEY"],"pip":["x402[httpx,evm]"]},"cron":null,"autostart":false}}
 authors:
   - Simmer (@simmer_markets)
-version: "1.0.0"
+version: "1.0.1"
 published: true
 ---
 
