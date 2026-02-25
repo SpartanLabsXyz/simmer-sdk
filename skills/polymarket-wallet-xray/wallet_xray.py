@@ -147,8 +147,15 @@ def compute_profitability(trades: List[Dict]) -> Dict[str, Any]:
     avg_loss = statistics.mean(losing_trades) if losing_trades else 0
     total_realized_pnl = sum(trade_outcomes)
 
-    # Estimate time profitable (simplified: based on trade count profitability)
-    time_profitable_pct = win_rate  # Rough estimate
+    # Compute time profitable: track running P&L across all trades,
+    # measure what fraction of the trade timeline the cumulative P&L was > 0
+    running_pnl = 0.0
+    profitable_count = 0
+    for outcome in trade_outcomes:
+        running_pnl += outcome
+        if running_pnl > 0:
+            profitable_count += 1
+    time_profitable_pct = (profitable_count / len(trade_outcomes) * 100) if trade_outcomes else 0
 
     return {
         "time_profitable_pct": round(time_profitable_pct, 1),
@@ -369,30 +376,52 @@ def compute_risk_profile(trades: List[Dict]) -> Dict[str, Any]:
             "max_position_concentration": 0
         }
 
-    # Estimate drawdown from cumulative cost flow (buys = outflow, sells = inflow)
-    cumulative = []
-    running = 0.0
+    # Estimate drawdown from mark-to-market portfolio value over time.
+    # Track positions and value them at the latest trade price per outcome.
+    positions: Dict[tuple, dict] = {}  # (market, outcome) -> {shares, cost}
+    last_price: Dict[tuple, float] = {}
+    portfolio_values = []
+
     for trade in sorted(trades, key=lambda t: t.get("created_at", "")):
         cost = float(trade.get("cost_usdc", 0))
+        price = float(trade.get("price", 0.5))
+        shares = float(trade.get("shares", 0))
         action = trade.get("action", "").lower()
-        if action.startswith("buy"):
-            running -= cost  # spending
-        elif action.startswith("sell"):
-            running += cost  # receiving
-        cumulative.append(running)
+        key = (trade.get("market_id", ""), trade.get("side", ""))
+        last_price[key] = price
 
-    if cumulative:
-        # Standard high-water-mark drawdown
-        peak = cumulative[0]
-        max_drawdown_abs = 0.0
-        for val in cumulative:
+        if key not in positions:
+            positions[key] = {"shares": 0, "cost": 0}
+        pos = positions[key]
+
+        if action.startswith("buy"):
+            pos["shares"] += shares
+            pos["cost"] += cost
+        elif action.startswith("sell"):
+            sold = min(shares, pos["shares"])
+            if pos["shares"] > 0:
+                avg = pos["cost"] / pos["shares"]
+                pos["shares"] -= sold
+                pos["cost"] = max(0, pos["cost"] - avg * sold)
+
+        # Mark-to-market: sum(position_shares * last_known_price) - total_cost
+        mtm = sum(p["shares"] * last_price.get(k, 0.5) for k, p in positions.items())
+        total_cost = sum(p["cost"] for p in positions.values())
+        portfolio_values.append(mtm - total_cost)
+
+    if len(portfolio_values) > 1:
+        peak = portfolio_values[0]
+        max_dd = 0.0
+        for val in portfolio_values:
             if val > peak:
                 peak = val
             dd = peak - val
-            if dd > max_drawdown_abs:
-                max_drawdown_abs = dd
-        total_spent = sum(float(t.get("cost_usdc", 0)) for t in trades if t.get("action", "").startswith("buy"))
-        max_drawdown = max_drawdown_abs / max(total_spent, 1) * 100
+            if dd > max_dd:
+                max_dd = dd
+        # Express as % of peak (or total invested if peak is near zero)
+        total_invested = sum(float(t.get("cost_usdc", 0)) for t in trades if t.get("action", "").startswith("buy"))
+        base = max(peak, total_invested * 0.1, 1)  # avoid div-by-zero
+        max_drawdown = max_dd / base * 100
     else:
         max_drawdown = 0
 
@@ -561,7 +590,7 @@ def format_output(data: Dict[str, Any]) -> str:
     output = []
     wallet = data.get("wallet", "unknown")
     output.append(f"\n{'='*60}")
-    output.append(f"🔍 WALLET XRAY: {wallet[:16]}...")
+    output.append(f"🔍 WALLET XRAY: {wallet[:6]}...{wallet[-4:]}")
     output.append(f"{'='*60}\n")
 
     # Profitability
@@ -618,11 +647,10 @@ def main():
         epilog="Example: python wallet_xray.py 0x1234...abcd"
     )
     parser.add_argument("wallet", nargs="?", help="Wallet address (0x...)")
-    parser.add_argument("market", nargs="?", help="Market query (optional)")
+    parser.add_argument("market", nargs="?", help="Second wallet address for --compare")
     parser.add_argument("--compare", action="store_true", help="Compare two wallets")
     parser.add_argument("--json", action="store_true", help="Output as JSON")
     parser.add_argument("--limit", type=int, help="Limit trades analyzed")
-    parser.add_argument("--dry-run", action="store_true", help="Dry run (no analysis)")
     args = parser.parse_args()
 
     if not args.wallet:
