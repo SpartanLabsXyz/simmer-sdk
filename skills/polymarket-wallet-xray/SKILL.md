@@ -7,7 +7,7 @@ authors:
   - Simmer (@simmer_markets)
 inspired_by:
   - thejayden (@thejayden) - "Autopsy: How to Read the Mind of a Polymarket Whale"
-version: "1.0.0"
+version: "1.0.1"
 published: true
 ---
 
