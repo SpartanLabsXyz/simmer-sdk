@@ -110,6 +110,7 @@ def compute_profitability(trades: List[Dict]) -> Dict[str, Any]:
     # Key: (conditionId, outcome) -> {shares, cost}
     positions = {}
     trade_outcomes = []  # List of realized P&Ls from closed positions
+    skipped_sells = 0
 
     for trade in sorted(trades, key=lambda t: t.get("created_at", "")):
         market_id = trade.get("market_id", "")
@@ -137,6 +138,11 @@ def compute_profitability(trades: List[Dict]) -> Dict[str, Any]:
             trade_outcomes.append(pnl)
             pos["shares"] = max(0, pos["shares"] - shares)
             pos["cost"] = max(0, pos["cost"] - (avg_entry * sold))
+        elif is_sell:
+            skipped_sells += 1
+
+    if skipped_sells > 0:
+        print(f"   ⚠️  {skipped_sells} sells/redeems had no matching buy (outside fetch window)", file=sys.stderr)
 
     # Calculate metrics
     profitable_trades = [p for p in trade_outcomes if p > 0.001]
@@ -255,12 +261,15 @@ def detect_bot_behavior(trades: List[Dict]) -> Dict[str, Any]:
     if not time_diffs:
         avg_seconds = 0
         is_bot = False
+        intensity = "unknown"
     else:
         avg_seconds = statistics.mean(time_diffs)
         is_bot = avg_seconds < 5  # Bots trade < 5 seconds apart
 
     # Trading intensity
-    if avg_seconds < 10:
+    if not time_diffs:
+        pass  # already set above
+    elif avg_seconds < 10:
         intensity = "very_high"
     elif avg_seconds < 60:
         intensity = "high"
@@ -418,10 +427,9 @@ def compute_risk_profile(trades: List[Dict]) -> Dict[str, Any]:
             dd = peak - val
             if dd > max_dd:
                 max_dd = dd
-        # Express as % of peak (or total invested if peak is near zero)
+        # Express as % of total capital deployed
         total_invested = sum(float(t.get("cost_usdc", 0)) for t in trades if t.get("action", "").startswith("buy"))
-        base = max(peak, total_invested * 0.1, 1)  # avoid div-by-zero
-        max_drawdown = max_dd / base * 100
+        max_drawdown = min(max_dd / max(total_invested, 1) * 100, 100)
     else:
         max_drawdown = 0
 
@@ -488,6 +496,8 @@ def generate_recommendation(data: Dict[str, Any]) -> str:
     elif rating == "C":
         score += 5
         factors.append("⚠️ Weak entry quality")
+    else:
+        factors.append("⚠️ Insufficient data for entry quality")
 
     # Bot detection (max 15 points)
     if not behavior.get("is_bot_detected", False):
