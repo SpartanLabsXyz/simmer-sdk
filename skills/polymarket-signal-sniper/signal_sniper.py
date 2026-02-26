@@ -402,21 +402,56 @@ def _count_keyword_hits(text: str, keywords: List[str]) -> int:
     return count
 
 
-def infer_side(article: Dict[str, str]) -> Optional[str]:
-    """Infer trade side from article sentiment using keyword matching.
+NEGATIVE_QUESTION_PATTERNS = [
+    r'\bwill\b.*\b(fail|lose|drop|fall|crash|decline|collapse|miss|default|reject)\b',
+    r'\bwill there be\b.*\b(recession|downturn|shutdown|crisis|war|conflict)\b',
+    r'\bwill\b.*\b(below|under|less than|fewer than|lower than)\b',
+    r'\bwill\b.*\bnot\b',
+    r'\bwill\b.*\b(ban|block|veto|oppose|cancel|delay|deny)\b',
+]
 
-    Returns 'yes', 'no', or None if unclear.
+
+def _is_negative_question(question: str) -> bool:
+    """Detect if a market question is negatively-phrased (YES = bad thing happens).
+
+    For these markets, bearish article sentiment should map to YES (not NO),
+    because the bad outcome the question asks about becomes more likely.
+    """
+    q = question.lower()
+    return any(re.search(pat, q) for pat in NEGATIVE_QUESTION_PATTERNS)
+
+
+def infer_side(article: Dict[str, str], market_question: str = "") -> Tuple[Optional[str], float]:
+    """Infer trade side from article sentiment, aware of market question phrasing.
+
+    Returns (side, confidence) where side is 'yes', 'no', or None.
+    Confidence is 0-1 based on keyword hit strength.
     """
     text = f"{article['title']} {article['summary']}".lower()
 
     bull_score = _count_keyword_hits(text, BULLISH_KEYWORDS)
     bear_score = _count_keyword_hits(text, BEARISH_KEYWORDS)
 
+    total = bull_score + bear_score
+    if total == 0:
+        return None, 0.0
+
+    # Determine raw sentiment
     if bull_score > bear_score and bull_score >= 2:
-        return "yes"
+        raw_side = "yes"
     elif bear_score > bull_score and bear_score >= 2:
-        return "no"
-    return None
+        raw_side = "no"
+    else:
+        return None, 0.0
+
+    # Confidence: how decisive the keyword balance is (0.5 = barely, 1.0 = all one way)
+    confidence = abs(bull_score - bear_score) / total
+
+    # Flip direction for negatively-phrased markets
+    if market_question and _is_negative_question(market_question):
+        raw_side = "no" if raw_side == "yes" else "yes"
+
+    return raw_side, confidence
 
 
 def get_market_context(market_id: str, my_probability: float = None) -> Optional[Dict]:
@@ -755,7 +790,8 @@ def run_scan(
                 continue
 
             # Safeguards passed — infer trade direction from article sentiment
-            side = infer_side(article)
+            market_question = context.get("market", {}).get("question", "")
+            side, signal_confidence = infer_side(article, market_question)
             market_price = context.get("market", {}).get("current_price", 0.5)
 
             if not side:
@@ -770,7 +806,21 @@ def run_scan(
                 }
                 continue
 
-            print(f"\n     🧠 SIGNAL: {side.upper()} on {market_id[:20]}")
+            # Gate on confidence threshold
+            if signal_confidence < CONFIDENCE_THRESHOLD:
+                print(f"     📉 Signal confidence {signal_confidence:.0%} below threshold {CONFIDENCE_THRESHOLD:.0%}, skipping")
+                skip_reasons.append(f"low confidence ({signal_confidence:.0%})")
+                processed[h] = {
+                    "title": article["title"],
+                    "url": article["url"],
+                    "market_id": market_id,
+                    "action": "low_confidence",
+                    "confidence": signal_confidence,
+                    "processed_at": datetime.now(timezone.utc).isoformat(),
+                }
+                continue
+
+            print(f"\n     🧠 SIGNAL: {side.upper()} on {market_id[:20]} (confidence: {signal_confidence:.0%})")
             print(f"     Article: {article['title'][:60]}")
             print(f"     Market price: {market_price:.1%}")
 
@@ -790,7 +840,7 @@ def run_scan(
                     price=market_price,
                     source=TRADE_SOURCE,
                     thesis=f"Signal: {article['title'][:100]}",
-                    confidence=CONFIDENCE_THRESHOLD,
+                    confidence=signal_confidence,
                 )
                 if trade_result.get("success"):
                     shares = trade_result.get("shares", 0)
