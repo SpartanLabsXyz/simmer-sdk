@@ -101,12 +101,34 @@ markets = client.list_importable_markets(venue="polymarket", category="crypto")
 | `set_monitor()` | Set stop-loss / take-profit |
 | `create_alert()` | Price alerts with optional webhook |
 | `register_webhook()` | Push notifications for trades, resolutions, price moves |
-| `redeem()` | Redeem winning Polymarket positions |
+| `redeem()` | Redeem a specific winning Polymarket position |
+| `auto_redeem()` | Scan all positions and redeem any winning ones automatically |
 | `get_settings()` / `update_settings()` | Configure trade limits and notifications |
 | `link_wallet()` | Link external EVM wallet for Polymarket |
 | `set_approvals()` | Set Polymarket token approvals |
 
 Full API reference with parameters, examples, and error codes: **[simmer.markets/docs.md](https://simmer.markets/docs.md)**
+
+## Auto-Redeem
+
+When a Polymarket market resolves and your side wins, the CTF tokens in your wallet must be redeemed to claim the USDC.e payout. Auto-redeem handles this automatically each cycle.
+
+```python
+# Call at the start of each cycle to claim any pending winnings
+results = client.auto_redeem()
+for r in results:
+    if r["success"]:
+        print(f"Redeemed {r['market_id']} ({r['side']}): {r['tx_hash']}")
+```
+
+**How it works:**
+- Fetches your positions and filters for entries where `redeemable: true`
+- Calls `redeem()` for each redeemable position
+- For external wallets (`WALLET_PRIVATE_KEY`): signs the transaction locally and broadcasts via Simmer's relay
+- For managed wallets: the server handles signing (no local key needed)
+- Returns a list of results — never raises, safe to call every cycle
+
+**Toggle:** Auto-redeem can be disabled per-agent from the Simmer dashboard. When disabled, `auto_redeem()` returns an empty list immediately.
 
 ## OpenClaw Skills
 

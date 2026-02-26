@@ -1472,6 +1472,103 @@ class SimmerClient:
         print(f"  Confirmation timed out. Check: https://polygonscan.com/tx/{tx_hash}")
         return {"success": True, "tx_hash": tx_hash, "note": "confirmation_timeout"}
 
+    def auto_redeem(self) -> List[Dict[str, Any]]:
+        """
+        Automatically redeem all winning Polymarket positions that are ready to claim.
+
+        Checks all positions for redeemable wins and submits redemption transactions.
+        For external wallets (WALLET_PRIVATE_KEY), signs and broadcasts locally.
+        For managed wallets, the server handles signing.
+
+        Reads the agent's ``auto_redeem_enabled`` setting. If ``False``, returns an
+        empty list immediately. If the field is absent (older backend), defaults to
+        ``True`` so existing agents continue to benefit.
+
+        Safe to call every cycle — skips positions that are not redeemable and catches
+        all errors internally (never raises).
+
+        Returns:
+            List of dicts, one per attempted redemption:
+                - market_id: str
+                - side: str ("yes" or "no")
+                - success: bool
+                - tx_hash: str or None
+                - error: str or None
+
+        Example:
+            results = client.auto_redeem()
+            for r in results:
+                if r["success"]:
+                    print(f"Redeemed {r['market_id']} {r['side']}: {r['tx_hash']}")
+                else:
+                    print(f"Failed {r['market_id']} {r['side']}: {r['error']}")
+        """
+        results = []
+
+        # Check auto_redeem_enabled setting (from agents/me).
+        # Default True if field is absent (backward compat with older backend versions).
+        try:
+            agent_info = self._request("GET", "/api/sdk/agents/me")
+            auto_redeem_enabled = agent_info.get("auto_redeem_enabled", True)
+            if not auto_redeem_enabled:
+                logger.debug("auto_redeem: disabled by agent settings, skipping")
+                return results
+        except Exception as e:
+            logger.warning("auto_redeem: could not read agent settings, proceeding anyway (%s)", e)
+
+        # Fetch positions (raw request to get redeemable fields not on Position dataclass)
+        try:
+            data = self._request("GET", "/api/sdk/positions")
+        except Exception as e:
+            logger.warning("auto_redeem: could not fetch positions (%s)", e)
+            return results
+
+        positions = data.get("positions", [])
+        redeemable = [
+            p for p in positions
+            if p.get("redeemable") and p.get("redeemable_side")
+        ]
+
+        if not redeemable:
+            logger.debug("auto_redeem: no redeemable positions found")
+            return results
+
+        logger.info("auto_redeem: found %d redeemable position(s)", len(redeemable))
+
+        for pos in redeemable:
+            market_id = pos.get("market_id", "")
+            side = pos.get("redeemable_side", "")
+            if not market_id or not side:
+                continue
+            try:
+                print(f"  Auto-redeem: {market_id} ({side})...")
+                result = self.redeem(market_id, side)
+                success = bool(result.get("success"))
+                tx_hash = result.get("tx_hash")
+                error = result.get("error") if not success else None
+                if success:
+                    print(f"  Auto-redeem OK: {market_id} ({side}) tx={tx_hash}")
+                else:
+                    print(f"  Auto-redeem failed: {market_id} ({side}) error={error}")
+                results.append({
+                    "market_id": market_id,
+                    "side": side,
+                    "success": success,
+                    "tx_hash": tx_hash,
+                    "error": error,
+                })
+            except Exception as e:
+                logger.warning("auto_redeem: error redeeming %s %s: %s", market_id, side, e)
+                results.append({
+                    "market_id": market_id,
+                    "side": side,
+                    "success": False,
+                    "tx_hash": None,
+                    "error": str(e),
+                })
+
+        return results
+
     # ==========================================
     # PRICE ALERTS
     # ==========================================
