@@ -11,33 +11,28 @@ Usage:
 
 import os
 import sys
-import json
 import argparse
-from urllib.request import urlopen, Request
-from urllib.error import HTTPError, URLError
 
 # Force line-buffered stdout so output is visible in non-TTY environments (cron, Docker, OpenClaw)
 sys.stdout.reconfigure(line_buffering=True)
 
-SIMMER_API_BASE = "https://api.simmer.markets"
+_client = None
+
+def get_client(api_key: str):
+    global _client
+    if _client is None:
+        try:
+            from simmer_sdk import SimmerClient
+        except ImportError:
+            print("Error: simmer-sdk not installed. Run: pip install simmer-sdk")
+            sys.exit(1)
+        venue = os.environ.get("TRADING_VENUE", "polymarket")
+        _client = SimmerClient(api_key=api_key, venue=venue)
+    return _client
 
 def api_request(api_key: str, endpoint: str) -> dict:
-    """Make authenticated request to Simmer API."""
-    url = f"{SIMMER_API_BASE}{endpoint}"
-    req = Request(url, headers={
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json"
-    })
-    try:
-        with urlopen(req, timeout=30) as resp:
-            return json.loads(resp.read().decode())
-    except HTTPError as e:
-        error_body = e.read().decode() if e.fp else ""
-        print(f"❌ API Error {e.code}: {error_body}")
-        sys.exit(1)
-    except URLError as e:
-        print(f"❌ Connection error: {e.reason}")
-        sys.exit(1)
+    """Make authenticated request to Simmer API via SimmerClient."""
+    return get_client(api_key)._request("GET", endpoint)
 
 def format_usd(amount: float) -> str:
     """Format as USD."""
