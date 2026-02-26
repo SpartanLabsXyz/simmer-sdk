@@ -18,11 +18,12 @@ Requires:
 import os
 import sys
 import json
+import re
 import argparse
 from datetime import datetime, timezone, timedelta
 from urllib.request import urlopen, Request
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode
+from urllib.parse import urlencode, quote
 
 # Force line-buffered stdout so output is visible in non-TTY environments (cron, Docker, OpenClaw)
 sys.stdout.reconfigure(line_buffering=True)
@@ -66,6 +67,10 @@ SMART_SIZING_PCT = _config["sizing_pct"]
 
 # Safeguard thresholds
 SLIPPAGE_MAX_PCT = 0.15
+MIN_BOOK_DEPTH_USD = 50.0  # Skip if less than $50 available on the side we want
+
+# Polymarket CLOB API
+CLOB_API = "https://clob.polymarket.com"
 
 # =============================================================================
 # API Helpers
@@ -194,6 +199,68 @@ def calculate_position_size(default_size, smart_sizing):
 
 
 # =============================================================================
+# Polymarket CLOB Helpers
+# =============================================================================
+
+def _clob_request(url, timeout=5):
+    """Fetch JSON from Polymarket CLOB API."""
+    try:
+        req = Request(url, headers={"User-Agent": "mert-sniper/1.1"})
+        with urlopen(req, timeout=timeout) as resp:
+            return json.loads(resp.read())
+    except Exception:
+        return None
+
+
+def fetch_live_midpoint(token_id):
+    """Fetch live midpoint price from Polymarket CLOB for the YES token."""
+    result = _clob_request(f"{CLOB_API}/midpoint?token_id={quote(str(token_id))}")
+    if not result or not isinstance(result, dict):
+        return None
+    try:
+        return float(result["mid"])
+    except (KeyError, ValueError, TypeError):
+        return None
+
+
+def fetch_orderbook_summary(token_id):
+    """Fetch order book and return spread + depth summary.
+
+    Returns dict with best_bid, best_ask, spread_pct, bid_depth_usd, ask_depth_usd
+    or None on failure.
+    """
+    result = _clob_request(f"{CLOB_API}/book?token_id={quote(str(token_id))}")
+    if not result or not isinstance(result, dict):
+        return None
+
+    bids = result.get("bids", [])
+    asks = result.get("asks", [])
+    if not bids or not asks:
+        return None
+
+    try:
+        best_bid = float(bids[0]["price"])
+        best_ask = float(asks[0]["price"])
+        spread = best_ask - best_bid
+        mid = (best_ask + best_bid) / 2
+        spread_pct = spread / mid if mid > 0 else 0
+
+        # Sum depth (top 5 levels)
+        bid_depth = sum(float(b.get("size", 0)) * float(b.get("price", 0)) for b in bids[:5])
+        ask_depth = sum(float(a.get("size", 0)) * float(a.get("price", 0)) for a in asks[:5])
+
+        return {
+            "best_bid": best_bid,
+            "best_ask": best_ask,
+            "spread_pct": spread_pct,
+            "bid_depth_usd": bid_depth,
+            "ask_depth_usd": ask_depth,
+        }
+    except (KeyError, ValueError, IndexError, TypeError):
+        return None
+
+
+# =============================================================================
 # Market Fetching
 # =============================================================================
 
@@ -218,6 +285,19 @@ def fetch_markets(market_filter=""):
     except Exception as e:
         print(f"  Failed to fetch markets: {e}")
         return []
+
+
+def is_fast_market_question(question):
+    """Detect fast markets from question text (e.g., 'BTC Up or Down - Feb 27, 9:25AM-9:30AM ET')."""
+    return bool(re.search(r'\d{1,2}:\d{2}\s*[AP]M\s*-\s*\d{1,2}:\d{2}\s*[AP]M', question, re.IGNORECASE))
+
+
+def has_suspicious_resolves_at(resolves_at_str):
+    """Detect date-only fallback timestamps (23:59:59 or 00:00:00) that indicate missing precision.
+    Note: Only use gated behind is_fast_market_question() — midnight is valid for non-fast markets."""
+    if not resolves_at_str:
+        return True
+    return '23:59:59' in str(resolves_at_str) or str(resolves_at_str).endswith('00:00:00')
 
 
 def parse_resolves_at(resolves_at_str):
@@ -324,6 +404,11 @@ def run_mert_strategy(dry_run=True, positions_only=False, show_config=False,
     expiring_markets = []
 
     for market in markets:
+        # Guard: skip fast markets with unreliable resolves_at (date-only fallback)
+        question = market.get("question", "")
+        if is_fast_market_question(question) and has_suspicious_resolves_at(market.get("resolves_at")):
+            continue
+
         resolves_at = parse_resolves_at(market.get("resolves_at"))
         if not resolves_at:
             continue
@@ -362,12 +447,25 @@ def run_mert_strategy(dry_run=True, positions_only=False, show_config=False,
     for market in expiring_markets:
         market_id = market.get("id")
         question = market.get("question", "Unknown")
-        price = market.get("current_probability") or 0.5
+        oracle_price = market.get("current_probability") or 0.5
+        yes_token_id = market.get("polymarket_token_id")
         mins_left = market["_minutes_remaining"]
 
         print(f"\n  {question[:60]}{'...' if len(question) > 60 else ''}")
         print(f"     Resolves in: {format_duration(mins_left)}")
-        print(f"     Split: YES {price:.0%} / NO {1-price:.0%}")
+        print(f"     Oracle: YES {oracle_price:.0%} / NO {1-oracle_price:.0%}")
+
+        # Fetch live CLOB midpoint — this is the actual market price
+        live_price = None
+        if yes_token_id:
+            live_price = fetch_live_midpoint(yes_token_id)
+
+        if live_price is not None:
+            price = live_price
+            print(f"     CLOB:   YES {price:.0%} / NO {1-price:.0%}")
+        else:
+            price = oracle_price
+            print(f"     CLOB:   unavailable, using oracle price")
 
         # Check split threshold
         if price < MIN_SPLIT and price > (1 - MIN_SPLIT):
@@ -391,6 +489,21 @@ def run_mert_strategy(dry_run=True, positions_only=False, show_config=False,
             print(f"     Skip: price at extreme (${side_price:.4f})")
             skip_reasons.append("price at extreme")
             continue
+
+        # Check order book depth
+        if yes_token_id:
+            book = fetch_orderbook_summary(yes_token_id)
+            if book:
+                # Buying YES = consuming asks; buying NO (via YES book) = consuming bids
+                depth_key = "ask_depth_usd" if side == "yes" else "bid_depth_usd"
+                available_depth = book[depth_key]
+                print(f"     Book:  spread {book['spread_pct']:.1%} | bid ${book['bid_depth_usd']:.0f} | ask ${book['ask_depth_usd']:.0f}")
+                if available_depth < MIN_BOOK_DEPTH_USD:
+                    print(f"     Skip: thin book (${available_depth:.0f} < ${MIN_BOOK_DEPTH_USD:.0f} min)")
+                    skip_reasons.append("thin book")
+                    continue
+            else:
+                print(f"     Book:  unavailable (proceeding with caution)")
 
         # Safeguards
         if use_safeguards:
