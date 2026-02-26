@@ -278,7 +278,7 @@ def discover_fast_market_markets(asset="BTC", window="5m"):
     patterns = ASSET_PATTERNS.get(asset, ASSET_PATTERNS["BTC"])
     url = (
         "https://gamma-api.polymarket.com/markets"
-        "?limit=20&closed=false&tag=crypto&order=createdAt&ascending=false"
+        "?limit=100&closed=false&tag=crypto&order=endDate&ascending=true"
     )
     result = _api_request(url)
     if not result or isinstance(result, dict) and result.get("error"):
@@ -328,14 +328,15 @@ def _parse_fast_market_end_time(question):
     if not match:
         return None
     try:
+        from zoneinfo import ZoneInfo
         date_str = match.group(1)
         time_str = match.group(2)
         year = datetime.now(timezone.utc).year
         dt_str = f"{date_str} {year} {time_str}"
-        # Parse as ET (UTC-5)
         dt = datetime.strptime(dt_str, "%B %d %Y %I:%M%p")
-        # Convert ET to UTC (+5 hours)
-        dt = dt.replace(tzinfo=timezone.utc) + timedelta(hours=5)
+        # Proper ET → UTC (handles EST/EDT automatically)
+        et = ZoneInfo("America/New_York")
+        dt = dt.replace(tzinfo=et).astimezone(timezone.utc)
         return dt
     except Exception:
         return None
@@ -344,13 +345,14 @@ def _parse_fast_market_end_time(question):
 def find_best_fast_market(markets):
     """Pick the best fast_market to trade: soonest expiring with enough time remaining."""
     now = datetime.now(timezone.utc)
+    max_remaining = _window_seconds.get(WINDOW, 300) * 2  # reject markets that haven't started yet
     candidates = []
     for m in markets:
         end_time = m.get("end_time")
         if not end_time:
             continue
         remaining = (end_time - now).total_seconds()
-        if remaining > MIN_TIME_REMAINING:
+        if remaining > MIN_TIME_REMAINING and remaining < max_remaining:
             candidates.append((remaining, m))
 
     if not candidates:

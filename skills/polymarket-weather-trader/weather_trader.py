@@ -119,12 +119,12 @@ PRICE_DROP_THRESHOLD = 0.10  # 10% drop in last 24h = stronger signal
 
 # Supported locations (matching Polymarket resolution sources)
 LOCATIONS = {
-    "NYC": {"lat": 40.7769, "lon": -73.8740, "name": "New York City (LaGuardia)"},
-    "Chicago": {"lat": 41.9742, "lon": -87.9073, "name": "Chicago (O'Hare)"},
-    "Seattle": {"lat": 47.4502, "lon": -122.3088, "name": "Seattle (Sea-Tac)"},
-    "Atlanta": {"lat": 33.6407, "lon": -84.4277, "name": "Atlanta (Hartsfield)"},
-    "Dallas": {"lat": 32.8998, "lon": -97.0403, "name": "Dallas (DFW)"},
-    "Miami": {"lat": 25.7959, "lon": -80.2870, "name": "Miami (MIA)"},
+    "NYC": {"lat": 40.7769, "lon": -73.8740, "name": "New York City (LaGuardia)", "station": "KLGA"},
+    "Chicago": {"lat": 41.9742, "lon": -87.9073, "name": "Chicago (O'Hare)", "station": "KORD"},
+    "Seattle": {"lat": 47.4502, "lon": -122.3088, "name": "Seattle (Sea-Tac)", "station": "KSEA"},
+    "Atlanta": {"lat": 33.6407, "lon": -84.4277, "name": "Atlanta (Hartsfield)", "station": "KATL"},
+    "Dallas": {"lat": 32.8998, "lon": -97.0403, "name": "Dallas (DFW)", "station": "KDFW"},
+    "Miami": {"lat": 25.7959, "lon": -80.2870, "name": "Miami (MIA)", "station": "KMIA"},
 }
 
 # Active locations - from config
@@ -201,6 +201,28 @@ def get_noaa_forecast(location: str) -> dict:
         else:
             forecasts[date_str]["low"] = temp
 
+    # Supplement with NOAA observations for today (D+0)
+    # /forecast often starts from the next period, missing today's daytime high
+    today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    if today_str not in forecasts or forecasts[today_str].get("high") is None:
+        station_id = loc.get("station")
+        if station_id:
+            try:
+                obs_url = f"{NOAA_API_BASE}/stations/{station_id}/observations/latest"
+                obs_data = fetch_json(obs_url, headers)
+                if obs_data and "properties" in obs_data:
+                    temp_c = obs_data["properties"].get("temperature", {}).get("value")
+                    if temp_c is not None:
+                        temp_f = round(temp_c * 9 / 5 + 32)
+                        if today_str not in forecasts:
+                            forecasts[today_str] = {"high": None, "low": None}
+                        if forecasts[today_str]["high"] is None:
+                            forecasts[today_str]["high"] = temp_f
+                        if forecasts[today_str]["low"] is None:
+                            forecasts[today_str]["low"] = temp_f
+            except Exception:
+                pass  # Observation fetch is best-effort
+
     return forecasts
 
 
@@ -262,7 +284,7 @@ def parse_weather_event(event_name: str) -> dict:
     year = now.year
     try:
         target_date = datetime(year, month, day, tzinfo=timezone.utc)
-        if target_date < now - timedelta(days=30):
+        if target_date < now - timedelta(days=7):
             year += 1
         date_str = f"{year}-{month:02d}-{day:02d}"
     except ValueError:
