@@ -254,6 +254,10 @@ class SimmerClient:
             "Content-Type": "application/json"
         })
 
+        # Cache for auto_redeem toggle (TTL: 5 minutes)
+        self._auto_redeem_enabled: bool = True
+        self._auto_redeem_enabled_fetched_at: float = 0.0
+
         # Paper trading mode
         self.live = live
         self._paper_portfolio = None
@@ -1505,16 +1509,21 @@ class SimmerClient:
         """
         results = []
 
-        # Check auto_redeem_enabled setting (from agents/me).
+        # Check auto_redeem_enabled setting (from agents/me), cached with a 5-minute TTL.
         # Default True if field is absent (backward compat with older backend versions).
-        try:
-            agent_info = self._request("GET", "/api/sdk/agents/me")
-            auto_redeem_enabled = agent_info.get("auto_redeem_enabled", True)
-            if not auto_redeem_enabled:
-                logger.debug("auto_redeem: disabled by agent settings, skipping")
-                return results
-        except Exception as e:
-            logger.warning("auto_redeem: could not read agent settings, proceeding anyway (%s)", e)
+        _AUTO_REDEEM_TTL = 300  # 5 minutes
+        now = time.time()
+        if now - self._auto_redeem_enabled_fetched_at > _AUTO_REDEEM_TTL:
+            try:
+                agent_info = self._request("GET", "/api/sdk/agents/me")
+                self._auto_redeem_enabled = agent_info.get("auto_redeem_enabled", True)
+                self._auto_redeem_enabled_fetched_at = now
+            except Exception as e:
+                logger.warning("auto_redeem: could not read agent settings, using cached value (%s)", e)
+
+        if not self._auto_redeem_enabled:
+            logger.debug("auto_redeem: disabled by agent settings, skipping")
+            return results
 
         # Fetch positions (raw request to get redeemable fields not on Position dataclass)
         try:
@@ -1527,6 +1536,7 @@ class SimmerClient:
         redeemable = [
             p for p in positions
             if p.get("redeemable") and p.get("redeemable_side")
+            and p.get("venue", "polymarket") == "polymarket"
         ]
 
         if not redeemable:
@@ -1535,6 +1545,9 @@ class SimmerClient:
 
         logger.info("auto_redeem: found %d redeemable position(s)", len(redeemable))
 
+        # Note: for external wallet users, each redeem() call polls for on-chain
+        # confirmation (up to 60s per position). With many redeemable positions
+        # this can block for several minutes. Managed wallet users return immediately.
         for pos in redeemable:
             market_id = pos.get("market_id", "")
             side = pos.get("redeemable_side", "")

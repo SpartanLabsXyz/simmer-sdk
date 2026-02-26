@@ -122,9 +122,9 @@ for r in results:
 ```
 
 **How it works:**
-- Fetches your positions and filters for entries where `redeemable: true`
+- Fetches your positions and filters positions where `redeemable: true` and `redeemable_side` is set (Polymarket only)
 - Calls `redeem()` for each redeemable position
-- For external wallets (`WALLET_PRIVATE_KEY`): signs the transaction locally and broadcasts via Simmer's relay
+- For external wallets (`WALLET_PRIVATE_KEY`): signs and broadcasts on-chain — waits for confirmation per position (up to ~60s each)
 - For managed wallets: the server handles signing (no local key needed)
 - Returns a list of results — never raises, safe to call every cycle
 
