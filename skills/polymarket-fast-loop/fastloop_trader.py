@@ -89,60 +89,10 @@ ASSET_PATTERNS = {
 }
 
 
-def _load_config(schema, skill_file, config_filename="config.json"):
-    """Load config with priority: config.json > env vars > defaults."""
-    from pathlib import Path
-    config_path = Path(skill_file).parent / config_filename
-    file_cfg = {}
-    if config_path.exists():
-        try:
-            with open(config_path) as f:
-                file_cfg = json.load(f)
-        except (json.JSONDecodeError, IOError):
-            pass
-    result = {}
-    for key, spec in schema.items():
-        if key in file_cfg:
-            result[key] = file_cfg[key]
-        elif spec.get("env") and os.environ.get(spec["env"]):
-            val = os.environ.get(spec["env"])
-            type_fn = spec.get("type", str)
-            try:
-                if type_fn == bool:
-                    result[key] = val.lower() in ("true", "1", "yes")
-                else:
-                    result[key] = type_fn(val)
-            except (ValueError, TypeError):
-                result[key] = spec.get("default")
-        else:
-            result[key] = spec.get("default")
-    return result
-
-
-def _get_config_path(skill_file, config_filename="config.json"):
-    from pathlib import Path
-    return Path(skill_file).parent / config_filename
-
-
-def _update_config(updates, skill_file, config_filename="config.json"):
-    """Update config.json with new values."""
-    from pathlib import Path
-    config_path = Path(skill_file).parent / config_filename
-    existing = {}
-    if config_path.exists():
-        try:
-            with open(config_path) as f:
-                existing = json.load(f)
-        except (json.JSONDecodeError, IOError):
-            pass
-    existing.update(updates)
-    with open(config_path, "w") as f:
-        json.dump(existing, f, indent=2)
-    return existing
-
+from simmer_sdk.skill import load_config, update_config, get_config_path
 
 # Load config
-cfg = _load_config(CONFIG_SCHEMA, __file__)
+cfg = load_config(CONFIG_SCHEMA, __file__, slug="polymarket-fast-loop")
 ENTRY_THRESHOLD = cfg["entry_threshold"]
 MIN_MOMENTUM_PCT = cfg["min_momentum_pct"]
 MAX_POSITION_USD = cfg["max_position"]
@@ -605,7 +555,7 @@ def run_fast_market_strategy(dry_run=True, positions_only=False, show_config=Fal
     log(f"  Daily budget:     ${DAILY_BUDGET:.2f} (${daily_spend['spent']:.2f} spent today, {daily_spend['trades']} trades)")
 
     if show_config:
-        config_path = _get_config_path(__file__)
+        config_path = get_config_path(__file__)
         log(f"\n  Config file: {config_path}")
         log(f"\n  To change settings:")
         log(f'    python fast_trader.py --set entry_threshold=0.08')
@@ -927,7 +877,7 @@ if __name__ == "__main__":
                 print(f"Unknown config key: {key}")
                 print(f"Valid keys: {', '.join(CONFIG_SCHEMA.keys())}")
                 sys.exit(1)
-        result = _update_config(updates, __file__)
+        result = update_config(updates, __file__)
         print(f"✅ Config updated: {json.dumps(updates)}")
         sys.exit(0)
 

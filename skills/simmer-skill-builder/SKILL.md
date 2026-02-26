@@ -78,7 +78,7 @@ Create a complete folder on disk:
 #### Python Script Requirements
 
 Copy these verbatim from `references/skill-template.md`:
-- Config system (`_load_config`, `_get_config_path`, `_update_config`)
+- Config system (`from simmer_sdk.skill import load_config, update_config, get_config_path`)
 - `get_client()` singleton
 - `check_context_safeguards()`
 - `execute_trade()`

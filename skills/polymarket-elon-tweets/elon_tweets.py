@@ -46,54 +46,7 @@ except ImportError:
 # Configuration (config.json > env vars > defaults)
 # =============================================================================
 
-def _load_config(schema, skill_file, config_filename="config.json"):
-    """Load config with priority: config.json > env vars > defaults."""
-    from pathlib import Path
-    config_path = Path(skill_file).parent / config_filename
-    file_cfg = {}
-    if config_path.exists():
-        try:
-            with open(config_path) as f:
-                file_cfg = json.load(f)
-        except (json.JSONDecodeError, IOError):
-            pass
-    result = {}
-    for key, spec in schema.items():
-        if key in file_cfg:
-            result[key] = file_cfg[key]
-        elif spec.get("env") and os.environ.get(spec["env"]):
-            val = os.environ.get(spec["env"])
-            type_fn = spec.get("type", str)
-            try:
-                result[key] = type_fn(val) if type_fn != str else val
-            except (ValueError, TypeError):
-                result[key] = spec.get("default")
-        else:
-            result[key] = spec.get("default")
-    return result
-
-def _get_config_path(skill_file, config_filename="config.json"):
-    from pathlib import Path
-    return Path(skill_file).parent / config_filename
-
-def _update_config(updates, skill_file, config_filename="config.json"):
-    from pathlib import Path
-    config_path = Path(skill_file).parent / config_filename
-    existing = {}
-    if config_path.exists():
-        try:
-            with open(config_path) as f:
-                existing = json.load(f)
-        except (json.JSONDecodeError, IOError):
-            pass
-    existing.update(updates)
-    with open(config_path, "w") as f:
-        json.dump(existing, f, indent=2)
-    return existing
-
-load_config = _load_config
-get_config_path = _get_config_path
-update_config = _update_config
+from simmer_sdk.skill import load_config, update_config, get_config_path
 
 CONFIG_SCHEMA = {
     "max_bucket_sum": {"env": "SIMMER_ELON_MAX_BUCKET_SUM", "default": 0.90, "type": float},
@@ -107,14 +60,14 @@ CONFIG_SCHEMA = {
     "data_source": {"env": "SIMMER_ELON_DATA_SOURCE", "default": "xtracker", "type": str},
 }
 
-_config = load_config(CONFIG_SCHEMA, __file__)
+_config = load_config(CONFIG_SCHEMA, __file__, slug="polymarket-elon-tweets")
 
 
 def _reload_config_globals():
     """Reload module-level config globals from disk (used after --set)."""
     global _config, MAX_BUCKET_SUM, MAX_POSITION_USD, BUCKET_SPREAD, SMART_SIZING_PCT
     global MAX_TRADES_PER_RUN, EXIT_THRESHOLD, SLIPPAGE_MAX_PCT, MIN_POSITION_USD, DATA_SOURCE
-    _config = load_config(CONFIG_SCHEMA, __file__)
+    _config = load_config(CONFIG_SCHEMA, __file__, slug="polymarket-elon-tweets")
     MAX_BUCKET_SUM = _config["max_bucket_sum"]
     MAX_POSITION_USD = _config["max_position_usd"]
     BUCKET_SPREAD = _config["bucket_spread"]

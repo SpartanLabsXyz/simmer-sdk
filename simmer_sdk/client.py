@@ -1658,6 +1658,56 @@ class SimmerClient:
         return self._request("POST", "/api/sdk/webhooks/test")
 
     # ==========================================
+    # AUTOMATON
+    # ==========================================
+
+    def get_skill_config(self, slug: str) -> Dict[str, str]:
+        """
+        Fetch tuned config for a skill from the automaton.
+
+        Returns env var overrides set by the automaton's tuning engine.
+        If no automaton is configured or no overrides exist, returns {}.
+
+        Args:
+            slug: Skill slug (e.g. "polymarket-weather-trader")
+
+        Returns:
+            Dict of env var name → value (all strings)
+
+        Example:
+            config = client.get_skill_config("polymarket-weather-trader")
+            # {"SIMMER_WEATHER_MAX_USD": "25", "SIMMER_WEATHER_ENTRY_THRESHOLD": "0.08"}
+        """
+        try:
+            data = self._request("GET", "/api/sdk/automaton/my-config", params={"skill": slug})
+            return data.get("config", {})
+        except Exception:
+            return {}
+
+    def apply_skill_config(self, slug: str) -> Dict[str, str]:
+        """
+        Fetch tuned config and apply as environment variables.
+
+        Call this at skill startup, before loading config from env vars.
+        Values are set in os.environ so load_config() picks them up.
+
+        Args:
+            slug: Skill slug (e.g. "polymarket-weather-trader")
+
+        Returns:
+            Dict of env vars that were applied (empty if none)
+
+        Example:
+            client.apply_skill_config("polymarket-weather-trader")
+            # Now os.environ has the tuned values; load_config() will use them
+        """
+        config = self.get_skill_config(slug)
+        if config:
+            os.environ.update(config)
+            logger.info("Applied %d automaton config override(s) for %s", len(config), slug)
+        return config
+
+    # ==========================================
     # EXTERNAL WALLET SUPPORT
     # ==========================================
 

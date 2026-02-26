@@ -92,4 +92,13 @@ __all__ = [
     "has_solana_key",
     "get_solana_public_key",
     "validate_solana_key",
+    # Skill config (for trading skills)
+    "load_skill_config",
+    "update_skill_config",
+    "get_skill_config_path",
 ]
+
+# Convenience aliases for skill config
+from .skill import load_config as load_skill_config
+from .skill import update_config as update_skill_config
+from .skill import get_config_path as get_skill_config_path

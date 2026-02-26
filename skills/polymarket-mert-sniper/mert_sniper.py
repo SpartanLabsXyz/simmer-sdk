@@ -31,54 +31,7 @@ sys.stdout.reconfigure(line_buffering=True)
 # Configuration (config.json > env vars > defaults)
 # =============================================================================
 
-def _load_config(schema, skill_file, config_filename="config.json"):
-    """Load config with priority: config.json > env vars > defaults."""
-    from pathlib import Path
-    config_path = Path(skill_file).parent / config_filename
-    file_cfg = {}
-    if config_path.exists():
-        try:
-            with open(config_path) as f:
-                file_cfg = json.load(f)
-        except (json.JSONDecodeError, IOError):
-            pass
-    result = {}
-    for key, spec in schema.items():
-        if key in file_cfg:
-            result[key] = file_cfg[key]
-        elif spec.get("env") and os.environ.get(spec["env"]):
-            val = os.environ.get(spec["env"])
-            type_fn = spec.get("type", str)
-            try:
-                result[key] = type_fn(val) if type_fn != str else val
-            except (ValueError, TypeError):
-                result[key] = spec.get("default")
-        else:
-            result[key] = spec.get("default")
-    return result
-
-def _get_config_path(skill_file, config_filename="config.json"):
-    from pathlib import Path
-    return Path(skill_file).parent / config_filename
-
-def _update_config(updates, skill_file, config_filename="config.json"):
-    from pathlib import Path
-    config_path = Path(skill_file).parent / config_filename
-    existing = {}
-    if config_path.exists():
-        try:
-            with open(config_path) as f:
-                existing = json.load(f)
-        except (json.JSONDecodeError, IOError):
-            pass
-    existing.update(updates)
-    with open(config_path, "w") as f:
-        json.dump(existing, f, indent=2)
-    return existing
-
-load_config = _load_config
-get_config_path = _get_config_path
-update_config = _update_config
+from simmer_sdk.skill import load_config, update_config, get_config_path
 
 # Configuration schema
 CONFIG_SCHEMA = {
@@ -90,7 +43,7 @@ CONFIG_SCHEMA = {
     "sizing_pct": {"env": "SIMMER_MERT_SIZING_PCT", "default": 0.05, "type": float},
 }
 
-_config = load_config(CONFIG_SCHEMA, __file__)
+_config = load_config(CONFIG_SCHEMA, __file__, slug="polymarket-mert-sniper")
 
 TRADE_SOURCE = "sdk:mertsniper"
 _automaton_reported = False
@@ -538,7 +491,7 @@ if __name__ == "__main__":
             updated = update_config(updates, __file__)
             print(f"  Config updated: {updates}")
             print(f"  Saved to: {get_config_path(__file__)}")
-            _config = load_config(CONFIG_SCHEMA, __file__)
+            _config = load_config(CONFIG_SCHEMA, __file__, slug="polymarket-mert-sniper")
             globals()["MARKET_FILTER"] = _config["market_filter"]
             globals()["MAX_BET_USD"] = _config["max_bet_usd"]
             globals()["EXPIRY_WINDOW_MINS"] = _config["expiry_window_mins"]
