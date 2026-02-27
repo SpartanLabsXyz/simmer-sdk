@@ -58,6 +58,7 @@ except ImportError:
 
 # Source tag for tracking
 TRADE_SOURCE = "sdk:signalsniper"
+SKILL_SLUG = "polymarket-signal-sniper"
 _automaton_reported = False
 
 from simmer_sdk.skill import load_config, update_config, get_config_path
@@ -840,7 +841,7 @@ def run_scan(
                     side=side,
                     amount=MAX_USD,
                     price=market_price,
-                    source=TRADE_SOURCE,
+                    source=TRADE_SOURCE, skill_slug=SKILL_SLUG,
                     thesis=f"Signal: {article['title'][:100]}",
                     confidence=signal_confidence,
                 )

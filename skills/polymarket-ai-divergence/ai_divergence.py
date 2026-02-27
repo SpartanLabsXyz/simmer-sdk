@@ -55,6 +55,7 @@ KELLY_CAP = _config["kelly_cap"]
 DAILY_BUDGET = _config["daily_budget"]
 
 TRADE_SOURCE = "sdk:divergence"
+SKILL_SLUG = "polymarket-ai-divergence"
 _automaton_reported = False
 MIN_SHARES_PER_ORDER = 5.0
 
@@ -124,7 +125,7 @@ def execute_trade(market_id, side, amount):
             market_id=market_id,
             side=side,
             amount=amount,
-            source=TRADE_SOURCE,
+            source=TRADE_SOURCE, skill_slug=SKILL_SLUG,
         )
         return {
             "success": result.success,

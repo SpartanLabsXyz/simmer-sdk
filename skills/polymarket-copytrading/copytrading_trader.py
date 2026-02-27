@@ -49,6 +49,7 @@ except ImportError:
 
 # Source tag for tracking
 TRADE_SOURCE = "sdk:copytrading"
+SKILL_SLUG = "polymarket-copytrading"
 _automaton_reported = False
 
 
@@ -198,7 +199,7 @@ def execute_trade(market_id: str, side: str, action: str, amount_usd: float = No
         result = get_client().trade(
             market_id=market_id, side=side, action=action,
             amount=amount_usd or 0, shares=shares or 0,
-            source=TRADE_SOURCE,
+            source=TRADE_SOURCE, skill_slug=SKILL_SLUG,
         )
         return {
             "success": result.success, "trade_id": result.trade_id,
@@ -377,7 +378,7 @@ def run_copytrading(wallets: list, top_n: int = None, max_usd: float = 50.0, dry
                 if trade_id and JOURNAL_AVAILABLE:
                     log_trade(
                         trade_id=trade_id,
-                        source=TRADE_SOURCE,
+                        source=TRADE_SOURCE, skill_slug=SKILL_SLUG,
                         thesis=f"Copytrading: {action.upper()} {shares:.1f} {side.upper()} "
                                f"@ ${price:.3f} to mirror whale positions",
                         action=action,

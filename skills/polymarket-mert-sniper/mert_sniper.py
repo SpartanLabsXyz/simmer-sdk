@@ -47,6 +47,7 @@ CONFIG_SCHEMA = {
 _config = load_config(CONFIG_SCHEMA, __file__, slug="polymarket-mert-sniper")
 
 TRADE_SOURCE = "sdk:mertsniper"
+SKILL_SLUG = "polymarket-mert-sniper"
 _automaton_reported = False
 
 # Polymarket constraints
@@ -162,7 +163,7 @@ def execute_trade(market_id, side, amount, reasoning=""):
             market_id=market_id,
             side=side,
             amount=amount,
-            source=TRADE_SOURCE,
+            source=TRADE_SOURCE, skill_slug=SKILL_SLUG,
             reasoning=reasoning,
         )
         return {

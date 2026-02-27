@@ -158,6 +158,7 @@ XTRACKER_API_BASE = "https://xtracker.polymarket.com/api"
 
 # Source tag for tracking
 TRADE_SOURCE = "sdk:elon-tweets"
+SKILL_SLUG = "polymarket-elon-tweets"
 _automaton_reported = False
 
 # Polymarket constraints
@@ -324,7 +325,7 @@ def execute_trade(market_id, side, amount):
             market_id=market_id,
             side=side,
             amount=amount,
-            source=TRADE_SOURCE,
+            source=TRADE_SOURCE, skill_slug=SKILL_SLUG,
         )
         return {
             "success": result.success,
@@ -346,7 +347,7 @@ def execute_sell(market_id, shares):
             side="yes",
             action="sell",
             shares=shares,
-            source=TRADE_SOURCE,
+            source=TRADE_SOURCE, skill_slug=SKILL_SLUG,
         )
         return {
             "success": result.success,
@@ -562,7 +563,7 @@ def check_exit_opportunities(dry_run=True, use_safeguards=True):
                 if trade_id and JOURNAL_AVAILABLE and not result.get("simulated"):
                     log_trade(
                         trade_id=trade_id,
-                        source=TRADE_SOURCE,
+                        source=TRADE_SOURCE, skill_slug=SKILL_SLUG,
                         thesis=f"Exit: price ${current_price:.2f} reached exit threshold",
                         action="sell",
                     )
@@ -865,7 +866,7 @@ def run_strategy(dry_run=True, positions_only=False, show_config=False,
                 if trade_id and JOURNAL_AVAILABLE and not result.get("simulated"):
                     log_trade(
                         trade_id=trade_id,
-                        source=TRADE_SOURCE,
+                        source=TRADE_SOURCE, skill_slug=SKILL_SLUG,
                         thesis=f"XTracker projects {projected_count} posts, bucket {bucket_label} "
                                f"underpriced at ${price:.2f} (cluster cost ${total_cost:.2f})",
                         confidence=round(0.7 if bucket["low"] <= projected_count <= bucket["high"] else 0.4, 2),

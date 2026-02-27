@@ -69,6 +69,7 @@ CONFIG_SCHEMA = {
 }
 
 TRADE_SOURCE = "sdk:fastloop"
+SKILL_SLUG = "polymarket-fast-loop"
 _automaton_reported = False
 SMART_SIZING_PCT = 0.05  # 5% of balance per trade
 MIN_SHARES_PER_ORDER = 5  # Polymarket minimum
@@ -496,7 +497,7 @@ def execute_trade(market_id, side, amount):
             market_id=market_id,
             side=side,
             amount=amount,
-            source=TRADE_SOURCE,
+            source=TRADE_SOURCE, skill_slug=SKILL_SLUG,
         )
         return {
             "success": result.success,
@@ -808,7 +809,7 @@ def run_fast_market_strategy(dry_run=True, positions_only=False, show_config=Fal
             confidence = min(0.9, 0.5 + divergence + (momentum_pct / 100))
             log_trade(
                 trade_id=trade_id,
-                source=TRADE_SOURCE,
+                source=TRADE_SOURCE, skill_slug=SKILL_SLUG,
                 thesis=trade_rationale,
                 confidence=round(confidence, 2),
                 asset=ASSET,

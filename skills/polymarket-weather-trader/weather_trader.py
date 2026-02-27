@@ -87,6 +87,7 @@ def get_client(live=True):
 
 # Source tag for tracking
 TRADE_SOURCE = "sdk:weather"
+SKILL_SLUG = "polymarket-weather-trader"
 _automaton_reported = False
 
 # Polymarket constraints
@@ -551,7 +552,7 @@ def execute_trade(market_id: str, side: str, amount: float) -> dict:
     """Execute a buy trade via Simmer SDK with source tagging."""
     try:
         result = get_client().trade(
-            market_id=market_id, side=side, amount=amount, source=TRADE_SOURCE,
+            market_id=market_id, side=side, amount=amount, source=TRADE_SOURCE, skill_slug=SKILL_SLUG,
         )
         return {
             "success": result.success, "trade_id": result.trade_id,
@@ -567,7 +568,7 @@ def execute_sell(market_id: str, shares: float) -> dict:
     try:
         result = get_client().trade(
             market_id=market_id, side="yes", action="sell",
-            shares=shares, source=TRADE_SOURCE,
+            shares=shares, source=TRADE_SOURCE, skill_slug=SKILL_SLUG,
         )
         return {
             "success": result.success, "trade_id": result.trade_id,
@@ -675,7 +676,7 @@ def check_exit_opportunities(dry_run: bool = False, use_safeguards: bool = True)
                 if trade_id and JOURNAL_AVAILABLE and not result.get("simulated"):
                     log_trade(
                         trade_id=trade_id,
-                        source=TRADE_SOURCE,
+                        source=TRADE_SOURCE, skill_slug=SKILL_SLUG,
                         thesis=f"Exit: price ${current_price:.2f} reached exit threshold ${EXIT_THRESHOLD:.2f}",
                         action="sell",
                     )
@@ -920,7 +921,7 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
                         confidence = 0.7  # Default confidence if threshold is zero
                     log_trade(
                         trade_id=trade_id,
-                        source=TRADE_SOURCE,
+                        source=TRADE_SOURCE, skill_slug=SKILL_SLUG,
                         thesis=f"NOAA forecasts {forecast_temp}°F for {location} on {date_str}, "
                                f"bucket '{outcome_name}' underpriced at ${price:.2f}",
                         confidence=round(confidence, 2),
