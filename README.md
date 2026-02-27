@@ -185,6 +185,7 @@ Skills in this repo (`skills/`) are the official Simmer-maintained strategies. S
 | **Onboarding Guide** | [simmer.markets/skill.md](https://simmer.markets/skill.md) |
 | **Skills Registry** | [simmer.markets/skillregistry.md](https://simmer.markets/skillregistry.md) |
 | **ClawHub** | [clawhub.ai](https://clawhub.ai) |
+| **MCP Server** | `pip install simmer-mcp` — docs + error troubleshooting as MCP resources ([PyPI](https://pypi.org/project/simmer-mcp/)) |
 | **Telegram** | [t.me/+m7sN0OLM_780M2Fl](https://t.me/+m7sN0OLM_780M2Fl) |
 
 ## Contributing
