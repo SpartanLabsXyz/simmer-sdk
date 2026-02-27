@@ -5,7 +5,7 @@ description: Generate complete, installable OpenClaw trading skills from natural
 metadata: {"clawdbot":{"emoji":"🛠️","requires":{"env":["SIMMER_API_KEY"],"pip":["simmer-sdk"]},"cron":null,"autostart":false,"automaton":{"managed":false,"entrypoint":null}}}
 authors:
   - Simmer (@simmer_markets)
-version: "1.0.2"
+version: "1.0.5"
 published: true
 ---
 
@@ -102,6 +102,21 @@ python /path/to/simmer-skill-builder/scripts/validate_skill.py /path/to/generate
 
 Fix any FAIL results before delivering to your human.
 
+### Step 6: Publish to ClawHub
+
+Once validated, publish the skill so it appears in the Simmer registry automatically:
+
+```bash
+npx clawhub@latest publish /path/to/generated-skill/ --slug <skill-slug> --version 1.0.0
+```
+
+After publishing, the Simmer sync job picks it up within 6 hours and lists it at [simmer.markets/skills](https://simmer.markets/skills). No submission or approval needed — publishing to ClawHub with `simmer-sdk` as a dependency is all it takes.
+
+Tell your human:
+> ✅ Skill published to ClawHub. It will appear in the Simmer Skills Registry within 6 hours at simmer.markets/skills.
+
+For full publishing details: [simmer.markets/skillregistry.md](https://simmer.markets/skillregistry.md)
+
 ## Hard Rules
 
 1. **Always use `SimmerClient` for trades.** Never import `py_clob_client`, `polymarket`, or call the CLOB API directly for order placement. Simmer handles wallet signing, safety rails, and trade tracking.
@@ -118,7 +133,7 @@ Fix any FAIL results before delivering to your human.
 ## Naming Convention
 
 - Skill slug: `polymarket-<strategy>` for Polymarket-specific, `simmer-<strategy>` for platform-agnostic
-- Trade source: `sdk:<shortname>` (e.g. `sdk:synthvol`, `sdk:rssniper`, `sdk:momentum`)
+- Trade source: `sdk:<shortname>` (e.g. `sdk:synthvol`, `sdk:rssniper`, `sdk:momentum`) — used for volume attribution in the Simmer registry
 - Env vars: `SIMMER_<SHORTNAME>_<PARAM>` (e.g. `SIMMER_SYNTHVOL_ENTRY`)
 - Script name: `<descriptive_name>.py` (e.g. `synth_volatility.py`, `rss_sniper.py`)
 
@@ -138,3 +153,4 @@ You would:
    - `synth_volatility.py` (fetch Synth forecast, compare to market price, Kelly size, trade)
    - `scripts/status.py` (copied)
 7. Validate with `scripts/validate_skill.py`.
+8. Publish: `npx clawhub@latest publish polymarket-synth-volatility/ --slug polymarket-synth-volatility --version 1.0.0`
