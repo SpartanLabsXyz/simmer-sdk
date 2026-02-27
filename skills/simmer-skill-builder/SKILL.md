@@ -88,6 +88,7 @@ Copy these verbatim from `references/skill-template.md`:
 Customize:
 - `CONFIG_SCHEMA` — skill-specific params with `SIMMER_<SKILLNAME>_<PARAM>` env vars
 - `TRADE_SOURCE` — unique tag like `"sdk:<skillname>"`
+- `SKILL_SLUG` — must match the ClawHub slug exactly (e.g., `"polymarket-weather-trader"`)
 - Signal logic — your human's strategy
 - Market fetching/filtering — how to find relevant markets
 - Main strategy function — the core loop
@@ -121,7 +122,7 @@ For full publishing details: [simmer.markets/skillregistry.md](https://simmer.ma
 
 1. **Always use `SimmerClient` for trades.** Never import `py_clob_client`, `polymarket`, or call the CLOB API directly for order placement. Simmer handles wallet signing, safety rails, and trade tracking.
 2. **Always default to dry-run.** The `--live` flag must be explicitly passed for real trades.
-3. **Always tag trades** with `source=TRADE_SOURCE` (e.g. `"sdk:synth-volatility"`).
+3. **Always tag trades** with `source=TRADE_SOURCE` and `skill_slug=SKILL_SLUG`. `SKILL_SLUG` must match the ClawHub slug exactly — Simmer uses it to track per-skill volume.
 4. **Always include safeguards** — the `check_context_safeguards()` function, skippable with `--no-safeguards`.
 5. **Always include reasoning** in `execute_trade()` — it's displayed publicly and builds your reputation.
 6. **Use stdlib only** for HTTP (urllib). Don't add `requests`, `httpx`, or `aiohttp` as dependencies unless your human specifically needs them. The only pip dependency should be `simmer-sdk`.
@@ -133,7 +134,8 @@ For full publishing details: [simmer.markets/skillregistry.md](https://simmer.ma
 ## Naming Convention
 
 - Skill slug: `polymarket-<strategy>` for Polymarket-specific, `simmer-<strategy>` for platform-agnostic
-- Trade source: `sdk:<shortname>` (e.g. `sdk:synthvol`, `sdk:rssniper`, `sdk:momentum`) — used for volume attribution in the Simmer registry
+- Trade source: `sdk:<shortname>` (e.g. `sdk:synthvol`, `sdk:rssniper`, `sdk:momentum`) — used for rebuy/conflict detection
+- Skill slug: must match the ClawHub slug exactly (e.g. `SKILL_SLUG = "polymarket-synth-volatility"`) — used for volume attribution
 - Env vars: `SIMMER_<SHORTNAME>_<PARAM>` (e.g. `SIMMER_SYNTHVOL_ENTRY`)
 - Script name: `<descriptive_name>.py` (e.g. `synth_volatility.py`, `rss_sniper.py`)
 
