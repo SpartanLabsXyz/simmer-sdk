@@ -506,6 +506,7 @@ class SimmerClient:
         price: Optional[float] = None,
         reasoning: Optional[str] = None,
         source: Optional[str] = None,
+        skill_slug: Optional[str] = None,
         allow_rebuy: bool = False
     ) -> TradeResult:
         """
@@ -538,6 +539,8 @@ class SimmerClient:
                 to see why your bot made this trade.
             source: Optional source tag for tracking (e.g., "sdk:weather", "sdk:copytrading").
                 Used to track which strategy opened each position.
+            skill_slug: Optional skill slug for volume attribution (e.g., "polymarket-weather-trader").
+                Matches the ClawHub slug. Used by Simmer to track skill-level trading volume.
             allow_rebuy: If False (default), skip buying a market you already hold a
                 position on (same source). Set True for DCA or averaging-in strategies.
 
@@ -661,6 +664,8 @@ class SimmerClient:
             payload["reasoning"] = reasoning
         if source:
             payload["source"] = source
+        if skill_slug:
+            payload["skill_slug"] = skill_slug
         if price is not None:
             payload["price"] = price
 
