@@ -488,6 +488,7 @@ def main():
         direction = "bearish"
 
     markets = get_markets()
+    markets = [m for m in markets if m.get('is_live_now', True) is not False]  # skip not-yet-open markets (no-op if field absent)
 
     if args.json:
         filtered = [m for m in markets if abs(m.get("divergence") or 0) >= args.min / 100]

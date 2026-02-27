@@ -362,6 +362,8 @@ def discover_markets(keywords: List[str], log=print) -> List[str]:
         log(f"  ⚠️ Market discovery failed: {e}")
         return []
 
+    markets = [m for m in markets if getattr(m, 'is_live_now', True) is not False]  # skip not-yet-open markets (no-op if field absent)
+
     if not keywords:
         return []
 

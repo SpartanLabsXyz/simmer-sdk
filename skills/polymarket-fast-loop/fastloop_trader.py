@@ -345,7 +345,7 @@ def _parse_fast_market_end_time(question):
 def find_best_fast_market(markets):
     """Pick the best fast_market to trade: soonest expiring with enough time remaining."""
     now = datetime.now(timezone.utc)
-    max_remaining = _window_seconds.get(WINDOW, 300) * 2  # reject markets that haven't started yet
+    max_remaining = _window_seconds.get(WINDOW, 300) * 2  # reject markets that haven't started yet (Gamma path handles live-now via time window; if a Simmer endpoint path is added, filter on is_live_now=True instead)
     candidates = []
     for m in markets:
         end_time = m.get("end_time")

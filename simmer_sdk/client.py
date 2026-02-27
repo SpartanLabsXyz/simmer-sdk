@@ -26,6 +26,7 @@ class Market:
     divergence: Optional[float] = None
     resolves_at: Optional[str] = None
     is_sdk_only: bool = False  # True for ultra-short-term markets hidden from public UI
+    is_live_now: Optional[bool] = None  # True if market window has started; None if field not returned by API
 
 
 @dataclass
@@ -487,7 +488,8 @@ class SimmerClient:
                 external_price_yes=m.get("external_price_yes"),
                 divergence=m.get("divergence"),
                 resolves_at=m.get("resolves_at"),
-                is_sdk_only=m.get("is_sdk_only", False)
+                is_sdk_only=m.get("is_sdk_only", False),
+                is_live_now=m.get("is_live_now")
             )
             for m in data.get("markets", [])
         ]
