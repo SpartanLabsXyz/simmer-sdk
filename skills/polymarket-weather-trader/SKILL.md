@@ -7,6 +7,7 @@ authors:
   - Simmer (@simmer_markets)
 attribution: "Strategy inspired by gopfan2"
 version: "1.12.0"
+difficulty: beginner
 published: true
 ---
 

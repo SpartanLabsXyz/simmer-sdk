@@ -6,6 +6,7 @@ metadata: {"clawdbot":{"emoji":"🛠️","requires":{"env":["SIMMER_API_KEY"],"p
 authors:
   - Simmer (@simmer_markets)
 version: "1.0.5"
+difficulty: beginner
 published: true
 ---
 

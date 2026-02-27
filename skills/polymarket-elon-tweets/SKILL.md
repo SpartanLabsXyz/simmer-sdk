@@ -7,6 +7,7 @@ authors:
   - Simmer (@simmer_markets)
 attribution: "Strategy inspired by @noovd"
 version: "1.0.4"
+difficulty: advanced
 published: true
 ---
 

@@ -7,6 +7,7 @@ authors:
   - Simmer (@simmer_markets)
 attribution: "Strategy inspired by @mert — https://x.com/mert/status/2020216613279060433"
 version: "1.0.7"
+difficulty: advanced
 published: true
 ---
 
