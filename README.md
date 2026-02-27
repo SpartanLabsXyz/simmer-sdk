@@ -2,7 +2,11 @@
 
 [![PyPI version](https://badge.fury.io/py/simmer-sdk.svg)](https://pypi.org/project/simmer-sdk/)
 
-Python SDK for [Simmer](https://simmer.markets) — a prediction market platform where AI agents trade on real-world events. Import markets from Polymarket and Kalshi, paper trade with $SIM, then graduate to real money.
+Simmer is the leading prediction market interface for AI agents. Autonomous trading agents place trades on venues like Polymarket and Kalshi through a unified API and SDK — with self-custody wallets, safety rails, and smart context.
+
+- **AI-native trading platform** — designed for autonomous agents, with full support for manual trading too. Users install trading skills and let their agents trade autonomously.
+- **$SIM simulated trading** — paper-trade with virtual currency before risking real funds.
+- **Multi-venue** — trade Polymarket and Kalshi through one unified API.
 
 ## Installation
 
@@ -10,7 +14,68 @@ Python SDK for [Simmer](https://simmer.markets) — a prediction market platform
 pip install simmer-sdk
 ```
 
+Get your API key from [simmer.markets/dashboard](https://simmer.markets/dashboard).
+
 ## Quick Start
+
+### OpenClaw Skill Pattern (recommended)
+
+Most Simmer users run trading skills inside [OpenClaw](https://openclaw.ai). The standard pattern uses a lazy singleton client and reads config from environment variables:
+
+```python
+import os
+from simmer_sdk import SimmerClient
+
+SKILL_SLUG = "my-skill-slug"   # Must match your ClawHub slug
+TRADE_SOURCE = f"sdk:{SKILL_SLUG}"
+
+_client = None
+def get_client():
+    global _client
+    if _client is None:
+        venue = os.environ.get("TRADING_VENUE", "simmer")
+        _client = SimmerClient(api_key=os.environ["SIMMER_API_KEY"], venue=venue)
+    return _client
+
+def run(live: bool = False):
+    client = get_client()
+
+    # Find markets
+    markets = client.get_markets(status="active", limit=20)
+
+    # Get trading context (safeguards, slippage, conflict detection)
+    ctx = client.get_market_context(markets[0].id)
+
+    # Trade — always tag source and skill_slug
+    if not ctx.conflict and ctx.recommended_action != "hold":
+        result = client.trade(
+            market_id=markets[0].id,
+            side="yes",
+            amount=10.0,
+            dry_run=not live,
+            source=TRADE_SOURCE,
+            skill_slug=SKILL_SLUG,
+            reasoning="Signal detected — buying YES"
+        )
+        print(f"{'DRY RUN: ' if not live else ''}Bought {result.shares_bought:.2f} shares")
+
+if __name__ == "__main__":
+    import sys
+    run(live="--live" in sys.argv)
+```
+
+Set environment variables:
+```bash
+export SIMMER_API_KEY=sk_live_...
+export TRADING_VENUE=simmer        # simmer | polymarket | kalshi
+export WALLET_PRIVATE_KEY=0x...    # Required for Polymarket self-custody
+```
+
+> **Default to dry-run.** Skills should require `--live` to execute real trades. Paper-trade with `$SIM` until your edge is consistent, then graduate to real money.
+
+### Raw SDK
+
+For developers building custom integrations:
 
 ```python
 from simmer_sdk import SimmerClient
@@ -31,15 +96,13 @@ for p in client.get_positions():
     print(f"{p.question[:50]}: P&L ${p.pnl:.2f}")
 ```
 
-Get your API key from [simmer.markets/dashboard](https://simmer.markets/dashboard).
-
 ## Trading Venues
 
 | Venue | Currency | Description |
 |-------|----------|-------------|
 | `simmer` | $SIM (virtual) | Default. Paper trading on Simmer's LMSR markets. |
 | `polymarket` | USDC.e (real) | Real trades on Polymarket (Polygon). Requires `WALLET_PRIVATE_KEY`. |
-| `kalshi` | USDC (real) | Real trades on Kalshi via DFlow (Solana). Requires `SOLANA_PRIVATE_KEY`. |
+| `kalshi` | USDC (real) | Real trades on Kalshi. Requires Pro plan. |
 
 ```python
 # Paper trading (default)
@@ -48,57 +111,31 @@ client = SimmerClient(api_key="sk_live_...", venue="simmer")
 # Real trading on Polymarket
 client = SimmerClient(api_key="sk_live_...", venue="polymarket")
 
-# Real trading on Kalshi (Pro plan required)
-client = SimmerClient(api_key="sk_live_...", venue="kalshi")
-
 # Override venue for a single trade
 client.trade(market_id, side="yes", amount=10.0, venue="polymarket")
 ```
 
-### `TRADING_VENUE` Environment Variable
+`TRADING_VENUE` environment variable is read at client init — OpenClaw skills use this to select venue at startup without code changes.
 
-OpenClaw skills and the automaton read `TRADING_VENUE` to select venue at startup:
-
-```bash
-TRADING_VENUE=simmer python my_skill.py              # Paper trading with $SIM
-TRADING_VENUE=polymarket python my_skill.py --live    # Real money
-TRADING_VENUE=kalshi python my_skill.py --live        # Real money
-```
-
-$SIM paper trades execute at real external prices — P&L is tracked and automaton bandit weights update automatically.
-
-> **Spread caveat:** $SIM fills instantly (AMM, no spread). Real venues have orderbook spreads of 2-5%. Target edges >5% in $SIM before graduating to real money.
-
-## Import Markets
-
-```python
-# Import from Polymarket
-result = client.import_market("https://polymarket.com/event/will-x-happen")
-
-# Import from Kalshi
-result = client.import_kalshi_market("https://kalshi.com/markets/TICKER/...")
-
-# Discover importable markets
-markets = client.list_importable_markets(venue="polymarket", category="crypto")
-```
+> **Spread caveat:** $SIM fills instantly (AMM, no spread). Real venues have orderbook spreads of 2–5%. Target edges >5% in $SIM before graduating to real money.
 
 ## Key Methods
 
 | Method | Description |
 |--------|-------------|
-| `get_markets()` | List markets (filter by status, source, venue) |
+| `get_markets()` | List markets (filter by status, source, venue, tags, keyword) |
 | `trade()` | Buy or sell shares |
 | `get_positions()` | All positions with P&L |
 | `get_held_markets()` | Map of market_id → source tags for held positions |
 | `check_conflict()` | Check if another skill holds a position on a market |
 | `get_open_orders()` | Open GTC/GTD orders on the CLOB |
 | `get_portfolio()` | Portfolio summary with balance and exposure |
-| `get_market_context()` | Trading safeguards (slippage, flip-flop detection) |
+| `get_market_context()` | Trading safeguards (slippage, flip-flop detection, conflict) |
 | `get_price_history()` | Price history for trend detection |
-| `import_market()` | Import a Polymarket market |
-| `import_kalshi_market()` | Import a Kalshi market |
-| `list_importable_markets()` | Discover markets to import |
-| `set_monitor()` | Set stop-loss / take-profit |
+| `import_market()` | Import a Polymarket market by URL |
+| `import_kalshi_market()` | Import a Kalshi market by URL |
+| `list_importable_markets()` | Discover markets available to import |
+| `set_monitor()` | Set stop-loss / take-profit on a position |
 | `create_alert()` | Price alerts with optional webhook |
 | `register_webhook()` | Push notifications for trades, resolutions, price moves |
 | `redeem()` | Redeem a specific winning Polymarket position |
@@ -121,41 +158,45 @@ for r in results:
         print(f"Redeemed {r['market_id']} ({r['side']}): {r['tx_hash']}")
 ```
 
-**How it works:**
-- Fetches your positions and filters positions where `redeemable: true` and `redeemable_side` is set (Polymarket only)
-- Calls `redeem()` for each redeemable position
-- For external wallets (`WALLET_PRIVATE_KEY`): signs and broadcasts on-chain — waits for confirmation per position (up to ~60s each)
-- For managed wallets: the server handles signing (no local key needed)
-- Returns a list of results — never raises, safe to call every cycle
+- Fetches positions where `redeemable: true` and `redeemable_side` is set (Polymarket only)
+- For self-custody wallets (`WALLET_PRIVATE_KEY`): signs and broadcasts on-chain
+- For managed wallets: server handles signing, no local key needed
+- Never raises — safe to call every cycle
 
-**Toggle:** Auto-redeem can be disabled per-agent from the Simmer dashboard. When disabled, `auto_redeem()` returns an empty list immediately.
+Auto-redeem can be toggled per-agent from the Simmer dashboard.
 
-## OpenClaw Skills
+## Skills
 
-Pre-built trading strategies installable via [ClawHub](https://clawhub.com):
-
-| Skill | Description |
-|-------|-------------|
-| [Automaton](./skills/simmer-automaton/) | Meta-skill that selects and runs other skills using a bandit algorithm |
-| [Weather Trader](./skills/polymarket-weather-trader/) | Trade weather markets using NOAA forecasts |
-| [Copytrading](./skills/polymarket-copytrading/) | Mirror top Polymarket traders |
-| [Signal Sniper](./skills/polymarket-signal-sniper/) | Trade on breaking news from RSS feeds |
-| [Mert Sniper](./skills/polymarket-mert-sniper/) | Near-expiry conviction trading |
-| [AI Divergence](./skills/polymarket-ai-divergence/) | Surface markets where AI consensus diverges from odds |
-| [Fast Loop](./skills/polymarket-fast-loop/) | BTC fast market trades using Binance momentum |
-| [Trade Journal](./skills/prediction-trade-journal/) | Auto-log trades with calibration reports |
+Pre-built trading strategies are published on [ClawHub](https://clawhub.ai) and listed in the Simmer registry. Browse and install at **[simmer.markets/skills](https://simmer.markets/skills)**.
 
 ```bash
+# Install a skill via ClawHub CLI
 clawhub install polymarket-weather-trader
-clawhub install simmer-automaton
 ```
 
-## Links
+Skills in this repo (`skills/`) are the official Simmer-maintained strategies. See [simmer.markets/skillregistry.md](https://simmer.markets/skillregistry.md) for the full guide to building, remixing, and publishing your own.
 
-- **Dashboard**: [simmer.markets/dashboard](https://simmer.markets/dashboard)
-- **Full API Docs**: [simmer.markets/docs.md](https://simmer.markets/docs.md)
-- **Skill Reference**: [simmer.markets/skill.md](https://simmer.markets/skill.md)
-- **ClawHub**: [clawhub.com](https://clawhub.com)
+## Resources
+
+| | |
+|--|--|
+| **Platform** | [simmer.markets](https://simmer.markets) |
+| **API Reference** | [simmer.markets/docs.md](https://simmer.markets/docs.md) |
+| **Onboarding Guide** | [simmer.markets/skill.md](https://simmer.markets/skill.md) |
+| **Skills Registry** | [simmer.markets/skillregistry.md](https://simmer.markets/skillregistry.md) |
+| **ClawHub** | [clawhub.ai](https://clawhub.ai) |
+| **Telegram** | [t.me/+m7sN0OLM_780M2Fl](https://t.me/+m7sN0OLM_780M2Fl) |
+
+## Contributing
+
+SDK improvements and bug fixes are welcome. If you've hit an edge case with `SimmerClient` or have a useful addition, open a PR.
+
+- **Skills** belong on [ClawHub](https://clawhub.ai), not this repo — see [skillregistry.md](https://simmer.markets/skillregistry.md)
+- **API bugs or feature requests** → open an issue first
+- **AI-assisted PRs welcome** — just note it in the PR description
+- Keep PRs focused on one thing
+
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for the full guide.
 
 ## License
 
