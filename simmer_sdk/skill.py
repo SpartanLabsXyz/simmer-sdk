@@ -41,8 +41,8 @@ def _apply_automaton_config(slug):
             data = json.loads(resp.read())
         config = data.get("config", {})
         if config:
-            # Coerce all values to str — os.environ rejects non-string values
-            safe = {k: str(v) for k, v in config.items()}
+            # Only allow env vars prefixed with SIMMER_ to prevent arbitrary env overwrite
+            safe = {k: str(v) for k, v in config.items() if k.startswith("SIMMER_")}
             os.environ.update(safe)
             logger.debug("Applied %d automaton config override(s) for %s", len(config), slug)
         return config

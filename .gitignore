@@ -37,5 +37,8 @@ venv/
 .DS_Store
 Thumbs.db
 
+# Skill runtime config (may contain sensitive values)
+**/config.json
+
 # Claude Code (worktrees, temporary files)
 .claude/

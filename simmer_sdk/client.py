@@ -267,6 +267,9 @@ class SimmerClient:
             self._paper_portfolio = PaperPortfolio()
             logger.info("Paper trading mode enabled. Trades will be simulated with real prices.")
 
+    def __repr__(self):
+        return f"SimmerClient(venue={self.venue!r}, base_url={self.base_url!r})"
+
     def _validate_and_set_wallet(self, private_key: str) -> None:
         """Validate private key format and derive wallet address."""
         if not private_key.startswith("0x"):
@@ -1820,7 +1823,9 @@ class SimmerClient:
         """
         config = self.get_skill_config(slug)
         if config:
-            os.environ.update(config)
+            # Only allow env vars prefixed with SIMMER_ to prevent arbitrary env overwrite
+            safe = {k: str(v) for k, v in config.items() if k.startswith("SIMMER_")}
+            os.environ.update(safe)
             logger.info("Applied %d automaton config override(s) for %s", len(config), slug)
         return config
 
