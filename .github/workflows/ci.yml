@@ -26,7 +26,7 @@ jobs:
         run: pip install -e .
 
       - name: Import smoke test
-        run: python -c "from simmer_sdk import SimmerClient; from simmer_sdk.signing import sign_order; print('OK')"
+        run: python -c "from simmer_sdk import SimmerClient; from simmer_sdk.signing import SignedOrder; print('OK')"
 
       - name: Run tests (if present)
         run: |
