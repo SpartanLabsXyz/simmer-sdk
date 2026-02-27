@@ -44,6 +44,7 @@ def _apply_automaton_config(slug):
             # Only allow env vars prefixed with SIMMER_ to prevent arbitrary env overwrite
             safe = {k: str(v) for k, v in config.items() if k.startswith("SIMMER_")}
             os.environ.update(safe)
+            print(f"[automaton] Config applied for {slug}: {', '.join(f'{k}={v}' for k, v in safe.items())}")
             logger.debug("Applied %d automaton config override(s) for %s", len(config), slug)
         return config
     except Exception:
