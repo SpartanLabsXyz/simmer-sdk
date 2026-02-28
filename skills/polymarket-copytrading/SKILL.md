@@ -2,10 +2,10 @@
 name: polymarket-copytrading
 displayName: Polymarket Copytrading
 description: Mirror positions from top Polymarket traders using Simmer API. Size-weighted aggregation across multiple wallets.
-metadata: {"clawdbot":{"emoji":"🐋","requires":{"env":["SIMMER_API_KEY"],"pip":["simmer-sdk"]},"cron":null,"autostart":false,"automaton":{"managed":true,"entrypoint":"copytrading_trader.py"},"tunables":[{"env":"SIMMER_COPYTRADING_MAX_USD","type":"number","default":50,"range":[1,200],"step":5,"label":"Max bet per trade"},{"env":"SIMMER_COPYTRADING_TOP_N","type":"number","default":5,"range":[1,20],"step":1,"label":"Positions to track"},{"env":"SIMMER_COPYTRADING_MAX_TRADES","type":"number","default":5,"range":[1,20],"step":1,"label":"Max trades per run"}]}}
+metadata: {"clawdbot":{"emoji":"🐋","requires":{"env":["SIMMER_API_KEY"],"pip":["simmer-sdk"]},"cron":null,"autostart":false,"automaton":{"managed":true,"entrypoint":"copytrading_trader.py"},"tunables":[{"env":"SIMMER_COPYTRADING_WALLETS","type":"string","default":"","label":"Whale wallet addresses (comma-separated)"},{"env":"SIMMER_COPYTRADING_MAX_USD","type":"number","default":50,"range":[1,200],"step":5,"label":"Max bet per trade"},{"env":"SIMMER_COPYTRADING_TOP_N","type":"number","default":5,"range":[1,20],"step":1,"label":"Positions to track"},{"env":"SIMMER_COPYTRADING_MAX_TRADES","type":"number","default":5,"range":[1,20],"step":1,"label":"Max trades per run"}]}}
 authors:
   - Simmer (@simmer_markets)
-version: "1.4.0"
+version: "1.5.0"
 difficulty: beginner
 published: true
 ---
