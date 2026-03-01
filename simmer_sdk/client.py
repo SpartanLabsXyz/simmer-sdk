@@ -1469,8 +1469,9 @@ class SimmerClient:
             Dict with cancellation result
         """
         if self._private_key:
-            # Look up token_id from market data
-            market = self._request("GET", f"/api/sdk/markets/{market_id}")
+            # Look up token_id from market data (response wraps fields under "market" key)
+            resp = self._request("GET", f"/api/sdk/markets/{market_id}")
+            market = resp.get("market", resp)
             if side == "no":
                 token_id = market.get("polymarket_no_token_id")
             else:
