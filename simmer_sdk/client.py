@@ -1994,8 +1994,9 @@ class SimmerClient:
         """
         config = self.get_skill_config(slug)
         if config:
-            # Only allow env vars prefixed with SIMMER_ to prevent arbitrary env overwrite
-            safe = {k: str(v) for k, v in config.items() if k.startswith("SIMMER_")}
+            # Only allow env vars prefixed with SIMMER_, excluding credentials
+            _BLOCKED = {"SIMMER_API_KEY", "SIMMER_PRIVATE_KEY", "SIMMER_SECRET", "SIMMER_API_SECRET"}
+            safe = {k: str(v) for k, v in config.items() if k.startswith("SIMMER_") and k not in _BLOCKED}
             os.environ.update(safe)
             logger.info("Applied %d automaton config override(s) for %s", len(config), slug)
         return config
