@@ -199,6 +199,7 @@ class SimmerClient:
         self._solana_wallet_address: Optional[str] = None  # Solana wallet address
         self._held_markets_cache: Optional[dict] = None  # {market_id: [source_tags]}
         self._held_markets_ts: float = 0  # Cache timestamp
+        self._clob_client = None  # Cached ClobClient for local CLOB operations
 
         # EVM key: Use provided private_key, or auto-detect from environment
         # Check WALLET_PRIVATE_KEY first, fall back to deprecated SIMMER_PRIVATE_KEY
@@ -358,6 +359,12 @@ class SimmerClient:
                 except Exception:
                     pass  # Non-fatal — server will clean up
 
+                # 4. Delete the Redis alert to prevent re-triggering
+                try:
+                    self._request("DELETE", f"/api/sdk/risk-alerts/{market_id}/{side}")
+                except Exception:
+                    pass  # Non-fatal — alert expires via TTL
+
                 print(f"[SimmerSDK] Risk exit executed: {reason} on {market_id[:8]}... "
                       f"{side} — sold {shares:.2f} shares")
 
@@ -366,7 +373,10 @@ class SimmerClient:
                 # Alert persists in Redis — will retry next cycle
 
     def _get_clob_client(self):
-        """Create an authenticated ClobClient for local CLOB operations."""
+        """Get or create an authenticated ClobClient for local CLOB operations."""
+        if self._clob_client is not None:
+            return self._clob_client
+
         from py_clob_client.client import ClobClient
 
         client = ClobClient(
@@ -378,6 +388,7 @@ class SimmerClient:
         )
         creds = client.create_or_derive_api_creds()
         client.set_api_creds(creds)
+        self._clob_client = client
         return client
 
     def _cancel_orders_for_token(self, token_id: str):
