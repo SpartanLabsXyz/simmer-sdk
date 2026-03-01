@@ -267,6 +267,13 @@ class SimmerClient:
             self._paper_portfolio = PaperPortfolio()
             logger.info("Paper trading mode enabled. Trades will be simulated with real prices.")
 
+        # Auto-process risk alerts on init (external wallets only)
+        if self.live and self._private_key and venue in ("polymarket",):
+            try:
+                self._process_risk_alerts()
+            except Exception as e:
+                logger.warning("Risk alert check failed: %s", e)
+
     def __repr__(self):
         return f"SimmerClient(venue={self.venue!r}, base_url={self.base_url!r})"
 
@@ -306,6 +313,83 @@ class SimmerClient:
     def has_solana_wallet(self) -> bool:
         """Check if client is configured for external Solana wallet trading (Kalshi)."""
         return self._solana_key_available
+
+    # ==========================================
+    # RISK ALERT AUTO-PROCESSING
+    # ==========================================
+
+    def _process_risk_alerts(self):
+        """Check for and execute triggered risk exits (called on init for external wallets)."""
+        try:
+            response = self._request("GET", "/api/sdk/risk-alerts")
+        except Exception:
+            return  # API unreachable — skip silently
+
+        alerts = response.get("risk_alerts", [])
+        if not alerts:
+            return
+
+        print(f"[SimmerSDK] {len(alerts)} risk alert(s) detected — processing exits")
+
+        for alert in alerts:
+            market_id = alert["market_id"]
+            side = alert["side"]
+            shares = float(alert["shares"])
+            reason = alert["exit_reason"]
+            token_id = alert.get("token_id")
+
+            try:
+                # 1. Cancel open orders on this market (client-side)
+                if token_id:
+                    self._cancel_orders_for_token(token_id)
+
+                # 2. Execute the sell
+                result = self.trade(
+                    market_id=market_id,
+                    side=side,
+                    shares=shares,
+                    action="sell",
+                    order_type="FAK",
+                )
+
+                # 3. Delete the risk setting (position is exited)
+                try:
+                    self.delete_monitor(market_id, side)
+                except Exception:
+                    pass  # Non-fatal — server will clean up
+
+                print(f"[SimmerSDK] Risk exit executed: {reason} on {market_id[:8]}... "
+                      f"{side} — sold {shares:.2f} shares")
+
+            except Exception as e:
+                print(f"[SimmerSDK] Risk exit failed for {market_id[:8]}... {side}: {e}")
+                # Alert persists in Redis — will retry next cycle
+
+    def _get_clob_client(self):
+        """Create an authenticated ClobClient for local CLOB operations."""
+        from py_clob_client.client import ClobClient
+
+        client = ClobClient(
+            host="https://clob.polymarket.com",
+            key=self._private_key,
+            chain_id=137,
+            signature_type=0,
+            funder=self._wallet_address,
+        )
+        creds = client.create_or_derive_api_creds()
+        client.set_api_creds(creds)
+        return client
+
+    def _cancel_orders_for_token(self, token_id: str):
+        """Cancel all open orders for a token using local py_clob_client."""
+        try:
+            client = self._get_clob_client()
+            result = client.cancel_market_orders(asset_id=token_id)
+            cancelled = result.get("canceled", [])
+            if cancelled:
+                print(f"[SimmerSDK] Cancelled {len(cancelled)} open order(s)")
+        except Exception as e:
+            print(f"[SimmerSDK] Order cancel failed (non-fatal): {e}")
 
     def _ensure_wallet_linked(self) -> None:
         """
@@ -1340,6 +1424,81 @@ class SimmerClient:
             client.delete_monitor("market-id", "yes")
         """
         return self._request("DELETE", f"/api/sdk/positions/{market_id}/monitor", params={"side": side})
+
+    # ==========================================
+    # ORDER CANCELLATION
+    # ==========================================
+
+    def cancel_order(self, order_id: str) -> Dict[str, Any]:
+        """
+        Cancel a single open order by ID.
+
+        For external wallets: cancels locally via CLOB API.
+        For managed wallets: cancels via server endpoint.
+
+        Args:
+            order_id: The order ID to cancel
+
+        Returns:
+            Dict with cancellation result
+        """
+        if self._private_key:
+            return self._cancel_order_local(order_id)
+        return self._request("DELETE", f"/api/sdk/orders/{order_id}")
+
+    def cancel_market_orders(self, market_id: str, side: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Cancel all open orders on a market.
+
+        Args:
+            market_id: Market ID
+            side: Optional side filter ('yes' or 'no')
+
+        Returns:
+            Dict with cancellation result
+        """
+        if self._private_key:
+            # Look up token_id from market data
+            market = self._request("GET", f"/api/sdk/markets/{market_id}")
+            if side == "no":
+                token_id = market.get("polymarket_no_token_id")
+            else:
+                token_id = market.get("polymarket_token_id")
+            if not token_id:
+                return {"canceled": [], "error": "No token ID found"}
+            self._cancel_orders_for_token(token_id)
+            return {"canceled": ["local"], "market_id": market_id}
+        params = {"side": side} if side else {}
+        return self._request("DELETE", f"/api/sdk/markets/{market_id}/orders", params=params)
+
+    def cancel_all_orders(self) -> Dict[str, Any]:
+        """
+        Cancel all open orders across all markets.
+
+        Returns:
+            Dict with cancellation result
+        """
+        if self._private_key:
+            return self._cancel_all_local()
+        return self._request("DELETE", "/api/sdk/orders")
+
+    def _cancel_order_local(self, order_id: str) -> Dict[str, Any]:
+        """Cancel a single order via local py_clob_client."""
+        try:
+            client = self._get_clob_client()
+            result = client.cancel(order_id)
+            return {"success": True, "order_id": order_id, "result": result}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def _cancel_all_local(self) -> Dict[str, Any]:
+        """Cancel all orders via local py_clob_client."""
+        try:
+            client = self._get_clob_client()
+            result = client.cancel_all()
+            return {"success": True, "result": result}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
 
     # ==========================================
     # REDEMPTIONS
