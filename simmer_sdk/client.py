@@ -673,9 +673,10 @@ class SimmerClient:
                 - "GTC": Good Till Cancelled - limit order, stays on book until filled
                 - "GTD": Good Till Date - limit order with expiry
                 Only applies to venue="polymarket". Ignored for simmer.
-            price: Limit price (0.01-0.99) for the outcome being traded. For side="yes",
+            price: Limit price (0.001-0.999) for the outcome being traded. For side="yes",
                 this is the YES token price. For side="no", this is the NO token price
                 (NOT 1-price). If omitted, uses current market price for that outcome.
+                Sub-cent prices (e.g. 0.009 for 0.9¢) are supported for neg_risk markets.
                 Only applies to venue="polymarket". Ignored for simmer.
             reasoning: Optional explanation for the trade. This will be displayed
                 publicly on the market's trade history page, allowing spectators
@@ -789,8 +790,8 @@ class SimmerClient:
 
         # Validate price if provided
         if price is not None:
-            if price < 0.01 or price > 0.99:
-                raise ValueError("price must be between 0.01 and 0.99 (Polymarket share prices)")
+            if price < 0.001 or price > 0.999:
+                raise ValueError("price must be between 0.001 and 0.999 (Polymarket share prices)")
             if effective_venue != "polymarket":
                 raise ValueError(f"price parameter only supported for venue='polymarket' (you specified venue='{effective_venue}')")
 
@@ -890,7 +891,7 @@ class SimmerClient:
         price = float(market.get("external_price_yes") or market.get("current_probability") or 0.5)
         if side == "no":
             price = 1.0 - price
-        price = max(price, 0.01)  # Floor to avoid division by zero
+        price = max(price, 0.001)  # Floor to avoid division by zero (supports sub-cent neg_risk markets)
 
         if action == "buy":
             shares_filled = amount / price
@@ -2062,7 +2063,7 @@ class SimmerClient:
             shares: Number of shares (for sells)
             action: 'buy' or 'sell'
             order_type: Order type ('FAK', 'GTC', etc.)
-            price: Optional limit price (0.01-0.99). If None, uses current market price.
+            price: Optional limit price (0.001-0.999). If None, uses current market price.
         """
         if not self._private_key or not self._wallet_address:
             return None
