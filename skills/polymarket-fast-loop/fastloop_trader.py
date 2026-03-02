@@ -275,7 +275,42 @@ def fetch_orderbook_summary(clob_token_ids):
 # =============================================================================
 
 def discover_fast_market_markets(asset="BTC", window="5m"):
-    """Find active fast markets on Polymarket via Gamma API."""
+    """Find active fast markets via Simmer API (pre-imported, reliable).
+    Falls back to Gamma API if Simmer returns no results."""
+    # Primary: Simmer's /api/sdk/fast-markets (markets already imported, is_live_now computed)
+    try:
+        client = get_client()
+        sdk_markets = client.get_fast_markets(asset=asset, window=window, limit=50)
+        if sdk_markets:
+            markets = []
+            for m in sdk_markets:
+                # Parse resolves_at string to datetime for time calculations
+                end_time = _parse_resolves_at(m.resolves_at) if m.resolves_at else None
+                clob_tokens = [m.polymarket_token_id] if m.polymarket_token_id else []
+                if m.polymarket_no_token_id:
+                    clob_tokens.append(m.polymarket_no_token_id)
+                markets.append({
+                    "question": m.question,
+                    "market_id": m.id,  # Already imported — no import step needed
+                    "end_time": end_time,
+                    "clob_token_ids": clob_tokens,
+                    "is_live_now": m.is_live_now,
+                    "spread_cents": m.spread_cents,
+                    "liquidity_tier": m.liquidity_tier,
+                    "external_price_yes": m.external_price_yes,
+                    "fee_rate_bps": 0,  # Fast markets charge on winnings, not entry
+                    "source": "simmer",
+                })
+            return markets
+    except Exception as e:
+        print(f"  ⚠️  Simmer fast-markets API failed ({e}), falling back to Gamma")
+
+    # Fallback: Gamma API (may return stale data)
+    return _discover_via_gamma(asset, window)
+
+
+def _discover_via_gamma(asset="BTC", window="5m"):
+    """Fallback: Find active fast markets on Polymarket via Gamma API."""
     patterns = ASSET_PATTERNS.get(asset, ASSET_PATTERNS["BTC"])
     url = (
         "https://gamma-api.polymarket.com/markets"
@@ -294,9 +329,7 @@ def discover_fast_market_markets(asset="BTC", window="5m"):
             condition_id = m.get("conditionId", "")
             closed = m.get("closed", False)
             if not closed and slug:
-                # Parse end time from question (e.g., "5:30AM-5:35AM ET")
                 end_time = _parse_fast_market_end_time(m.get("question", ""))
-                # Capture CLOB token IDs for live price fetching
                 clob_tokens_raw = m.get("clobTokenIds", "[]")
                 if isinstance(clob_tokens_raw, str):
                     try:
@@ -314,16 +347,29 @@ def discover_fast_market_markets(asset="BTC", window="5m"):
                     "outcome_prices": m.get("outcomePrices", "[]"),
                     "clob_token_ids": clob_tokens,
                     "fee_rate_bps": int(m.get("fee_rate_bps") or m.get("feeRateBps") or 0),
+                    "source": "gamma",
                 })
     return markets
 
 
+def _parse_resolves_at(resolves_at_str):
+    """Parse a resolves_at string (ISO format) into a timezone-aware UTC datetime."""
+    try:
+        # Handle both "2026-03-02 05:10:00Z" and "2026-03-02T05:10:00Z" formats
+        s = resolves_at_str.replace("Z", "+00:00").replace(" ", "T")
+        dt = datetime.fromisoformat(s)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    except Exception:
+        return None
+
+
 def _parse_fast_market_end_time(question):
-    """Parse end time from fast market question.
+    """Parse end time from fast market question (Gamma fallback path).
     e.g., 'Bitcoin Up or Down - February 15, 5:30AM-5:35AM ET' → datetime
     """
     import re
-    # Match pattern: "Month Day, StartTime-EndTime ET"
     pattern = r'(\w+ \d+),.*?-\s*(\d{1,2}:\d{2}(?:AM|PM))\s*ET'
     match = re.search(pattern, question)
     if not match:
@@ -335,7 +381,6 @@ def _parse_fast_market_end_time(question):
         year = datetime.now(timezone.utc).year
         dt_str = f"{date_str} {year} {time_str}"
         dt = datetime.strptime(dt_str, "%B %d %Y %I:%M%p")
-        # Proper ET → UTC (handles EST/EDT automatically)
         et = ZoneInfo("America/New_York")
         dt = dt.replace(tzinfo=et).astimezone(timezone.utc)
         return dt
@@ -344,17 +389,28 @@ def _parse_fast_market_end_time(question):
 
 
 def find_best_fast_market(markets):
-    """Pick the best fast_market to trade: soonest expiring with enough time remaining."""
+    """Pick the best fast_market to trade: live now, soonest expiring, enough time remaining."""
     now = datetime.now(timezone.utc)
-    max_remaining = _window_seconds.get(WINDOW, 300) * 2  # reject markets that haven't started yet (Gamma path handles live-now via time window; if a Simmer endpoint path is added, filter on is_live_now=True instead)
+    max_remaining = _window_seconds.get(WINDOW, 300) * 2
     candidates = []
     for m in markets:
-        end_time = m.get("end_time")
-        if not end_time:
-            continue
-        remaining = (end_time - now).total_seconds()
-        if remaining > MIN_TIME_REMAINING and remaining < max_remaining:
-            candidates.append((remaining, m))
+        # Prefer is_live_now flag from Simmer API (reliable, server-computed)
+        if m.get("is_live_now") is not None:
+            if not m["is_live_now"]:
+                continue  # Not live yet — skip
+            end_time = m.get("end_time")
+            if end_time:
+                remaining = (end_time - now).total_seconds()
+                if remaining > MIN_TIME_REMAINING:
+                    candidates.append((remaining, m))
+        else:
+            # Gamma fallback: use time-based filtering
+            end_time = m.get("end_time")
+            if not end_time:
+                continue
+            remaining = (end_time - now).total_seconds()
+            if remaining > MIN_TIME_REMAINING and remaining < max_remaining:
+                candidates.append((remaining, m))
 
     if not candidates:
         return None
@@ -608,12 +664,14 @@ def run_fast_market_strategy(dry_run=True, positions_only=False, show_config=Fal
         now = datetime.now(timezone.utc)
         for m in markets:
             end_time = m.get("end_time")
-            if end_time:
+            if m.get("is_live_now") is False:
+                log(f"  Skipped: {m['question'][:50]}... (not live yet)")
+            elif end_time:
                 secs_left = (end_time - now).total_seconds()
                 log(f"  Skipped: {m['question'][:50]}... ({secs_left:.0f}s left < {MIN_TIME_REMAINING}s min)")
-        log(f"  All {len(markets)} markets have <{MIN_TIME_REMAINING}s remaining — waiting for next window")
+        log(f"  No live tradeable markets among {len(markets)} found — waiting for next window")
         if not quiet:
-            print(f"📊 Summary: No tradeable markets (all {len(markets)} too close to expiry)")
+            print(f"📊 Summary: No tradeable markets (0/{len(markets)} live with enough time)")
         return
 
     end_time = best.get("end_time")
@@ -621,19 +679,17 @@ def run_fast_market_strategy(dry_run=True, positions_only=False, show_config=Fal
     log(f"\n🎯 Selected: {best['question']}")
     log(f"  Expires in: {remaining:.0f}s")
 
-    # Fetch live CLOB price (falls back to stale Gamma snapshot)
+    # Fetch live CLOB price — required for fast markets (stale prices cause bad trades)
     clob_tokens = best.get("clob_token_ids", [])
     live_price = fetch_live_prices(clob_tokens) if clob_tokens else None
     if live_price is not None:
         market_yes_price = live_price
         log(f"  Current YES price: ${market_yes_price:.3f} (live CLOB)")
     else:
-        try:
-            prices = json.loads(best.get("outcome_prices", "[]"))
-            market_yes_price = float(prices[0]) if prices else 0.5
-        except (json.JSONDecodeError, IndexError, ValueError):
-            market_yes_price = 0.5
-        log(f"  Current YES price: ${market_yes_price:.3f} (Gamma snapshot ⚠️)")
+        log(f"  ⏸️  Could not fetch live CLOB price — skipping (stale prices are unsafe on fast markets)")
+        if not quiet:
+            print(f"📊 Summary: No trade (CLOB price unavailable)")
+        return
 
     # Fee info (fast markets charge 10% on winnings)
     fee_rate_bps = best.get("fee_rate_bps", 0)
@@ -672,17 +728,33 @@ def run_fast_market_strategy(dry_run=True, positions_only=False, show_config=Fal
             _automaton_reported = True
 
     # Check order book spread and depth
-    book = fetch_orderbook_summary(clob_tokens) if clob_tokens else None
-    if book:
-        log(f"  Spread: {book['spread_pct']:.1%} (bid ${book['best_bid']:.3f} / ask ${book['best_ask']:.3f})")
-        log(f"  Depth: ${book['bid_depth_usd']:.0f} bid / ${book['ask_depth_usd']:.0f} ask (top 5)")
-        if book["spread_pct"] > MAX_SPREAD_PCT:
-            log(f"  ⏸️  Spread {book['spread_pct']:.1%} > 10% — illiquid, skip")
+    # Use pre-fetched spread from Simmer API if available, otherwise fetch from CLOB
+    pre_spread = best.get("spread_cents")
+    if pre_spread is not None:
+        # spread_cents is raw cents (e.g. 2.5 = 2.5¢). Convert to fraction of midpoint
+        # for comparison with MAX_SPREAD_PCT. Fast markets trade near 50¢ midpoint.
+        mid_estimate = market_yes_price if market_yes_price > 0 else 0.5
+        spread_pct = (pre_spread / 100.0) / mid_estimate
+        log(f"  Spread: {pre_spread:.1f}¢ ({best.get('liquidity_tier', 'unknown')})")
+        if spread_pct > MAX_SPREAD_PCT:
+            log(f"  ⏸️  Spread {spread_pct:.1%} > 10% — illiquid, skip")
             if not quiet:
-                print(f"📊 Summary: No trade (wide spread: {book['spread_pct']:.1%})")
+                print(f"📊 Summary: No trade (wide spread: {spread_pct:.1%})")
             skip_reasons.append("wide spread")
             _emit_skip_report()
             return
+    else:
+        book = fetch_orderbook_summary(clob_tokens) if clob_tokens else None
+        if book:
+            log(f"  Spread: {book['spread_pct']:.1%} (bid ${book['best_bid']:.3f} / ask ${book['best_ask']:.3f})")
+            log(f"  Depth: ${book['bid_depth_usd']:.0f} bid / ${book['ask_depth_usd']:.0f} ask (top 5)")
+            if book["spread_pct"] > MAX_SPREAD_PCT:
+                log(f"  ⏸️  Spread {book['spread_pct']:.1%} > 10% — illiquid, skip")
+                if not quiet:
+                    print(f"📊 Summary: No trade (wide spread: {book['spread_pct']:.1%})")
+                skip_reasons.append("wide spread")
+                _emit_skip_report()
+                return
 
     # Check minimum momentum
     if momentum_pct < MIN_MOMENTUM_PCT:
@@ -778,15 +850,17 @@ def run_fast_market_strategy(dry_run=True, positions_only=False, show_config=Fal
     log(f"  ✅ Signal: {side.upper()} — {trade_rationale}{vol_note}", force=True)
     log(f"  Divergence: {divergence:.3f}", force=True)
 
-    # Step 5: Import & Trade
-    log(f"\n🔗 Importing to Simmer...", force=True)
-    market_id, import_error = import_fast_market_market(best["slug"])
-
-    if not market_id:
-        log(f"  ❌ Import failed: {import_error}", force=True)
-        return
-
-    log(f"  ✅ Market ID: {market_id[:16]}...", force=True)
+    # Step 5: Get market ID (already have it from Simmer API, or import from Gamma)
+    if best.get("market_id"):
+        market_id = best["market_id"]
+        log(f"\n🔗 Market ready: {market_id[:16]}...", force=True)
+    else:
+        log(f"\n🔗 Importing to Simmer...", force=True)
+        market_id, import_error = import_fast_market_market(best["slug"])
+        if not market_id:
+            log(f"  ❌ Import failed: {import_error}", force=True)
+            return
+        log(f"  ✅ Market ID: {market_id[:16]}...", force=True)
 
     execution_error = None
     tag = "SIMULATED" if dry_run else "LIVE"

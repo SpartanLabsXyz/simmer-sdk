@@ -27,6 +27,12 @@ class Market:
     resolves_at: Optional[str] = None
     is_sdk_only: bool = False  # True for ultra-short-term markets hidden from public UI
     is_live_now: Optional[bool] = None  # True if market window has started; None if field not returned by API
+    opens_at: Optional[str] = None  # When the market window opens (fast markets only)
+    polymarket_token_id: Optional[str] = None  # YES token ID for CLOB trading
+    polymarket_no_token_id: Optional[str] = None  # NO token ID for CLOB trading
+    polymarket_neg_risk: bool = False
+    spread_cents: Optional[float] = None  # Bid-ask spread in cents (fast markets only)
+    liquidity_tier: Optional[str] = None  # "tight", "moderate", or "wide" (fast markets only)
 
 
 @dataclass
@@ -576,21 +582,60 @@ class SimmerClient:
 
         data = self._request("GET", "/api/sdk/markets", params=params)
 
-        return [
-            Market(
-                id=m["id"],
-                question=m["question"],
-                status=m["status"],
-                current_probability=m["current_probability"],
-                import_source=m.get("import_source"),
-                external_price_yes=m.get("external_price_yes"),
-                divergence=m.get("divergence"),
-                resolves_at=m.get("resolves_at"),
-                is_sdk_only=m.get("is_sdk_only", False),
-                is_live_now=m.get("is_live_now")
-            )
-            for m in data.get("markets", [])
-        ]
+        return [self._parse_market(m) for m in data.get("markets", [])]
+
+    def get_fast_markets(
+        self,
+        asset: Optional[str] = None,
+        window: Optional[str] = None,
+        limit: int = 50,
+        sort: Optional[str] = None,
+    ) -> List[Market]:
+        """
+        Get fast-resolving markets (5m, 15m, 1h, etc.).
+
+        Args:
+            asset: Crypto ticker (BTC, ETH, SOL, etc.)
+            window: Time window (5m, 15m, 1h, 4h, daily)
+            limit: Maximum number of markets to return
+            sort: Sort order ('volume', 'opportunity', or None for soonest-first)
+
+        Returns:
+            List of Market objects sorted by is_live_now (live first), then resolves_at
+        """
+        params: Dict[str, Any] = {"limit": limit}
+        if asset:
+            params["asset"] = asset
+        if window:
+            params["window"] = window
+        if sort:
+            params["sort"] = sort
+
+        data = self._request("GET", "/api/sdk/fast-markets", params=params)
+
+        return [self._parse_market(m) for m in data.get("markets", [])]
+
+    @staticmethod
+    def _parse_market(m: dict) -> Market:
+        """Parse a market dict from any /markets endpoint into a Market object."""
+        return Market(
+            id=m["id"],
+            question=m["question"],
+            status=m.get("status", "active"),
+            current_probability=m.get("current_probability", 0.5),
+            import_source=m.get("import_source"),
+            external_price_yes=m.get("external_price_yes"),
+            divergence=m.get("divergence"),
+            resolves_at=m.get("resolves_at"),
+            is_sdk_only=m.get("is_sdk_only", False),
+            is_live_now=m.get("is_live_now"),
+            opens_at=m.get("opens_at"),
+            polymarket_token_id=m.get("polymarket_token_id"),
+            polymarket_no_token_id=m.get("polymarket_no_token_id"),
+            polymarket_neg_risk=m.get("polymarket_neg_risk", False),
+            spread_cents=m.get("spread_cents"),
+            liquidity_tier=m.get("liquidity_tier"),
+        )
 
     def trade(
         self,
@@ -1055,17 +1100,7 @@ class SimmerClient:
             m = data.get("market")
             if not m:
                 return None
-            return Market(
-                id=m["id"],
-                question=m["question"],
-                status=m.get("status", "active"),
-                current_probability=m.get("current_probability", 0.5),
-                import_source=m.get("import_source"),
-                external_price_yes=m.get("external_price_yes"),
-                divergence=m.get("divergence"),
-                resolves_at=m.get("resolves_at"),
-                is_sdk_only=m.get("is_sdk_only", False),
-            )
+            return self._parse_market(m)
         except Exception:
             return None
 
