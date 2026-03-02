@@ -1744,7 +1744,7 @@ class SimmerClient:
 
         # Fetch positions (raw request to get redeemable fields not on Position dataclass)
         try:
-            data = self._request("GET", "/api/sdk/positions")
+            data = self._request("GET", "/api/sdk/positions", params={"status": "resolved"})
         except Exception as e:
             logger.warning("auto_redeem: could not fetch positions (%s)", e)
             return results
