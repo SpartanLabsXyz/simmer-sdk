@@ -146,6 +146,9 @@ client.trade(market_id, side="yes", amount=10.0, venue="polymarket")
 | `get_settings()` / `update_settings()` | Configure trade limits and notifications |
 | `link_wallet()` | Link external EVM wallet for Polymarket |
 | `set_approvals()` | Set Polymarket token approvals |
+| `troubleshoot()` | Look up any error and get a fix (no auth required) |
+
+**Error handling:** All SDK 4xx responses include a `fix` field with actionable instructions when the error matches a known pattern. You can also call `POST /api/sdk/troubleshoot` with `{"error_text": "..."}` to look up any error.
 
 Full API reference with parameters, examples, and error codes: **[simmer.markets/docs.md](https://simmer.markets/docs.md)**
 
