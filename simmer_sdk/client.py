@@ -1681,6 +1681,15 @@ class SimmerClient:
                     block = int(receipt_data.get("blockNumber", "0x0"), 16)
                     if status == 1:
                         print(f"  Confirmed in block {block}")
+                        # Report to server so position stops showing as redeemable
+                        try:
+                            self._request("POST", "/api/sdk/redeem/report", json={
+                                "market_id": market_id,
+                                "side": side,
+                                "tx_hash": tx_hash,
+                            })
+                        except Exception as report_err:
+                            logger.warning("redeem: failed to report confirmed redemption: %s", report_err)
                         return {"success": True, "tx_hash": tx_hash}
                     else:
                         return {"success": False, "tx_hash": tx_hash, "error": f"Transaction reverted in block {block}"}
@@ -1691,6 +1700,15 @@ class SimmerClient:
 
         # Timed out but tx may still confirm
         print(f"  Confirmation timed out. Check: https://polygonscan.com/tx/{tx_hash}")
+        # Report anyway — tx likely confirmed, prevents re-redemption next cycle
+        try:
+            self._request("POST", "/api/sdk/redeem/report", json={
+                "market_id": market_id,
+                "side": side,
+                "tx_hash": tx_hash,
+            })
+        except Exception:
+            pass
         return {"success": True, "tx_hash": tx_hash, "note": "confirmation_timeout"}
 
     def auto_redeem(self) -> List[Dict[str, Any]]:
