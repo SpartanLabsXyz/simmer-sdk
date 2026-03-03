@@ -54,7 +54,7 @@ def _apply_automaton_config(slug):
 
 def load_config(schema, skill_file, slug=None, config_filename="config.json"):
     """
-    Load skill config with priority: config.json > automaton tuning > env vars > defaults.
+    Load skill config with priority: env vars (includes automaton tuning) > config.json > defaults.
 
     Args:
         schema: Dict of config keys to specs. Each spec has:
@@ -83,20 +83,22 @@ def load_config(schema, skill_file, slug=None, config_filename="config.json"):
 
     result = {}
     for key, spec in schema.items():
-        if key in file_cfg:
-            result[key] = file_cfg[key]
-        elif spec.get("env") and os.environ.get(spec["env"]):
-            val = os.environ.get(spec["env"])
+        env_name = spec.get("env")
+        env_val = os.environ.get(env_name) if env_name else None
+        # Priority: env vars (includes automaton tuning) > config.json > defaults
+        if env_val is not None:
             type_fn = spec.get("type", str)
             try:
                 if type_fn == bool:
-                    result[key] = val.lower() in ("true", "1", "yes")
+                    result[key] = env_val.lower() in ("true", "1", "yes")
                 elif type_fn != str:
-                    result[key] = type_fn(val)
+                    result[key] = type_fn(env_val)
                 else:
-                    result[key] = val
+                    result[key] = env_val
             except (ValueError, TypeError):
-                result[key] = spec.get("default")
+                result[key] = file_cfg.get(key, spec.get("default"))
+        elif key in file_cfg:
+            result[key] = file_cfg[key]
         else:
             result[key] = spec.get("default")
     return result
