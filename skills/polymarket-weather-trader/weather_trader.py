@@ -495,7 +495,7 @@ def discover_and_import_weather_markets(log=print):
         for term in search_terms:
             try:
                 results = client.list_importable_markets(
-                    q=term, venue="polymarket", min_volume=0, limit=20
+                    q=term, venue="polymarket", min_volume=1000, limit=20
                 )
             except Exception as e:
                 log(f"  Discovery search failed for '{term}': {e}")
