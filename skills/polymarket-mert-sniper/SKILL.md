@@ -1,16 +1,13 @@
 ---
 name: polymarket-mert-sniper
-displayName: Mert Sniper
 description: Near-expiry conviction trading on Polymarket. Snipe markets about to resolve when the odds are heavily skewed. Filter by topic, cap your bets, and only trade strong splits close to deadline.
-metadata: {"clawdbot":{"emoji":"🎯","requires":{"env":["SIMMER_API_KEY"],"pip":["simmer-sdk"]},"cron":null,"autostart":false,"automaton":{"managed":true,"entrypoint":"mert_sniper.py"},"tunables":[{"env":"SIMMER_MERT_MAX_BET_USD","type":"number","default":50,"range":[1,200],"step":5,"label":"Max bet per trade"},{"env":"SIMMER_MERT_EXPIRY_MINUTES","type":"number","default":30,"range":[5,120],"step":5,"label":"Order expiry (minutes)"},{"env":"SIMMER_MERT_MIN_SPLIT","type":"number","default":0.10,"range":[0.01,0.50],"step":0.01,"label":"Minimum probability split"},{"env":"SIMMER_MERT_MAX_TRADES_PER_RUN","type":"number","default":5,"range":[1,20],"step":1,"label":"Max trades per run"},{"env":"SIMMER_MERT_SIZING_PCT","type":"number","default":0.10,"range":[0.01,1.0],"step":0.01,"label":"Position sizing percentage"}]}}
-authors:
-  - Simmer (@simmer_markets)
-attribution: "Strategy inspired by @mert — https://x.com/mert/status/2020216613279060433"
-version: "1.0.7"
-difficulty: advanced
-published: true
+metadata:
+  author: Simmer (@simmer_markets)
+  version: "1.0.7"
+  displayName: Mert Sniper
+  difficulty: advanced
+  attribution: Strategy inspired by @mert — https://x.com/mert/status/2020216613279060433
 ---
-
 # Mert Sniper
 
 Near-expiry conviction trading on Polymarket. Snipe markets about to resolve when the odds are heavily skewed.

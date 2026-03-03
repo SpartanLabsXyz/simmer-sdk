@@ -52,6 +52,7 @@ def validate_skill(skill_path):
 
     frontmatter = {}
     metadata = {}
+    clawdbot = {}
     if has_skill_md:
         with open(skill_md_path) as f:
             content = f.read()
@@ -77,16 +78,27 @@ def validate_skill(skill_path):
         has_desc = bool(frontmatter.get("description"))
         all_passed &= check("Frontmatter has 'description'", has_desc)
 
-        # Parse metadata JSON
-        meta_str = frontmatter.get("metadata", "")
-        if meta_str:
-            meta_str = meta_str.strip('"').strip("'")
-            try:
-                metadata = json.loads(meta_str)
-            except json.JSONDecodeError:
-                pass
+        # Parse metadata — check clawhub.json first (new format), then inline JSON (legacy)
+        clawhub_json_path = os.path.join(skill_path, "clawhub.json")
+        if os.path.isfile(clawhub_json_path):
+            with open(clawhub_json_path) as f:
+                try:
+                    clawdbot = json.load(f)
+                except json.JSONDecodeError:
+                    pass
+            check("clawhub.json exists (AgentSkills format)", True)
+        else:
+            # Legacy: parse inline metadata JSON from frontmatter
+            meta_str = frontmatter.get("metadata", "")
+            if meta_str:
+                meta_str = meta_str.strip('"').strip("'")
+                try:
+                    metadata = json.loads(meta_str)
+                except json.JSONDecodeError:
+                    pass
+            clawdbot = metadata.get("clawdbot", {})
+            warn("No clawhub.json", "Consider migrating to AgentSkills format (clawhub.json + clean SKILL.md)")
 
-        clawdbot = metadata.get("clawdbot", {})
         automaton = clawdbot.get("automaton", {})
         has_automaton = bool(automaton.get("entrypoint"))
         all_passed &= check("Automaton metadata with entrypoint", has_automaton,
@@ -100,7 +112,7 @@ def validate_skill(skill_path):
         all_passed &= check("Requires SIMMER_API_KEY", has_api_key)
 
     # --- Entrypoint script checks ---
-    entrypoint = metadata.get("clawdbot", {}).get("automaton", {}).get("entrypoint", "")
+    entrypoint = (clawdbot.get("automaton") or {}).get("entrypoint", "")
     if entrypoint:
         script_path = os.path.join(skill_path, entrypoint)
         has_script = os.path.isfile(script_path)

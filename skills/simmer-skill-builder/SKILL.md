@@ -1,15 +1,12 @@
 ---
 name: simmer-skill-builder
-displayName: Simmer Skill Builder
 description: Generate complete, installable OpenClaw trading skills from natural language strategy descriptions. Use when your human wants to create a new trading strategy, build a bot, generate a skill, automate a trade idea, turn a tweet into a strategy, or asks "build me a skill that...". Produces a full skill folder (SKILL.md + Python script + config) ready to install and run.
-metadata: {"clawdbot":{"emoji":"🛠️","requires":{"env":["SIMMER_API_KEY"],"pip":["simmer-sdk"]},"cron":null,"autostart":false,"automaton":{"managed":false,"entrypoint":null}}}
-authors:
-  - Simmer (@simmer_markets)
-version: "1.0.5"
-difficulty: beginner
-published: true
+metadata:
+  author: Simmer (@simmer_markets)
+  version: "1.0.5"
+  displayName: Simmer Skill Builder
+  difficulty: beginner
 ---
-
 # Simmer Skill Builder
 
 Generate complete, runnable Simmer trading skills from a strategy description.
@@ -63,18 +60,57 @@ Create a complete folder on disk:
 
 ```
 <skill-slug>/
-├── SKILL.md          # Metadata + documentation
+├── SKILL.md          # AgentSkills-compliant metadata + documentation
+├── clawhub.json      # ClawHub + automaton config
 ├── <script>.py       # Main trading script
 └── scripts/
     └── status.py     # Portfolio viewer (copy from references)
 ```
 
-#### SKILL.md Requirements
+#### SKILL.md Frontmatter (AgentSkills format)
 
-- YAML frontmatter with `name`, `displayName`, `description`, `metadata` (including automaton entrypoint), `version: "1.0.0"`, `published: true`
-- `requires.pip` must include `simmer-sdk`
-- `requires.env` must include `SIMMER_API_KEY`
+Simmer skills follow the [AgentSkills](https://agentskills.io) open standard, making them compatible with Claude Code, Cursor, Gemini CLI, VS Code, and other skills-compatible agents.
+
+```yaml
+---
+name: <skill-slug>
+description: <What it does + when to trigger. Max 1024 chars.>
+metadata:
+  author: "<author>"
+  version: "1.0.0"
+  displayName: "<Human Readable Name>"
+  difficulty: "intermediate"
+---
+```
+
+Rules:
+- `name` must be lowercase, hyphens only, match folder name
+- `description` is required, max 1024 chars
+- `metadata` values must be flat strings (AgentSkills spec)
+- NO `clawdbot`, `requires`, `tunables`, or `automaton` in SKILL.md — those go in `clawhub.json`
 - Body must include: "This is a template" callout, setup flow, configuration table, quick commands, example output, troubleshooting section
+
+#### clawhub.json (ClawHub + Automaton config)
+
+```json
+{
+  "emoji": "<emoji>",
+  "requires": {
+    "env": ["SIMMER_API_KEY"],
+    "pip": ["simmer-sdk"]
+  },
+  "cron": null,
+  "autostart": false,
+  "automaton": {
+    "managed": true,
+    "entrypoint": "<script>.py"
+  }
+}
+```
+
+- `simmer-sdk` in `requires.pip` is required — this is what causes the skill to appear in the Simmer registry automatically
+- `requires.env` must include `SIMMER_API_KEY`
+- `automaton.entrypoint` must point to the main Python script
 
 #### Python Script Requirements
 

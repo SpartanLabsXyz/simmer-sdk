@@ -6,7 +6,8 @@ Every generated skill follows this structure. Copy-paste the boilerplate blocks 
 
 ```
 <skill-slug>/
-├── SKILL.md          # Metadata + documentation
+├── SKILL.md          # AgentSkills-compliant metadata + documentation
+├── clawhub.json      # ClawHub + automaton config
 ├── <script>.py       # Main trading script
 ├── config.json       # User overrides (auto-created by --set)
 └── scripts/
@@ -18,17 +19,34 @@ Every generated skill follows this structure. Copy-paste the boilerplate blocks 
 ```yaml
 ---
 name: <skill-slug>
-displayName: <Human Readable Name>
 description: <What it does + when to trigger>
-metadata: {"clawdbot":{"emoji":"<emoji>","requires":{"env":["SIMMER_API_KEY"],"pip":["simmer-sdk"]},"cron":null,"autostart":false,"automaton":{"managed":true,"entrypoint":"<script>.py"}}}
-authors:
-  - <author>
-version: "1.0.0"
-published: true
+metadata:
+  author: "<author>"
+  version: "1.0.0"
+  displayName: "<Human Readable Name>"
+  difficulty: "intermediate"
 ---
 ```
 
-Always include `automaton.managed: true` and `entrypoint` pointing to the main script.
+## clawhub.json
+
+```json
+{
+  "emoji": "<emoji>",
+  "requires": {
+    "env": ["SIMMER_API_KEY"],
+    "pip": ["simmer-sdk"]
+  },
+  "cron": null,
+  "autostart": false,
+  "automaton": {
+    "managed": true,
+    "entrypoint": "<script>.py"
+  }
+}
+```
+
+Always include `automaton.managed: true` and `entrypoint` pointing to the main script in `clawhub.json`.
 
 ## Script Structure
 

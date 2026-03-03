@@ -1,17 +1,12 @@
 ---
 name: polymarket-wallet-xray
-displayName: Polymarket Wallet X-Ray
 description: X-ray any Polymarket wallet — skill level, entry quality, bot detection, and edge analysis. Queries Polymarket's public APIs, no authentication needed. Inspired by @thejayden's "Autopsy of a Polymarket Whale" analysis.
-metadata: {"clawdbot":{"emoji":"🔍","requires":{"env":[],"pip":[]},"cron":null,"autostart":false}}
-authors:
-  - Simmer (@simmer_markets)
-inspired_by:
-  - thejayden (@thejayden) - "Autopsy: How to Read the Mind of a Polymarket Whale"
-version: "1.0.2"
-difficulty: beginner
-published: true
+metadata:
+  author: Simmer (@simmer_markets)
+  version: "1.0.2"
+  displayName: Polymarket Wallet X-Ray
+  difficulty: beginner
 ---
-
 # Polymarket Wallet X-Ray
 
 Analyze **any** Polymarket wallet's trading patterns, skill level, and edge detection.
