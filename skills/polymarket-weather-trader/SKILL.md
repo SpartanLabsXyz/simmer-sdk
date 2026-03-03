@@ -3,7 +3,7 @@ name: polymarket-weather-trader
 description: Trade Polymarket weather markets using NOAA forecasts via Simmer API. Inspired by gopfan2's $2M+ strategy. Use when user wants to trade temperature markets, automate weather bets, check NOAA forecasts, or run gopfan2-style trading.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.12.0"
+  version: "1.13.0"
   displayName: Polymarket Weather Trader
   difficulty: beginner
   attribution: Strategy inspired by gopfan2
