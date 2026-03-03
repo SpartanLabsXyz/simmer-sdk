@@ -256,10 +256,12 @@ class SimmerClient:
                 logger.warning("Could not derive Solana wallet address: %s", e)
                 self._solana_key_available = False
 
+        from simmer_sdk import __version__ as _sdk_version
         self._session = requests.Session()
         self._session.headers.update({
             "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
+            "User-Agent": f"simmer-sdk/{_sdk_version}",
         })
 
         # Cache for auto_redeem toggle (TTL: 5 minutes)
