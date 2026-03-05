@@ -667,7 +667,7 @@ def run_strategy(dry_run=True, positions_only=False, show_config=False,
 
     # Step 2: Search Simmer for Elon tweet markets
     log("\n📡 Searching for Elon tweet markets on Simmer...")
-    markets = search_markets("elon musk tweets")
+    markets = search_markets("elon musk")
 
     # Group by event
     events = {}
@@ -721,7 +721,7 @@ def run_strategy(dry_run=True, positions_only=False, show_config=False,
                     }
                 elif event_id:
                     # Response didn't include markets — fall back to search
-                    mkt_list = search_markets(title[:50])
+                    mkt_list = search_markets("elon musk")
                     if mkt_list:
                         events[event_id] = {
                             "name": result.get("event_name", title),
@@ -806,6 +806,8 @@ def run_strategy(dry_run=True, positions_only=False, show_config=False,
             bucket_label = f"{bucket['low']}-{bucket['high']}"
 
             if not market_id:
+                log(f"   ⚠️  {bucket_label}: no market_id — market may not be fully indexed on Simmer yet")
+                skip_reasons.append("missing market_id")
                 continue
 
             if price < MIN_TICK_SIZE:
