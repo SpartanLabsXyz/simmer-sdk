@@ -200,6 +200,17 @@ def _api_request(url, method="GET", data=None, headers=None, timeout=15):
 CLOB_API = "https://clob.polymarket.com"
 
 
+def _lookup_fee_rate(token_id):
+    """Fetch taker fee rate (bps) from Polymarket CLOB for a token. Returns 0 on failure."""
+    result = _api_request(f"{CLOB_API}/fee-rate?token_id={quote(str(token_id))}", timeout=5)
+    if not result or not isinstance(result, dict) or result.get("error"):
+        return 0
+    try:
+        return int(float(result.get("base_fee") or 0))
+    except (ValueError, TypeError):
+        return 0
+
+
 def fetch_live_midpoint(token_id):
     """Fetch live midpoint price from Polymarket CLOB for a single token."""
     result = _api_request(f"{CLOB_API}/midpoint?token_id={quote(str(token_id))}", timeout=5)
@@ -298,7 +309,7 @@ def discover_fast_market_markets(asset="BTC", window="5m"):
                     "spread_cents": m.spread_cents,
                     "liquidity_tier": m.liquidity_tier,
                     "external_price_yes": m.external_price_yes,
-                    "fee_rate_bps": 0,  # Fast markets charge on winnings, not entry
+                    "fee_rate_bps": getattr(m, 'fee_rate_bps', 0),  # Filled by dynamic lookup after discovery
                     "source": "simmer",
                 })
             return markets
@@ -649,6 +660,16 @@ def run_fast_market_strategy(dry_run=True, positions_only=False, show_config=Fal
     log(f"\n🔍 Discovering {ASSET} fast markets...")
     markets = discover_fast_market_markets(ASSET, WINDOW)
     log(f"  Found {len(markets)} active fast markets")
+
+    # Look up fee rate once per run from a sample token (same window = same fee tier)
+    if markets:
+        sample = next((m for m in markets if m.get("clob_token_ids")), None)
+        if sample and sample.get("fee_rate_bps", 0) == 0:
+            fee = _lookup_fee_rate(sample["clob_token_ids"][0])
+            if fee > 0:
+                log(f"  Fee rate for {WINDOW} markets: {fee} bps ({fee/100:.0f}%)")
+                for m in markets:
+                    m["fee_rate_bps"] = fee
 
     if not markets:
         log("  No active fast markets found — may be outside market hours or wrong asset/window")
