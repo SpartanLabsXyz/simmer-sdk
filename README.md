@@ -33,7 +33,7 @@ _client = None
 def get_client():
     global _client
     if _client is None:
-        venue = os.environ.get("TRADING_VENUE", "simmer")
+        venue = os.environ.get("TRADING_VENUE", "sim")
         _client = SimmerClient(api_key=os.environ["SIMMER_API_KEY"], venue=venue)
     return _client
 
@@ -67,7 +67,7 @@ if __name__ == "__main__":
 Set environment variables:
 ```bash
 export SIMMER_API_KEY=sk_live_...
-export TRADING_VENUE=simmer        # simmer | polymarket | kalshi
+export TRADING_VENUE=sim            # sim | polymarket | kalshi
 export WALLET_PRIVATE_KEY=0x...    # Required for Polymarket self-custody
 ```
 
@@ -100,13 +100,13 @@ for p in client.get_positions():
 
 | Venue | Currency | Description |
 |-------|----------|-------------|
-| `simmer` | $SIM (virtual) | Default. Paper trading on Simmer's LMSR markets. |
+| `sim` | $SIM (virtual) | Default. Paper trading on Simmer's LMSR markets. |
 | `polymarket` | USDC.e (real) | Real trades on Polymarket (Polygon). Requires `WALLET_PRIVATE_KEY`. |
 | `kalshi` | USDC (real) | Real trades on Kalshi. Requires Pro plan. |
 
 ```python
 # Paper trading (default)
-client = SimmerClient(api_key="sk_live_...", venue="simmer")
+client = SimmerClient(api_key="sk_live_...", venue="sim")
 
 # Real trading on Polymarket
 client = SimmerClient(api_key="sk_live_...", venue="polymarket")

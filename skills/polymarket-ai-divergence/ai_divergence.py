@@ -507,7 +507,7 @@ def main():
 
     # Trade execution
     skip_reasons = []
-    is_paper_venue = os.environ.get("TRADING_VENUE", "polymarket") == "simmer"
+    is_paper_venue = os.environ.get("TRADING_VENUE", "polymarket") == "sim"
     if args.live or is_paper_venue:
         effective_dry_run = dry_run and not is_paper_venue
         signals, attempted, executed, skip_reasons, total_usd_spent, execution_errors = run_divergence_trades(markets, dry_run=effective_dry_run, quiet=args.quiet)

@@ -15,7 +15,7 @@ from simmer_sdk import SimmerClient
 
 client = SimmerClient(
     api_key="sk_live_...",   # Required: from SIMMER_API_KEY env var
-    venue="polymarket",       # "simmer" (virtual $SIM), "polymarket" (real USDC), "kalshi" (real USD)
+    venue="polymarket",       # "sim" (virtual $SIM), "polymarket" (real USDC), "kalshi" (real USD)
     live=True,                # False = paper mode (simulated trades at real prices)
 )
 ```
@@ -113,7 +113,7 @@ pos.current_value    # Current value in USD
 pos.cost_basis       # Total cost paid
 pos.avg_cost         # Average entry price
 pos.pnl              # Profit/loss
-pos.venue            # "simmer" or "polymarket"
+pos.venue            # "sim" or "polymarket"
 pos.currency         # "$SIM" or "USDC"
 pos.status           # "active" or "resolved"
 pos.resolves_at      # Resolution timestamp

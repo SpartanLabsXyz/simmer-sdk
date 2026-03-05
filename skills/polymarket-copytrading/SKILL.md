@@ -102,7 +102,7 @@ Copytrading supports $SIM mode — mirror whale positions using simulated money 
 
 ```bash
 # Paper trade with $SIM (explicit)
-python copytrading_trader.py --venue simmer --wallets 0x123... --live
+python copytrading_trader.py --venue sim --wallets 0x123... --live
 
 # Auto-detect: if your account has no linked wallet, $SIM is used automatically
 python copytrading_trader.py --wallets 0x123... --live
@@ -245,7 +245,7 @@ The skill works best when:
 - Or set SIMMER_COPYTRADING_WALLETS environment variable for recurring scans
 
 **"Agent has no USDC balance"**
-- Need USDC in your Polymarket wallet, or use `--venue simmer` for $SIM paper trading
+- Need USDC in your Polymarket wallet, or use `--venue sim` for $SIM paper trading
 - Check wallet is linked at simmer.markets/dashboard
 
 **"Conflict skipped"**

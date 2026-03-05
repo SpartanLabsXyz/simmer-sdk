@@ -65,7 +65,7 @@ CONFIG_SCHEMA = {
     "top_n": {"env": "SIMMER_COPYTRADING_TOP_N", "default": "", "type": str},  # Empty = auto
     "max_usd": {"env": "SIMMER_COPYTRADING_MAX_USD", "default": 50.0, "type": float},
     "max_trades_per_run": {"env": "SIMMER_COPYTRADING_MAX_TRADES", "default": 10, "type": int},
-    "venue": {"env": "TRADING_VENUE", "default": "", "type": str},  # simmer or polymarket
+    "venue": {"env": "TRADING_VENUE", "default": "", "type": str},  # sim or polymarket
 }
 
 # Load configuration
@@ -231,7 +231,7 @@ def execute_copytrading(wallets: list, top_n: int = None, max_usd: float = 50.0,
     - Limits trades per run via max_trades
 
     Venue:
-    - 'simmer': Execute on Simmer LMSR with $SIM (paper trading)
+    - 'sim': Execute on Simmer LMSR with $SIM (paper trading)
     - 'polymarket': Execute on Polymarket with real USDC
     - None: Fall back to TRADING_VENUE env var, then server auto-detect
     """
@@ -275,7 +275,7 @@ def run_copytrading(wallets: list, top_n: int = None, max_usd: float = 50.0, dry
     By default, only BUY trades are executed (buy_only=True). This prevents
     copytrading from selling positions opened by other strategies (weather, etc.)
 
-    Venue: 'simmer' for $SIM paper trading, 'polymarket' for real USDC, None for auto-detect.
+    Venue: 'sim' for $SIM paper trading, 'polymarket' for real USDC, None for auto-detect.
     """
     print("\n🐋 Starting Copytrading Scan...")
     print("=" * 50)
@@ -430,6 +430,8 @@ def show_positions():
 
         # Filter to active venue positions
         active_venue = os.environ.get("TRADING_VENUE", "polymarket")
+        if active_venue == "simmer":
+            active_venue = "sim"
         venue_positions = [p for p in positions if p.get("venue") == active_venue]
 
         if not venue_positions:
@@ -530,8 +532,8 @@ def main():
     parser.add_argument(
         "--venue",
         type=str,
-        choices=["simmer", "polymarket"],
-        help="Trading venue: 'simmer' for $SIM paper trading, 'polymarket' for real USDC (default: auto-detect)"
+        choices=["sim", "polymarket"],
+        help="Trading venue: 'sim' for $SIM paper trading, 'polymarket' for real USDC (default: auto-detect)"
     )
     parser.add_argument(
         "--set",

@@ -49,7 +49,7 @@ class Position:
     current_value: float
     pnl: float
     status: str
-    venue: str = "simmer"  # "simmer" or "polymarket"
+    venue: str = "sim"  # "sim" or "polymarket"
     sim_balance: Optional[float] = None  # Simmer only: remaining $SIM balance
     cost_basis: Optional[float] = None  # Polymarket only: USDC spent
     avg_cost: Optional[float] = None  # Average cost per share
@@ -64,7 +64,7 @@ class TradeResult:
     trade_id: Optional[str] = None
     market_id: str = ""
     side: str = ""
-    venue: str = "simmer"  # "simmer", "polymarket", or "kalshi"
+    venue: str = "sim"  # "sim", "polymarket", or "kalshi"
     shares_bought: float = 0  # Actual shares filled (for Polymarket, assumes full fill if matched)
     shares_requested: float = 0  # Shares requested (for partial fill detection)
     order_status: Optional[str] = None  # Polymarket order status: "matched", "live", "delayed"
@@ -110,7 +110,7 @@ class SimmerClient:
     Client for interacting with Simmer SDK API.
 
     Example:
-        # Simmer trading (default) - uses $SIM virtual currency
+        # Sim trading (default) - uses $SIM virtual currency
         client = SimmerClient(api_key="sk_live_...")
         markets = client.get_markets(limit=10)
         result = client.trade(market_id=markets[0].id, side="yes", amount=10)
@@ -121,8 +121,8 @@ class SimmerClient:
         result = client.trade(market_id=markets[0].id, side="yes", amount=10)
     """
 
-    # Valid venue options (sandbox is deprecated alias for simmer)
-    VENUES = ("simmer", "sandbox", "polymarket", "kalshi")
+    # Valid venue options ("simmer" is silent alias for "sim", "sandbox" is deprecated)
+    VENUES = ("sim", "simmer", "sandbox", "polymarket", "kalshi")
     # Valid order types for Polymarket CLOB
     ORDER_TYPES = ("GTC", "GTD", "FOK", "FAK")
     # Private key format: 0x + 64 hex characters (EVM)
@@ -138,7 +138,7 @@ class SimmerClient:
         self,
         api_key: str,
         base_url: str = "https://api.simmer.markets",
-        venue: str = "simmer",
+        venue: str = "sim",
         private_key: Optional[str] = None,
         live: bool = True
     ):
@@ -148,13 +148,13 @@ class SimmerClient:
         Args:
             api_key: Your SDK API key (sk_live_...)
             base_url: API base URL (default: production)
-            venue: Trading venue (default: "simmer")
-                - "simmer": Trade on Simmer's LMSR market with $SIM (virtual currency)
+            venue: Trading venue (default: "sim")
+                - "sim": Trade on Simmer's LMSR market with $SIM (virtual currency)
                 - "polymarket": Execute real trades on Polymarket CLOB with USDC
                   (requires wallet linked in dashboard + real trading enabled)
                 - "kalshi": Execute real trades on Kalshi via DFlow
                   (requires SOLANA_PRIVATE_KEY env var with base58 secret key)
-                Note: "sandbox" is a deprecated alias for "simmer" (will be removed in 30 days)
+                Note: "simmer" is a silent alias for "sim". "sandbox" is deprecated (will be removed in 30 days).
             live: Whether to execute real trades (default: True).
                 When False, trades are simulated with real market prices
                 and tracked in memory for the duration of the run. All read
@@ -182,11 +182,15 @@ class SimmerClient:
         if venue == "sandbox":
             import warnings
             warnings.warn(
-                "'sandbox' venue is deprecated, use 'simmer' instead. Will be removed in 30 days.",
+                "'sandbox' venue is deprecated, use 'sim' instead. Will be removed in 30 days.",
                 DeprecationWarning,
                 stacklevel=2
             )
-            venue = "simmer"
+            venue = "sim"
+
+        # Silent alias: "simmer" → "sim"
+        if venue == "simmer":
+            venue = "sim"
 
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
@@ -194,7 +198,7 @@ class SimmerClient:
         if not os.environ.get("TRADING_VENUE"):
             logger.info(
                 "TRADING_VENUE not set, using venue='%s'. "
-                "Set TRADING_VENUE=simmer for paper trading with $SIM.",
+                "Set TRADING_VENUE=sim for paper trading with $SIM.",
                 venue
             )
         self._private_key: Optional[str] = None  # EVM private key (Polymarket)
@@ -664,7 +668,7 @@ class SimmerClient:
             shares: Number of shares to sell (for sells)
             action: 'buy' or 'sell' (default: 'buy')
             venue: Override client's default venue for this trade.
-                - "simmer": Simmer LMSR, $SIM virtual currency
+                - "sim": Simmer LMSR, $SIM virtual currency ("simmer" accepted as alias)
                 - "polymarket": Real Polymarket CLOB, USDC (requires linked wallet)
                 - "kalshi": Real Kalshi trading via DFlow, USDC on Solana
                   (requires SOLANA_PRIVATE_KEY env var with base58 secret key)
@@ -850,7 +854,7 @@ class SimmerClient:
         # Extract balance: only meaningful for simmer venue ($SIM balance)
         # Polymarket/Kalshi trades don't return a balance (use get_portfolio() instead)
         position = data.get("position") or {}
-        balance = position.get("sim_balance") if effective_venue == "simmer" else None
+        balance = position.get("sim_balance") if effective_venue == "sim" else None
 
         result = TradeResult(
             success=data.get("success", False),
@@ -1006,7 +1010,7 @@ class SimmerClient:
         Get all positions for this agent.
 
         Args:
-            venue: Filter by venue ("simmer" or "polymarket"). If None, returns both.
+            venue: Filter by venue ("sim" or "polymarket"). If None, returns both.
             source: Filter by trade source (e.g., "weather", "copytrading"). Partial match.
 
         Returns:
@@ -1022,7 +1026,7 @@ class SimmerClient:
 
         positions = []
         for p in data.get("positions", []):
-            pos_venue = p.get("venue", "simmer")
+            pos_venue = p.get("venue", "sim")
             positions.append(Position(
                 market_id=p["market_id"],
                 question=p.get("question", ""),
