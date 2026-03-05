@@ -10,7 +10,8 @@ never sells existing positions. This prevents conflicts with other strategies
 (weather, etc.) that may have opened positions.
 
 Exit handling:
-- --whale-exits: Sell positions when whales exit (strategy-specific exit)
+- Whale exit detection is ON by default (sell when whales exit)
+- --no-whale-exits: Disable whale exit detection (buy-only, never sell)
 - SDK Risk Management: Stop-loss/take-profit (server-side, auto-set on every buy)
 
 Usage:
@@ -19,7 +20,7 @@ Usage:
     python copytrading_trader.py --positions  # Show current positions
     python copytrading_trader.py --config     # Show configuration
     python copytrading_trader.py --wallets 0x... # Override wallets for this run
-    python copytrading_trader.py --whale-exits   # Also sell when whales exit
+    python copytrading_trader.py --no-whale-exits # Disable whale exit detection
     python copytrading_trader.py --rebalance  # Full rebalance mode (buy + sell)
 """
 
@@ -215,7 +216,7 @@ def execute_trade(market_id: str, side: str, action: str, amount_usd: float = No
 
 
 
-def execute_copytrading(wallets: list, top_n: int = None, max_usd: float = 50.0, dry_run: bool = True, buy_only: bool = True, detect_whale_exits: bool = False, max_trades: int = None, venue: str = None) -> dict:
+def execute_copytrading(wallets: list, top_n: int = None, max_usd: float = 50.0, dry_run: bool = True, buy_only: bool = True, detect_whale_exits: bool = True, max_trades: int = None, venue: str = None) -> dict:
     """
     Execute copytrading via Simmer SDK.
 
@@ -259,7 +260,7 @@ def execute_copytrading(wallets: list, top_n: int = None, max_usd: float = 50.0,
     return get_client()._request("POST", "/api/sdk/copytrading/execute", json=data)
 
 
-def run_copytrading(wallets: list, top_n: int = None, max_usd: float = 50.0, dry_run: bool = True, buy_only: bool = True, detect_whale_exits: bool = False, venue: str = None):
+def run_copytrading(wallets: list, top_n: int = None, max_usd: float = 50.0, dry_run: bool = True, buy_only: bool = True, detect_whale_exits: bool = True, venue: str = None):
     """
     Run copytrading scan and execute trades.
 
@@ -525,9 +526,9 @@ def main():
         help="Full rebalance mode: buy AND sell to match targets (default: buy-only)"
     )
     parser.add_argument(
-        "--whale-exits",
+        "--no-whale-exits",
         action="store_true",
-        help="Sell positions when whales exit (only affects copytrading-opened positions)"
+        help="Disable whale exit detection (default: whale exits are detected and sold)"
     )
     parser.add_argument(
         "--venue",
@@ -618,7 +619,7 @@ def main():
         max_usd=max_usd,
         dry_run=dry_run,
         buy_only=not args.rebalance,  # Default buy_only=True, --rebalance sets it to False
-        detect_whale_exits=args.whale_exits,
+        detect_whale_exits=not args.no_whale_exits,  # Default ON, --no-whale-exits disables
         venue=venue
     )
 
