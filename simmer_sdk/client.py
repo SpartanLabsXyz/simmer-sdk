@@ -268,6 +268,19 @@ class SimmerClient:
             "User-Agent": f"simmer-sdk/{_sdk_version}",
         })
 
+        # Auto-detect skill slug + version from caller's SKILL.md
+        self._skill_slug = None
+        self._skill_version = None
+        try:
+            import inspect
+            from pathlib import Path
+            caller_file = inspect.stack()[1].filename
+            skill_md = Path(caller_file).parent / "SKILL.md"
+            if skill_md.exists():
+                self._skill_slug, self._skill_version = self._parse_skill_md(skill_md)
+        except Exception:
+            pass
+
         # Cache for auto_redeem toggle (TTL: 5 minutes)
         self._auto_redeem_enabled: bool = True
         self._auto_redeem_enabled_fetched_at: float = 0.0
@@ -326,6 +339,32 @@ class SimmerClient:
     def has_solana_wallet(self) -> bool:
         """Check if client is configured for external Solana wallet trading (Kalshi)."""
         return self._solana_key_available
+
+    # ==========================================
+    # SKILL VERSION DETECTION
+    # ==========================================
+
+    @staticmethod
+    def _parse_skill_md(path):
+        """Parse name and version from SKILL.md YAML frontmatter."""
+        from pathlib import Path
+        try:
+            text = Path(path).read_text(encoding="utf-8")
+            if not text.startswith("---"):
+                return None, None
+            end = text.index("---", 3)
+            frontmatter = text[3:end]
+            slug = None
+            version = None
+            for line in frontmatter.split("\n"):
+                stripped = line.strip()
+                if stripped.startswith("name:") and slug is None:
+                    slug = stripped.split(":", 1)[1].strip().strip('"').strip("'")
+                elif stripped.startswith("version:"):
+                    version = stripped.split(":", 1)[1].strip().strip('"').strip("'")
+            return slug, version
+        except Exception:
+            return None, None
 
     # ==========================================
     # RISK ALERT AUTO-PROCESSING
@@ -388,26 +427,44 @@ class SimmerClient:
                 print(f"[SimmerSDK] Risk exit failed for {market_id[:8]}... {side}: {e}")
                 # Alert persists in Redis — will retry next cycle
 
-    def get_briefing(self, since: str = None, process_risk_alerts: bool = True) -> dict:
+    def get_briefing(self, since: str = None, process_risk_alerts: bool = True,
+                     skill_versions: dict = None) -> dict:
         """Fetch the agent briefing and optionally process any triggered risk alerts.
 
         Args:
             since: ISO timestamp — only show changes since this time.
             process_risk_alerts: If True and triggered_risk_alerts are present,
                 execute the pending SL/TP exits automatically.
+            skill_versions: Optional dict of {slug: version} to check for updates.
+                If not provided, uses auto-detected skill from SKILL.md.
 
         Returns:
             The briefing response dict.
         """
+        import json as _json
         params = {}
         if since:
             params["since"] = since
+
+        # Send skill version for upgrade check (explicit override or auto-detected)
+        _sv = skill_versions
+        if not _sv and self._skill_slug and self._skill_version:
+            _sv = {self._skill_slug: self._skill_version}
+        if _sv:
+            params["skill_versions"] = _json.dumps(_sv)
+
         response = self._request("GET", "/api/sdk/briefing", params=params)
 
         # Process triggered risk alerts if present and requested
         triggered = response.get("triggered_risk_alerts")
         if process_risk_alerts and triggered and self._private_key:
             self._process_risk_alerts(alerts=triggered)
+
+        # Log skill update nudges
+        skill_updates = response.get("skill_updates")
+        if skill_updates:
+            for upd in skill_updates:
+                print(f"[SimmerSDK] Update available: {upd['slug']} {upd['current']} -> {upd['latest']} — run: clawhub install {upd['slug']}")
 
         return response
 
