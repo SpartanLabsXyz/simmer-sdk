@@ -331,14 +331,18 @@ class SimmerClient:
     # RISK ALERT AUTO-PROCESSING
     # ==========================================
 
-    def _process_risk_alerts(self):
-        """Check for and execute triggered risk exits (called on init for external wallets)."""
-        try:
-            response = self._request("GET", "/api/sdk/risk-alerts")
-        except Exception:
-            return  # API unreachable — skip silently
+    def _process_risk_alerts(self, alerts: list = None):
+        """Check for and execute triggered risk exits (called on init for external wallets).
 
-        alerts = response.get("risk_alerts", [])
+        If alerts is provided, processes those directly. Otherwise fetches from /api/sdk/risk-alerts.
+        """
+        if alerts is None:
+            try:
+                response = self._request("GET", "/api/sdk/risk-alerts")
+            except Exception:
+                return  # API unreachable — skip silently
+            alerts = response.get("risk_alerts", [])
+
         if not alerts:
             return
 
@@ -383,6 +387,29 @@ class SimmerClient:
             except Exception as e:
                 print(f"[SimmerSDK] Risk exit failed for {market_id[:8]}... {side}: {e}")
                 # Alert persists in Redis — will retry next cycle
+
+    def get_briefing(self, since: str = None, process_risk_alerts: bool = True) -> dict:
+        """Fetch the agent briefing and optionally process any triggered risk alerts.
+
+        Args:
+            since: ISO timestamp — only show changes since this time.
+            process_risk_alerts: If True and triggered_risk_alerts are present,
+                execute the pending SL/TP exits automatically.
+
+        Returns:
+            The briefing response dict.
+        """
+        params = {}
+        if since:
+            params["since"] = since
+        response = self._request("GET", "/api/sdk/briefing", params=params)
+
+        # Process triggered risk alerts if present and requested
+        triggered = response.get("triggered_risk_alerts")
+        if process_risk_alerts and triggered and self._private_key:
+            self._process_risk_alerts(alerts=triggered)
+
+        return response
 
     def _get_clob_client(self):
         """Get or create an authenticated ClobClient for local CLOB operations."""
