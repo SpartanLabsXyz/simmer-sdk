@@ -667,15 +667,29 @@ def run_strategy(dry_run=True, positions_only=False, show_config=False,
 
     # Step 2: Search Simmer for Elon tweet markets
     log("\n📡 Searching for Elon tweet markets on Simmer...")
-    markets = search_markets("elon musk tweets")
+    markets = search_markets("elon musk")
 
-    # Group by event
+    # Group by event; fall back to a derived key for markets missing event_id
+    # (Simmer search may return markets without event_id for recently-imported events)
     events = {}
     for m in markets:
         event_id = m.get("event_id") or m.get("event_ref")
         event_name = m.get("event_name", "")
         if not event_id:
-            continue
+            # Derive a stable grouping key from the date range in the question
+            q = m.get("question", "")
+            date_match = re.search(
+                r'((?:january|february|march|april|may|june|july|august|september|'
+                r'october|november|december)\s+\d+\s+to\s+(?:january|february|march|'
+                r'april|may|june|july|august|september|october|november|december)\s+\d+'
+                r'(?:,\s*\d{4})?)',
+                q, re.IGNORECASE
+            )
+            if date_match:
+                event_id = f"derived:{date_match.group(1).lower()}"
+                event_name = event_name or f"Elon Musk tweets {date_match.group(1)}"
+            else:
+                continue  # Can't group — skip
         if event_id not in events:
             events[event_id] = {"name": event_name, "markets": []}
         events[event_id]["markets"].append(m)
@@ -721,7 +735,7 @@ def run_strategy(dry_run=True, positions_only=False, show_config=False,
                     }
                 elif event_id:
                     # Response didn't include markets — fall back to search
-                    mkt_list = search_markets(title[:50])
+                    mkt_list = search_markets("elon musk")
                     if mkt_list:
                         events[event_id] = {
                             "name": result.get("event_name", title),
@@ -737,6 +751,34 @@ def run_strategy(dry_run=True, positions_only=False, show_config=False,
     if not events:
         log("\n  No Elon tweet markets available to trade.")
         return
+
+    # Supplementary search: merge any additional markets found in broad search
+    # that aren't already in the event. Handles cases where the import response
+    # omits high-probability buckets that ARE discoverable via search.
+    supp_markets = search_markets("elon musk") if not markets else markets
+    if supp_markets:
+        for m in supp_markets:
+            mid = m.get("market_id") or m.get("id")
+            if not mid:
+                continue  # Can't trade without market_id
+            q = m.get("question", "")
+            # Find best-matching event by question date range
+            for eid, edata in events.items():
+                existing_questions = {em.get("question", "") for em in edata["markets"]}
+                if q in existing_questions:
+                    break  # Already present
+                # Check if this market's date range appears in the event name
+                if not edata.get("name"):
+                    continue
+                date_match = re.search(
+                    r'((?:january|february|march|april|may|june|july|august|september|'
+                    r'october|november|december)\s+\d+)',
+                    q, re.IGNORECASE
+                )
+                if date_match and date_match.group(1).lower() in edata["name"].lower():
+                    edata["markets"].append(m)
+                    log(f"  + Supplemented: {q[:60]}")
+                    break
 
     # Step 4: Match events to tracking periods and evaluate
     trades_executed = 0
@@ -806,6 +848,8 @@ def run_strategy(dry_run=True, positions_only=False, show_config=False,
             bucket_label = f"{bucket['low']}-{bucket['high']}"
 
             if not market_id:
+                log(f"   ⚠️  {bucket_label}: no market_id — market may not be fully indexed on Simmer yet (platform issue)")
+                skip_reasons.append("missing market_id")
                 continue
 
             if price < MIN_TICK_SIZE:
