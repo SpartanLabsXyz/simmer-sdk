@@ -40,10 +40,10 @@
     {
       "env": "SIMMER_FASTLOOP_MAX_POSITION_USD",
       "type": "number",
-      "default": 50,
+      "default": 10,
       "range": [
         1,
-        200
+        50
       ],
       "step": 5,
       "label": "Max position size"
@@ -73,10 +73,10 @@
     {
       "env": "SIMMER_FASTLOOP_DAILY_BUDGET_USD",
       "type": "number",
-      "default": 100,
+      "default": 50,
       "range": [
         10,
-        500
+        100
       ],
       "step": 10,
       "label": "Daily budget"

@@ -3,7 +3,7 @@ name: polymarket-fast-loop
 description: Trade Polymarket BTC 5-minute and 15-minute fast markets using CEX price momentum signals via Simmer API. Default signal is Binance BTC/USDT klines. Use when user wants to trade sprint/fast markets, automate short-term crypto trading, or use CEX momentum as a Polymarket signal.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.3.3"
+  version: "1.3.4"
   displayName: Polymarket FastLoop Trader
   difficulty: advanced
 ---
@@ -16,6 +16,8 @@ Trade Polymarket's 5-minute crypto fast markets using real-time price signals. D
 > **This is a template.** The default signal (Binance momentum) gets you started — remix it with your own signals, data sources, or strategy. The skill handles all the plumbing (market discovery, import, trade execution). Your agent provides the alpha.
 
 > ⚠️ Fast markets carry Polymarket's 10% fee (`is_paid: true`). Factor this into your edge calculations.
+
+> ⚠️ **Risk monitoring does not apply to sub-15-minute markets.** Simmer's stop-loss and take-profit monitors check positions every 15 minutes — which means they will never fire on 5m or 15m markets before resolution. Any risk settings you configure in the Simmer dashboard have no effect on these positions. Size accordingly and do not rely on automated stop-losses for fast market trades.
 
 ## How It Finds Markets
 
