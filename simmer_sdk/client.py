@@ -393,9 +393,10 @@ class SimmerClient:
             shares = float(alert["shares"])
             reason = alert["exit_reason"]
             token_id = alert.get("token_id")
+            alert_venue = alert.get("venue")  # None for legacy alerts — falls back to client default
 
             try:
-                # 1. Cancel open orders on this market (client-side)
+                # 1. Cancel open orders on this market (Polymarket only — token_id based)
                 if token_id:
                     self._cancel_orders_for_token(token_id)
 
@@ -406,6 +407,7 @@ class SimmerClient:
                     shares=shares,
                     action="sell",
                     order_type="FAK",
+                    venue=alert_venue,
                 )
 
                 # 3. Delete the risk setting (position is exited)
