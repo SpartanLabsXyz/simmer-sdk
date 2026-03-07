@@ -1712,11 +1712,6 @@ class SimmerClient:
         if not tx_data or not tx_data.lower().startswith(expected_selector):
             return {"success": False, "error": f"Unsigned tx has unexpected function selector (expected {expected_selector})"}
 
-        # Cap gas limit to prevent POL drain
-        tx_gas = int(unsigned_tx.get("gas", 200000))
-        if tx_gas > 500_000:
-            return {"success": False, "error": f"Gas limit too high ({tx_gas}), max 500000"}
-
         print(f"  Signing redemption transaction locally...")
 
         # Use Simmer's RPC proxy for chain queries
@@ -1726,12 +1721,18 @@ class SimmerClient:
             })
             return resp.get("result")
 
-        # Use nonce from backend unsigned_tx (freshest), fall back to RPC
-        backend_nonce = unsigned_tx.get("nonce")
-        if backend_nonce is not None:
-            nonce = int(backend_nonce) if isinstance(backend_nonce, (int, float)) else int(str(backend_nonce), 0)
+        # Estimate gas via RPC (server no longer sends gas in unsigned tx)
+        est_result = _rpc_call("eth_estimateGas", [{"from": self._wallet_address, "to": tx_to, "data": tx_data}])
+        if est_result:
+            tx_gas = int(int(est_result, 16) * 1.3)
         else:
-            nonce = int(_rpc_call("eth_getTransactionCount", [self._wallet_address, "pending"]) or "0x0", 16)
+            tx_gas = int(unsigned_tx.get("gas", 300_000))
+
+        # Cap gas limit to prevent POL drain
+        if tx_gas > 500_000:
+            return {"success": False, "error": f"Gas limit too high ({tx_gas}), max 500000"}
+
+        nonce = int(_rpc_call("eth_getTransactionCount", [self._wallet_address, "pending"]) or "0x0", 16)
 
         gas_price = int(_rpc_call("eth_gasPrice", []) or "0x0", 16)
         priority_fee = max(30_000_000_000, gas_price // 4)
