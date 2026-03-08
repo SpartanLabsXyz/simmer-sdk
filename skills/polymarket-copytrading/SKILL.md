@@ -3,7 +3,7 @@ name: polymarket-copytrading
 description: Mirror positions from top Polymarket traders using Simmer API. Size-weighted aggregation across multiple wallets.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.5.3"
+  version: "1.5.4"
   displayName: Polymarket Copytrading
   difficulty: beginner
 ---
@@ -85,6 +85,8 @@ For automated recurring scans, wallets can be saved in environment:
 > ⚠️ **Start Conservative:** Begin with small amounts (`--max-usd 5-10`) and `--dry-run` to understand how the skill behaves before scaling up.
 
 ## How It Works
+
+> **By default, only buys execute.** Pass `--rebalance` to also sell positions the whales have exited, or `--whale-exits` to sell only on whale exits.
 
 Each cycle the script:
 1. Fetches positions from all target wallets via Simmer API
