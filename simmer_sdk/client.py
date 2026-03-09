@@ -2304,6 +2304,19 @@ class SimmerClient:
 
         is_sell = action == "sell"
 
+        # Auto-register Solana wallet if not yet linked on the server
+        if self._solana_wallet_address and not getattr(self, '_solana_wallet_registered', False):
+            try:
+                settings = self._request("GET", "/api/sdk/user/settings")
+                server_wallet = settings.get("solana_wallet_address")
+                if server_wallet != self._solana_wallet_address:
+                    self._request("PATCH", "/api/sdk/user/settings",
+                                  json={"bot_solana_wallet": self._solana_wallet_address})
+                    logger.info("Auto-registered Solana wallet %s", self._solana_wallet_address[:10] + "...")
+                self._solana_wallet_registered = True
+            except Exception as e:
+                logger.warning("Could not auto-register Solana wallet: %s", e)
+
         # Step 1: Get unsigned transaction from Simmer API
         try:
             quote_payload = {
