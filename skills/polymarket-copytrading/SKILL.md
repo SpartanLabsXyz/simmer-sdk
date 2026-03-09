@@ -3,7 +3,7 @@ name: polymarket-copytrading
 description: Mirror positions from top Polymarket traders using Simmer API. Size-weighted aggregation across multiple wallets.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.5.4"
+  version: "1.6.0"
   displayName: Polymarket Copytrading
   difficulty: beginner
 ---
@@ -92,11 +92,13 @@ Each cycle the script:
 1. Fetches positions from all target wallets via Simmer API
 2. Combines using size-weighted aggregation (larger wallets = more influence)
 3. Detects conflicts (one wallet long YES, another long NO) and skips those markets
-4. Applies Top-N filtering to concentrate on highest-conviction positions
-5. Auto-imports missing markets from Polymarket
-6. Calculates rebalance trades to match target allocations
-7. Executes trades via Simmer SDK (respects spending limits)
-8. Reports results back to user
+4. Scores by conviction: positions held by 2+ wallets get full sizing, single-wallet positions get 50% sizing
+5. Filters out drifted (>30% from entry) and stale (>90% or <10% price) positions
+6. Applies Top-N filtering to concentrate on highest-conviction positions
+7. Auto-imports missing markets from Polymarket
+8. Calculates rebalance trades to match target allocations
+9. Executes trades via Simmer SDK (respects spending limits)
+10. Reports results back to user
 
 ## $SIM Paper Trading
 
@@ -232,9 +234,18 @@ Common approaches:
 3. **Specific strategies**: Follow wallets known for weather, politics, or crypto trades
 
 The skill works best when:
-- Following 2-5 wallets for diversification
-- Wallets have similar conviction (don't mix degen with conservative)
+- Following 2-5 wallets with **overlapping strategies** (e.g. all politics-focused, or all crypto-focused)
+- Wallets have similar conviction — mixing very different traders means most positions only appear in one wallet and get reduced sizing (50%)
 - Wallets trade markets available on Polymarket
+
+### Conviction Tiers
+
+When following multiple wallets, positions are scored by conviction:
+
+- **High conviction** (held by 2+ wallets): full position sizing (`max_usd`)
+- **Low conviction** (held by 1 wallet): 50% position sizing
+
+High-conviction positions are prioritized in Top N selection. Single-wallet positions still trade, but with reduced size. Using just 1 wallet disables conviction scoring (all positions get full sizing).
 
 ## Troubleshooting
 
@@ -253,6 +264,12 @@ The skill works best when:
 **"Conflict skipped"**
 - Wallets disagree on this market (one long YES, other long NO)
 - Markets with net position < 10% are skipped
+
+**"All N positions filtered (X conflicts, Y drifted, Z stale)"**
+- All whale positions were removed by safety filters
+- Try different target wallets, or reduce to 1 wallet to disable conviction scoring
+- Drift filter skips positions where price moved >30% from whale's entry
+- Stale filter skips near-resolved markets (price >90% or <10%)
 
 **"Insufficient balance"**
 - Not enough USDC for all trades
