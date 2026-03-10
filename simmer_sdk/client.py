@@ -2286,6 +2286,7 @@ class SimmerClient:
                 success=False,
                 market_id=market_id,
                 side=side,
+                venue="kalshi",
                 error=(
                     "SOLANA_PRIVATE_KEY environment variable required for Kalshi trading. "
                     "Set it to your base58-encoded Solana secret key."
@@ -2299,6 +2300,7 @@ class SimmerClient:
                 success=False,
                 market_id=market_id,
                 side=side,
+                venue="kalshi",
                 error=f"Solana signing not available: {e}"
             )
 
@@ -2337,6 +2339,7 @@ class SimmerClient:
                 success=False,
                 market_id=market_id,
                 side=side,
+                venue="kalshi",
                 error=f"Failed to get quote: {e}"
             )
 
@@ -2345,6 +2348,7 @@ class SimmerClient:
                 success=False,
                 market_id=market_id,
                 side=side,
+                venue="kalshi",
                 error=quote.get("error", "Failed to get quote from Simmer")
             )
 
@@ -2354,6 +2358,7 @@ class SimmerClient:
                 success=False,
                 market_id=market_id,
                 side=side,
+                venue="kalshi",
                 error="Quote missing transaction data"
             )
 
@@ -2365,6 +2370,7 @@ class SimmerClient:
                 success=False,
                 market_id=market_id,
                 side=side,
+                venue="kalshi",
                 error=f"Local signing failed: {e}"
             )
 
@@ -2389,6 +2395,7 @@ class SimmerClient:
                 success=False,
                 market_id=market_id,
                 side=side,
+                venue="kalshi",
                 error=f"Failed to submit trade: {e}"
             )
 
