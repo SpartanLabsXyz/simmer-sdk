@@ -49,15 +49,31 @@ except ImportError:
 from simmer_sdk.skill import load_config, update_config, get_config_path
 
 # Configuration schema
+# Note: env var names match autotune registry. Legacy aliases (SIMMER_WEATHER_ENTRY,
+# SIMMER_WEATHER_EXIT, SIMMER_WEATHER_MAX_POSITION, SIMMER_WEATHER_MAX_TRADES) are
+# resolved as fallbacks below for backwards compatibility.
 CONFIG_SCHEMA = {
-    "entry_threshold": {"env": "SIMMER_WEATHER_ENTRY", "default": 0.15, "type": float},
-    "exit_threshold": {"env": "SIMMER_WEATHER_EXIT", "default": 0.45, "type": float},
-    "max_position_usd": {"env": "SIMMER_WEATHER_MAX_POSITION", "default": 2.00, "type": float},
-    "sizing_pct": {"env": "SIMMER_WEATHER_SIZING_PCT", "default": 0.05, "type": float},
-    "max_trades_per_run": {"env": "SIMMER_WEATHER_MAX_TRADES", "default": 5, "type": int},
-    "locations": {"env": "SIMMER_WEATHER_LOCATIONS", "default": "NYC", "type": str},
-    "binary_only": {"env": "SIMMER_WEATHER_BINARY_ONLY", "default": False, "type": bool},
+    "entry_threshold":   {"env": "SIMMER_WEATHER_ENTRY_THRESHOLD",   "default": 0.05,  "type": float},
+    "exit_threshold":    {"env": "SIMMER_WEATHER_EXIT_THRESHOLD",    "default": 0.85,  "type": float},
+    "max_position_usd":  {"env": "SIMMER_WEATHER_MAX_POSITION_USD",  "default": 2.00,  "type": float},
+    "sizing_pct":        {"env": "SIMMER_WEATHER_SIZING_PCT",        "default": 0.05,  "type": float},
+    "max_trades_per_run":{"env": "SIMMER_WEATHER_MAX_TRADES_PER_RUN","default": 5,     "type": int},
+    "locations":         {"env": "SIMMER_WEATHER_LOCATIONS",         "default": "NYC", "type": str},
+    "binary_only":       {"env": "SIMMER_WEATHER_BINARY_ONLY",       "default": False, "type": bool},
+    "slippage_max":      {"env": "SIMMER_WEATHER_SLIPPAGE_MAX",      "default": 0.15,  "type": float},
+    "min_liquidity":     {"env": "SIMMER_WEATHER_MIN_LIQUIDITY",     "default": 0.0,   "type": float},
 }
+
+# Backwards-compatible env var aliases (old name -> new name)
+_LEGACY_ENV_ALIASES = {
+    "SIMMER_WEATHER_ENTRY":        "SIMMER_WEATHER_ENTRY_THRESHOLD",
+    "SIMMER_WEATHER_EXIT":         "SIMMER_WEATHER_EXIT_THRESHOLD",
+    "SIMMER_WEATHER_MAX_POSITION": "SIMMER_WEATHER_MAX_POSITION_USD",
+    "SIMMER_WEATHER_MAX_TRADES":   "SIMMER_WEATHER_MAX_TRADES_PER_RUN",
+}
+for _old, _new in _LEGACY_ENV_ALIASES.items():
+    if _old in os.environ and _new not in os.environ:
+        os.environ[_new] = os.environ[_old]
 
 # Load configuration
 _config = load_config(CONFIG_SCHEMA, __file__, slug="polymarket-weather-trader")
@@ -112,7 +128,8 @@ MAX_TRADES_PER_RUN = _config["max_trades_per_run"]
 BINARY_ONLY = _config["binary_only"]
 
 # Context safeguard thresholds
-SLIPPAGE_MAX_PCT = 0.15  # Skip if slippage > 15%
+SLIPPAGE_MAX_PCT = _config["slippage_max"]  # Skip if slippage exceeds this (tunable)
+MIN_LIQUIDITY_USD = _config["min_liquidity"]  # Skip markets with liquidity below this (0 = disabled)
 TIME_TO_RESOLUTION_MIN_HOURS = 2  # Skip if resolving in < 2 hours
 
 # Price trend detection
@@ -400,12 +417,18 @@ def check_context_safeguards(context: dict, use_edge: bool = True) -> tuple:
         except (ValueError, IndexError):
             pass
 
+    # Check liquidity (pre-filter before slippage, avoids wasting a context call)
+    if MIN_LIQUIDITY_USD > 0:
+        liquidity = market.get("liquidity", 0) or 0
+        if liquidity < MIN_LIQUIDITY_USD:
+            return False, [f"Liquidity too low: ${liquidity:.0f} < ${MIN_LIQUIDITY_USD:.0f} min"]
+
     # Check slippage
     estimates = slippage.get("estimates", []) if slippage else []
     if estimates:
         slippage_pct = estimates[0].get("slippage_pct", 0)
         if slippage_pct > SLIPPAGE_MAX_PCT:
-            return False, [f"Slippage too high: {slippage_pct:.1%}"]
+            return False, [f"Slippage too high: {slippage_pct:.1%} (max {SLIPPAGE_MAX_PCT:.0%})"]
 
     # Check edge recommendation (if available and use_edge=True)
     if use_edge and edge:
