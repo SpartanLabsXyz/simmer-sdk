@@ -77,8 +77,8 @@ When user asks to install or configure this skill:
 
 | Setting | Environment Variable | Default | Description |
 |---------|---------------------|---------|-------------|
-| Entry threshold | `SIMMER_WEATHER_ENTRY_THRESHOLD` | 0.05 | Buy when price below this |
-| Exit threshold | `SIMMER_WEATHER_EXIT_THRESHOLD` | 0.85 | Sell when price above this |
+| Entry threshold | `SIMMER_WEATHER_ENTRY_THRESHOLD` | 0.15 | Buy when price below this |
+| Exit threshold | `SIMMER_WEATHER_EXIT_THRESHOLD` | 0.45 | Sell when price above this |
 | Max position | `SIMMER_WEATHER_MAX_POSITION_USD` | 2.00 | Maximum USD per trade |
 | Max trades/run | `SIMMER_WEATHER_MAX_TRADES_PER_RUN` | 5 | Maximum trades per scan cycle |
 | Locations | `SIMMER_WEATHER_LOCATIONS` | NYC | Comma-separated cities (NYC, Chicago, Seattle, Atlanta, Dallas, Miami) |
