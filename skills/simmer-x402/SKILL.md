@@ -120,6 +120,7 @@ Quicknode x402 supports 55+ networks (Ethereum, Polygon, Base, Arbitrum, Solana,
 | CoinGecko | `/api/v3/x402/simple/price` | $0.01/request | Token price data |
 | Simmer | `/api/sdk/context/:id` | $0.005/request | Market context (rate limit bypass) |
 | Simmer | `/api/sdk/briefing` | $0.005/request | Portfolio briefing (rate limit bypass) |
+| Simmer | `/api/sdk/markets/import` | $0.005/request | Market import (daily quota bypass) |
 | Quicknode | `/:network` (55+ networks) | $10/1M credits | Pay-per-request RPC access (no API key needed) |
 
 Kaito API docs: https://github.com/MetaSearch-IO/KaitoX402APIDocs
