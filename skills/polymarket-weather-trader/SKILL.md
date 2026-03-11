@@ -3,7 +3,7 @@ name: polymarket-weather-trader
 description: Trade Polymarket weather markets using NOAA forecasts via Simmer API. Inspired by gopfan2's $2M+ strategy. Use when user wants to trade temperature markets, automate weather bets, check NOAA forecasts, or run gopfan2-style trading.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.13.0"
+  version: "1.14.0"
   displayName: Polymarket Weather Trader
   difficulty: beginner
   attribution: Strategy inspired by gopfan2
@@ -23,8 +23,18 @@ Use this skill when the user wants to:
 - Check their weather trading positions
 - Configure trading thresholds or locations
 
-## What's New in v1.11.0
+## What's New in v1.14.0
 
+- **Fixed env var names** to match autotune registry (old names still work as aliases):
+  - `SIMMER_WEATHER_ENTRY` → `SIMMER_WEATHER_ENTRY_THRESHOLD`
+  - `SIMMER_WEATHER_EXIT` → `SIMMER_WEATHER_EXIT_THRESHOLD`
+  - `SIMMER_WEATHER_MAX_POSITION` → `SIMMER_WEATHER_MAX_POSITION_USD`
+  - `SIMMER_WEATHER_MAX_TRADES` → `SIMMER_WEATHER_MAX_TRADES_PER_RUN`
+- **New tunable: `SIMMER_WEATHER_SLIPPAGE_MAX`** — adjustable slippage safeguard (default 15%). Set higher for research mode on illiquid markets.
+- **New tunable: `SIMMER_WEATHER_MIN_LIQUIDITY`** — skip markets with liquidity below this USD threshold (default 0 = disabled). Pre-filters thin markets before execution.
+- **`SIMMER_WEATHER_LOCATIONS` and `SIMMER_WEATHER_BINARY_ONLY` now exposed as autotune tunables.**
+
+### v1.13.0
 - **Binary Only Mode**: New `SIMMER_WEATHER_BINARY_ONLY` config to skip range-bucket events (e.g., "NYC 34-35°F") and only trade binary yes/no weather markets
 
 ### v1.2.0
@@ -67,13 +77,17 @@ When user asks to install or configure this skill:
 
 | Setting | Environment Variable | Default | Description |
 |---------|---------------------|---------|-------------|
-| Entry threshold | `SIMMER_WEATHER_ENTRY` | 0.15 | Buy when price below this |
-| Exit threshold | `SIMMER_WEATHER_EXIT` | 0.45 | Sell when price above this |
-| Max position | `SIMMER_WEATHER_MAX_POSITION` | 2.00 | Maximum USD per trade |
-| Max trades/run | `SIMMER_WEATHER_MAX_TRADES` | 5 | Maximum trades per scan cycle |
+| Entry threshold | `SIMMER_WEATHER_ENTRY_THRESHOLD` | 0.15 | Buy when price below this |
+| Exit threshold | `SIMMER_WEATHER_EXIT_THRESHOLD` | 0.45 | Sell when price above this |
+| Max position | `SIMMER_WEATHER_MAX_POSITION_USD` | 2.00 | Maximum USD per trade |
+| Max trades/run | `SIMMER_WEATHER_MAX_TRADES_PER_RUN` | 5 | Maximum trades per scan cycle |
+| Locations | `SIMMER_WEATHER_LOCATIONS` | NYC | Comma-separated cities (NYC, Chicago, Seattle, Atlanta, Dallas, Miami) |
 | Binary only | `SIMMER_WEATHER_BINARY_ONLY` | false | Skip range-bucket events (e.g., "34-35°F"), only trade binary yes/no markets |
-| Locations | `SIMMER_WEATHER_LOCATIONS` | NYC | Comma-separated cities |
 | Smart sizing % | `SIMMER_WEATHER_SIZING_PCT` | 0.05 | % of balance per trade |
+| Slippage max | `SIMMER_WEATHER_SLIPPAGE_MAX` | 0.15 | Skip trades with slippage above this (0.15 = 15%) |
+| Min liquidity | `SIMMER_WEATHER_MIN_LIQUIDITY` | 0 | Skip markets with liquidity below this USD amount (0 = disabled) |
+
+**Legacy env var aliases** (still accepted for backwards compatibility): `SIMMER_WEATHER_ENTRY`, `SIMMER_WEATHER_EXIT`, `SIMMER_WEATHER_MAX_POSITION`, `SIMMER_WEATHER_MAX_TRADES`
 
 **Supported locations:** NYC, Chicago, Seattle, Atlanta, Dallas, Miami
 
