@@ -111,6 +111,20 @@ Rules:
 - `simmer-sdk` in `requires.pip` is required — this is what causes the skill to appear in the Simmer registry automatically
 - `requires.env` must include `SIMMER_API_KEY`
 - `automaton.entrypoint` must point to the main Python script
+- **`tunables`** — declare every configurable env var here so autotune and the dashboard can surface them. This is the source of truth for tunable ranges and defaults — `clawhub_sync` propagates them to the skills registry automatically.
+
+Example tunables:
+```json
+{
+  "tunables": [
+    {"env": "MY_SKILL_THRESHOLD", "type": "number", "default": 0.15, "range": [0.01, 1.0], "step": 0.01, "label": "Entry threshold"},
+    {"env": "MY_SKILL_LOCATIONS", "type": "string", "default": "NYC", "label": "Target cities (comma-separated)"},
+    {"env": "MY_SKILL_ENABLED", "type": "boolean", "default": true, "label": "Feature toggle"}
+  ]
+}
+```
+
+Supported types: `number` (with `range` and `step`), `string`, `boolean`. Keep defaults in sync with `CONFIG_SCHEMA` in your Python script.
 
 #### Python Script Requirements
 
