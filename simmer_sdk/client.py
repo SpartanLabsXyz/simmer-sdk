@@ -1362,6 +1362,38 @@ class SimmerClient:
         data = self._request("GET", "/api/sdk/markets/importable", params=params)
         return data.get("markets", [])
 
+    def check_market_exists(
+        self,
+        url: Optional[str] = None,
+        condition_id: Optional[str] = None,
+        ticker: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Check if a market has already been imported to Simmer.
+        Does not consume import quota.
+
+        Args:
+            url: Polymarket or Kalshi market URL
+            condition_id: Polymarket condition ID
+            ticker: Kalshi market ticker
+
+        Returns:
+            Dict with 'exists' (bool), and if exists: 'market_id', 'question', 'status'
+
+        Example:
+            result = client.check_market_exists(url="https://polymarket.com/event/bitcoin-100k")
+            if not result["exists"]:
+                client.import_market("https://polymarket.com/event/bitcoin-100k")
+        """
+        params = {}
+        if url:
+            params["url"] = url
+        if condition_id:
+            params["condition_id"] = condition_id
+        if ticker:
+            params["ticker"] = ticker
+        return self._request("GET", "/api/sdk/markets/check", params=params)
+
     def get_portfolio(self) -> Optional[Dict[str, Any]]:
         """
         Get portfolio summary with balance, exposure, and positions by source.

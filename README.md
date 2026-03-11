@@ -135,6 +135,7 @@ client.trade(market_id, side="yes", amount=10.0, venue="polymarket")
 | `import_market()` | Import a Polymarket market by URL |
 | `import_kalshi_market()` | Import a Kalshi market by URL |
 | `list_importable_markets()` | Discover markets available to import |
+| `check_market_exists()` | Check if a market is already on Simmer (no quota cost) |
 | `set_monitor()` | Set stop-loss / take-profit on a position |
 | `cancel_order()` | Cancel a single open order by ID |
 | `cancel_market_orders()` | Cancel all open orders on a market (optional side filter) |
