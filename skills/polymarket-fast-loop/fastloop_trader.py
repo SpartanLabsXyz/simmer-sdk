@@ -46,15 +46,15 @@ except ImportError:
 # =============================================================================
 
 CONFIG_SCHEMA = {
-    "entry_threshold": {"default": 0.05, "env": "SIMMER_SPRINT_ENTRY", "type": float,
+    "entry_threshold": {"default": 0.05, "env": "SIMMER_FASTLOOP_ENTRY_THRESHOLD", "type": float,
                         "help": "Min price divergence from 50¢ to trigger trade"},
-    "min_momentum_pct": {"default": 0.5, "env": "SIMMER_SPRINT_MOMENTUM", "type": float,
+    "min_momentum_pct": {"default": 0.5, "env": "SIMMER_FASTLOOP_MOMENTUM_THRESHOLD", "type": float,
                          "help": "Min BTC % move in lookback window to trigger"},
-    "max_position": {"default": 5.0, "env": "SIMMER_SPRINT_MAX_POSITION", "type": float,
+    "max_position": {"default": 5.0, "env": "SIMMER_FASTLOOP_MAX_POSITION_USD", "type": float,
                      "help": "Max $ per trade"},
     "signal_source": {"default": "binance", "env": "SIMMER_SPRINT_SIGNAL", "type": str,
                       "help": "Price feed source (binance)"},
-    "lookback_minutes": {"default": 5, "env": "SIMMER_SPRINT_LOOKBACK", "type": int,
+    "lookback_minutes": {"default": 5, "env": "SIMMER_FASTLOOP_LOOKBACK_MINUTES", "type": int,
                          "help": "Minutes of price history for momentum calc"},
     "min_time_remaining": {"default": 0, "env": "SIMMER_SPRINT_MIN_TIME", "type": int,
                            "help": "Skip fast_markets with less than this many seconds remaining (0 = auto: 10%% of window)"},
@@ -62,9 +62,9 @@ CONFIG_SCHEMA = {
               "help": "Asset to trade (BTC, ETH, SOL)"},
     "window": {"default": "5m", "env": "SIMMER_SPRINT_WINDOW", "type": str,
                "help": "Market window duration (5m or 15m)"},
-    "volume_confidence": {"default": True, "env": "SIMMER_SPRINT_VOL_CONF", "type": bool,
+    "volume_confidence": {"default": True, "env": "SIMMER_FASTLOOP_VOL_CONFIDENCE_MIN", "type": bool,
                           "help": "Weight signal by volume (higher volume = more confident)"},
-    "daily_budget": {"default": 10.0, "env": "SIMMER_SPRINT_DAILY_BUDGET", "type": float,
+    "daily_budget": {"default": 10.0, "env": "SIMMER_FASTLOOP_DAILY_BUDGET_USD", "type": float,
                      "help": "Max total spend per UTC day"},
 }
 

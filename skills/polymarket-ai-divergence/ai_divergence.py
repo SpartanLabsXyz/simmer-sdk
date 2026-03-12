@@ -33,12 +33,12 @@ from simmer_sdk.skill import load_config, update_config, get_config_path
 
 CONFIG_SCHEMA = {
     "min_divergence": {"env": "SIMMER_DIVERGENCE_MIN", "default": 5.0, "type": float},
-    "default_direction": {"env": "SIMMER_DIVERGENCE_DIRECTION", "default": "", "type": str},
-    "max_bet_usd": {"env": "SIMMER_DIVERGENCE_MAX_BET", "default": 5.0, "type": float},
-    "max_trades_per_run": {"env": "SIMMER_DIVERGENCE_MAX_TRADES", "default": 3, "type": int},
+    "default_direction": {"env": "SIMMER_DIVERGENCE_DIRECTION_FILTER", "default": "", "type": str},
+    "max_bet_usd": {"env": "SIMMER_DIVERGENCE_MAX_BET_USD", "default": 5.0, "type": float},
+    "max_trades_per_run": {"env": "SIMMER_DIVERGENCE_MAX_TRADES_PER_RUN", "default": 3, "type": int},
     "min_edge": {"env": "SIMMER_DIVERGENCE_MIN_EDGE", "default": 0.02, "type": float},
     "kelly_cap": {"env": "SIMMER_DIVERGENCE_KELLY_CAP", "default": 0.25, "type": float},
-    "daily_budget": {"env": "SIMMER_DIVERGENCE_DAILY_BUDGET", "default": 25.0, "type": float},
+    "daily_budget": {"env": "SIMMER_DIVERGENCE_DAILY_BUDGET_USD", "default": 25.0, "type": float},
 }
 
 _config = load_config(CONFIG_SCHEMA, __file__, slug="polymarket-ai-divergence")
