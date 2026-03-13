@@ -574,11 +574,12 @@ def fetch_weather_markets():
         return []
 
 
-def execute_trade(market_id: str, side: str, amount: float) -> dict:
+def execute_trade(market_id: str, side: str, amount: float, reasoning: str = "") -> dict:
     """Execute a buy trade via Simmer SDK with source tagging."""
     try:
         result = get_client().trade(
             market_id=market_id, side=side, amount=amount, source=TRADE_SOURCE, skill_slug=SKILL_SLUG,
+            reasoning=reasoning,
         )
         return {
             "success": result.success, "trade_id": result.trade_id,
@@ -589,12 +590,13 @@ def execute_trade(market_id: str, side: str, amount: float) -> dict:
         return {"error": str(e)}
 
 
-def execute_sell(market_id: str, shares: float) -> dict:
+def execute_sell(market_id: str, shares: float, reasoning: str = "") -> dict:
     """Execute a sell trade via Simmer SDK with source tagging."""
     try:
         result = get_client().trade(
             market_id=market_id, side="yes", action="sell",
             shares=shares, source=TRADE_SOURCE, skill_slug=SKILL_SLUG,
+            reasoning=reasoning,
         )
         return {
             "success": result.success, "trade_id": result.trade_id,
@@ -691,7 +693,8 @@ def check_exit_opportunities(dry_run: bool = False, use_safeguards: bool = True)
 
             tag = "SIMULATED" if dry_run else "LIVE"
             print(f"     Selling {shares:.1f} shares ({tag})...")
-            result = execute_sell(market_id, shares)
+            sell_reasoning = f"Exit: price ${current_price:.2f} >= exit threshold ${EXIT_THRESHOLD:.2f}"
+            result = execute_sell(market_id, shares, reasoning=sell_reasoning)
 
             if result.get("success"):
                 exits_executed += 1
@@ -929,7 +932,8 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
 
             tag = "SIMULATED" if dry_run else "LIVE"
             log(f"  Executing trade ({tag})...", force=True)
-            result = execute_trade(market_id, "yes", position_size)
+            buy_reasoning = f"NOAA forecast {forecast_temp}°F matches bucket {outcome_name} -- price ${price:.2f} < entry threshold ${ENTRY_THRESHOLD:.2f}"
+            result = execute_trade(market_id, "yes", position_size, reasoning=buy_reasoning)
 
             if result.get("success"):
                 trades_executed += 1
