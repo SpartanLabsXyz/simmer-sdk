@@ -1,0 +1,88 @@
+{
+  "emoji": "\ud83c\udf21\ufe0f",
+  "requires": {
+    "env": [
+      "SIMMER_API_KEY",
+      "SOLANA_PRIVATE_KEY"
+    ],
+    "pip": [
+      "simmer-sdk"
+    ]
+  },
+  "cron": null,
+  "autostart": false,
+  "automaton": {
+    "managed": true,
+    "entrypoint": "weather_trader.py"
+  },
+  "tunables": [
+    {
+      "env": "SIMMER_WEATHER_ENTRY_THRESHOLD",
+      "type": "number",
+      "default": 0.15,
+      "range": [0.01, 0.50],
+      "step": 0.01,
+      "label": "Entry edge threshold"
+    },
+    {
+      "env": "SIMMER_WEATHER_EXIT_THRESHOLD",
+      "type": "number",
+      "default": 0.45,
+      "range": [0.10, 0.99],
+      "step": 0.01,
+      "label": "Exit probability threshold"
+    },
+    {
+      "env": "SIMMER_WEATHER_MAX_POSITION_USD",
+      "type": "number",
+      "default": 2.00,
+      "range": [1, 200],
+      "step": 1,
+      "label": "Max position size (USD)"
+    },
+    {
+      "env": "SIMMER_WEATHER_SIZING_PCT",
+      "type": "number",
+      "default": 0.05,
+      "range": [0.01, 1.0],
+      "step": 0.01,
+      "label": "Position sizing percentage"
+    },
+    {
+      "env": "SIMMER_WEATHER_MAX_TRADES_PER_RUN",
+      "type": "number",
+      "default": 5,
+      "range": [1, 20],
+      "step": 1,
+      "label": "Max trades per run"
+    },
+    {
+      "env": "SIMMER_WEATHER_LOCATIONS",
+      "type": "string",
+      "default": "NYC",
+      "label": "Target cities (comma-separated)"
+    },
+    {
+      "env": "SIMMER_WEATHER_BINARY_ONLY",
+      "type": "boolean",
+      "default": false,
+      "label": "Binary markets only (skip range-bucket)"
+    },
+    {
+      "env": "SIMMER_WEATHER_SLIPPAGE_MAX",
+      "type": "number",
+      "default": 0.15,
+      "range": [0.05, 1.0],
+      "step": 0.05,
+      "label": "Max slippage before skipping trade"
+    },
+    {
+      "env": "SIMMER_WEATHER_MIN_LIQUIDITY",
+      "type": "number",
+      "default": 0,
+      "range": [0, 10000],
+      "step": 100,
+      "label": "Min market liquidity USD (0 = disabled)"
+    }
+  ]
+}
