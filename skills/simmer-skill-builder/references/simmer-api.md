@@ -94,7 +94,7 @@ result.simulated      # bool (True = paper trade)
 
 **Before selling:** Check `status == "active"` (resolved markets can't be sold — redeem instead). Check shares >= 5 (Polymarket minimum). Always fetch fresh positions before selling.
 
-**Auto risk monitors:** Every buy automatically gets a stop-loss and take-profit — server-side, no skill code needed. The server checks prices each oracle cycle and exits autonomously. Defaults are configurable per-position via `POST /api/sdk/positions/{market_id}/monitor` or globally via `PATCH /api/sdk/user/settings`. Only implement manual `execute_sell()` if the skill has custom exit logic (e.g. signal reversal, threshold-based exits). Most skills can rely on the auto monitors and skip sell logic entirely.
+**Auto risk monitors:** Every buy automatically gets a 50% stop-loss (take-profit is off by default — prediction markets resolve naturally). Server-side, no skill code needed. Defaults are configurable per-position via `POST /api/sdk/positions/{market_id}/monitor` or globally via `PATCH /api/sdk/user/settings`. Only implement manual `execute_sell()` if the skill has custom exit logic (e.g. signal reversal, threshold-based exits). Most skills can rely on the auto monitors and skip sell logic entirely.
 
 ### Positions
 
