@@ -220,16 +220,13 @@ def execute_copytrading(wallets: list, top_n: int = None, max_usd: float = 50.0,
     """
     Execute copytrading via Simmer SDK.
 
-    Calls POST /api/sdk/copytrading/execute which:
-    - Fetches positions from all target wallets via Dome API
-    - Calculates size-weighted allocations
-    - Detects and skips conflicting positions
-    - Applies Top N concentration filter
-    - Auto-imports missing markets
-    - Calculates and executes rebalance trades
-    - Filters to buy-only by default (prevents selling positions from other strategies)
-    - Detects whale exits (sells positions whales no longer hold)
-    - Limits trades per run via max_trades
+    Uses dry_run=True to get the trade plan from the server, then executes
+    each trade client-side via client.trade(). This ensures signing works
+    for both managed (server-side) and external (client-side) wallets.
+
+    The server handles: fetching whale positions, calculating allocations,
+    conflict detection, Top N filtering, auto-import, rebalance calculation.
+    The client handles: trade execution with proper wallet signing.
 
     Venue:
     - 'sim': Execute on Simmer LMSR with $SIM (paper trading)
@@ -243,7 +240,7 @@ def execute_copytrading(wallets: list, top_n: int = None, max_usd: float = 50.0,
     data = {
         "wallets": wallets,
         "max_usd_per_position": max_usd,
-        "dry_run": dry_run,
+        "dry_run": True,  # Always get trade plan from server
         "buy_only": buy_only,
         "detect_whale_exits": detect_whale_exits,
     }
@@ -257,7 +254,46 @@ def execute_copytrading(wallets: list, top_n: int = None, max_usd: float = 50.0,
     if venue is not None:
         data["venue"] = venue
 
-    return get_client()._request("POST", "/api/sdk/copytrading/execute", json=data)
+    result = get_client()._request("POST", "/api/sdk/copytrading/execute", json=data)
+
+    # If caller wants dry_run, return the plan as-is
+    if dry_run:
+        return result
+
+    # Execute each trade client-side via client.trade() (handles signing for all wallet types)
+    trades = result.get("trades", [])
+    executed = 0
+    for t in trades:
+        market_id = t.get("market_id")
+        action = t.get("action", "buy")
+        side = t.get("side", "yes")
+        shares = t.get("shares", 0)
+        estimated_cost = t.get("estimated_cost", 0)
+
+        try:
+            market_title = t.get("market_title", market_id[:20])
+            trade_result = get_client().trade(
+                market_id=market_id,
+                side=side,
+                action=action,
+                amount=estimated_cost if action == "buy" else 0,
+                shares=shares if action == "sell" else 0,
+                reasoning=f"Copytrading: {action} {shares:.1f} {side} to mirror whale positions on {market_title}",
+                source=TRADE_SOURCE,
+                skill_slug=SKILL_SLUG,
+            )
+            t["success"] = trade_result.success
+            t["error"] = trade_result.error if not trade_result.success else None
+            t["trade_id"] = trade_result.trade_id
+            if trade_result.success:
+                executed += 1
+        except Exception as e:
+            t["success"] = False
+            t["error"] = str(e)
+
+    result["trades_executed"] = executed
+    result["dry_run"] = False
+    return result
 
 
 def run_copytrading(wallets: list, top_n: int = None, max_usd: float = 50.0, dry_run: bool = True, buy_only: bool = True, detect_whale_exits: bool = True, venue: str = None):
