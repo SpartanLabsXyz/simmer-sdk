@@ -537,7 +537,7 @@ def get_binance_price_at(symbol, start_ms):
         f"?symbol={symbol}&interval=1m&startTime={start_ms}&limit=1"
     )
     result = _api_request(url)
-    if result and len(result) > 0:
+    if isinstance(result, list) and len(result) > 0:
         return float(result[0][4])  # close price
     return None
 
