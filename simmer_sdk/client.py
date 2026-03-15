@@ -2128,15 +2128,15 @@ class SimmerClient:
         return self._request("POST", "/api/sdk/webhooks/test")
 
     # ==========================================
-    # AUTOMATON
+    # SKILL CONFIG (remote overrides)
     # ==========================================
 
     def get_skill_config(self, slug: str) -> Dict[str, str]:
         """
-        Fetch tuned config for a skill from the automaton.
+        Fetch remote config overrides for a skill.
 
-        Returns env var overrides set by the automaton's tuning engine.
-        If no automaton is configured or no overrides exist, returns {}.
+        Returns env var overrides from the server's skill config.
+        If no overrides exist, returns {}.
 
         Args:
             slug: Skill slug (e.g. "polymarket-weather-trader")
