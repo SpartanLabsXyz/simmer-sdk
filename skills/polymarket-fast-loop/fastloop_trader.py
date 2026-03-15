@@ -66,6 +66,12 @@ CONFIG_SCHEMA = {
                           "help": "Weight signal by volume (higher volume = more confident)"},
     "daily_budget": {"default": 10.0, "env": "SIMMER_FASTLOOP_DAILY_BUDGET_USD", "type": float,
                      "help": "Max total spend per UTC day"},
+    "use_fair_value": {"default": False, "env": "SIMMER_FASTLOOP_FAIR_VALUE", "type": bool,
+                       "help": "Use N(d) fair-value model instead of raw momentum signal"},
+    "fair_value_min_edge": {"default": 0.05, "env": "SIMMER_FASTLOOP_FV_MIN_EDGE", "type": float,
+                            "help": "Minimum |market_price - fair_value| edge required to trade"},
+    "btc_annual_vol": {"default": 0.55, "env": "SIMMER_FASTLOOP_ANNUAL_VOL", "type": float,
+                       "help": "Annualised volatility for N(d) fair-value model (default: 0.55 = 55%)"},
 }
 
 TRADE_SOURCE = "sdk:fastloop"
@@ -114,6 +120,15 @@ else:
     MIN_TIME_REMAINING = max(30, _window_seconds.get(WINDOW, 300) // 10)
 VOLUME_CONFIDENCE = cfg["volume_confidence"]
 DAILY_BUDGET = cfg["daily_budget"]
+
+# Fair-value mode: compare market price to Black-Scholes binary option fair value.
+# fair_YES = N(d) where d = log(S/S0) / (σ_annual × √τ)
+# S0 = BTC price at market open, S = current BTC price, τ = time remaining (years)
+# Trades whichever side has the larger mispricing vs fair value.
+USE_FAIR_VALUE = cfg["use_fair_value"]
+FAIR_VALUE_MIN_EDGE = cfg["fair_value_min_edge"]
+BTC_ANNUAL_VOL = cfg["btc_annual_vol"]
+SECONDS_PER_YEAR = 31_536_000
 
 # Polymarket crypto fee formula constants (from docs.polymarket.com/trading/fees)
 # fee = C × p × POLY_FEE_RATE × (p × (1-p))^POLY_FEE_EXPONENT
@@ -500,6 +515,34 @@ def get_momentum(asset="BTC", source="binance", lookback=5):
 
 
 # =============================================================================
+# Fair-Value Model (Black-Scholes binary option)
+# =============================================================================
+
+def _norm_cdf(x):
+    """Standard normal CDF — Abramowitz & Stegun rational approximation.
+    Max error < 7.5e-8. No external dependencies."""
+    import math
+    a1, a2, a3, a4, a5 = 0.319381530, -0.356563782, 1.781477937, -1.821255978, 1.330274429
+    k = 1.0 / (1.0 + 0.2316419 * abs(x))
+    poly = k * (a1 + k * (a2 + k * (a3 + k * (a4 + k * a5))))
+    n = 1.0 - math.exp(-0.5 * x * x) * poly / math.sqrt(2 * math.pi)
+    return n if x >= 0 else 1.0 - n
+
+
+def get_binance_price_at(symbol, start_ms):
+    """Get BTC close price of the 1-minute candle starting at start_ms (unix ms).
+    Used to fetch the reference price at market open for the N(d) model."""
+    url = (
+        f"https://api.binance.com/api/v3/klines"
+        f"?symbol={symbol}&interval=1m&startTime={start_ms}&limit=1"
+    )
+    result = _api_request(url)
+    if isinstance(result, list) and len(result) > 0:
+        return float(result[0][4])  # close price
+    return None
+
+
+# =============================================================================
 # Import & Trade
 # =============================================================================
 
@@ -803,23 +846,85 @@ def run_fast_market_strategy(dry_run=True, positions_only=False, show_config=Fal
                 _emit_skip_report()
                 return
 
-    # Check minimum momentum
-    if momentum_pct < MIN_MOMENTUM_PCT:
-        log(f"  ⏸️  Momentum {momentum_pct:.3f}% < minimum {MIN_MOMENTUM_PCT}% — skip")
+    # Check minimum momentum (loose gate when fair-value mode is on — edge check filters there)
+    _momentum_floor = 0.01 if USE_FAIR_VALUE else MIN_MOMENTUM_PCT
+    if momentum_pct < _momentum_floor:
+        log(f"  ⏸️  Momentum {momentum_pct:.3f}% < minimum {_momentum_floor}% — skip")
         if not quiet:
             print(f"📊 Summary: No trade (momentum too weak: {momentum_pct:.3f}%)")
         return
 
-    # Calculate expected fair price based on momentum direction
-    # Simple model: strong momentum → higher probability of continuation
-    if direction == "up":
-        side = "yes"
-        divergence = 0.50 + ENTRY_THRESHOLD - market_yes_price
-        trade_rationale = f"{ASSET} up {momentum['momentum_pct']:+.3f}% but YES only ${market_yes_price:.3f}"
+    # Decision logic: fair-value model or raw momentum
+    if USE_FAIR_VALUE:
+        # ── N(d) fair-value model ─────────────────────────────────────────────
+        # Treats the fast market as a binary option expiring at market close.
+        # fair_YES = N(d) where d = log(S/S0) / (σ_annual × √τ)
+        #   S0 = BTC price at market open  (fetched from Binance klines)
+        #   S  = BTC price now             (from momentum signal)
+        #   σ  = btc_annual_vol config param
+        #   τ  = seconds remaining / SECONDS_PER_YEAR
+        # Trade whichever direction (YES/NO) has the larger mispricing vs fair value.
+        import math
+        _wdur = _window_seconds.get(WINDOW, 300)
+        _fv_symbol = ASSET_SYMBOLS.get(ASSET, "BTCUSDT")
+        _btc_start_price = None
+        if end_time:
+            _market_open_ms = int((end_time.timestamp() - _wdur) * 1000)
+            _btc_start_price = get_binance_price_at(_fv_symbol, _market_open_ms)
+
+        if _btc_start_price and _btc_start_price > 0 and remaining > 30:
+            _log_ret = math.log(momentum["price_now"] / _btc_start_price)
+            _sigma_tau = BTC_ANNUAL_VOL * math.sqrt(remaining / SECONDS_PER_YEAR)
+            _d = _log_ret / _sigma_tau if _sigma_tau > 0 else 0
+            fair_yes = _norm_cdf(_d)
+            edge = fair_yes - market_yes_price
+
+            log(f"  BTC at open:  ${_btc_start_price:,.2f}  →  now ${momentum['price_now']:,.2f}")
+            log(f"  Fair YES: {fair_yes:.3f}  |  Market: {market_yes_price:.3f}  |  Edge: {edge:+.3f}  (d={_d:.2f})")
+
+            if abs(edge) < FAIR_VALUE_MIN_EDGE:
+                log(f"  ⏸️  Edge {abs(edge):.3f} < min {FAIR_VALUE_MIN_EDGE} — skip")
+                if not quiet:
+                    print(f"📊 Summary: No trade (edge {edge:+.3f} below threshold {FAIR_VALUE_MIN_EDGE})")
+                skip_reasons.append("insufficient edge")
+                _emit_skip_report()
+                return
+
+            side = "yes" if edge > 0 else "no"
+            divergence = abs(edge)
+            trade_rationale = (
+                f"fair YES={fair_yes:.3f} vs market={market_yes_price:.3f}"
+                f" ({edge:+.3f} edge, d={_d:.2f})"
+            )
+        else:
+            # Fallback to momentum when BTC start price is unavailable or <30s left
+            log("  ⚠️  Fair-value unavailable (no start price or <30s left) — momentum fallback")
+            if direction == "up":
+                side = "yes"
+                divergence = 0.50 + ENTRY_THRESHOLD - market_yes_price
+                trade_rationale = f"momentum fallback: {ASSET} {momentum['momentum_pct']:+.3f}%"
+            else:
+                side = "no"
+                divergence = market_yes_price - (0.50 - ENTRY_THRESHOLD)
+                trade_rationale = f"momentum fallback: {ASSET} {momentum['momentum_pct']:+.3f}%"
+            if divergence <= 0:
+                log(f"  ⏸️  Fallback divergence {divergence:.3f} ≤ 0 — skip")
+                if not quiet:
+                    print(f"📊 Summary: No trade (fallback: market priced in)")
+                skip_reasons.append("market already priced in")
+                _emit_skip_report()
+                return
     else:
-        side = "no"
-        divergence = market_yes_price - (0.50 - ENTRY_THRESHOLD)
-        trade_rationale = f"{ASSET} down {momentum['momentum_pct']:+.3f}% but YES still ${market_yes_price:.3f}"
+        # Default: follow the momentum direction.
+        # Simple model: strong momentum → higher probability of continuation
+        if direction == "up":
+            side = "yes"
+            divergence = 0.50 + ENTRY_THRESHOLD - market_yes_price
+            trade_rationale = f"{ASSET} up {momentum['momentum_pct']:+.3f}% but YES only ${market_yes_price:.3f}"
+        else:
+            side = "no"
+            divergence = market_yes_price - (0.50 - ENTRY_THRESHOLD)
+            trade_rationale = f"{ASSET} down {momentum['momentum_pct']:+.3f}% but YES still ${market_yes_price:.3f}"
 
     # Volume confidence adjustment
     vol_note = ""
