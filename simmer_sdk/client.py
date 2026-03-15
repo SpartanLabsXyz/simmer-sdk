@@ -2149,7 +2149,7 @@ class SimmerClient:
             # {"SIMMER_WEATHER_MAX_USD": "25", "SIMMER_WEATHER_ENTRY_THRESHOLD": "0.08"}
         """
         try:
-            data = self._request("GET", "/api/sdk/automaton/my-config", params={"skill": slug})
+            data = self._request("GET", "/api/sdk/skill-config", params={"skill": slug})
             return data.get("config", {})
         except Exception:
             return {}
