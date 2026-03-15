@@ -3,7 +3,7 @@ name: polymarket-ai-divergence
 description: Find markets where Simmer's AI consensus diverges from the real market price, then trade on the mispriced side using Kelly sizing. Scans for divergence, checks fees and safeguards, and executes trades on zero-fee markets with sufficient edge.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "2.1.1"
+  version: "2.2.0"
   displayName: Polymarket AI Divergence
   difficulty: intermediate
 ---
