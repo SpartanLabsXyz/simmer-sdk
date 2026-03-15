@@ -175,10 +175,11 @@ def calculate_kelly_size(edge, price, max_bet, kelly_cap):
 # =============================================================================
 
 def get_markets() -> list:
-    """Fetch markets with meaningful divergence data.
+    """Fetch markets with divergence between LMSR pool price and external venue price.
 
-    Uses /opportunities endpoint which filters out tracking-only markets
-    (no AI cycles) where divergence is just LMSR drift noise.
+    Divergence sources:
+    - 'oracle': AI multi-model forecast (activated markets)
+    - 'crowd': Sim agent trading activity against LMSR pool (tracking markets)
     """
     data = get_client()._request("GET", "/api/sdk/markets/opportunities", params={"limit": 50, "min_divergence": 0.01})
     return [
@@ -192,6 +193,7 @@ def get_markets() -> list:
             "resolves_at": m.get("resolves_at"),
             "opportunity_score": m.get("opportunity_score"),
             "recommended_side": m.get("recommended_side"),
+            "signal_source": m.get("signal_source", "crowd"),
         }
         for m in data.get("opportunities", [])
     ]
@@ -223,14 +225,15 @@ def format_divergence(markets: list, min_div: float = 0, direction: str = None) 
     print()
     print("🔮 AI Divergence Scanner")
     print("=" * 75)
-    print(f"{'Market':<40} {'Simmer':>8} {'Poly':>8} {'Div':>8} {'Signal':>8}")
+    print(f"{'Market':<36} {'LMSR':>7} {'Venue':>7} {'Div':>7} {'Source':>6} {'Signal':>8}")
     print("-" * 75)
 
     for m in filtered[:20]:
-        q = m.get("question", "")[:38]
+        q = m.get("question", "")[:34]
         simmer = m.get("current_probability") or 0
         poly = m.get("external_price_yes") or 0
         div = m.get("divergence") or 0
+        src = m.get("signal_source", "crowd")[:5]
 
         is_polymarket = m.get("import_source") in ("polymarket", "kalshi")
         if div > 0.05:
@@ -240,7 +243,7 @@ def format_divergence(markets: list, min_div: float = 0, direction: str = None) 
         else:
             signal = "⚪ HOLD"
 
-        print(f"{q:<40} {simmer:>7.1%} {poly:>7.1%} {div:>+7.1%} {signal:>8}")
+        print(f"{q:<36} {simmer:>6.1%} {poly:>6.1%} {div:>+6.1%} {src:>6} {signal:>8}")
 
     print("-" * 75)
     print(f"Showing {len(filtered[:20])} of {len(filtered)} markets with divergence")
