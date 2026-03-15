@@ -910,7 +910,7 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
         date_str = event_info["date"]
         metric = event_info["metric"]
 
-        if location not in ACTIVE_LOCATIONS:
+        if location.upper() not in ACTIVE_LOCATIONS:
             continue
 
         # Skip range-bucket events (multi-outcome) if binary_only is set
