@@ -132,8 +132,10 @@ def build_and_sign_order(
     # CLOB enforces maker max 2 decimals for FAK/FOK (market orders).
     # GTC/GTD (limit orders) need full precision from get_order_amounts().
     # See _dev/active/_polymarket-rounding-precision/ for full history.
+    # Uses py-clob-client's own helpers to avoid float truncation (int() on 2069999.9999 → 2069999).
+    from py_clob_client.order_builder.helpers import round_normal as _round_normal, to_token_decimals as _to_token_decimals
     if order_type in ("FAK", "FOK"):
-        maker_raw = int(round(maker_raw / 1e6, 2) * 1e6)
+        maker_raw = _to_token_decimals(_round_normal(maker_raw / 1e6, 2))
 
     # Check minimum order size
     shares_raw = taker_raw if side == "BUY" else maker_raw
