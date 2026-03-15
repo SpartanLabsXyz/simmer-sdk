@@ -7,5 +7,9 @@
   "asset": "BTC",
   "window": "5m",
   "signal_source": "binance",
-  "volume_confidence": true
+  "volume_confidence": true,
+  "daily_budget": 200.0,
+  "use_fair_value": true,
+  "fair_value_min_edge": 0.03,
+  "btc_annual_vol": 0.7
 }
