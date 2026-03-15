@@ -153,6 +153,60 @@ ACTIVE_LOCATIONS = [loc.strip().upper() for loc in _locations_str.split(",") if 
 # NOAA Weather API
 # =============================================================================
 
+# International city coordinates for Open-Meteo fallback
+# Keyed by the city name as it appears in market questions
+INTERNATIONAL_LOCATIONS = {
+    "Tel Aviv":   {"lat": 32.0853, "lon": 34.7818, "tz": "Asia/Jerusalem"},
+    "Munich":     {"lat": 48.1351, "lon": 11.5820, "tz": "Europe/Berlin"},
+    "London":     {"lat": 51.5074, "lon": -0.1278, "tz": "Europe/London"},
+    "Tokyo":      {"lat": 35.6762, "lon": 139.6503, "tz": "Asia/Tokyo"},
+    "Seoul":      {"lat": 37.5665, "lon": 126.9780, "tz": "Asia/Seoul"},
+    "Ankara":     {"lat": 39.9334, "lon": 32.8597,  "tz": "Europe/Istanbul"},
+    "Lucknow":    {"lat": 26.8467, "lon": 80.9462,  "tz": "Asia/Kolkata"},
+    "Wellington": {"lat": -41.2866, "lon": 174.7756, "tz": "Pacific/Auckland"},
+}
+
+OPEN_METEO_BASE = "https://api.open-meteo.com/v1/forecast"
+
+def get_openmeteo_forecast(city: str) -> dict:
+    """Get Open-Meteo forecast for an international city.
+    Returns dict with date -> {"high_c": temp, "low_c": temp} in Celsius.
+    """
+    loc = INTERNATIONAL_LOCATIONS.get(city)
+    if not loc:
+        return {}
+
+    params = (
+        f"?latitude={loc['lat']}&longitude={loc['lon']}"
+        f"&daily=temperature_2m_max,temperature_2m_min"
+        f"&temperature_unit=celsius"
+        f"&timezone={loc['tz'].replace('/', '%2F')}"
+        f"&forecast_days=10"
+    )
+    url = OPEN_METEO_BASE + params
+    try:
+        from urllib.request import urlopen
+        import json as _json
+        with urlopen(url, timeout=15) as resp:
+            data = _json.loads(resp.read().decode())
+    except Exception as e:
+        print(f"  Open-Meteo error for {city}: {e}")
+        return {}
+
+    daily = data.get("daily", {})
+    dates = daily.get("time", [])
+    highs = daily.get("temperature_2m_max", [])
+    lows  = daily.get("temperature_2m_min", [])
+
+    forecasts = {}
+    for d, h, l in zip(dates, highs, lows):
+        forecasts[d] = {
+            "high_c": round(h) if h is not None else None,
+            "low_c":  round(l) if l is not None else None,
+        }
+    return forecasts
+
+
 def fetch_json(url, headers=None):
     """Fetch JSON from URL with error handling."""
     try:
@@ -270,6 +324,15 @@ def parse_weather_event(event_name: str) -> dict:
         'atlanta': 'Atlanta', 'hartsfield': 'Atlanta',
         'dallas': 'Dallas', 'dfw': 'Dallas',
         'miami': 'Miami',
+        # International cities (Open-Meteo)
+        'tel aviv': 'Tel Aviv',
+        'munich': 'Munich',
+        'london': 'London',
+        'tokyo': 'Tokyo',
+        'seoul': 'Seoul',
+        'ankara': 'Ankara',
+        'lucknow': 'Lucknow',
+        'wellington': 'Wellington',
     }
 
     for alias, loc in location_aliases.items():
@@ -279,6 +342,9 @@ def parse_weather_event(event_name: str) -> dict:
 
     if not location:
         return None
+
+    # Detect temperature unit from event name
+    temp_unit = 'C' if '°c' in event_lower or re.search(r'\d+°?c\b', event_lower, re.IGNORECASE) else 'F'
 
     month_day_match = re.search(r'on\s+([a-zA-Z]+)\s+(\d{1,2})', event_name, re.IGNORECASE)
     if not month_day_match:
@@ -308,26 +374,39 @@ def parse_weather_event(event_name: str) -> dict:
     except ValueError:
         return None
 
-    return {"location": location, "date": date_str, "metric": metric}
+    return {"location": location, "date": date_str, "metric": metric, "unit": temp_unit}
 
 
 def parse_temperature_bucket(outcome_name: str) -> tuple:
-    """Parse temperature bucket from outcome name."""
+    """Parse temperature bucket from outcome name. Works for both °F and °C markets,
+    including single-degree exact buckets (e.g. '22°C') and ranges (e.g. '54-55°F')."""
     if not outcome_name:
         return None
 
-    below_match = re.search(r'(\d+)\s*°?[fF]?\s*(or below|or less)', outcome_name, re.IGNORECASE)
+    below_match = re.search(r'(\d+)\s*°?[fFcC]?\s*(or below|or less)', outcome_name, re.IGNORECASE)
     if below_match:
         return (-999, int(below_match.group(1)))
 
-    above_match = re.search(r'(\d+)\s*°?[fF]?\s*(or higher|or above|or more)', outcome_name, re.IGNORECASE)
+    above_match = re.search(r'(\d+)\s*°?[fFcC]?\s*(or higher|or above|or more)', outcome_name, re.IGNORECASE)
     if above_match:
         return (int(above_match.group(1)), 999)
 
-    range_match = re.search(r'(\d+)\s*(?:°?\s*[fF])?\s*(?:-|–|to)\s*(\d+)', outcome_name)
+    range_match = re.search(r'(\d+)\s*(?:°?\s*[fFcC])?\s*(?:-|–|to)\s*(\d+)', outcome_name)
     if range_match:
         low, high = int(range_match.group(1)), int(range_match.group(2))
         return (min(low, high), max(low, high))
+
+    # Single exact-degree bucket: "be 22°C on" or "22°F"
+    exact_match = re.search(r'\b(\d+)\s*°[fFcC]\b', outcome_name)
+    if exact_match:
+        t = int(exact_match.group(1))
+        return (t, t)
+
+    # Bare integer in short outcome names like "22°C"
+    bare_match = re.match(r'^\s*(\d+)\s*°?[cCfF]?\s*$', outcome_name.strip())
+    if bare_match:
+        t = int(bare_match.group(1))
+        return (t, t)
 
     return None
 
@@ -831,7 +910,7 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
         date_str = event_info["date"]
         metric = event_info["metric"]
 
-        if location not in ACTIVE_LOCATIONS:
+        if location.upper() not in ACTIVE_LOCATIONS:
             continue
 
         # Skip range-bucket events (multi-outcome) if binary_only is set
@@ -841,9 +920,22 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
 
         log(f"\n📍 {location} {date_str} ({metric} temp)")
 
+        # Determine forecast source: NOAA for US cities, Open-Meteo for international
+        is_international = location in INTERNATIONAL_LOCATIONS
+        temp_unit = event_info.get("unit", "F")
+
         if location not in forecast_cache:
-            log(f"  Fetching NOAA forecast...")
-            forecast_cache[location] = get_noaa_forecast(location)
+            if is_international:
+                log(f"  Fetching Open-Meteo forecast...")
+                raw = get_openmeteo_forecast(location)
+                # Normalise to {"high": temp, "low": temp} using Celsius keys
+                forecast_cache[location] = {
+                    d: {"high": v.get("high_c"), "low": v.get("low_c")}
+                    for d, v in raw.items()
+                }
+            else:
+                log(f"  Fetching NOAA forecast...")
+                forecast_cache[location] = get_noaa_forecast(location)
 
         forecasts = forecast_cache[location]
         day_forecast = forecasts.get(date_str, {})
@@ -853,7 +945,9 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
             log(f"  ⚠️  No forecast available for {date_str}")
             continue
 
-        log(f"  NOAA forecast: {forecast_temp}°F")
+        unit_label = "°C" if is_international else "°F"
+        source_label = "Open-Meteo" if is_international else "NOAA"
+        log(f"  {source_label} forecast: {forecast_temp}{unit_label}")
 
         matching_market = None
         for market in event_markets:
@@ -865,7 +959,7 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
                 break
 
         if not matching_market:
-            log(f"  ⚠️  No bucket found for {forecast_temp}°F")
+            log(f"  ⚠️  No bucket found for {forecast_temp}{unit_label}")
             continue
 
         outcome_name = matching_market.get("outcome_name", "")
@@ -945,7 +1039,7 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
                     log_trade(
                         trade_id=trade_id,
                         source=TRADE_SOURCE, skill_slug=SKILL_SLUG,
-                        thesis=f"NOAA forecasts {forecast_temp}°F for {location} on {date_str}, "
+                        thesis=f"{'Open-Meteo' if is_international else 'NOAA'} forecasts {forecast_temp}{unit_label} for {location} on {date_str}, "
                                f"bucket '{outcome_name}' underpriced at ${price:.2f}",
                         confidence=round(confidence, 2),
                         location=location,

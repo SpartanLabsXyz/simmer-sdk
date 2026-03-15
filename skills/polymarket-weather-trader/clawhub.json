@@ -18,32 +18,44 @@
     {
       "env": "SIMMER_WEATHER_ENTRY_THRESHOLD",
       "type": "number",
-      "default": 0.15,
-      "range": [0.01, 0.50],
+      "default": 0.05,
+      "range": [
+        0.01,
+        0.3
+      ],
       "step": 0.01,
       "label": "Entry edge threshold"
     },
     {
       "env": "SIMMER_WEATHER_EXIT_THRESHOLD",
       "type": "number",
-      "default": 0.45,
-      "range": [0.10, 0.99],
+      "default": 0.85,
+      "range": [
+        0.5,
+        0.99
+      ],
       "step": 0.01,
       "label": "Exit probability threshold"
     },
     {
       "env": "SIMMER_WEATHER_MAX_POSITION_USD",
       "type": "number",
-      "default": 2.00,
-      "range": [1, 200],
-      "step": 1,
+      "default": 5,
+      "range": [
+        1,
+        200
+      ],
+      "step": 5,
       "label": "Max position size (USD)"
     },
     {
       "env": "SIMMER_WEATHER_SIZING_PCT",
       "type": "number",
-      "default": 0.05,
-      "range": [0.01, 1.0],
+      "default": 0.1,
+      "range": [
+        0.01,
+        1.0
+      ],
       "step": 0.01,
       "label": "Position sizing percentage"
     },
@@ -51,37 +63,12 @@
       "env": "SIMMER_WEATHER_MAX_TRADES_PER_RUN",
       "type": "number",
       "default": 5,
-      "range": [1, 20],
+      "range": [
+        1,
+        20
+      ],
       "step": 1,
       "label": "Max trades per run"
-    },
-    {
-      "env": "SIMMER_WEATHER_LOCATIONS",
-      "type": "string",
-      "default": "NYC",
-      "label": "Target cities (comma-separated)"
-    },
-    {
-      "env": "SIMMER_WEATHER_BINARY_ONLY",
-      "type": "boolean",
-      "default": false,
-      "label": "Binary markets only (skip range-bucket)"
-    },
-    {
-      "env": "SIMMER_WEATHER_SLIPPAGE_MAX",
-      "type": "number",
-      "default": 0.15,
-      "range": [0.05, 1.0],
-      "step": 0.05,
-      "label": "Max slippage before skipping trade"
-    },
-    {
-      "env": "SIMMER_WEATHER_MIN_LIQUIDITY",
-      "type": "number",
-      "default": 0,
-      "range": [0, 10000],
-      "step": 100,
-      "label": "Min market liquidity USD (0 = disabled)"
     }
   ]
 }
