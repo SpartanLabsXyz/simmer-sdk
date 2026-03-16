@@ -72,6 +72,8 @@ CONFIG_SCHEMA = {
                             "help": "Minimum |market_price - fair_value| edge required to trade"},
     "btc_annual_vol": {"default": 0.55, "env": "SIMMER_FASTLOOP_ANNUAL_VOL", "type": float,
                        "help": "Annualised volatility for N(d) fair-value model (default: 0.55 = 55%)"},
+    "order_type": {"default": "GTC", "env": "SIMMER_FASTLOOP_ORDER_TYPE", "type": str,
+                   "help": "Order type for Polymarket trades: GTC (default, waits for fill) or FAK (cancel if not filled immediately)"},
 }
 
 TRADE_SOURCE = "sdk:fastloop"
@@ -128,6 +130,7 @@ DAILY_BUDGET = cfg["daily_budget"]
 USE_FAIR_VALUE = cfg["use_fair_value"]
 FAIR_VALUE_MIN_EDGE = cfg["fair_value_min_edge"]
 BTC_ANNUAL_VOL = cfg["btc_annual_vol"]
+ORDER_TYPE = cfg["order_type"].upper() if cfg["order_type"] else "GTC"
 SECONDS_PER_YEAR = 31_536_000
 
 # Polymarket crypto fee formula constants (from docs.polymarket.com/trading/fees)
@@ -612,6 +615,7 @@ def execute_trade(market_id, side, amount):
             market_id=market_id,
             side=side,
             amount=amount,
+            order_type=ORDER_TYPE,
             source=TRADE_SOURCE, skill_slug=SKILL_SLUG,
         )
         return {
