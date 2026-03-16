@@ -60,7 +60,7 @@ CONFIG_SCHEMA = {
     "max_position_usd":  {"env": "SIMMER_WEATHER_MAX_POSITION_USD",  "default": 2.00,  "type": float},
     "sizing_pct":        {"env": "SIMMER_WEATHER_SIZING_PCT",        "default": 0.05,  "type": float},
     "max_trades_per_run":{"env": "SIMMER_WEATHER_MAX_TRADES_PER_RUN","default": 5,     "type": int},
-    "locations":         {"env": "SIMMER_WEATHER_LOCATIONS",         "default": "NYC", "type": str},
+    "locations":         {"env": "SIMMER_WEATHER_LOCATIONS",         "default": "NYC,Seattle,Phoenix,San Francisco,Los Angeles", "type": str},
     "binary_only":       {"env": "SIMMER_WEATHER_BINARY_ONLY",       "default": False, "type": bool},
     "slippage_max":      {"env": "SIMMER_WEATHER_SLIPPAGE_MAX",      "default": 0.15,  "type": float},
     "min_liquidity":     {"env": "SIMMER_WEATHER_MIN_LIQUIDITY",     "default": 0.0,   "type": float},
@@ -145,11 +145,14 @@ LOCATIONS = {
     "Atlanta": {"lat": 33.6407, "lon": -84.4277, "name": "Atlanta (Hartsfield)", "station": "KATL"},
     "Dallas": {"lat": 32.8998, "lon": -97.0403, "name": "Dallas (DFW)", "station": "KDFW"},
     "Miami": {"lat": 25.7959, "lon": -80.2870, "name": "Miami (MIA)", "station": "KMIA"},
+    "Phoenix": {"lat": 33.4373, "lon": -112.0078, "name": "Phoenix (Sky Harbor)", "station": "KPHX"},
+    "San Francisco": {"lat": 37.6213, "lon": -122.3790, "name": "San Francisco (SFO)", "station": "KSFO"},
+    "Los Angeles": {"lat": 33.9425, "lon": -118.4081, "name": "Los Angeles (LAX)", "station": "KLAX"},
 }
 
 # Active locations - from config
 _locations_str = _config["locations"]
-ACTIVE_LOCATIONS = [loc.strip().upper() for loc in _locations_str.split(",") if loc.strip()]
+ACTIVE_LOCATIONS = [loc.strip() for loc in _locations_str.split(",") if loc.strip()]
 
 # =============================================================================
 # NOAA Weather API
@@ -272,6 +275,9 @@ def parse_weather_event(event_name: str) -> dict:
         'atlanta': 'Atlanta', 'hartsfield': 'Atlanta',
         'dallas': 'Dallas', 'dfw': 'Dallas',
         'miami': 'Miami',
+        'phoenix': 'Phoenix', 'sky harbor': 'Phoenix', 'phx': 'Phoenix',
+        'san francisco': 'San Francisco', 'sfo': 'San Francisco',
+        'los angeles': 'Los Angeles', 'lax': 'Los Angeles',
     }
 
     for alias, loc in location_aliases.items():
@@ -496,6 +502,9 @@ LOCATION_SEARCH_TERMS = {
     "Atlanta": ["temperature atlanta"],
     "Dallas": ["temperature dallas"],
     "Miami": ["temperature miami"],
+    "Phoenix": ["temperature phoenix"],
+    "San Francisco": ["temperature san francisco"],
+    "Los Angeles": ["temperature los angeles"],
 }
 
 
