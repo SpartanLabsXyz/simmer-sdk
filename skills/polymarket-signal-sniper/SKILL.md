@@ -3,7 +3,7 @@ name: polymarket-signal-sniper
 description: Snipe Polymarket opportunities from your own signal sources. Monitors RSS feeds with Trading Agent-grade safeguards.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.3.7"
+  version: "1.4.0"
   displayName: Polymarket Signal Sniper
   difficulty: intermediate
 ---
