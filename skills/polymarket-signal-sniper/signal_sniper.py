@@ -495,6 +495,7 @@ def execute_trade(
     amount: float,
     price: float = None,
     source: str = None,
+    skill_slug: str = None,
     thesis: str = None,
     confidence: float = None,
 ) -> Dict:
@@ -516,6 +517,7 @@ def execute_trade(
             side=side,
             amount=amount,
             source=source,
+            skill_slug=skill_slug or SKILL_SLUG,
         )
         trade_result = {
             "success": result.success,
