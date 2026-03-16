@@ -680,7 +680,20 @@ def run_scan(
 
     if not feeds:
         print("❌ No RSS feeds configured")
-        print("   Set SIMMER_SNIPER_FEEDS or use --feed URL")
+        print("")
+        print("   This skill trades on signals from YOUR RSS feeds — you bring the edge.")
+        print("")
+        print("   To configure, set the SIMMER_SNIPER_FEEDS env var to a comma-separated list of RSS URLs:")
+        print("")
+        print("   Examples:")
+        print("     SIMMER_SNIPER_FEEDS=https://feeds.feedburner.com/CoinDesk")
+        print("     SIMMER_SNIPER_FEEDS=https://cointelegraph.com/rss,https://decrypt.co/feed")
+        print("")
+        print("   Also set keywords and target markets:")
+        print("     SIMMER_SNIPER_KEYWORDS=bitcoin,btc,ethereum,crypto")
+        print("     SIMMER_SNIPER_MARKETS=<market-id>  (or leave empty to auto-discover from keywords)")
+        print("")
+        print("   Full docs: https://docs.simmer.markets/skills/signal-sniper")
         return {"error": "No feeds"}
 
     if not markets:
