@@ -762,7 +762,7 @@ def run_strategy(dry_run=True, positions_only=False, show_config=False,
                 break
 
         if not matched_stats:
-            log(f"\n  ⚠️  No XTracker data for: {event_name[:50]}")
+            log(f"\n  ⚠️  No XTracker data for: {(event_name or 'unknown')[:50]}")
             continue
 
         projected_count = matched_stats["pace"]
@@ -770,7 +770,7 @@ def run_strategy(dry_run=True, positions_only=False, show_config=False,
         pct_complete = matched_stats["percent_complete"]
         days_remaining = matched_stats["days_remaining"]
 
-        log(f"\n🎯 {event_name[:60]}")
+        log(f"\n🎯 {(event_name or 'unknown')[:60]}")
         log(f"   Current: {current_count} posts | Projected: {projected_count} | {pct_complete}% done")
         log(f"   Markets: {len(event_markets)}")
 
