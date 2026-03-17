@@ -742,7 +742,8 @@ class SimmerClient:
         reasoning: Optional[str] = None,
         source: Optional[str] = None,
         skill_slug: Optional[str] = None,
-        allow_rebuy: bool = False
+        allow_rebuy: bool = False,
+        signal_data: Optional[dict] = None
     ) -> TradeResult:
         """
         Execute a trade on a market.
@@ -779,6 +780,11 @@ class SimmerClient:
                 Matches the ClawHub slug. Used by Simmer to track skill-level trading volume.
             allow_rebuy: If False (default), skip buying a market you already hold a
                 position on (same source). Set True for DCA or averaging-in strategies.
+            signal_data: Optional structured signal data for backtest replay.
+                Flat dict with string/numeric values. Common fields: edge (float),
+                confidence (float 0-1), signal_source (string). Skill-specific
+                fields are freeform. Example: {"edge": 0.15, "confidence": 0.8,
+                "signal_source": "noaa", "forecast_temp": 35}
 
         Returns:
             TradeResult with execution details
@@ -902,6 +908,8 @@ class SimmerClient:
             payload["source"] = source
         if skill_slug:
             payload["skill_slug"] = skill_slug
+        if signal_data:
+            payload["signal_data"] = signal_data
         if price is not None:
             payload["price"] = price
 
