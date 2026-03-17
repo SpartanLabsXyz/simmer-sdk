@@ -272,6 +272,14 @@ def execute_copytrading(wallets: list, top_n: int = None, max_usd: float = 50.0,
 
         try:
             market_title = t.get("market_title", market_id[:20])
+            _whale_wallet = t.get("whale_wallet", t.get("source_wallet", ""))
+            _signal_data = {
+                "edge": round(t.get("edge", 0.05), 4),
+                "confidence": round(t.get("confidence", 0.6), 2),
+                "signal_source": "whale_copytrading",
+                "whale_wallet": _whale_wallet[:10] if _whale_wallet else "",
+                "whale_size": round(t.get("whale_position_usd", t.get("estimated_cost", 0)), 2),
+            }
             trade_result = get_client().trade(
                 market_id=market_id,
                 side=side,
@@ -281,6 +289,7 @@ def execute_copytrading(wallets: list, top_n: int = None, max_usd: float = 50.0,
                 reasoning=f"Copytrading: {action} {shares:.1f} {side} to mirror whale positions on {market_title}",
                 source=TRADE_SOURCE,
                 skill_slug=SKILL_SLUG,
+                signal_data=_signal_data,
             )
             t["success"] = trade_result.success
             t["error"] = trade_result.error if not trade_result.success else None

@@ -498,6 +498,7 @@ def execute_trade(
     skill_slug: str = None,
     thesis: str = None,
     confidence: float = None,
+    signal_data: dict = None,
 ) -> Dict:
     """Execute trade via SDK with 5-share minimum check and journal logging."""
     source = source or TRADE_SOURCE
@@ -518,6 +519,7 @@ def execute_trade(
             amount=amount,
             source=source,
             skill_slug=skill_slug or SKILL_SLUG,
+            signal_data=signal_data,
         )
         trade_result = {
             "success": result.success,
@@ -851,6 +853,14 @@ def run_scan(
                 action = "max_trades_reached"
             else:
                 print(f"     💰 Executing: BUY {side.upper()} for ${MAX_USD:.2f}")
+                _edge = signal_confidence - market_price if side == "yes" else signal_confidence - (1 - market_price)
+                _signal_data = {
+                    "edge": round(max(_edge, 0), 4),
+                    "confidence": round(signal_confidence, 2),
+                    "signal_source": "rss_sentiment",
+                    "headline": article["title"][:100],
+                    "sentiment_score": round(signal_confidence, 2),
+                }
                 trade_result = execute_trade(
                     market_id=market_id,
                     side=side,
@@ -859,6 +869,7 @@ def run_scan(
                     source=TRADE_SOURCE, skill_slug=SKILL_SLUG,
                     thesis=f"Signal: {article['title'][:100]}",
                     confidence=signal_confidence,
+                    signal_data=_signal_data,
                 )
                 if trade_result.get("success"):
                     shares = trade_result.get("shares", 0)

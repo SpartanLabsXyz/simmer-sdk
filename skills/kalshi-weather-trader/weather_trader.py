@@ -583,12 +583,12 @@ def fetch_weather_markets():
         return []
 
 
-def execute_trade(market_id: str, side: str, amount: float, reasoning: str = "") -> dict:
+def execute_trade(market_id: str, side: str, amount: float, reasoning: str = "", signal_data: dict = None) -> dict:
     """Execute a buy trade via Simmer SDK with source tagging."""
     try:
         result = get_client().trade(
             market_id=market_id, side=side, amount=amount, source=TRADE_SOURCE, skill_slug=SKILL_SLUG,
-            reasoning=reasoning,
+            reasoning=reasoning, signal_data=signal_data,
         )
         return {
             "success": result.success, "trade_id": result.trade_id,
@@ -942,7 +942,16 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
             tag = "SIMULATED" if dry_run else "LIVE"
             log(f"  Executing trade ({tag})...", force=True)
             buy_reasoning = f"NOAA forecast {forecast_temp}°F matches bucket {outcome_name} -- price ${price:.2f} < entry threshold ${ENTRY_THRESHOLD:.2f}"
-            result = execute_trade(market_id, "yes", position_size, reasoning=buy_reasoning)
+            _edge = noaa_probability - price
+            _signal_data = {
+                "edge": round(max(_edge, 0), 4),
+                "confidence": round(noaa_probability, 2),
+                "signal_source": "noaa_forecast",
+                "forecast_temp": forecast_temp,
+                "city": location,
+                "weather_source": "NOAA",
+            }
+            result = execute_trade(market_id, "yes", position_size, reasoning=buy_reasoning, signal_data=_signal_data)
 
             if result.get("success"):
                 trades_executed += 1

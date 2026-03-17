@@ -608,7 +608,7 @@ def get_positions():
         return []
 
 
-def execute_trade(market_id, side, amount):
+def execute_trade(market_id, side, amount, signal_data=None):
     """Execute a trade on Simmer."""
     try:
         result = get_client().trade(
@@ -617,6 +617,7 @@ def execute_trade(market_id, side, amount):
             amount=amount,
             order_type=ORDER_TYPE,
             source=TRADE_SOURCE, skill_slug=SKILL_SLUG,
+            signal_data=signal_data,
         )
         return {
             "success": result.success,
@@ -1023,7 +1024,16 @@ def run_fast_market_strategy(dry_run=True, positions_only=False, show_config=Fal
     execution_error = None
     tag = "SIMULATED" if dry_run else "LIVE"
     log(f"  Executing {side.upper()} trade for ${position_size:.2f} ({tag})...", force=True)
-    result = execute_trade(market_id, side, position_size)
+    _signal_data = {
+        "edge": round(divergence, 4),
+        "confidence": round(min(0.9, 0.5 + divergence + (momentum_pct / 100)), 2),
+        "signal_source": SIGNAL_SOURCE,
+        "market_price": round(market_yes_price, 4),
+        "window_minutes": LOOKBACK_MINUTES,
+    }
+    if USE_FAIR_VALUE and 'fair_yes' in locals():
+        _signal_data["fair_value"] = round(fair_yes, 4)
+    result = execute_trade(market_id, side, position_size, signal_data=_signal_data)
 
     if result and result.get("success"):
         shares = result.get("shares_bought") or result.get("shares") or 0

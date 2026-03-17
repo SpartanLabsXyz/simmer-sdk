@@ -318,7 +318,7 @@ def get_positions():
         return []
 
 
-def execute_trade(market_id, side, amount):
+def execute_trade(market_id, side, amount, signal_data=None):
     """Execute a buy trade with source tagging."""
     try:
         result = get_client().trade(
@@ -326,6 +326,7 @@ def execute_trade(market_id, side, amount):
             side=side,
             amount=amount,
             source=TRADE_SOURCE, skill_slug=SKILL_SLUG,
+            signal_data=signal_data,
         )
         return {
             "success": result.success,
@@ -856,7 +857,16 @@ def run_strategy(dry_run=True, positions_only=False, show_config=False,
 
             tag = "SIMULATED" if dry_run else "LIVE"
             log(f"   Buying {bucket_label} @ ${price:.2f} ({tag})...", force=True)
-            result = execute_trade(market_id, "yes", position_size)
+            _is_center = bucket["low"] <= projected_count <= bucket["high"]
+            _signal_data = {
+                "edge": round(expected_profit / len(targets), 4),
+                "confidence": round(0.7 if _is_center else 0.4, 2),
+                "signal_source": "xtracker",
+                "tweet_count": current_count,
+                "bucket_range": bucket_label,
+                "hours_remaining": round(days_remaining * 24, 1),
+            }
+            result = execute_trade(market_id, "yes", position_size, signal_data=_signal_data)
 
             if result.get("success"):
                 trades_executed += 1

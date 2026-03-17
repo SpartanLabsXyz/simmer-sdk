@@ -118,7 +118,7 @@ def _save_daily_spend(spend_data):
 # Trading helpers
 # =============================================================================
 
-def execute_trade(market_id, side, amount):
+def execute_trade(market_id, side, amount, signal_data=None):
     """Execute a buy trade via Simmer SDK with source tagging."""
     try:
         result = get_client().trade(
@@ -126,6 +126,7 @@ def execute_trade(market_id, side, amount):
             side=side,
             amount=amount,
             source=TRADE_SOURCE, skill_slug=SKILL_SLUG,
+            signal_data=signal_data,
         )
         return {
             "success": result.success,
@@ -409,7 +410,15 @@ def run_divergence_trades(markets, dry_run=True, quiet=False):
         # Execute trade
         log(f"  🎯 Trading {side.upper()} ${position_size:.2f} on {question}...")
         log(f"     Edge: {edge:.1%} | Price: ${price:.3f}")
-        result = execute_trade(market_id, side, position_size)
+        _signal_data = {
+            "edge": round(edge, 4),
+            "confidence": round(min(0.95, edge * 2 + 0.5), 2),
+            "signal_source": m.get("signal_source", "crowd"),
+            "ai_forecast": round(m.get("current_probability") or 0, 4),
+            "market_price": round(m.get("external_price_yes") or 0, 4),
+            "divergence_pct": round(abs(div) * 100, 2),
+        }
+        result = execute_trade(market_id, side, position_size, signal_data=_signal_data)
 
         if result and result.get("success"):
             trades_executed += 1
