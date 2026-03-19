@@ -89,7 +89,7 @@ def get_client():
             print("Error: SIMMER_API_KEY environment variable not set")
             print("Get your API key from: simmer.markets/dashboard -> SDK tab")
             sys.exit(1)
-        venue = os.environ.get("TRADING_VENUE", "polymarket")
+        venue = _config.get("venue") or os.environ.get("TRADING_VENUE") or "polymarket"
         _client = SimmerClient(api_key=api_key, venue=venue)
     return _client
 
