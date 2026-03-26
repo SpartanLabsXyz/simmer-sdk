@@ -698,8 +698,19 @@ def run_fast_market_strategy(dry_run=True, positions_only=False, show_config=Fal
             open_orders = client.get_open_orders()
             orders = open_orders.get("orders", [])
             if orders:
+                # Only cancel orders placed by this skill — don't touch other skills' GTC orders
                 stale_count = 0
                 for order in orders:
+                    source = (order.get("source") or "").lower()
+                    slug = (order.get("skill_slug") or "").lower()
+                    question = (order.get("question") or "").lower()
+                    is_ours = (
+                        source == TRADE_SOURCE
+                        or slug == SKILL_SLUG
+                        or "up or down" in question  # fast-market pattern
+                    )
+                    if not is_ours:
+                        continue
                     oid = order.get("order_id") or order.get("id")
                     if oid:
                         cancel_result = client.cancel_order(oid)

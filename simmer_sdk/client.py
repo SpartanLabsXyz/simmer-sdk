@@ -1691,6 +1691,12 @@ class SimmerClient:
 
             if canceled:
                 print(f"[SimmerSDK] ✓ Order {order_id} cancelled successfully")
+                return {"success": True, "order_id": order_id, "result": result}
+
+            # Fallthrough: CLOB returned something unexpected (no canceled/not_canceled keys)
+            # Treat as success but log a warning so it's visible
+            if isinstance(result, dict) and not canceled and not not_canceled:
+                print(f"[SimmerSDK] Cancel for {order_id} returned unexpected response: {result}")
 
             return {"success": True, "order_id": order_id, "result": result}
         except Exception as e:
