@@ -1663,10 +1663,35 @@ class SimmerClient:
         return self._request("DELETE", "/api/sdk/orders")
 
     def _cancel_order_local(self, order_id: str) -> Dict[str, Any]:
-        """Cancel a single order via local py_clob_client."""
+        """Cancel a single order via local py_clob_client.
+
+        Checks the CLOB response to distinguish between a successful cancel
+        and a no-op (order was already filled/matched before the cancel arrived).
+        """
         try:
             client = self._get_clob_client()
             result = client.cancel(order_id)
+
+            # Polymarket CLOB returns {"canceled": [...]} or {"not_canceled": [...]}
+            # If the order wasn't in the canceled list, it was already filled/matched
+            not_canceled = []
+            canceled = []
+            if isinstance(result, dict):
+                not_canceled = result.get("not_canceled", [])
+                canceled = result.get("canceled", [])
+
+            if not_canceled:
+                print(f"[SimmerSDK] ⚠️ Cancel returned not_canceled for {order_id} — order was likely already filled")
+                return {
+                    "success": False,
+                    "order_id": order_id,
+                    "result": result,
+                    "warning": "Order was not cancelled — it was likely already filled/matched before the cancel reached the CLOB. Check your positions.",
+                }
+
+            if canceled:
+                print(f"[SimmerSDK] ✓ Order {order_id} cancelled successfully")
+
             return {"success": True, "order_id": order_id, "result": result}
         except Exception as e:
             return {"success": False, "error": str(e)}
