@@ -62,6 +62,8 @@ CONFIG_SCHEMA = {
     "binary_only":       {"env": "SIMMER_WEATHER_BINARY_ONLY",       "default": False, "type": bool},
     "slippage_max":      {"env": "SIMMER_WEATHER_SLIPPAGE_MAX",      "default": 0.15,  "type": float},
     "min_liquidity":     {"env": "SIMMER_WEATHER_MIN_LIQUIDITY",     "default": 0.0,   "type": float},
+    "order_type":        {"env": "SIMMER_WEATHER_ORDER_TYPE",        "default": "GTC", "type": str,
+                          "help": "Order type: GTC (default, limit order that waits for fill) or FAK (cancel if not filled immediately). GTC recommended for illiquid weather markets."},
 }
 
 # Backwards-compatible env var aliases (old name -> new name)
@@ -79,6 +81,7 @@ for _old, _new in _LEGACY_ENV_ALIASES.items():
 _config = load_config(CONFIG_SCHEMA, __file__, slug="polymarket-weather-trader")
 
 NOAA_API_BASE = "https://api.weather.gov"
+ORDER_TYPE = (_config.get("order_type") or "GTC").upper()
 
 # SimmerClient singleton
 _client = None
@@ -655,13 +658,17 @@ def execute_trade(market_id: str, side: str, amount: float, reasoning: str = Non
     try:
         result = get_client().trade(
             market_id=market_id, side=side, amount=amount, source=TRADE_SOURCE, skill_slug=SKILL_SLUG,
-            reasoning=reasoning, signal_data=signal_data,
+            reasoning=reasoning, signal_data=signal_data, order_type=ORDER_TYPE,
         )
-        return {
+        out = {
             "success": result.success, "trade_id": result.trade_id,
             "shares_bought": result.shares_bought, "shares": result.shares_bought,
             "error": result.error, "simulated": result.simulated,
+            "order_status": result.order_status,
         }
+        if result.order_status == "live":
+            print(f"  [GTC] Order placed on book — waiting for fill (trade {result.trade_id})")
+        return out
     except Exception as e:
         return {"error": str(e)}
 
@@ -672,11 +679,16 @@ def execute_sell(market_id: str, shares: float) -> dict:
         result = get_client().trade(
             market_id=market_id, side="yes", action="sell",
             shares=shares, source=TRADE_SOURCE, skill_slug=SKILL_SLUG,
+            order_type=ORDER_TYPE,
         )
-        return {
+        out = {
             "success": result.success, "trade_id": result.trade_id,
             "error": result.error, "simulated": result.simulated,
+            "order_status": result.order_status,
         }
+        if result.order_status == "live":
+            print(f"  [GTC] Sell order placed on book — waiting for fill (trade {result.trade_id})")
+        return out
     except Exception as e:
         return {"error": str(e)}
 
