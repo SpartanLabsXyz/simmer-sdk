@@ -42,6 +42,7 @@ CONFIG_SCHEMA = {
     "min_split": {"env": "SIMMER_MERT_MIN_SPLIT", "default": 0.60, "type": float},
     "max_trades_per_run": {"env": "SIMMER_MERT_MAX_TRADES", "default": 5, "type": int},
     "sizing_pct": {"env": "SIMMER_MERT_SIZING_PCT", "default": 0.05, "type": float},
+    "order_type": {"env": "SIMMER_MERT_ORDER_TYPE", "default": "GTC", "type": str},
 }
 
 _config = load_config(CONFIG_SCHEMA, __file__, slug="polymarket-mert-sniper")
@@ -65,6 +66,7 @@ EXPIRY_WINDOW_MINS = _config["expiry_window_mins"]
 MIN_SPLIT = _config["min_split"]
 MAX_TRADES_PER_RUN = _config["max_trades_per_run"]
 SMART_SIZING_PCT = _config["sizing_pct"]
+ORDER_TYPE = _config["order_type"]
 
 # Safeguard thresholds
 SLIPPAGE_MAX_PCT = 0.15
@@ -165,6 +167,7 @@ def execute_trade(market_id, side, amount, reasoning=""):
             amount=amount,
             source=TRADE_SOURCE, skill_slug=SKILL_SLUG,
             reasoning=reasoning,
+            order_type=ORDER_TYPE,
         )
         return {
             "success": result.success,
