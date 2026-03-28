@@ -58,6 +58,8 @@ CONFIG_SCHEMA = {
     "slippage_max_pct": {"env": "SIMMER_ELON_SLIPPAGE_MAX", "default": 0.05, "type": float},
     "min_position_usd": {"env": "SIMMER_ELON_MIN_POSITION", "default": 2.00, "type": float},
     "data_source": {"env": "SIMMER_ELON_DATA_SOURCE", "default": "xtracker", "type": str},
+    "order_type": {"env": "SIMMER_ELON_ORDER_TYPE", "default": "GTC", "type": str,
+                   "description": "Order type: GTC (good-til-cancelled) or FAK (fill-and-kill)"},
 }
 
 _config = load_config(CONFIG_SCHEMA, __file__, slug="polymarket-elon-tweets")
@@ -66,7 +68,7 @@ _config = load_config(CONFIG_SCHEMA, __file__, slug="polymarket-elon-tweets")
 def _reload_config_globals():
     """Reload module-level config globals from disk (used after --set)."""
     global _config, MAX_BUCKET_SUM, MAX_POSITION_USD, BUCKET_SPREAD, SMART_SIZING_PCT
-    global MAX_TRADES_PER_RUN, EXIT_THRESHOLD, SLIPPAGE_MAX_PCT, MIN_POSITION_USD, DATA_SOURCE
+    global MAX_TRADES_PER_RUN, EXIT_THRESHOLD, SLIPPAGE_MAX_PCT, MIN_POSITION_USD, DATA_SOURCE, ORDER_TYPE
     _config = load_config(CONFIG_SCHEMA, __file__, slug="polymarket-elon-tweets")
     MAX_BUCKET_SUM = _config["max_bucket_sum"]
     MAX_POSITION_USD = _config["max_position_usd"]
@@ -77,6 +79,7 @@ def _reload_config_globals():
     SLIPPAGE_MAX_PCT = _config["slippage_max_pct"]
     MIN_POSITION_USD = _config["min_position_usd"]
     DATA_SOURCE = _config["data_source"]
+    ORDER_TYPE = (_config.get("order_type") or "GTC").upper()
 
 
 # =============================================================================
@@ -178,6 +181,7 @@ EXIT_THRESHOLD = _config["exit_threshold"]
 SLIPPAGE_MAX_PCT = _config["slippage_max_pct"]
 MIN_POSITION_USD = _config["min_position_usd"]
 DATA_SOURCE = _config["data_source"]
+ORDER_TYPE = (_config.get("order_type") or "GTC").upper()
 
 # Context safeguard thresholds
 TIME_TO_RESOLUTION_MIN_HOURS = 1  # Tweet markets are shorter, allow closer-to-resolution trades
@@ -318,24 +322,36 @@ def get_positions():
         return []
 
 
-def execute_trade(market_id, side, amount, signal_data=None):
-    """Execute a buy trade with source tagging."""
+def execute_trade(market_id, side, amount, reasoning=None, signal_data=None):
+    """Execute a buy trade with balance pre-check and source tagging."""
+    # Pre-check: verify sufficient balance before hitting the API
+    portfolio = get_portfolio()
+    if portfolio:
+        balance = portfolio.get("balance_usdc", 0)
+        if balance < amount:
+            return {"error": f"Insufficient balance: ${balance:.2f} available, ${amount:.2f} required. "
+                             f"Deposit USDC.e to your Polymarket wallet and retry."}
     try:
         result = get_client().trade(
             market_id=market_id,
             side=side,
             amount=amount,
             source=TRADE_SOURCE, skill_slug=SKILL_SLUG,
-            signal_data=signal_data,
+            reasoning=reasoning, signal_data=signal_data,
+            order_type=ORDER_TYPE,
         )
-        return {
+        out = {
             "success": result.success,
             "trade_id": result.trade_id,
             "shares_bought": result.shares_bought,
             "shares": result.shares_bought,
             "error": result.error,
             "simulated": result.simulated,
+            "order_status": result.order_status,
         }
+        if result.order_status == "live":
+            print(f"  [GTC] Order placed on book — waiting for fill (trade {result.trade_id})")
+        return out
     except Exception as e:
         return {"error": str(e)}
 
@@ -349,13 +365,18 @@ def execute_sell(market_id, shares):
             action="sell",
             shares=shares,
             source=TRADE_SOURCE, skill_slug=SKILL_SLUG,
+            order_type=ORDER_TYPE,
         )
-        return {
+        out = {
             "success": result.success,
             "trade_id": result.trade_id,
             "error": result.error,
             "simulated": result.simulated,
+            "order_status": result.order_status,
         }
+        if result.order_status == "live":
+            print(f"  [GTC] Sell order placed on book — waiting for fill (trade {result.trade_id})")
+        return out
     except Exception as e:
         return {"error": str(e)}
 
@@ -866,7 +887,9 @@ def run_strategy(dry_run=True, positions_only=False, show_config=False,
                 "bucket_range": bucket_label,
                 "hours_remaining": round(days_remaining * 24, 1),
             }
-            result = execute_trade(market_id, "yes", position_size, signal_data=_signal_data)
+            _reasoning = (f"XTracker projects {projected_count} posts; bucket {bucket_label} "
+                          f"priced at ${price:.2f}, cluster cost ${total_cost:.2f} < ${MAX_BUCKET_SUM:.2f} threshold")
+            result = execute_trade(market_id, "yes", position_size, reasoning=_reasoning, signal_data=_signal_data)
 
             if result.get("success"):
                 trades_executed += 1

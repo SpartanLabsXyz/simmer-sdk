@@ -3,7 +3,7 @@ name: polymarket-elon-tweets
 description: 'Trade Polymarket "Elon Musk # tweets" markets using XTracker post count data. Buys adjacent range buckets when combined cost < $1 for structural edge. Use when user wants to trade tweet count markets, automate Elon tweet bets, check XTracker stats, or run noovd-style trading.'
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.1.0"
+  version: "1.2.0"
   displayName: Polymarket Elon Tweet Trader
   difficulty: advanced
   attribution: Strategy inspired by @noovd
@@ -72,6 +72,7 @@ When user asks to install or configure this skill:
 | Slippage max | `SIMMER_ELON_SLIPPAGE_MAX` | `slippage_max_pct` | 0.05 | Skip trade if slippage exceeds this |
 | Min position | `SIMMER_ELON_MIN_POSITION` | `min_position_usd` | 2.00 | Floor for smart sizing (USD) |
 | Data source | `SIMMER_ELON_DATA_SOURCE` | `data_source` | xtracker | Data source (xtracker) |
+| Order type | `SIMMER_ELON_ORDER_TYPE` | `order_type` | GTC | Order type: GTC (good-til-cancelled) or FAK (fill-and-kill) |
 
 Config priority: config.json > environment variables > defaults.
 
