@@ -3,7 +3,7 @@ name: polymarket-mert-sniper
 description: Near-expiry conviction trading on Polymarket. Snipe markets about to resolve when the odds are heavily skewed. Filter by topic, cap your bets, and only trade strong splits close to deadline.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.0.8"
+  version: "1.0.9"
   displayName: Mert Sniper
   difficulty: advanced
   attribution: Strategy inspired by @mert — https://x.com/mert/status/2020216613279060433
