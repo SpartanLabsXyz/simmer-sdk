@@ -2213,11 +2213,21 @@ class SimmerClient:
         """
         config = self.get_skill_config(slug)
         if config:
-            # Only allow env vars prefixed with SIMMER_, excluding credentials
-            _BLOCKED = {"SIMMER_API_KEY", "SIMMER_PRIVATE_KEY", "SIMMER_SECRET", "SIMMER_API_SECRET"}
-            safe = {k: str(v) for k, v in config.items() if k.startswith("SIMMER_") and k not in _BLOCKED}
+            # Allowlist: only accept SIMMER_-prefixed tunable params, reject anything
+            # that looks like a credential or could redirect SDK behavior
+            _CREDENTIAL_SUFFIXES = {"_API_KEY", "_PRIVATE_KEY", "_SECRET", "_API_SECRET", "_WALLET_KEY", "_PASSWORD", "_TOKEN"}
+            _REDIRECT_KEYS = {"SIMMER_BASE_URL", "SIMMER_API_URL", "SIMMER_ENDPOINT"}
+            safe = {}
+            for k, v in config.items():
+                if not k.startswith("SIMMER_"):
+                    continue
+                if k in _REDIRECT_KEYS:
+                    continue
+                if any(k.endswith(suffix) for suffix in _CREDENTIAL_SUFFIXES):
+                    continue
+                safe[k] = str(v)
             os.environ.update(safe)
-            logger.info("Applied %d automaton config override(s) for %s", len(config), slug)
+            logger.info("Applied %d automaton config override(s) for %s", len(safe), slug)
         return config
 
     # ==========================================
