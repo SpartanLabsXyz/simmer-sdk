@@ -64,6 +64,16 @@ CONFIG_SCHEMA = {
     "min_liquidity":     {"env": "SIMMER_WEATHER_MIN_LIQUIDITY",     "default": 0.0,   "type": float},
     "order_type":        {"env": "SIMMER_WEATHER_ORDER_TYPE",        "default": "GTC", "type": str,
                           "help": "Order type: GTC (default, limit order that waits for fill) or FAK (cancel if not filled immediately). GTC recommended for illiquid weather markets."},
+    "vol_targeting":     {"env": "SIMMER_WEATHER_VOL_TARGETING",     "default": False, "type": bool,
+                          "help": "Enable volatility targeting: scale position sizes by target_vol / realized_vol."},
+    "target_vol":        {"env": "SIMMER_WEATHER_TARGET_VOL",        "default": 0.20,  "type": float,
+                          "help": "Target annualized volatility (0.20 = 20%). Used when vol_targeting is enabled."},
+    "vol_max_leverage":  {"env": "SIMMER_WEATHER_VOL_MAX_LEVERAGE",  "default": 2.0,   "type": float,
+                          "help": "Max leverage multiplier from vol targeting (caps scale-up in calm markets)."},
+    "vol_min_allocation":{"env": "SIMMER_WEATHER_VOL_MIN_ALLOC",     "default": 0.2,   "type": float,
+                          "help": "Min allocation floor from vol targeting (stay in market during high vol)."},
+    "vol_span":          {"env": "SIMMER_WEATHER_VOL_SPAN",          "default": 10,    "type": int,
+                          "help": "EWMA span for volatility calculation (lower = more responsive)."},
 }
 
 # Backwards-compatible env var aliases (old name -> new name)
@@ -129,6 +139,13 @@ MAX_TRADES_PER_RUN = _config["max_trades_per_run"]
 
 # Market type filter
 BINARY_ONLY = _config["binary_only"]
+
+# Volatility targeting parameters
+VOL_TARGETING = _config["vol_targeting"]
+TARGET_VOL = _config["target_vol"]
+VOL_MAX_LEVERAGE = _config["vol_max_leverage"]
+VOL_MIN_ALLOCATION = _config["vol_min_allocation"]
+VOL_SPAN = _config["vol_span"]
 
 # Context safeguard thresholds
 SLIPPAGE_MAX_PCT = _config["slippage_max"]  # Skip if slippage exceeds this (tunable)
@@ -560,6 +577,84 @@ def detect_price_trend(history: list) -> dict:
 
 
 # =============================================================================
+# Volatility Targeting
+# =============================================================================
+
+import math
+
+def calculate_ewma_vol(history: list, span: int = 10) -> float | None:
+    """
+    Calculate annualized EWMA volatility from price history points.
+
+    Uses log returns of YES prices with exponentially weighted moving average.
+    Returns annualized volatility as a decimal (e.g. 0.25 = 25%), or None if
+    insufficient data.
+
+    Args:
+        history: List of dicts with 'price_yes' key (from get_price_history)
+        span: EWMA span — lower values weight recent data more heavily
+    """
+    prices = [p.get("price_yes") or 0 for p in history]
+    # Filter out zero/near-zero prices that would break log returns
+    prices = [p for p in prices if p > 0.001]
+    if len(prices) < span + 5:
+        return None
+
+    # Log returns
+    log_returns = [math.log(prices[i] / prices[i - 1]) for i in range(1, len(prices))]
+    if not log_returns:
+        return None
+
+    # EWMA variance (exponentially weighted moving average of squared deviations)
+    alpha = 2.0 / (span + 1)
+    ewma_var = log_returns[0] ** 2  # seed with first squared return
+    for r in log_returns[1:]:
+        ewma_var = alpha * (r ** 2) + (1 - alpha) * ewma_var
+
+    ewma_std = math.sqrt(ewma_var)
+
+    # Annualize: price history is ~15-min intervals, ~96 per day, 365 days
+    # sqrt(96 * 365) ≈ 187.2
+    intervals_per_day = 96
+    annualized = ewma_std * math.sqrt(intervals_per_day * 365)
+    return annualized
+
+
+def apply_vol_targeting(base_size: float, current_vol: float | None,
+                        target_vol: float = TARGET_VOL,
+                        max_leverage: float = VOL_MAX_LEVERAGE,
+                        min_allocation: float = VOL_MIN_ALLOCATION) -> tuple:
+    """
+    Apply volatility targeting multiplier to base position size.
+
+    Returns (adjusted_size, metadata_dict).
+    Falls back to base_size if vol data is unavailable.
+    """
+    meta = {"vol_targeting": True, "base_size": base_size, "current_vol": current_vol,
+            "target_vol": target_vol}
+
+    if current_vol is None or current_vol <= 0:
+        meta["adjusted_for"] = "no_vol_data"
+        meta["leverage"] = 1.0
+        return base_size, meta
+
+    raw_leverage = target_vol / current_vol
+    leverage = max(min_allocation, min(raw_leverage, max_leverage))
+
+    if leverage == min_allocation:
+        meta["adjusted_for"] = "min_allocation_floor"
+    elif leverage == max_leverage:
+        meta["adjusted_for"] = "max_leverage_cap"
+    else:
+        meta["adjusted_for"] = "volatility_target"
+
+    meta["raw_leverage"] = round(raw_leverage, 3)
+    meta["leverage"] = round(leverage, 3)
+
+    return round(base_size * leverage, 2), meta
+
+
+# =============================================================================
 # Market Discovery - Auto-import from Polymarket
 # =============================================================================
 # NOTE: Unlike fastloop (which queries Gamma API directly with tag=crypto),
@@ -827,7 +922,7 @@ def check_exit_opportunities(dry_run: bool = False, use_safeguards: bool = True)
 def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
                          show_config: bool = False, smart_sizing: bool = False,
                          use_safeguards: bool = True, use_trends: bool = True,
-                         quiet: bool = False):
+                         quiet: bool = False, vol_targeting: bool = VOL_TARGETING):
     """Run the weather trading strategy."""
     def log(msg, force=False):
         """Print unless quiet mode is on. force=True always prints."""
@@ -849,6 +944,12 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
     log(f"  Smart sizing:    {'✓ Enabled' if smart_sizing else '✗ Disabled'}")
     log(f"  Safeguards:      {'✓ Enabled' if use_safeguards else '✗ Disabled'}")
     log(f"  Trend detection: {'✓ Enabled' if use_trends else '✗ Disabled'}")
+    log(f"  Vol targeting:   {'✓ Enabled' if vol_targeting else '✗ Disabled'}")
+    if vol_targeting:
+        log(f"    Target vol:    {TARGET_VOL:.0%} annualized")
+        log(f"    Max leverage:  {VOL_MAX_LEVERAGE:.1f}x")
+        log(f"    Min alloc:     {VOL_MIN_ALLOCATION:.0%}")
+        log(f"    EWMA span:     {VOL_SPAN}")
 
     if show_config:
         config_path = get_config_path(__file__)
@@ -1018,10 +1119,14 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
             if reasons:
                 log(f"  ⚠️  Warnings: {'; '.join(reasons)}")
 
+        # Fetch price history once — used for both trend detection and vol targeting
+        history = []
+        if use_trends or vol_targeting:
+            history = get_price_history(market_id)
+
         # Check price trend
         trend_bonus = ""
-        if use_trends:
-            history = get_price_history(market_id)
+        if use_trends and history:
             trend = detect_price_trend(history)
             if trend["is_opportunity"]:
                 trend_bonus = f" 📉 (dropped {abs(trend['change_24h']):.0%} in 24h - stronger signal!)"
@@ -1030,6 +1135,21 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
 
         if price < ENTRY_THRESHOLD:
             position_size = calculate_position_size(MAX_POSITION_USD, smart_sizing)
+
+            # Apply volatility targeting
+            vol_meta = None
+            if vol_targeting and history:
+                current_vol = calculate_ewma_vol(history, span=VOL_SPAN)
+                position_size, vol_meta = apply_vol_targeting(
+                    position_size, current_vol,
+                    target_vol=TARGET_VOL,
+                    max_leverage=VOL_MAX_LEVERAGE,
+                    min_allocation=VOL_MIN_ALLOCATION,
+                )
+                if current_vol is not None:
+                    log(f"  📊 Vol targeting: realized={current_vol:.0%} target={TARGET_VOL:.0%} → {vol_meta['leverage']:.2f}x (${position_size:.2f})")
+                else:
+                    log(f"  📊 Vol targeting: insufficient price data — using base size")
 
             min_cost_for_shares = MIN_SHARES_PER_ORDER * price
             if min_cost_for_shares > position_size:
@@ -1049,10 +1169,7 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
             tag = "SIMULATED" if dry_run else "LIVE"
             log(f"  Executing trade ({tag})...", force=True)
             edge = noaa_probability - price
-            result = execute_trade(
-                market_id, "yes", position_size,
-                reasoning=f"NOAA forecasts {forecast_temp}{unit_label} → bucket {outcome_name} underpriced at {price:.0%}",
-                signal_data={
+            signal = {
                     "edge": round(edge, 4),
                     "confidence": noaa_probability,
                     "signal_source": "noaa_forecast",
@@ -1060,7 +1177,13 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
                     "bucket_range": outcome_name,
                     "market_price": round(price, 4),
                     "threshold": ENTRY_THRESHOLD,
-                },
+            }
+            if vol_meta:
+                signal["vol_targeting"] = vol_meta
+            result = execute_trade(
+                market_id, "yes", position_size,
+                reasoning=f"NOAA forecasts {forecast_temp}{unit_label} → bucket {outcome_name} underpriced at {price:.0%}",
+                signal_data=signal,
             )
 
             if result.get("success"):
@@ -1138,6 +1261,7 @@ if __name__ == "__main__":
     parser.add_argument("--smart-sizing", action="store_true", help="Use portfolio-based position sizing")
     parser.add_argument("--no-safeguards", action="store_true", help="Disable context safeguards")
     parser.add_argument("--no-trends", action="store_true", help="Disable price trend detection")
+    parser.add_argument("--vol-targeting", action="store_true", help="Enable volatility targeting (dynamic position sizing based on realized vol)")
     parser.add_argument("--quiet", "-q", action="store_true", help="Only output when trades execute or errors occur (ideal for high-frequency runs)")
     args = parser.parse_args()
 
@@ -1168,6 +1292,11 @@ if __name__ == "__main__":
             globals()["SMART_SIZING_PCT"] = _config["sizing_pct"]
             globals()["MAX_TRADES_PER_RUN"] = _config["max_trades_per_run"]
             globals()["BINARY_ONLY"] = _config["binary_only"]
+            globals()["VOL_TARGETING"] = _config["vol_targeting"]
+            globals()["TARGET_VOL"] = _config["target_vol"]
+            globals()["VOL_MAX_LEVERAGE"] = _config["vol_max_leverage"]
+            globals()["VOL_MIN_ALLOCATION"] = _config["vol_min_allocation"]
+            globals()["VOL_SPAN"] = _config["vol_span"]
             _locations_str = _config["locations"]
             globals()["ACTIVE_LOCATIONS"] = [loc.strip().upper() for loc in _locations_str.split(",") if loc.strip()]
 
@@ -1182,6 +1311,7 @@ if __name__ == "__main__":
         use_safeguards=not args.no_safeguards,
         use_trends=not args.no_trends,
         quiet=args.quiet,
+        vol_targeting=args.vol_targeting or VOL_TARGETING,
     )
 
     # Fallback report for automaton if the strategy returned early (no signal)
