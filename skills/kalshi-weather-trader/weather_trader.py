@@ -616,9 +616,10 @@ def execute_sell(market_id: str, shares: float, reasoning: str = "") -> dict:
 
 
 def get_positions() -> list:
-    """Get current positions as list of dicts."""
+    """Get current positions as list of dicts, filtered by venue."""
     try:
-        positions = get_client().get_positions()
+        client = get_client()
+        positions = client.get_positions(venue=client.venue)
         from dataclasses import asdict
         return [asdict(p) for p in positions]
     except Exception as e:

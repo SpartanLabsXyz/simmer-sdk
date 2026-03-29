@@ -152,8 +152,9 @@ def print_config():
 # =============================================================================
 
 def get_positions() -> dict:
-    """Get current SDK positions as raw dict (preserves original format for show_positions)."""
-    return get_client()._request("GET", "/api/sdk/positions")
+    """Get current SDK positions as raw dict, filtered by venue."""
+    client = get_client()
+    return client._request("GET", f"/api/sdk/positions?venue={client.venue}")
 
 
 def set_risk_monitor(market_id: str, side: str,

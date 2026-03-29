@@ -316,7 +316,8 @@ def get_market_context(market_id, my_probability=None):
 
 def get_positions():
     try:
-        return get_client().get_positions()
+        client = get_client()
+        return client.get_positions(venue=client.venue)
     except Exception as e:
         print(f"  Error fetching positions: {e}")
         return []

@@ -157,7 +157,8 @@ def get_portfolio():
 
 def get_positions():
     try:
-        positions = get_client().get_positions()
+        client = get_client()
+        positions = client.get_positions(venue=client.venue)
         from dataclasses import asdict
         return [asdict(p) for p in positions]
     except Exception as e:

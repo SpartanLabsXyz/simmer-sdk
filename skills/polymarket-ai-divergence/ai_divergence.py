@@ -141,9 +141,10 @@ def execute_trade(market_id, side, amount, signal_data=None):
 
 
 def get_positions():
-    """Get current positions as list of dicts."""
+    """Get current positions as list of dicts, filtered by venue."""
     try:
-        positions = get_client().get_positions()
+        client = get_client()
+        positions = client.get_positions(venue=client.venue)
         from dataclasses import asdict
         return [asdict(p) for p in positions]
     except Exception:

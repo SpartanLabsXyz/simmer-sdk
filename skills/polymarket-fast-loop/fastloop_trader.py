@@ -599,9 +599,10 @@ def get_portfolio():
 
 
 def get_positions():
-    """Get current positions as list of dicts."""
+    """Get current positions as list of dicts, filtered by venue."""
     try:
-        positions = get_client().get_positions()
+        client = get_client()
+        positions = client.get_positions(venue=client.venue)
         from dataclasses import asdict
         return [asdict(p) for p in positions]
     except Exception:
