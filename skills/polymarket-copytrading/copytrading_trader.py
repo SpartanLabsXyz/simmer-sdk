@@ -67,10 +67,12 @@ CONFIG_SCHEMA = {
     "max_usd": {"env": "SIMMER_COPYTRADING_MAX_USD", "default": 50.0, "type": float},
     "max_trades_per_run": {"env": "SIMMER_COPYTRADING_MAX_TRADES", "default": 10, "type": int},
     "venue": {"env": "TRADING_VENUE", "default": "", "type": str},  # sim or polymarket
+    "order_type": {"env": "SIMMER_COPYTRADING_ORDER_TYPE", "default": "GTC", "type": str},
 }
 
 # Load configuration
 _config = load_config(CONFIG_SCHEMA, __file__, slug="polymarket-copytrading")
+ORDER_TYPE = (_config.get("order_type") or "GTC").upper()
 
 # SimmerClient singleton
 _client = None
@@ -202,6 +204,7 @@ def execute_trade(market_id: str, side: str, action: str, amount_usd: float = No
             market_id=market_id, side=side, action=action,
             amount=amount_usd or 0, shares=shares or 0,
             source=TRADE_SOURCE, skill_slug=SKILL_SLUG,
+            order_type=ORDER_TYPE,
         )
         return {
             "success": result.success, "trade_id": result.trade_id,
@@ -291,6 +294,7 @@ def execute_copytrading(wallets: list, top_n: int = None, max_usd: float = 50.0,
                 source=TRADE_SOURCE,
                 skill_slug=SKILL_SLUG,
                 signal_data=_signal_data,
+                order_type=ORDER_TYPE,
             )
             t["success"] = trade_result.success
             t["error"] = trade_result.error if not trade_result.success else None
@@ -591,6 +595,7 @@ def run_reactive(max_usd: float = 25.0, dry_run: bool = True, venue: str = None)
                 "whale_size": round(size, 2),
                 "whale_price": round(price, 4),
             },
+            order_type=ORDER_TYPE,
         )
         if result.success:
             print(f"  ✅ Trade executed! ID: {result.trade_id}")

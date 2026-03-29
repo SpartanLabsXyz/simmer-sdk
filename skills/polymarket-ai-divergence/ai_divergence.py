@@ -39,6 +39,7 @@ CONFIG_SCHEMA = {
     "min_edge": {"env": "SIMMER_DIVERGENCE_MIN_EDGE", "default": 0.02, "type": float},
     "kelly_cap": {"env": "SIMMER_DIVERGENCE_KELLY_CAP", "default": 0.25, "type": float},
     "daily_budget": {"env": "SIMMER_DIVERGENCE_DAILY_BUDGET_USD", "default": 25.0, "type": float},
+    "order_type": {"env": "SIMMER_DIVERGENCE_ORDER_TYPE", "default": "GTC", "type": str},
 }
 
 _config = load_config(CONFIG_SCHEMA, __file__, slug="polymarket-ai-divergence")
@@ -53,6 +54,7 @@ MAX_TRADES_PER_RUN = _config["max_trades_per_run"]
 MIN_EDGE = _config["min_edge"]
 KELLY_CAP = _config["kelly_cap"]
 DAILY_BUDGET = _config["daily_budget"]
+ORDER_TYPE = (_config.get("order_type") or "GTC").upper()
 
 TRADE_SOURCE = "sdk:divergence"
 SKILL_SLUG = "polymarket-ai-divergence"
@@ -127,6 +129,7 @@ def execute_trade(market_id, side, amount, signal_data=None):
             amount=amount,
             source=TRADE_SOURCE, skill_slug=SKILL_SLUG,
             signal_data=signal_data,
+            order_type=ORDER_TYPE,
         )
         return {
             "success": result.success,

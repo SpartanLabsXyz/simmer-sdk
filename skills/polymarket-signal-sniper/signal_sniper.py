@@ -71,10 +71,12 @@ CONFIG_SCHEMA = {
     "confidence_threshold": {"env": "SIMMER_SNIPER_CONFIDENCE", "default": 0.7, "type": float},
     "max_usd": {"env": "SIMMER_SNIPER_MAX_USD", "default": 25.0, "type": float},
     "max_trades_per_run": {"env": "SIMMER_SNIPER_MAX_TRADES", "default": 5, "type": int},
+    "order_type": {"env": "SIMMER_SNIPER_ORDER_TYPE", "default": "GTC", "type": str},
 }
 
 # Load configuration
 _config = load_config(CONFIG_SCHEMA, __file__, slug="polymarket-signal-sniper")
+ORDER_TYPE = (_config.get("order_type") or "GTC").upper()
 
 # SimmerClient singleton
 _client = None
@@ -520,6 +522,7 @@ def execute_trade(
             source=source,
             skill_slug=skill_slug or SKILL_SLUG,
             signal_data=signal_data,
+            order_type=ORDER_TYPE,
         )
         trade_result = {
             "success": result.success,
