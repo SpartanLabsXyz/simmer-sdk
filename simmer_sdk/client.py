@@ -637,7 +637,8 @@ class SimmerClient:
         method: str,
         endpoint: str,
         params: Optional[Dict] = None,
-        json: Optional[Dict] = None
+        json: Optional[Dict] = None,
+        timeout: Optional[int] = None
     ) -> Dict[str, Any]:
         """Make an authenticated request to the API."""
         url = f"{self.base_url}{endpoint}"
@@ -646,7 +647,7 @@ class SimmerClient:
             url=url,
             params=params,
             json=json,
-            timeout=30
+            timeout=timeout or 30
         )
         response.raise_for_status()
         return response.json()

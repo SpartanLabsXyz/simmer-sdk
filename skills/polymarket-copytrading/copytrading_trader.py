@@ -254,7 +254,7 @@ def execute_copytrading(wallets: list, top_n: int = None, max_usd: float = 50.0,
     if venue is not None:
         data["venue"] = venue
 
-    result = get_client()._request("POST", "/api/sdk/copytrading/execute", json=data)
+    result = get_client()._request("POST", "/api/sdk/copytrading/execute", json=data, timeout=60)
 
     # If caller wants dry_run, return the plan as-is
     if dry_run:
