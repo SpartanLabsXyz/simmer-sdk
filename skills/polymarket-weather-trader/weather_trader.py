@@ -693,10 +693,13 @@ def execute_sell(market_id: str, shares: float) -> dict:
         return {"error": str(e)}
 
 
-def get_positions() -> list:
-    """Get current positions as list of dicts."""
+def get_positions(venue: str = None) -> list:
+    """Get current positions as list of dicts, filtered by venue."""
     try:
-        positions = get_client().get_positions()
+        client = get_client()
+        # Default to the client's configured venue to avoid cross-venue positions
+        effective_venue = venue or client.venue
+        positions = client.get_positions(venue=effective_venue)
         from dataclasses import asdict
         return [asdict(p) for p in positions]
     except Exception as e:
@@ -777,6 +780,18 @@ def check_exit_opportunities(dry_run: bool = False, use_safeguards: bool = True)
                     continue
                 if reasons:
                     print(f"     ⚠️  Warnings: {'; '.join(reasons)}")
+
+            # Re-fetch fresh share count to avoid selling more than available
+            fresh_positions = get_positions()
+            fresh_pos = next((p for p in fresh_positions if p.get("market_id") == market_id), None)
+            if fresh_pos:
+                fresh_shares = fresh_pos.get("shares_yes") or fresh_pos.get("shares") or 0
+                if fresh_shares < MIN_SHARES_PER_ORDER:
+                    print(f"     ⏭️  Skipped: fresh share count {fresh_shares:.1f} below minimum")
+                    continue
+                if fresh_shares != shares:
+                    print(f"     ℹ️  Share count updated: {shares:.1f} → {fresh_shares:.1f}")
+                    shares = fresh_shares
 
             tag = "SIMULATED" if dry_run else "LIVE"
             print(f"     Selling {shares:.1f} shares ({tag})...")
