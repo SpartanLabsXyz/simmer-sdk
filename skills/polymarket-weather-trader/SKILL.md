@@ -3,7 +3,7 @@ name: polymarket-weather-trader
 description: Trade Polymarket weather markets using NOAA (US) and Open-Meteo (international) forecasts via Simmer API. Inspired by gopfan2's $2M+ strategy. Use when user wants to trade temperature markets, automate weather bets, check forecasts, or run gopfan2-style trading.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.16.0"
+  version: "1.17.0"
   displayName: Polymarket Weather Trader
   difficulty: beginner
   attribution: Strategy inspired by gopfan2
@@ -23,7 +23,15 @@ Use this skill when the user wants to:
 - Check their weather trading positions
 - Configure trading thresholds or locations
 
-## What's New in v1.14.0
+## What's New in v1.17.0
+
+- **Volatility Targeting**: Dynamic position sizing based on realized market volatility. Uses EWMA of log returns from price history. High vol → smaller positions, low vol → larger positions. Enable with `--vol-targeting` flag or `SIMMER_WEATHER_VOL_TARGETING=true`.
+  - `SIMMER_WEATHER_TARGET_VOL` — target annualized vol (default 20%)
+  - `SIMMER_WEATHER_VOL_MAX_LEVERAGE` — max scale-up multiplier (default 2.0x)
+  - `SIMMER_WEATHER_VOL_MIN_ALLOC` — min allocation floor (default 20%)
+  - `SIMMER_WEATHER_VOL_SPAN` — EWMA responsiveness (default 10)
+
+### v1.14.0
 
 - **Fixed env var names** to match autotune registry (old names still work as aliases):
   - `SIMMER_WEATHER_ENTRY` → `SIMMER_WEATHER_ENTRY_THRESHOLD`
@@ -86,6 +94,11 @@ When user asks to install or configure this skill:
 | Smart sizing % | `SIMMER_WEATHER_SIZING_PCT` | 0.05 | % of balance per trade |
 | Slippage max | `SIMMER_WEATHER_SLIPPAGE_MAX` | 0.15 | Skip trades with slippage above this (0.15 = 15%) |
 | Min liquidity | `SIMMER_WEATHER_MIN_LIQUIDITY` | 0 | Skip markets with liquidity below this USD amount (0 = disabled) |
+| Vol targeting | `SIMMER_WEATHER_VOL_TARGETING` | false | Enable volatility targeting for dynamic position sizing |
+| Target vol | `SIMMER_WEATHER_TARGET_VOL` | 0.20 | Target annualized volatility (0.20 = 20%) |
+| Vol max leverage | `SIMMER_WEATHER_VOL_MAX_LEVERAGE` | 2.0 | Max scale-up multiplier in calm markets |
+| Vol min alloc | `SIMMER_WEATHER_VOL_MIN_ALLOC` | 0.2 | Min allocation floor in volatile markets (0.2 = 20%) |
+| Vol EWMA span | `SIMMER_WEATHER_VOL_SPAN` | 10 | EWMA span for vol calculation (lower = more responsive) |
 
 **Legacy env var aliases** (still accepted for backwards compatibility): `SIMMER_WEATHER_ENTRY`, `SIMMER_WEATHER_EXIT`, `SIMMER_WEATHER_MAX_POSITION`, `SIMMER_WEATHER_MAX_TRADES`
 
@@ -131,6 +144,9 @@ python weather_trader.py --no-safeguards
 # Disable trend detection
 python weather_trader.py --no-trends
 
+# Enable volatility targeting (dynamic sizing based on market vol)
+python weather_trader.py --live --smart-sizing --vol-targeting
+
 # Quiet mode — only output on trades/errors (ideal for high-frequency runs)
 python weather_trader.py --live --quiet
 
@@ -160,6 +176,20 @@ With `--smart-sizing`, position size is calculated as:
 - Falls back to fixed size if portfolio unavailable
 
 This prevents over-deployment and scales with your account size.
+
+## Volatility Targeting
+
+With `--vol-targeting`, position sizes are dynamically adjusted based on realized market volatility:
+
+```
+position_size = base_size × clamp(target_vol / realized_vol, min_alloc, max_leverage)
+```
+
+- **High volatility** (price swinging): positions scale down → less risk
+- **Low volatility** (price stable): positions scale up → more alpha capture
+- Falls back to base size if insufficient price history (< 15 data points)
+
+Combines with smart sizing: first calculate base size from portfolio %, then apply the vol multiplier.
 
 ## Safeguards
 
