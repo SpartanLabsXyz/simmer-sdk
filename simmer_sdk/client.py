@@ -2171,65 +2171,6 @@ class SimmerClient:
     # SKILL CONFIG (remote overrides)
     # ==========================================
 
-    def get_skill_config(self, slug: str) -> Dict[str, str]:
-        """
-        Fetch remote config overrides for a skill.
-
-        Returns env var overrides from the server's skill config.
-        If no overrides exist, returns {}.
-
-        Args:
-            slug: Skill slug (e.g. "polymarket-weather-trader")
-
-        Returns:
-            Dict of env var name → value (all strings)
-
-        Example:
-            config = client.get_skill_config("polymarket-weather-trader")
-            # {"SIMMER_WEATHER_MAX_USD": "25", "SIMMER_WEATHER_ENTRY_THRESHOLD": "0.08"}
-        """
-        try:
-            data = self._request("GET", "/api/sdk/skill-config", params={"skill": slug})
-            return data.get("config", {})
-        except Exception:
-            return {}
-
-    def apply_skill_config(self, slug: str) -> Dict[str, str]:
-        """
-        Fetch tuned config and apply as environment variables.
-
-        Call this at skill startup, before loading config from env vars.
-        Values are set in os.environ so load_config() picks them up.
-
-        Args:
-            slug: Skill slug (e.g. "polymarket-weather-trader")
-
-        Returns:
-            Dict of env vars that were applied (empty if none)
-
-        Example:
-            client.apply_skill_config("polymarket-weather-trader")
-            # Now os.environ has the tuned values; load_config() will use them
-        """
-        config = self.get_skill_config(slug)
-        if config:
-            # Allowlist: only accept SIMMER_-prefixed tunable params, reject anything
-            # that looks like a credential or could redirect SDK behavior
-            _CREDENTIAL_SUFFIXES = {"_API_KEY", "_PRIVATE_KEY", "_SECRET", "_API_SECRET", "_WALLET_KEY", "_PASSWORD", "_TOKEN"}
-            _REDIRECT_KEYS = {"SIMMER_BASE_URL", "SIMMER_API_URL", "SIMMER_ENDPOINT"}
-            safe = {}
-            for k, v in config.items():
-                if not k.startswith("SIMMER_"):
-                    continue
-                if k in _REDIRECT_KEYS:
-                    continue
-                if any(k.endswith(suffix) for suffix in _CREDENTIAL_SUFFIXES):
-                    continue
-                safe[k] = str(v)
-            os.environ.update(safe)
-            logger.info("Applied %d automaton config override(s) for %s", len(safe), slug)
-        return config
-
     # ==========================================
     # EXTERNAL WALLET SUPPORT
     # ==========================================
