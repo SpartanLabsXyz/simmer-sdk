@@ -29,8 +29,8 @@ dependencies = [
     "solders>=0.27.1",
     "base58>=2.1.1",
     "eth-account>=0.13.0",
-    "py-order-utils>=0.1.0",
-    "py-clob-client>=0.1.0",
+    "py-order-utils>=0.3.0",
+    "py-clob-client>=0.30.0",
 ]
 
 [project.urls]
