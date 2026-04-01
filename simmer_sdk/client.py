@@ -1322,6 +1322,38 @@ class SimmerClient:
         )
         return data
 
+    def import_kalshi_event(self, event_ticker: str) -> Dict[str, Any]:
+        """
+        Import all outcomes of a Kalshi event at once.
+
+        Fetches all markets in the event and imports them as a single event
+        on Simmer. Counts as **1 daily import** regardless of outcome count.
+
+        Args:
+            event_ticker: Kalshi event ticker (e.g. 'kxhightnola-26apr01')
+                          or full Kalshi event URL
+
+        Returns:
+            Dict with event_id, event_name, and markets list.
+            Each market has: market_id, question, kalshi_ticker, current_probability
+
+        Rate Limits:
+            - Counts as 1 daily import (not N)
+            - Requires claimed agent
+
+        Example:
+            results = client.import_kalshi_event("kxhightnola-26apr01")
+            for m in results['markets']:
+                print(f"{m['kalshi_ticker']}: {m['market_id']}")
+                client.trade(market_id=m['market_id'], side="yes", amount=10)
+        """
+        data = self._request(
+            "POST",
+            "/api/sdk/markets/import/kalshi/event",
+            json={"event_ticker": event_ticker}
+        )
+        return data
+
     def list_importable_markets(
         self,
         min_volume: float = 10000,
