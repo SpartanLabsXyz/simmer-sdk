@@ -1322,6 +1322,51 @@ class SimmerClient:
         )
         return data
 
+    def import_kalshi_event(self, event_ticker: str) -> Dict[str, Any]:
+        """
+        Import all outcomes of a Kalshi event at once.
+
+        Instead of importing each binary contract one by one, this imports the
+        entire event (e.g. all temperature brackets for a weather market) in a
+        single call. Counts as **1 daily import** regardless of outcome count.
+
+        Accepts an event ticker (e.g. "kxhightnola-26apr01") or a full Kalshi
+        URL containing an event ticker.
+
+        After importing, each outcome is a separate Simmer market that can be
+        traded independently.
+
+        Args:
+            event_ticker: Kalshi event ticker or full Kalshi event URL
+                Examples:
+                    "kxhightnola-26apr01"
+                    "https://kalshi.com/markets/kxhightnola-26apr01"
+
+        Returns:
+            Dict with:
+                - event_id: Simmer event ID
+                - event_name: Event title
+                - markets: List of imported market dicts (market_id, question, kalshi_ticker, current_probability)
+                - markets_imported: Count of newly imported markets
+                - markets_skipped: Count of skipped markets (closed, extreme prices)
+                - status: "imported" or "already_exists"
+
+        Rate Limits:
+            - Counts as 1 import toward daily limit (10/day, 50 for pro)
+
+        Example:
+            result = client.import_kalshi_event("kxhightnola-26apr01")
+            print(f"Imported {result['markets_imported']} markets from {result['event_name']}")
+            for m in result['markets']:
+                print(f"  {m['kalshi_ticker']}: {m['question']}")
+        """
+        data = self._request(
+            "POST",
+            "/api/sdk/markets/import/kalshi/event",
+            json={"event_ticker": event_ticker}
+        )
+        return data
+
     def list_importable_markets(
         self,
         min_volume: float = 10000,
