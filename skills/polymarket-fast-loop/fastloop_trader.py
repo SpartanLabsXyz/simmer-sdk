@@ -690,6 +690,15 @@ def run_fast_market_strategy(dry_run=True, positions_only=False, show_config=Fal
     # Initialize client early to validate API key (paper mode when not live)
     client = get_client(live=not dry_run)
 
+    # Redeem any winning positions before starting the cycle
+    try:
+        redeemed = client.auto_redeem()
+        for r in redeemed:
+            if r.get("success"):
+                log(f"  💰 Redeemed {r['market_id'][:8]}... ({r.get('side', '?')})")
+    except Exception:
+        pass  # Non-critical — don't block trading
+
     # GTC stale order cleanup: cancel any open GTC orders from previous cycles.
     # GTC orders sit on the CLOB indefinitely — if a previous cycle's order wasn't
     # filled, it locks collateral and can fill unexpectedly after the market window

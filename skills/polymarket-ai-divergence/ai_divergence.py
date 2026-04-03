@@ -498,7 +498,16 @@ def main():
 
     # Validate API key by initializing client
     dry_run = not args.live
-    get_client(live=not dry_run)
+    client = get_client(live=not dry_run)
+
+    # Redeem any winning positions before starting the cycle
+    try:
+        redeemed = client.auto_redeem()
+        for r in redeemed:
+            if r.get("success"):
+                print(f"  💰 Redeemed {r['market_id'][:8]}... ({r.get('side', '?')})")
+    except Exception:
+        pass  # Non-critical — don't block trading
 
     direction = DEFAULT_DIRECTION or None
     if args.bullish:

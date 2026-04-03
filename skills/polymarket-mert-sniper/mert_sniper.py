@@ -349,7 +349,16 @@ def run_mert_strategy(dry_run=True, positions_only=False, show_config=False,
     expiry_mins = expiry_override if expiry_override is not None else EXPIRY_WINDOW_MINS
 
     # Initialize client early (paper mode when not live)
-    get_client(live=not dry_run)
+    client = get_client(live=not dry_run)
+
+    # Redeem any winning positions before starting the cycle
+    try:
+        redeemed = client.auto_redeem()
+        for r in redeemed:
+            if r.get("success"):
+                print(f"  💰 Redeemed {r['market_id'][:8]}... ({r.get('side', '?')})")
+    except Exception:
+        pass  # Non-critical — don't block trading
 
     if dry_run:
         print("\n  [PAPER MODE] Trades will be simulated with real prices. Use --live for real trades.")

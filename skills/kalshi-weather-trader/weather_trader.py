@@ -773,7 +773,16 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
         return
 
     # Initialize client early to validate API key
-    get_client(live=not dry_run)
+    client = get_client(live=not dry_run)
+
+    # Redeem any winning positions before starting the cycle
+    try:
+        redeemed = client.auto_redeem()
+        for r in redeemed:
+            if r.get("success"):
+                log(f"  💰 Redeemed {r['market_id'][:8]}... ({r.get('side', '?')})")
+    except Exception:
+        pass  # Non-critical — don't block trading
 
     # Show portfolio if smart sizing enabled
     if smart_sizing:

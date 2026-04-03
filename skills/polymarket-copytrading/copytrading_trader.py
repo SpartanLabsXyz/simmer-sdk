@@ -349,6 +349,15 @@ def run_copytrading(wallets: list, top_n: int = None, max_usd: float = 50.0, dry
     if dry_run:
         print("\n  [DRY RUN] Trades will be simulated server-side. Use --live for real trades.")
 
+    # Redeem any winning positions before starting the cycle
+    try:
+        redeemed = get_client().auto_redeem()
+        for r in redeemed:
+            if r.get("success"):
+                print(f"  💰 Redeemed {r['market_id'][:8]}... ({r.get('side', '?')})")
+    except Exception:
+        pass  # Non-critical — don't block trading
+
     # Execute copytrading via SDK
     print("\n📡 Calling Simmer API...")
     try:

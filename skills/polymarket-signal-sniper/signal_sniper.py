@@ -676,9 +676,18 @@ def run_scan(
 
     # Validate API key via client init
     try:
-        get_client(live=not dry_run)
+        client = get_client(live=not dry_run)
     except SystemExit:
         return {"error": "No API key"}
+
+    # Redeem any winning positions before starting the cycle
+    try:
+        redeemed = client.auto_redeem()
+        for r in redeemed:
+            if r.get("success"):
+                print(f"  💰 Redeemed {r['market_id'][:8]}... ({r.get('side', '?')})")
+    except Exception:
+        pass  # Non-critical — don't block trading
 
     if not feeds:
         print("❌ No RSS feeds configured")

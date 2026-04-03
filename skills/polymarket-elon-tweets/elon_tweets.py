@@ -615,7 +615,16 @@ def run_strategy(dry_run=True, positions_only=False, show_config=False,
     log("=" * 50)
 
     # Initialize client with paper mode when not live
-    get_client(live=not dry_run)
+    client = get_client(live=not dry_run)
+
+    # Redeem any winning positions before starting the cycle
+    try:
+        redeemed = client.auto_redeem()
+        for r in redeemed:
+            if r.get("success"):
+                log(f"  💰 Redeemed {r['market_id'][:8]}... ({r.get('side', '?')})")
+    except Exception:
+        pass  # Non-critical — don't block trading
 
     if dry_run:
         log("\n  [PAPER MODE] Trades will be simulated with real prices. Use --live for real trades.")
