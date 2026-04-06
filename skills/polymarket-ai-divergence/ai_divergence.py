@@ -201,6 +201,58 @@ def get_markets() -> list:
     ]
 
 
+def enrich_with_gamma(markets: list) -> list:
+    """Enrich market list with Polymarket metadata from Gamma API.
+
+    Adds description, category, volume_24h, and liquidity fields from
+    Polymarket's Gamma API. Only enriches polymarket-sourced markets.
+    Failures are non-blocking — markets are returned unchanged on error.
+    """
+    poly_markets = [m for m in markets if m.get("import_source") == "polymarket"]
+    if not poly_markets:
+        return markets
+
+    try:
+        from simmer_sdk.gamma_api import GammaClient
+    except ImportError:
+        return markets
+
+    gamma = GammaClient()
+
+    # Build a lookup from question text to Gamma metadata
+    gamma_lookup = {}
+    seen_queries = set()
+    for m in poly_markets:
+        q = m.get("question", "")
+        # Use first few significant words as search query
+        words = q.split()[:5]
+        query = " ".join(words)
+        if query in seen_queries or not query:
+            continue
+        seen_queries.add(query)
+
+        try:
+            results = gamma.search(query, pages=1)
+            for event in results:
+                for gm in event.get("markets", []):
+                    gamma_lookup[gm.get("question", "")] = gm
+        except Exception:
+            continue
+
+    # Merge Gamma metadata into our markets
+    for m in markets:
+        question = m.get("question", "")
+        gm = gamma_lookup.get(question)
+        if gm:
+            m["gamma_description"] = gm.get("description", "")
+            m["gamma_category"] = gm.get("category", "")
+            m["gamma_volume_24h"] = gm.get("volume_24h", 0)
+            m["gamma_liquidity"] = gm.get("liquidity", 0)
+            m["gamma_tags"] = gm.get("tags", [])
+
+    return markets
+
+
 # =============================================================================
 # Scanner display
 # =============================================================================
@@ -462,6 +514,8 @@ def main():
     parser.add_argument("--json", action="store_true", help="Output as JSON")
     parser.add_argument("--config", action="store_true", help="Show configuration")
     parser.add_argument("--quiet", "-q", action="store_true", help="Only output on trades/errors")
+    parser.add_argument("--enrich", action="store_true",
+                        help="Enrich results with Polymarket metadata via Gamma API")
     parser.add_argument("--set", action="append", metavar="KEY=VALUE",
                         help="Set config value (e.g., --set min_edge=0.03)")
     args = parser.parse_args()
@@ -517,6 +571,9 @@ def main():
 
     markets = get_markets()
     markets = [m for m in markets if m.get('is_live_now', True) is not False]  # skip not-yet-open markets (no-op if field absent)
+
+    if args.enrich:
+        markets = enrich_with_gamma(markets)
 
     if args.json:
         filtered = [m for m in markets if abs(m.get("divergence") or 0) >= args.min / 100]
