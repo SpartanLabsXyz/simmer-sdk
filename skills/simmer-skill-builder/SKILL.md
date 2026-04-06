@@ -133,7 +133,7 @@ Copy these verbatim from `references/skill-template.md`:
 - `get_client()` singleton
 - `check_context_safeguards()`
 - `execute_trade()`
-- `calculate_position_size()`
+- `calculate_position_size()` (uses `simmer_sdk.sizing` for Kelly-based sizing)
 - CLI entry point with standard args (`--live`, `--positions`, `--config`, `--set`, `--smart-sizing`, `--no-safeguards`, `--quiet`)
 
 Customize:

@@ -149,9 +149,45 @@ client.trade(market_id, side="yes", amount=10.0, venue="polymarket")
 | `set_approvals()` | Set Polymarket token approvals |
 | `troubleshoot()` | Look up any error and get a fix (no auth required) |
 
+### Position Sizing (`simmer_sdk.sizing`)
+
+| Function | Description |
+|----------|-------------|
+| `size_position(p_win, market_price, bankroll)` | Calculate optimal trade amount using Kelly Criterion (quarter-Kelly by default) |
+| `kelly_fraction(p_win, market_price)` | Raw Kelly bet fraction |
+| `expected_value(p_win, market_price)` | Edge per share (EV = p_win - market_price) |
+| `SIZING_CONFIG_SCHEMA` | Config schema dict for skill integration (position_sizing, kelly_multiplier, min_ev) |
+
+```python
+from simmer_sdk.sizing import size_position
+
+# Quarter-Kelly: bet more when edge is larger
+amount = size_position(p_win=0.70, market_price=0.55, bankroll=1000.0)
+# ≈ $83.33
+```
+
+### Gamma API Client (`simmer_sdk.gamma_api`)
+
+| Method | Description |
+|--------|-------------|
+| `GammaClient.search(query)` | Search Polymarket events and markets |
+| `GammaClient.get_markets()` | List markets with filters (active, volume, liquidity) |
+| `GammaClient.get_market(condition_id)` | Get a single market by condition ID |
+| `GammaClient.get_events()` | List events (groups of related markets) |
+| `GammaClient.get_event(slug)` | Get a single event by URL slug |
+
+```python
+from simmer_sdk.gamma_api import GammaClient
+
+gamma = GammaClient()  # Free, no auth required
+results = gamma.search("bitcoin", active=True)
+for event in results:
+    print(f"{event['title']} — {event['market_count']} markets")
+```
+
 **Error handling:** All SDK 4xx responses include a `fix` field with actionable instructions when the error matches a known pattern. You can also call `POST /api/sdk/troubleshoot` with `{"error_text": "..."}` to look up any error.
 
-Full API reference with parameters, examples, and error codes: **[simmer.markets/docs.md](https://simmer.markets/docs.md)**
+Full API reference with parameters, examples, and error codes: **[docs.simmer.markets](https://docs.simmer.markets)**
 
 ## Auto-Redeem
 

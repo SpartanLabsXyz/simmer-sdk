@@ -82,6 +82,7 @@ sys.stdout.reconfigure(line_buffering=True)
 
 ```python
 from simmer_sdk.skill import load_config, update_config, get_config_path
+from simmer_sdk.sizing import SIZING_CONFIG_SCHEMA, size_position
 
 SKILL_SLUG = "your-skill-slug"  # Must match skills_registry slug
 
@@ -89,7 +90,7 @@ CONFIG_SCHEMA = {
     "param_name": {"env": "SIMMER_SKILLNAME_PARAM", "default": 0.10, "type": float},
     "max_position_usd": {"env": "SIMMER_SKILLNAME_MAX_POSITION", "default": 5.00, "type": float},
     "max_trades_per_run": {"env": "SIMMER_SKILLNAME_MAX_TRADES", "default": 5, "type": int},
-    "sizing_pct": {"env": "SIMMER_SKILLNAME_SIZING_PCT", "default": 0.05, "type": float},
+    **SIZING_CONFIG_SCHEMA,  # Adds position_sizing, kelly_multiplier, min_ev
 }
 
 _config = load_config(CONFIG_SCHEMA, __file__, slug=SKILL_SLUG)
@@ -227,7 +228,8 @@ def execute_sell(market_id, side, shares, reasoning=""):
     except Exception as e:
         return {"error": str(e)}
 
-def calculate_position_size(default_size, smart_sizing):
+def calculate_position_size(p_win, market_price, default_size, smart_sizing):
+    """Use SDK Kelly sizing when smart_sizing is enabled, else fixed amount."""
     if not smart_sizing:
         return default_size
     portfolio = get_portfolio()
@@ -236,10 +238,15 @@ def calculate_position_size(default_size, smart_sizing):
     balance = portfolio.get("balance_usdc", 0)
     if balance <= 0:
         return default_size
-    smart_size = balance * SMART_SIZING_PCT
-    smart_size = min(smart_size, MAX_POSITION_USD)
-    smart_size = max(smart_size, 1.0)
-    return smart_size
+    amount = size_position(
+        p_win=p_win,
+        market_price=market_price,
+        bankroll=balance,
+        method=_config["position_sizing"],
+        kelly_multiplier=_config["kelly_multiplier"],
+        min_ev=_config["min_ev"],
+    )
+    return min(amount, MAX_POSITION_USD) if amount > 0 else 0.0
 ```
 
 ### 7. Market Fetching (customize per skill)
@@ -291,7 +298,6 @@ def run_strategy(dry_run=True, positions_only=False, show_config=False,
 
     # --- Strategy logic ---
     markets = fetch_markets()
-    position_size = calculate_position_size(MAX_POSITION_USD, smart_sizing)
     trades_executed = 0
 
     for market in markets:
@@ -299,11 +305,18 @@ def run_strategy(dry_run=True, positions_only=False, show_config=False,
         price = market.get("current_probability", 0.5)
 
         # YOUR SIGNAL LOGIC HERE
-        # Determine if this is a trading opportunity
+        # Determine if this is a trading opportunity and estimate p_win
+        # p_win = your_model_probability(market)
+        # side = "yes" if p_win > price else "no"
         # ...
 
         # Price sanity
         if price < MIN_TICK_SIZE or price > (1 - MIN_TICK_SIZE):
+            continue
+
+        # Kelly-based position sizing (uses SDK sizing module)
+        position_size = calculate_position_size(p_win, price, MAX_POSITION_USD, smart_sizing)
+        if position_size <= 0:
             continue
 
         # Min order size
