@@ -56,7 +56,6 @@ External Wallet Trading (BYOW):
 
 from .client import SimmerClient
 from .paper import PaperPortfolio
-from .gamma_api import GammaClient
 from .approvals import (
     get_required_approvals,
     get_approval_transactions,
@@ -83,7 +82,6 @@ except ImportError:
 __all__ = [
     "SimmerClient",
     "PaperPortfolio",
-    "GammaClient",
     # Polymarket approvals
     "get_required_approvals",
     "get_approval_transactions",

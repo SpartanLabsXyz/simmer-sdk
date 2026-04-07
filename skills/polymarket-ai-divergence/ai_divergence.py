@@ -213,7 +213,8 @@ def enrich_with_gamma(markets: list) -> list:
         return markets
 
     try:
-        from simmer_sdk.gamma_api import GammaClient
+        # Local helper, lives next to this skill (was in simmer_sdk pre-0.9.21)
+        from gamma_api import GammaClient
     except ImportError:
         return markets
 

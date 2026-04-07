@@ -153,6 +153,41 @@ client.trade(market_id, side="yes", amount=10.0, venue="polymarket")
 
 Full API reference with parameters, examples, and error codes: **[simmer.markets/docs.md](https://simmer.markets/docs.md)**
 
+## Skill Builder Utilities
+
+The SDK ships two helper modules for skill authors. Prefer these over rolling your own — they encode patterns from top traders and external research.
+
+### Position sizing — `simmer_sdk.sizing`
+
+Kelly Criterion + Expected Value sizing for binary prediction markets. Default is fractional Kelly (0.25x) with an EV gate, so trades below your edge threshold return `0.0` and the skill can simply skip them.
+
+```python
+from simmer_sdk import SimmerClient
+from simmer_sdk.sizing import size_position
+
+client = SimmerClient()
+bankroll = client.get_portfolio()["available_balance"]
+
+amount = size_position(
+    p_win=0.70,         # your model's probability
+    market_price=0.55,  # current YES price
+    bankroll=bankroll,
+    min_ev=0.03,        # skip trades with edge < 3%
+)
+if amount > 0:
+    client.trade(market_id=..., side="BUY", outcome="YES",
+                 amount=amount, reasoning="Kelly: 70% vs 55%, +15% edge")
+```
+
+| Function | Purpose |
+|----------|---------|
+| `size_position(p_win, market_price, bankroll, method=, kelly_multiplier=, min_ev=, max_fraction=)` | Returns dollar amount to trade. `0.0` when edge ≤ `min_ev`, Kelly is negative, or inputs are invalid. |
+| `kelly_fraction(p_win, market_price)` | Raw Kelly fraction `(p - c) / (1 - c)`. |
+| `expected_value(p_win, market_price)` | Edge per share (`p_win - market_price`). |
+| `SIZING_CONFIG_SCHEMA` | Drop-in `CONFIG_SCHEMA` fragment exposing `SIMMER_POSITION_SIZING`, `SIMMER_KELLY_MULTIPLIER`, `SIMMER_MIN_EV` env vars. |
+
+Methods: `"fractional_kelly"` (default, multiplier 0.25), `"kelly"` (full, aggressive), `"fixed"` (uses `kelly_multiplier` as a flat fraction). For NO bets pass `p_win=1-p_yes` and `market_price=1-yes_price`.
+
 ## Auto-Redeem
 
 When a Polymarket market resolves and your side wins, the CTF tokens in your wallet must be redeemed to claim the USDC.e payout. Auto-redeem handles this automatically each cycle.
