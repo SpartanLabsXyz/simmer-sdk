@@ -82,6 +82,7 @@ sys.stdout.reconfigure(line_buffering=True)
 
 ```python
 from simmer_sdk.skill import load_config, update_config, get_config_path
+from simmer_sdk.sizing import SIZING_CONFIG_SCHEMA
 
 SKILL_SLUG = "your-skill-slug"  # Must match skills_registry slug
 
@@ -89,11 +90,14 @@ CONFIG_SCHEMA = {
     "param_name": {"env": "SIMMER_SKILLNAME_PARAM", "default": 0.10, "type": float},
     "max_position_usd": {"env": "SIMMER_SKILLNAME_MAX_POSITION", "default": 5.00, "type": float},
     "max_trades_per_run": {"env": "SIMMER_SKILLNAME_MAX_TRADES", "default": 5, "type": int},
-    "sizing_pct": {"env": "SIMMER_SKILLNAME_SIZING_PCT", "default": 0.05, "type": float},
+    # Position sizing knobs (SIMMER_POSITION_SIZING, SIMMER_KELLY_MULTIPLIER, SIMMER_MIN_EV)
+    **SIZING_CONFIG_SCHEMA,
 }
 
 _config = load_config(CONFIG_SCHEMA, __file__, slug=SKILL_SLUG)
 ```
+
+Merging `SIZING_CONFIG_SCHEMA` gives users `SIMMER_POSITION_SIZING`, `SIMMER_KELLY_MULTIPLIER`, and `SIMMER_MIN_EV` env vars without you wiring them up. See the [Position Sizing docs](https://docs.simmer.markets/sdk/position-sizing) for full details.
 
 Config priority: `config.json > automaton tuning > env vars > defaults`.
 
@@ -142,7 +146,9 @@ SLIPPAGE_MAX_PCT = 0.15
 # Unpack config to module-level
 MAX_POSITION_USD = _config["max_position_usd"]
 MAX_TRADES_PER_RUN = _config["max_trades_per_run"]
-SMART_SIZING_PCT = _config["sizing_pct"]
+POSITION_SIZING = _config["position_sizing"]      # from SIZING_CONFIG_SCHEMA
+KELLY_MULTIPLIER = _config["kelly_multiplier"]    # from SIZING_CONFIG_SCHEMA
+MIN_EV = _config["min_ev"]                        # from SIZING_CONFIG_SCHEMA
 ```
 
 ### 6. SDK Wrappers (copy verbatim, customize execute_trade if needed)
@@ -227,20 +233,9 @@ def execute_sell(market_id, side, shares, reasoning=""):
     except Exception as e:
         return {"error": str(e)}
 
-def calculate_position_size(default_size, smart_sizing):
-    if not smart_sizing:
-        return default_size
-    portfolio = get_portfolio()
-    if not portfolio:
-        return default_size
-    balance = portfolio.get("balance_usdc", 0)
-    if balance <= 0:
-        return default_size
-    smart_size = balance * SMART_SIZING_PCT
-    smart_size = min(smart_size, MAX_POSITION_USD)
-    smart_size = max(smart_size, 1.0)
-    return smart_size
 ```
+
+Position sizing is handled by `simmer_sdk.sizing.size_position()` — Kelly Criterion + EV gate, called inside the trading loop with each market's price and your model's `p_win`. See the loop in section 8.
 
 ### 7. Market Fetching (customize per skill)
 
@@ -268,8 +263,10 @@ def fetch_markets(filter_tag=""):
 ### 8. Main Strategy Function
 
 ```python
+from simmer_sdk.sizing import size_position
+
 def run_strategy(dry_run=True, positions_only=False, show_config=False,
-                 smart_sizing=False, use_safeguards=True):
+                 use_safeguards=True):
     """Run the trading strategy."""
     print("<emoji> <Skill Name>")
     print("=" * 50)
@@ -291,19 +288,33 @@ def run_strategy(dry_run=True, positions_only=False, show_config=False,
 
     # --- Strategy logic ---
     markets = fetch_markets()
-    position_size = calculate_position_size(MAX_POSITION_USD, smart_sizing)
+    portfolio = get_portfolio() or {}
+    bankroll = min(portfolio.get("balance_usdc", 0.0), MAX_POSITION_USD * MAX_TRADES_PER_RUN)
     trades_executed = 0
 
     for market in markets:
         market_id = market.get("id")
         price = market.get("current_probability", 0.5)
 
-        # YOUR SIGNAL LOGIC HERE
-        # Determine if this is a trading opportunity
-        # ...
+        # YOUR SIGNAL LOGIC HERE — produce a probability estimate for YES.
+        # This is the alpha part of your skill. Replace with your model.
+        p_win = my_signal(market)  # e.g. 0.70
 
         # Price sanity
         if price < MIN_TICK_SIZE or price > (1 - MIN_TICK_SIZE):
+            continue
+
+        # Size the trade. Returns 0.0 when edge is below MIN_EV (skip).
+        position_size = size_position(
+            p_win=p_win,
+            market_price=price,
+            bankroll=bankroll,
+            method=POSITION_SIZING,
+            kelly_multiplier=KELLY_MULTIPLIER,
+            min_ev=MIN_EV,
+        )
+        position_size = min(position_size, MAX_POSITION_USD)
+        if position_size <= 0:
             continue
 
         # Min order size
@@ -323,12 +334,20 @@ def run_strategy(dry_run=True, positions_only=False, show_config=False,
             continue
 
         # Execute
-        result = execute_trade(market_id, side, position_size, reasoning="Your thesis")
+        result = execute_trade(
+            market_id, "yes", position_size,
+            reasoning=f"p_win={p_win:.2f} vs price={price:.2f}",
+        )
         if result.get("success"):
             trades_executed += 1
 
     # Print summary
 ```
+
+**Sizing notes:**
+- `size_position()` returns `0.0` when the edge is below `MIN_EV`, when Kelly is negative, or on invalid inputs — so the `if position_size <= 0: continue` line cleanly handles "no trade." No extra branching for low-confidence signals.
+- `MAX_POSITION_USD` is a per-trade cap applied *after* Kelly so an aggressive Kelly call can't blow past your safety limit.
+- Default method is `fractional_kelly` with `kelly_multiplier=0.25` — a standard "quarter-Kelly" disciplined skill. Users can tune via env vars.
 
 ### 9. CLI Entry Point
 
@@ -341,8 +360,6 @@ if __name__ == "__main__":
     parser.add_argument("--config", action="store_true", help="Show config")
     parser.add_argument("--set", action="append", metavar="KEY=VALUE",
                         help="Set config value")
-    parser.add_argument("--smart-sizing", action="store_true",
-                        help="Portfolio-based sizing")
     parser.add_argument("--no-safeguards", action="store_true",
                         help="Disable safeguards")
     parser.add_argument("--quiet", "-q", action="store_true",
@@ -377,7 +394,6 @@ if __name__ == "__main__":
         dry_run=dry_run,
         positions_only=args.positions,
         show_config=args.config,
-        smart_sizing=args.smart_sizing,
         use_safeguards=not args.no_safeguards,
     )
 ```

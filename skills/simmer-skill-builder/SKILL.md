@@ -3,7 +3,7 @@ name: simmer-skill-builder
 description: Generate complete, installable OpenClaw trading skills from natural language strategy descriptions. Use when your human wants to create a new trading strategy, build a bot, generate a skill, automate a trade idea, turn a tweet into a strategy, or asks "build me a skill that...". Produces a full skill folder (SKILL.md + Python script + config) ready to install and run.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.1.0"
+  version: "1.2.3"
   displayName: Simmer Skill Builder
   difficulty: beginner
 ---
@@ -129,12 +129,12 @@ Supported types: `number` (with `range` and `step`), `string`, `boolean`. Keep d
 #### Python Script Requirements
 
 Copy these verbatim from `references/skill-template.md`:
-- Config system (`from simmer_sdk.skill import load_config, update_config, get_config_path`)
+- Config system (`from simmer_sdk.skill import load_config, update_config, get_config_path`) — merge `SIZING_CONFIG_SCHEMA` from `simmer_sdk.sizing` into your `CONFIG_SCHEMA` for free position sizing knobs
 - `get_client()` singleton
 - `check_context_safeguards()`
 - `execute_trade()`
-- `calculate_position_size()`
-- CLI entry point with standard args (`--live`, `--positions`, `--config`, `--set`, `--smart-sizing`, `--no-safeguards`, `--quiet`)
+- Position sizing via `simmer_sdk.sizing.size_position()` (Kelly + EV gate, called inline in the loop — do **not** roll your own)
+- CLI entry point with standard args (`--live`, `--positions`, `--config`, `--set`, `--no-safeguards`, `--quiet`)
 
 Customize:
 - `CONFIG_SCHEMA` — skill-specific params with `SIMMER_<SKILLNAME>_<PARAM>` env vars
