@@ -312,35 +312,46 @@ def discover_fast_market_markets(asset="BTC", window="5m"):
     """Find active fast markets via Simmer API (pre-imported, reliable).
     Falls back to Gamma API if Simmer returns no results."""
     # Primary: Simmer's /api/sdk/fast-markets (markets already imported, is_live_now computed)
+    markets = []
     try:
         client = get_client()
         sdk_markets = client.get_fast_markets(asset=asset, window=window, limit=50)
-        if sdk_markets:
-            markets = []
-            for m in sdk_markets:
-                # Parse resolves_at string to datetime for time calculations
-                end_time = _parse_resolves_at(m.resolves_at) if m.resolves_at else None
-                clob_tokens = [m.polymarket_token_id] if m.polymarket_token_id else []
-                if m.polymarket_no_token_id:
-                    clob_tokens.append(m.polymarket_no_token_id)
-                markets.append({
-                    "question": m.question,
-                    "market_id": m.id,  # Already imported — no import step needed
-                    "end_time": end_time,
-                    "clob_token_ids": clob_tokens,
-                    "is_live_now": m.is_live_now,
-                    "spread_cents": m.spread_cents,
-                    "liquidity_tier": m.liquidity_tier,
-                    "external_price_yes": m.external_price_yes,
-                    "fee_rate_bps": getattr(m, 'fee_rate_bps', 0),  # Filled by dynamic lookup after discovery
-                    "source": "simmer",
-                })
-            return markets
+        for m in sdk_markets or []:
+            # Parse resolves_at string to datetime for time calculations
+            end_time = _parse_resolves_at(m.resolves_at) if m.resolves_at else None
+            clob_tokens = [m.polymarket_token_id] if m.polymarket_token_id else []
+            if m.polymarket_no_token_id:
+                clob_tokens.append(m.polymarket_no_token_id)
+            markets.append({
+                "question": m.question,
+                "market_id": m.id,  # Already imported — no import step needed
+                "end_time": end_time,
+                "clob_token_ids": clob_tokens,
+                "is_live_now": m.is_live_now,
+                "spread_cents": m.spread_cents,
+                "liquidity_tier": m.liquidity_tier,
+                "external_price_yes": m.external_price_yes,
+                "fee_rate_bps": getattr(m, 'fee_rate_bps', 0),  # Filled by dynamic lookup after discovery
+                "source": "simmer",
+            })
     except Exception as e:
         print(f"  ⚠️  Simmer fast-markets API failed ({e}), falling back to Gamma")
 
-    # Fallback: Gamma API (may return stale data)
-    return _discover_via_gamma(asset, window)
+    # Fall back to Gamma when Simmer returns no live markets — covers import gaps
+    # where Simmer's DB is behind Polymarket's live slot publishing.
+    has_live = any(m.get("is_live_now") for m in markets)
+    if not has_live:
+        if markets:
+            print(f"  ⚠️  Simmer fast-markets returned {len(markets)} markets but none are live; checking Gamma for missing slots")
+        gamma_markets = _discover_via_gamma(asset, window)
+        # Merge, de-duped by clob_token_ids (Gamma markets not yet imported → market_id None)
+        seen_tokens = {t for m in markets for t in (m.get("clob_token_ids") or [])}
+        for gm in gamma_markets:
+            gtokens = gm.get("clob_token_ids") or []
+            if not any(t in seen_tokens for t in gtokens):
+                markets.append(gm)
+
+    return markets
 
 
 def _discover_via_gamma(asset="BTC", window="5m"):
