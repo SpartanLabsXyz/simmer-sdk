@@ -173,37 +173,42 @@ def get_httpx():
     return httpx
 
 
-async def fetch_config(httpx_mod) -> dict:
+async def fetch_config(api_client) -> dict:
     """Fetch reactor config from the Simmer API. Returns default-shape dict on error."""
     url = f"{get_api_url()}{REACTOR_CONFIG_PATH}"
     headers = {"Authorization": f"Bearer {get_api_key()}"}
     try:
-        async with httpx_mod.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(url, headers=headers)
-            if resp.status_code == 402:
-                print("[reactor] 402: Reactor requires Simmer Pro. Upgrade at https://simmer.markets/dashboard")
-                sys.exit(2)
-            resp.raise_for_status()
-            return resp.json()
+        resp = await api_client.get(url, headers=headers)
+        if resp.status_code == 402:
+            print("[reactor] 402: Reactor requires Simmer Pro. Upgrade at https://simmer.markets/dashboard")
+            sys.exit(2)
+        resp.raise_for_status()
+        return resp.json()
     except Exception as e:
-        print(f"[reactor] failed to fetch config: {e}")
+        print(f"[reactor] failed to fetch config: {type(e).__name__}: {e!r}")
         sys.exit(1)
 
 
-async def post_reaction(httpx_mod, payload: dict) -> None:
-    """Fire-and-forget reaction POST (logged on failure, doesn't raise)."""
+async def post_reaction(api_client, payload: dict) -> None:
+    """Fire-and-forget reaction POST (logged on failure, doesn't raise).
+
+    Uses a shared httpx.AsyncClient (passed in) instead of creating a new one
+    per call — that pattern was causing intermittent connection errors under
+    load during bot testing (empty exception string, likely TLS handshake or
+    ephemeral port exhaustion).
+    """
     url = f"{get_api_url()}{REACTOR_REACTIONS_PATH}"
     headers = {
         "Authorization": f"Bearer {get_api_key()}",
         "Content-Type": "application/json",
     }
     try:
-        async with httpx_mod.AsyncClient(timeout=5.0) as client:
-            resp = await client.post(url, headers=headers, json=payload)
-            if resp.status_code >= 400:
-                print(f"[reactor] reaction POST failed {resp.status_code}: {resp.text[:200]}")
+        resp = await api_client.post(url, headers=headers, json=payload, timeout=10.0)
+        if resp.status_code >= 400:
+            print(f"[reactor] reaction POST failed {resp.status_code}: {resp.text[:200]}")
     except Exception as e:
-        print(f"[reactor] reaction POST errored: {e}")
+        # Use repr() so empty-string exceptions still log their type
+        print(f"[reactor] reaction POST errored: {type(e).__name__}: {e!r}")
 
 
 # =============================================================================
@@ -244,6 +249,7 @@ def build_reasoning(event: dict, config: dict) -> str:
 
 async def run_once(
     httpx_mod,
+    api_client,
     config: dict,
     seen: Set[str],
     dry_run: bool,
@@ -262,8 +268,10 @@ async def run_once(
     processed = 0
 
     print(f"[reactor] connecting to {url}")
-    async with httpx_mod.AsyncClient(timeout=None) as client:
-        async with client.stream("GET", url, headers=headers) as resp:
+    # Separate client for the SSE stream (needs timeout=None) from the api_client
+    # used for REST calls (which has a sensible timeout).
+    async with httpx_mod.AsyncClient(timeout=None) as stream_client:
+        async with stream_client.stream("GET", url, headers=headers) as resp:
             if resp.status_code == 402:
                 print("[reactor] 402: Reactor requires Simmer Pro. Upgrade at https://simmer.markets/dashboard")
                 return 2
@@ -313,7 +321,7 @@ async def run_once(
 
                 processed += 1
                 handled = await handle_event(
-                    httpx_mod=httpx_mod,
+                    api_client=api_client,
                     event=event,
                     config=config,
                     dry_run=dry_run,
@@ -330,7 +338,7 @@ async def run_once(
 
 
 async def handle_event(
-    httpx_mod,
+    api_client,
     event: dict,
     config: dict,
     dry_run: bool,
@@ -354,7 +362,7 @@ async def handle_event(
     mirror_size = compute_mirror_size(taker_size, config)
     if mirror_size is None:
         print(f"[reactor]   → skip: mirror size below 5-share minimum (raw={taker_size * float(config.get('mirror_fraction') or 0.01):.2f})")
-        await post_reaction(httpx_mod, {
+        await post_reaction(api_client, {
             "event_tx_hash": tx_hash,
             "taker_wallet": taker_wallet,
             "taker_side": taker_side,
@@ -370,7 +378,7 @@ async def handle_event(
 
     if dry_run:
         print(f"[reactor]   → DRY RUN: would mirror {taker_side} {mirror_size:.2f} shares @ {taker_price}")
-        await post_reaction(httpx_mod, {
+        await post_reaction(api_client, {
             "event_tx_hash": tx_hash,
             "taker_wallet": taker_wallet,
             "taker_side": taker_side,
@@ -385,24 +393,35 @@ async def handle_event(
         return "mirrored"
 
     # Live execution via SimmerClient
+    # SimmerClient.trade() signature (simmer-sdk 0.9.21):
+    #   trade(market_id: str, side: str, amount: float = 0, shares: float = 0,
+    #         action: str = 'buy', venue: Optional[str] = None, order_type: str = 'FAK',
+    #         price: Optional[float] = None, reasoning: Optional[str] = None,
+    #         source: Optional[str] = None, skill_slug: Optional[str] = None, ...)
+    # The Polymarket token_id is passed as `market_id` (the SDK routes it correctly
+    # for the polymarket venue). We pass `shares` (not `amount`) since taker_size
+    # from PolyNode events is in shares.
     client = get_client(venue=venue)
     try:
-        # The skill uses token_id as the market key. SimmerClient.trade() accepts
-        # polymarket_token_id on the polymarket venue.
         result = client.trade(
-            token_id=taker_token,
+            market_id=taker_token,
             side=taker_side,
-            size=mirror_size,
+            shares=mirror_size,
             price=taker_price,
             source=TRADE_SOURCE,
             skill_slug=SKILL_SLUG,
             reasoning=build_reasoning(event, config),
         )
+        # SimmerClient returns a TradeResult object (not a dict) in 0.9.21+
         trade_id = None
-        if isinstance(result, dict):
+        if hasattr(result, "trade_id"):
+            trade_id = result.trade_id
+        elif hasattr(result, "id"):
+            trade_id = result.id
+        elif isinstance(result, dict):
             trade_id = result.get("trade_id") or result.get("id")
         print(f"[reactor]   → mirrored: {result}")
-        await post_reaction(httpx_mod, {
+        await post_reaction(api_client, {
             "event_tx_hash": tx_hash,
             "taker_wallet": taker_wallet,
             "taker_side": taker_side,
@@ -418,7 +437,7 @@ async def handle_event(
         return "mirrored"
     except Exception as e:
         print(f"[reactor]   → failed: {e}")
-        await post_reaction(httpx_mod, {
+        await post_reaction(api_client, {
             "event_tx_hash": tx_hash,
             "taker_wallet": taker_wallet,
             "taker_side": taker_side,
@@ -443,43 +462,49 @@ async def main_async(args) -> int:
     seen = load_seen_set()
     print(f"[reactor] loaded {len(seen)} prior tx_hashes from seen set")
 
-    config = await fetch_config(httpx_mod)
-    if not config.get("enabled"):
-        print("[reactor] config has enabled=false — set it via dashboard or PATCH /api/sdk/reactor/config")
-        return 1
-    wallets = config.get("wallets") or []
-    print(f"[reactor] config: {len(wallets)} wallets, min_size={config.get('min_size')}, "
-          f"mirror_fraction={config.get('mirror_fraction')}, max_size={config.get('max_size')}, "
-          f"daily_cap={config.get('daily_cap')}, venue={config.get('venue')}")
+    # Shared long-lived HTTP client for config fetch + reaction POSTs.
+    # Using a single AsyncClient across the whole session avoids per-request
+    # TLS handshakes + ephemeral port churn that caused intermittent empty
+    # errors during bot testing.
+    async with httpx_mod.AsyncClient(timeout=10.0) as api_client:
+        config = await fetch_config(api_client)
+        if not config.get("enabled"):
+            print("[reactor] config has enabled=false — set it via dashboard or PATCH /api/sdk/reactor/config")
+            return 1
+        wallets = config.get("wallets") or []
+        print(f"[reactor] config: {len(wallets)} wallets, min_size={config.get('min_size')}, "
+              f"mirror_fraction={config.get('mirror_fraction')}, max_size={config.get('max_size')}, "
+              f"daily_cap={config.get('daily_cap')}, venue={config.get('venue')}")
 
-    venue = args.venue or config.get("venue") or "sim"
+        venue = args.venue or config.get("venue") or "sim"
 
-    # Reconnect loop with exponential backoff
-    backoff = RECONNECT_BASE_DELAY
-    while True:
-        try:
-            exit_code = await run_once(
-                httpx_mod=httpx_mod,
-                config=config,
-                seen=seen,
-                dry_run=args.dry_run,
-                venue=venue,
-                max_events=args.max_events,
-            )
-            if exit_code != 0:
-                return exit_code
-            if args.max_events is not None:
+        # Reconnect loop with exponential backoff
+        backoff = RECONNECT_BASE_DELAY
+        while True:
+            try:
+                exit_code = await run_once(
+                    httpx_mod=httpx_mod,
+                    api_client=api_client,
+                    config=config,
+                    seen=seen,
+                    dry_run=args.dry_run,
+                    venue=venue,
+                    max_events=args.max_events,
+                )
+                if exit_code != 0:
+                    return exit_code
+                if args.max_events is not None:
+                    return 0
+                backoff = RECONNECT_BASE_DELAY  # successful session resets backoff
+                print("[reactor] stream closed cleanly — reconnecting")
+            except asyncio.CancelledError:
+                print("[reactor] cancelled, shutting down")
                 return 0
-            backoff = RECONNECT_BASE_DELAY  # successful session resets backoff
-            print("[reactor] stream closed cleanly — reconnecting")
-        except asyncio.CancelledError:
-            print("[reactor] cancelled, shutting down")
-            return 0
-        except Exception as e:
-            print(f"[reactor] stream error: {e} — reconnecting in {backoff:.1f}s")
-            await asyncio.sleep(backoff)
-            backoff = min(backoff * 2, RECONNECT_MAX_DELAY)
-            continue
+            except Exception as e:
+                print(f"[reactor] stream error: {type(e).__name__}: {e!r} — reconnecting in {backoff:.1f}s")
+                await asyncio.sleep(backoff)
+                backoff = min(backoff * 2, RECONNECT_MAX_DELAY)
+                continue
 
         # If we got here via clean close, wait a beat before reconnecting
         await asyncio.sleep(backoff)
