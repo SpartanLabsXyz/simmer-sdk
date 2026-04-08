@@ -44,12 +44,13 @@ Usage:
 import os
 import sys
 import json
+import time
 import asyncio
 import argparse
 import signal
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Set
+from typing import Dict, Optional, Set, Tuple
 
 # Force line-buffered stdout so output is visible in non-TTY environments
 sys.stdout.reconfigure(line_buffering=True)
@@ -72,6 +73,18 @@ REACTOR_REACTIONS_PATH = "/api/sdk/reactor/reactions"
 # Reconnect backoff
 RECONNECT_BASE_DELAY = 1.0
 RECONNECT_MAX_DELAY = 30.0
+
+# Circuit breaker: pause trade execution after N consecutive failures. Prevents
+# the kind of junk-log spam observed on polymarket-copytrading polling mode,
+# where a single underfunded wallet generated 434 failed real_trades rows in
+# 24h with no backoff (2026-04-08 support investigation).
+CONSECUTIVE_FAILURE_LIMIT = 5
+FAILURE_PAUSE_SECONDS = 3600  # 1h pause after hitting the limit
+
+# Module-level state for the circuit breaker and market resolution cache.
+_consecutive_failures: int = 0
+_failure_paused_until: float = 0.0
+_market_id_cache: Dict[str, Tuple[str, Optional[str], Optional[str]]] = {}  # condition_id -> (simmer_market_id, yes_token, no_token)
 
 
 # =============================================================================
@@ -337,6 +350,116 @@ async def run_once(
     return 0
 
 
+def _resolve_market_id(client, condition_id: str, market_slug: str) -> Optional[Tuple[str, Optional[str], Optional[str]]]:
+    """
+    Resolve a Polymarket condition_id to a Simmer market UUID.
+
+    Order of operations (mirrors the pattern in copytrading_trader.py run_reactive):
+    1. Check client-side cache (immutable mapping, never evict)
+    2. Call POST /api/sdk/markets/resolve (DB-only, fast, rate limited 12/min)
+    3. On not found: call client.import_market(polymarket_url) using market_slug
+    4. On "already exists" race: re-resolve (another reactor instance may have
+       imported concurrently)
+
+    Returns (market_id, yes_token, no_token) on success, None on failure.
+    The yes/no tokens are currently None from the resolve endpoint — we rely
+    on the `outcome` field from the PolyNode event to determine side.
+    """
+    if condition_id and condition_id in _market_id_cache:
+        return _market_id_cache[condition_id]
+
+    market_id: Optional[str] = None
+
+    # Step 1: DB-only resolve via existing endpoint
+    if condition_id:
+        try:
+            resolve_result = client._request(
+                "POST",
+                "/api/sdk/markets/resolve",
+                json={"condition_ids": [condition_id]},
+            )
+            results = resolve_result.get("results", [])
+            if results and results[0].get("found"):
+                market_id = results[0].get("market_id")
+        except Exception as e:
+            print(f"[reactor]   resolve failed: {type(e).__name__}: {e}")
+
+    # Step 2: Import from Polymarket if not in catalog
+    if not market_id and market_slug:
+        try:
+            import_result = client.import_market(f"https://polymarket.com/event/{market_slug}")
+            market_id = import_result.get("market_id") or import_result.get("id")
+        except Exception as e:
+            # Handle race: another process may have imported concurrently
+            err_str = str(e).lower()
+            if "already" in err_str or "exists" in err_str:
+                try:
+                    resolve_result = client._request(
+                        "POST",
+                        "/api/sdk/markets/resolve",
+                        json={"condition_ids": [condition_id]},
+                    )
+                    results = resolve_result.get("results", [])
+                    if results and results[0].get("found"):
+                        market_id = results[0].get("market_id")
+                except Exception:
+                    pass
+            if not market_id:
+                print(f"[reactor]   import failed: {type(e).__name__}: {e}")
+
+    if not market_id:
+        return None
+
+    entry = (market_id, None, None)
+    if condition_id:
+        _market_id_cache[condition_id] = entry
+    return entry
+
+
+def _determine_side(event: dict) -> str:
+    """
+    Determine the Simmer `side` ("yes" or "no") from a PolyNode settlement event.
+
+    PolyNode provides `outcome` as a human-readable string like "Yes", "No",
+    "Up", "Down", etc. For binary markets the convention is:
+    - "yes", "up", "true" → "yes"
+    - "no", "down", "false" → "no"
+    Default: "yes" (buying is typically a bullish bet on the stated outcome)
+    """
+    outcome = (event.get("outcome") or "").lower().strip()
+    if outcome in ("yes", "up", "true"):
+        return "yes"
+    if outcome in ("no", "down", "false"):
+        return "no"
+    return "yes"  # default for unknown outcome labels
+
+
+def _register_success() -> None:
+    """Reset the consecutive-failure counter after a non-failing decision."""
+    global _consecutive_failures, _failure_paused_until
+    _consecutive_failures = 0
+    _failure_paused_until = 0.0
+
+
+def _register_failure() -> None:
+    """Increment failure counter and arm the circuit breaker if limit reached."""
+    global _consecutive_failures, _failure_paused_until
+    _consecutive_failures += 1
+    if _consecutive_failures >= CONSECUTIVE_FAILURE_LIMIT:
+        _failure_paused_until = time.time() + FAILURE_PAUSE_SECONDS
+        pause_until_str = datetime.utcfromtimestamp(_failure_paused_until).strftime("%H:%M:%S")
+        print(
+            f"[reactor] ⚠️  circuit breaker armed: {_consecutive_failures} consecutive failures, "
+            f"pausing trade execution until {pause_until_str} UTC "
+            f"({FAILURE_PAUSE_SECONDS // 60}m)"
+        )
+
+
+def _is_paused() -> bool:
+    """Check if the circuit breaker is currently active."""
+    return _failure_paused_until > 0 and time.time() < _failure_paused_until
+
+
 async def handle_event(
     api_client,
     event: dict,
@@ -344,13 +467,15 @@ async def handle_event(
     dry_run: bool,
     venue: str,
 ) -> str:
-    """Return the decision string ('mirrored' | 'skipped_capped' | 'skipped_filter' | 'failed')."""
+    """Return the decision string ('mirrored' | 'skipped_filter' | 'skipped_paused' | 'failed')."""
     taker_wallet = event.get("taker_wallet") or ""
     taker_size = float(event.get("taker_size") or 0)
-    taker_side = event.get("taker_side") or "BUY"
+    taker_side = (event.get("taker_side") or "BUY").upper()
     taker_token = event.get("taker_token") or ""
     taker_price = float(event.get("taker_price") or 0)
-    market_title = event.get("market_title") or event.get("market_slug") or "unknown"
+    condition_id = event.get("condition_id") or ""
+    market_slug = event.get("market_slug") or ""
+    market_title = event.get("market_title") or market_slug or "unknown"
     tx_hash = event.get("tx_hash") or ""
 
     whale_label = taker_wallet[:10] + "..." if taker_wallet else "unknown"
@@ -359,96 +484,148 @@ async def handle_event(
         f"size={taker_size:.0f} price={taker_price:.4f} market='{market_title[:60]}' tx={tx_hash[:14]}"
     )
 
-    mirror_size = compute_mirror_size(taker_size, config)
-    if mirror_size is None:
-        print(f"[reactor]   → skip: mirror size below 5-share minimum (raw={taker_size * float(config.get('mirror_fraction') or 0.01):.2f})")
+    # Reaction payload skeleton (reused across all decision branches)
+    base_payload = {
+        "event_tx_hash": tx_hash,
+        "taker_wallet": taker_wallet,
+        "taker_side": taker_side,
+        "taker_token": taker_token,
+        "taker_price": taker_price,
+        "taker_size": taker_size,
+        "condition_id": condition_id,
+        "market_title": market_title,
+        "market_slug": market_slug,
+        "outcome": event.get("outcome"),
+        "raw_event": event,
+    }
+
+    # Circuit breaker: skip trade execution after too many consecutive failures
+    if _is_paused():
+        pause_remaining = int(_failure_paused_until - time.time())
+        print(f"[reactor]   → skip: circuit breaker active ({pause_remaining}s remaining)")
         await post_reaction(api_client, {
-            "event_tx_hash": tx_hash,
-            "taker_wallet": taker_wallet,
-            "taker_side": taker_side,
-            "taker_token": taker_token,
-            "taker_price": taker_price,
-            "taker_size": taker_size,
-            "market_title": market_title,
+            **base_payload,
             "decision": "skipped_filter",
-            "reason": "mirror size below 5-share minimum",
-            "raw_event": event,
+            "reason": f"circuit breaker active — {pause_remaining}s remaining after {CONSECUTIVE_FAILURE_LIMIT} consecutive failures",
         })
+        return "skipped_paused"
+
+    # Skip SELL events — reactor is buy-only in MVP (mirrors polling skill default)
+    if taker_side == "SELL":
+        print(f"[reactor]   → skip: whale is selling (buy-only mode)")
+        await post_reaction(api_client, {
+            **base_payload,
+            "decision": "skipped_filter",
+            "reason": "whale selling — buy-only mode",
+        })
+        _register_success()
         return "skipped_filter"
 
+    # Sizing check — enforce 5-share Polymarket minimum on our mirror trade
+    mirror_size = compute_mirror_size(taker_size, config)
+    if mirror_size is None:
+        mirror_fraction = float(config.get("mirror_fraction") or 0.01)
+        raw_mirror = taker_size * mirror_fraction
+        print(f"[reactor]   → skip: mirror size {raw_mirror:.2f} below 5-share minimum")
+        await post_reaction(api_client, {
+            **base_payload,
+            "decision": "skipped_filter",
+            "reason": f"mirror size {raw_mirror:.2f} shares below 5-share minimum",
+        })
+        _register_success()
+        return "skipped_filter"
+
+    # Dry-run path: don't resolve, don't trade, just log what we would do
     if dry_run:
         print(f"[reactor]   → DRY RUN: would mirror {taker_side} {mirror_size:.2f} shares @ {taker_price}")
         await post_reaction(api_client, {
-            "event_tx_hash": tx_hash,
-            "taker_wallet": taker_wallet,
-            "taker_side": taker_side,
-            "taker_token": taker_token,
-            "taker_price": taker_price,
-            "taker_size": taker_size,
-            "market_title": market_title,
+            **base_payload,
             "decision": "mirrored",
             "reason": f"DRY RUN mirror {mirror_size:.2f} shares",
-            "raw_event": event,
         })
+        _register_success()
         return "mirrored"
 
-    # Live execution via SimmerClient
-    # SimmerClient.trade() signature (simmer-sdk 0.9.21):
-    #   trade(market_id: str, side: str, amount: float = 0, shares: float = 0,
-    #         action: str = 'buy', venue: Optional[str] = None, order_type: str = 'FAK',
-    #         price: Optional[float] = None, reasoning: Optional[str] = None,
-    #         source: Optional[str] = None, skill_slug: Optional[str] = None, ...)
-    # The Polymarket token_id is passed as `market_id` (the SDK routes it correctly
-    # for the polymarket venue). We pass `shares` (not `amount`) since taker_size
-    # from PolyNode events is in shares.
+    # Live execution path:
+    # 1. Resolve condition_id → Simmer market UUID (cached, or resolve+import)
+    # 2. Determine side (yes/no) from the PolyNode outcome field
+    # 3. Compute amount (USD) = mirror_size × taker_price for buy orders
+    # 4. Call SimmerClient.trade() — same pattern as copytrading_trader.py run_reactive
     client = get_client(venue=venue)
+
+    resolved = _resolve_market_id(client, condition_id, market_slug)
+    if not resolved:
+        reason = f"could not resolve or import market (cid={condition_id[:16]}, slug={market_slug or 'none'})"
+        print(f"[reactor]   → skip: {reason}")
+        await post_reaction(api_client, {
+            **base_payload,
+            "decision": "skipped_filter",
+            "reason": reason,
+        })
+        _register_success()  # Not a trade failure — don't count toward circuit breaker
+        return "skipped_filter"
+
+    simmer_market_id, _yes_token, _no_token = resolved
+    side = _determine_side(event)
+    amount_usd = mirror_size * taker_price  # USD cost of the mirror order
+
     try:
         result = client.trade(
-            market_id=taker_token,
-            side=taker_side,
-            shares=mirror_size,
-            price=taker_price,
+            market_id=simmer_market_id,
+            side=side,
+            action="buy",
+            amount=amount_usd,
+            venue=venue,
             source=TRADE_SOURCE,
             skill_slug=SKILL_SLUG,
             reasoning=build_reasoning(event, config),
+            signal_data={
+                "signal_source": "reactor_copytrading",
+                "whale_wallet": taker_wallet[:10],
+                "whale_side": taker_side,
+                "whale_size": round(taker_size, 2),
+                "whale_price": round(taker_price, 4),
+                "mirror_size": round(mirror_size, 2),
+                "tx_hash": tx_hash,
+            },
         )
-        # SimmerClient returns a TradeResult object (not a dict) in 0.9.21+
-        trade_id = None
-        if hasattr(result, "trade_id"):
-            trade_id = result.trade_id
-        elif hasattr(result, "id"):
-            trade_id = result.id
-        elif isinstance(result, dict):
-            trade_id = result.get("trade_id") or result.get("id")
-        print(f"[reactor]   → mirrored: {result}")
-        await post_reaction(api_client, {
-            "event_tx_hash": tx_hash,
-            "taker_wallet": taker_wallet,
-            "taker_side": taker_side,
-            "taker_token": taker_token,
-            "taker_price": taker_price,
-            "taker_size": taker_size,
-            "market_title": market_title,
-            "decision": "mirrored",
-            "trade_id": trade_id,
-            "reason": f"mirrored {mirror_size:.2f} shares",
-            "raw_event": event,
-        })
-        return "mirrored"
+
+        # SimmerClient.trade() returns a TradeResult object in 0.9.21+
+        success = getattr(result, "success", False)
+        trade_id = getattr(result, "trade_id", None)
+        error = getattr(result, "error", None)
+        skip_reason = getattr(result, "skip_reason", None)
+
+        if success:
+            print(f"[reactor]   → mirrored: trade_id={trade_id} shares={getattr(result, 'shares_bought', '?')} amount=${amount_usd:.2f}")
+            await post_reaction(api_client, {
+                **base_payload,
+                "decision": "mirrored",
+                "trade_id": str(trade_id) if trade_id else None,
+                "reason": f"mirrored {mirror_size:.2f} shares @ {taker_price:.4f} (${amount_usd:.2f})",
+            })
+            _register_success()
+            return "mirrored"
+        else:
+            err_msg = error or skip_reason or "trade returned success=false"
+            print(f"[reactor]   → failed: {err_msg}")
+            await post_reaction(api_client, {
+                **base_payload,
+                "decision": "failed",
+                "reason": err_msg,
+            })
+            _register_failure()
+            return "failed"
+
     except Exception as e:
-        print(f"[reactor]   → failed: {e}")
+        err_str = f"{type(e).__name__}: {e}"
+        print(f"[reactor]   → failed: {err_str}")
         await post_reaction(api_client, {
-            "event_tx_hash": tx_hash,
-            "taker_wallet": taker_wallet,
-            "taker_side": taker_side,
-            "taker_token": taker_token,
-            "taker_price": taker_price,
-            "taker_size": taker_size,
-            "market_title": market_title,
+            **base_payload,
             "decision": "failed",
-            "reason": f"trade error: {e}",
-            "raw_event": event,
+            "reason": f"trade error: {err_str}",
         })
+        _register_failure()
         return "failed"
 
 
