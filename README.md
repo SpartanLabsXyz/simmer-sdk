@@ -119,6 +119,48 @@ client.trade(market_id, side="yes", amount=10.0, venue="polymarket")
 
 > **Spread caveat:** $SIM fills instantly (AMM, no spread). Real venues have orderbook spreads of 2–5%. Target edges >5% in $SIM before graduating to real money.
 
+## Polymarket Paper Trading
+
+Practice on real Polymarket markets with simulated money. Paper mode uses live CLOB prices and models the bid-ask spread for realistic P&L — no wallet or USDC required.
+
+```python
+client = SimmerClient(
+    api_key="sk_live_...",
+    venue="polymarket",
+    paper_mode=True,           # Simulate fills, no real money
+    starting_balance=10_000.0  # Virtual capital (default: 10,000)
+)
+
+# Browse real Polymarket markets
+markets = client.get_markets(import_source="polymarket", limit=10)
+
+# Trade with simulated fills (uses live Polymarket prices + spread)
+result = client.trade(
+    market_id=markets[0].id,
+    side="yes",
+    amount=50.0,
+    reasoning="Paper trade — testing strategy"
+)
+print(f"Filled {result.shares_bought:.2f} shares at ${result.cost:.2f} (simulated)")
+
+# Check positions — auto-settles resolved markets
+positions = client.get_positions()
+for p in positions:
+    print(f"{p.question[:50]}: P&L ${p.pnl:.2f}")
+
+# Portfolio summary
+summary = client.get_paper_summary()
+print(f"Balance: ${summary['balance']:.2f}, P&L: ${summary['total_pnl']:.2f}")
+```
+
+**How it works:**
+- `trade()` fetches the live Polymarket mid-price, applies the CLOB spread (from market data or ~1 cent default), and fills at the ask (buys) or bid (sells).
+- `get_positions()` returns in-memory positions valued at current live prices.
+- Resolved markets auto-settle: winning shares pay $1, losers pay $0.
+- `get_paper_summary()` returns balance, P&L, and position breakdown.
+
+**Graduation path:** `sim` (instant fills, no spread) → `polymarket` + `paper_mode=True` (real prices, spread modeled) → `polymarket` live (real USDC).
+
 ## Key Methods
 
 | Method | Description |
@@ -145,6 +187,7 @@ client.trade(market_id, side="yes", amount=10.0, venue="polymarket")
 | `register_webhook()` | Push notifications for trades, resolutions, price moves |
 | `redeem()` | Redeem a specific winning Polymarket position |
 | `auto_redeem()` | Scan all positions and redeem any winning ones automatically |
+| `get_paper_summary()` | Paper mode portfolio summary (balance, P&L, positions) |
 | `get_settings()` / `update_settings()` | Configure trade limits and notifications |
 | `link_wallet()` | Link external EVM wallet for Polymarket |
 | `set_approvals()` | Set Polymarket token approvals |
