@@ -140,7 +140,9 @@ class SimmerClient:
         base_url: str = "https://api.simmer.markets",
         venue: str = "sim",
         private_key: Optional[str] = None,
-        live: bool = True
+        live: bool = True,
+        paper_mode: bool = False,
+        starting_balance: float = 10_000.0
     ):
         """
         Initialize the Simmer client.
@@ -159,6 +161,13 @@ class SimmerClient:
                 When False, trades are simulated with real market prices
                 and tracked in memory for the duration of the run. All read
                 endpoints (get_markets, get_context, etc.) work normally.
+            paper_mode: Convenience flag — equivalent to ``live=False``.
+                When True, the client uses real market data from Polymarket
+                (or any configured venue) but simulates all fills locally.
+                No real money is involved.  Positions auto-settle when the
+                market resolves.
+            starting_balance: Virtual starting capital for paper trading
+                (default: 10,000). Only used when paper_mode=True / live=False.
             private_key: Optional EVM wallet private key for Polymarket trading.
                 When provided, orders are signed locally instead of server-side.
                 This enables trading with your own Polymarket wallet.
@@ -285,13 +294,19 @@ class SimmerClient:
         self._auto_redeem_enabled: bool = True
         self._auto_redeem_enabled_fetched_at: float = 0.0
 
-        # Paper trading mode
+        # Paper trading mode (paper_mode=True is a convenience alias for live=False)
+        if paper_mode:
+            live = False
         self.live = live
         self._paper_portfolio = None
         if not self.live:
             from .paper import PaperPortfolio
-            self._paper_portfolio = PaperPortfolio()
-            logger.info("Paper trading mode enabled. Trades will be simulated with real prices.")
+            self._paper_portfolio = PaperPortfolio(starting_balance=starting_balance)
+            logger.info(
+                "Paper trading mode enabled (balance: %.2f). "
+                "Trades will be simulated with real market data.",
+                starting_balance
+            )
 
         # Auto-process risk alerts on init (external wallets only)
         if self.live and self._private_key and venue in ("polymarket",):
@@ -973,6 +988,9 @@ class SimmerClient:
         """Simulate a trade using real market prices."""
         import time as _time
 
+        # Auto-settle any resolved paper positions before trading
+        self._settle_paper_positions()
+
         # Fetch current price from the venue
         try:
             ctx = self.get_market_context(market_id)
@@ -995,8 +1013,16 @@ class SimmerClient:
         price = max(price, 0.001)  # Floor to avoid division by zero (supports sub-cent neg_risk markets)
 
         if action == "buy":
-            shares_filled = amount / price
             cost = amount
+            # Check paper balance
+            if cost > self._paper_portfolio.balance:
+                return TradeResult(
+                    success=False, market_id=market_id, side=side,
+                    error=f"Insufficient paper balance ({self._paper_portfolio.balance:.2f} < {cost:.2f})",
+                    simulated=True,
+                    balance=round(self._paper_portfolio.balance, 4),
+                )
+            shares_filled = amount / price
         else:
             pos = self._paper_portfolio.get_position(market_id)
             available = getattr(pos, f"shares_{side}", 0)
@@ -1023,6 +1049,7 @@ class SimmerClient:
             cost=round(cost, 4),
             new_price=price,
             simulated=True,
+            balance=round(self._paper_portfolio.balance, 4),
         )
 
     def prepare_real_trade(
@@ -1104,6 +1131,9 @@ class SimmerClient:
         """
         Get all positions for this agent.
 
+        In paper mode, returns simulated positions from the in-memory
+        portfolio and auto-settles any markets that have resolved.
+
         Args:
             venue: Filter by venue ("sim" or "polymarket"). If None, returns both.
             source: Filter by trade source (e.g., "weather", "copytrading"). Partial match.
@@ -1111,12 +1141,17 @@ class SimmerClient:
         Returns:
             List of Position objects with P&L info
         """
+        # Paper mode: return in-memory positions (auto-settle first)
+        if not self.live and self._paper_portfolio is not None:
+            self._settle_paper_positions()
+            return self._get_paper_positions()
+
         params = {}
         if venue:
             params["venue"] = venue
         if source:
             params["source"] = source
-            
+
         data = self._request("GET", "/api/sdk/positions", params=params if params else None)
 
         positions = []
@@ -1184,8 +1219,99 @@ class SimmerClient:
 
     def get_total_pnl(self) -> float:
         """Get total unrealized P&L across all positions."""
+        if not self.live and self._paper_portfolio is not None:
+            self._settle_paper_positions()
+            return self._paper_portfolio.total_pnl
         data = self._request("GET", "/api/sdk/positions")
         return data.get("total_pnl", 0.0)
+
+    # ==========================================
+    # PAPER TRADING HELPERS
+    # ==========================================
+
+    def _get_paper_positions(self) -> List[Position]:
+        """Build Position list from in-memory paper portfolio."""
+        positions = []
+        for mid, pos in self._paper_portfolio.positions.items():
+            if pos.shares_yes <= 0 and pos.shares_no <= 0:
+                continue
+            # Fetch live price for current value estimate
+            price_yes = 0.5
+            question = mid
+            try:
+                ctx = self.get_market_context(mid)
+                if ctx and "market" in ctx:
+                    m = ctx["market"]
+                    price_yes = float(
+                        m.get("external_price_yes")
+                        or m.get("current_probability")
+                        or 0.5
+                    )
+                    question = m.get("question", mid)
+            except Exception:
+                pass
+            current_value = (pos.shares_yes * price_yes) + (pos.shares_no * (1 - price_yes))
+            pnl = current_value - pos.total_cost
+            positions.append(Position(
+                market_id=mid,
+                question=question,
+                shares_yes=pos.shares_yes,
+                shares_no=pos.shares_no,
+                current_value=round(current_value, 4),
+                pnl=round(pnl, 4),
+                status="active",
+                venue=self.venue,
+                cost_basis=round(pos.total_cost, 4),
+                current_price=price_yes,
+            ))
+        return positions
+
+    def _settle_paper_positions(self):
+        """Check open paper positions for resolved markets and settle them."""
+        if self._paper_portfolio is None:
+            return
+        open_ids = self._paper_portfolio.get_open_market_ids()
+        if not open_ids:
+            return
+        for mid in open_ids:
+            try:
+                ctx = self.get_market_context(mid)
+                if not ctx or "market" not in ctx:
+                    continue
+                m = ctx["market"]
+                status = m.get("status", "")
+                if status != "resolved":
+                    continue
+                # Determine outcome from resolved market data
+                outcome_raw = m.get("outcome")
+                if outcome_raw is True or outcome_raw == "yes" or outcome_raw == "Yes":
+                    outcome = "yes"
+                elif outcome_raw is False or outcome_raw == "no" or outcome_raw == "No":
+                    outcome = "no"
+                else:
+                    # Infer from probability (1.0 = yes, 0.0 = no)
+                    prob = float(m.get("current_probability", 0.5))
+                    if prob >= 0.99:
+                        outcome = "yes"
+                    elif prob <= 0.01:
+                        outcome = "no"
+                    else:
+                        continue  # Not clearly resolved
+                self._paper_portfolio.settle(mid, outcome)
+            except Exception as e:
+                logger.debug("Could not check resolution for %s: %s", mid, e)
+
+    def get_paper_summary(self) -> Optional[dict]:
+        """Return paper portfolio summary, or None if not in paper mode.
+
+        Returns:
+            Dict with starting_balance, balance, total_pnl, open_positions,
+            settled_positions, and per-market position details.
+        """
+        if self._paper_portfolio is None:
+            return None
+        self._settle_paper_positions()
+        return self._paper_portfolio.summary()
 
     def get_market_by_id(self, market_id: str) -> Optional[Market]:
         """
