@@ -106,6 +106,30 @@ if _automaton_max:
     COPYTRADING_MAX_USD = min(COPYTRADING_MAX_USD, float(_automaton_max))
 MAX_TRADES_PER_RUN = _config["max_trades_per_run"]
 
+# Reactor settings — used only by --reactor mode.
+# The relay writes signals with TTL=60s (tunable server-side via
+# REACTOR_SIGNAL_TTL_SECONDS); harness polling cadence must stay well under
+# that to avoid processing stale data. Default 2s gives ~1-3s pre-confirmation
+# edge after the relay → Redis → poll → trade round-trip.
+#
+# Rate-limit math: /api/sdk/reactor/pending falls through to the default SDK
+# rate limit (30/min, 90/min for Pro). At 2s polling that's 30 req/min = 33%
+# of the Pro cap, leaving ample headroom for the circuit-check + reaction POST
+# per signal. If you bump this lower than 2s, verify with the backend first.
+REACTOR_POLL_INTERVAL_SECONDS = float(os.environ.get("REACTOR_POLL_INTERVAL_SECONDS", "2"))
+
+# Circuit breaker: if the last N reactor_reactions are all 'failed', pause
+# processing — typically indicates the user's wallet is broken (no USDC, no
+# allowances, etc.) and every new trade will fail the same way. The circuit
+# state lives server-side in reactor_reactions, so it survives harness
+# restarts and behaves identically in loop mode and --once mode. When the
+# circuit is tripped we neither delete nor log skipped signals; we let the
+# relay's 60s TTL clear them naturally so the reactions table stays clean
+# during an outage. Users fix their wallet, new signals flow normally, old
+# ones expired on their own.
+REACTOR_CONSECUTIVE_FAILURE_LIMIT = 5
+REACTOR_REACTIONS_CHECK_LIMIT = 10
+
 
 def get_config() -> dict:
     """Get current configuration."""
@@ -475,6 +499,251 @@ def run_copytrading(wallets: list, top_n: int = None, max_usd: float = 50.0, dry
         _automaton_reported = True
 
 
+# =============================================================================
+# Reactor mode — consumes pre-resolved signals from /api/sdk/reactor/pending
+#
+# Architecture: the Simmer scheduler runs a PolyNode firehose (see
+# simmer_v3/reactor_relay.py) that matches whale trades against each Pro
+# user's reactor_configs row, pre-resolves the market, computes the mirror
+# size, and writes the result to Redis with a 60s TTL. This skill polls
+# that endpoint and executes the signal via client.trade(), which handles
+# managed, external, and (future) OWS wallet backends transparently.
+#
+# Two invocation shapes:
+#   python copytrading_trader.py --reactor          # loop forever, 2s cadence
+#   python copytrading_trader.py --reactor --once   # single poll, exit (cron)
+#
+# Loop mode is recommended: supervised process (launchctl, systemd, tmux,
+# Procfile, OpenClaw) gives the full ~1-3s pre-confirmation edge. --once
+# mode supports cron-style runtimes at a degraded edge (whatever the cron
+# cadence is — 60s on stock Unix cron means you miss most signals because
+# of the 60s TTL, so prefer loop mode where possible).
+# =============================================================================
+
+
+def _is_reactor_circuit_tripped(client) -> bool:
+    """
+    Server-side circuit check: query the last N reactions; if the most
+    recent REACTOR_CONSECUTIVE_FAILURE_LIMIT are all 'failed', circuit is
+    tripped. Fails open on API errors so a transient blip doesn't block
+    execution. Caller MUST only invoke this when there are pending signals
+    to process — empty polls should skip this check entirely.
+    """
+    try:
+        resp = client._request(
+            "GET",
+            "/api/sdk/reactor/reactions",
+            params={"limit": REACTOR_REACTIONS_CHECK_LIMIT},
+        )
+    except Exception as e:
+        print(f"[reactor] circuit check failed ({type(e).__name__}: {e}), proceeding anyway")
+        return False
+    reactions = resp.get("reactions", []) if isinstance(resp, dict) else []
+    streak = 0
+    for r in reactions:  # ORDER BY id DESC — newest first
+        if r.get("decision") == "failed":
+            streak += 1
+        else:
+            break
+    return streak >= REACTOR_CONSECUTIVE_FAILURE_LIMIT
+
+
+# Reaction POST is non-fatal by design: if the reactions endpoint is down
+# while trades are failing, the circuit breaker (which queries reactions)
+# won't see the failures and the skill will keep retrying. Accepted risk —
+# double-failure of (reactions POST + trade) is rare, and carrying a
+# client-side backup counter would violate the stateless-client principle
+# the reactor architecture is built on. See
+# simmer/_dev/active/_polymarket-reactor/NEXT.md § "architecture pivot".
+def _post_reactor_reaction(client, signal: dict, decision: str,
+                            trade_id: Optional[str] = None,
+                            reason: Optional[str] = None) -> None:
+    """
+    POST a reaction row so the dashboard + circuit breaker have a record.
+    Non-fatal: logs but does not raise. Without this POST, the circuit
+    breaker has no data to count from and never trips.
+    """
+    whale = signal.get("whale") or {}
+    body = {
+        "event_tx_hash": signal.get("tx_hash") or "",
+        "taker_wallet": (whale.get("wallet") or ""),
+        "taker_side": whale.get("side") or "",
+        "taker_token": whale.get("token") or "",
+        "taker_price": float(whale.get("price") or 0),
+        "taker_size": float(whale.get("size") or 0),
+        "condition_id": whale.get("condition_id"),
+        "market_title": whale.get("market_title"),
+        "market_slug": whale.get("market_slug"),
+        "outcome": whale.get("outcome"),
+        "decision": decision,
+        "trade_id": trade_id,
+        "reason": reason,
+    }
+    try:
+        client._request("POST", "/api/sdk/reactor/reactions", json=body)
+    except Exception as e:
+        print(f"[reactor] reaction POST warn ({decision}): {type(e).__name__}: {e}")
+
+
+def _process_reactor_signal(client, signal: dict) -> bool:
+    """
+    Execute one pre-resolved reactor signal. Returns True on successful
+    trade (signal gets deleted), False on failure (signal stays in Redis
+    to TTL out). Always POSTs a reactions row regardless of outcome so
+    the circuit breaker has data.
+    """
+    tx_hash = signal.get("tx_hash") or ""
+    market_id = signal.get("market_id")
+    side = signal.get("side")
+    action = signal.get("action", "buy")
+    amount = float(signal.get("amount") or 0)
+    venue = signal.get("venue")
+    whale = signal.get("whale") or {}
+
+    tx_short = tx_hash[:12] if tx_hash else "<no-tx>"
+
+    if not (tx_hash and market_id and side and amount > 0):
+        reason = "malformed_signal"
+        print(f"[reactor] ❌ {tx_short}... {reason}")
+        _post_reactor_reaction(client, signal, decision="failed", reason=reason)
+        return False
+
+    reasoning = (
+        f"reactor mirror: whale {str(whale.get('wallet') or '')[:10]}... "
+        f"{whale.get('side') or '?'} {float(whale.get('size') or 0):.0f} shares @ "
+        f"{float(whale.get('price') or 0):.3f} on "
+        f"'{whale.get('market_title') or whale.get('market_slug') or 'unknown'}'"
+    )
+    signal_data = {
+        "signal_source": "reactor_copytrading",
+        "tx_hash": tx_hash,
+        "whale_wallet": str(whale.get("wallet") or "")[:10],
+        "whale_side": whale.get("side"),
+        "whale_size": round(float(whale.get("size") or 0), 2),
+        "whale_price": round(float(whale.get("price") or 0), 4),
+    }
+
+    try:
+        result = client.trade(
+            market_id=market_id,
+            side=side,
+            action=action,
+            amount=amount,
+            venue=venue,
+            allow_rebuy=True,  # reactor signals are discrete events; allow re-entry
+            source=TRADE_SOURCE,
+            skill_slug=SKILL_SLUG,
+            reasoning=reasoning,
+            signal_data=signal_data,
+        )
+    except Exception as e:
+        reason = f"trade_error: {type(e).__name__}: {e}"
+        print(f"[reactor] ❌ {tx_short}... {reason}")
+        _post_reactor_reaction(client, signal, decision="failed", reason=reason)
+        return False
+
+    if not getattr(result, "success", False):
+        err = getattr(result, "error", None) or getattr(result, "skip_reason", None) or "unknown"
+        reason = f"trade_rejected: {err}"
+        print(f"[reactor] ❌ {tx_short}... {reason}")
+        _post_reactor_reaction(client, signal, decision="failed", reason=reason)
+        return False
+
+    trade_id = getattr(result, "trade_id", None)
+    shares = getattr(result, "shares_bought", None)
+    print(f"[reactor] ✅ {tx_short}... mirrored {amount:.2f} USD"
+          f"{f' ({shares:.1f} shares)' if shares else ''} trade_id={trade_id}")
+
+    # Record the success before the DELETE so the circuit-breaker counter
+    # reflects reality even if the delete request blips.
+    _post_reactor_reaction(
+        client, signal, decision="mirrored",
+        trade_id=str(trade_id) if trade_id else None,
+        reason=None,
+    )
+
+    # Delete the signal to prevent reprocessing on the next poll. Non-fatal:
+    # if the delete fails, the 60s TTL will clean it up; worst case we'd
+    # re-process the same tx_hash once, which client.trade() handles via
+    # idempotency on the server-side trade path.
+    try:
+        client._request("DELETE", f"/api/sdk/reactor/pending/{tx_hash}")
+    except Exception as e:
+        print(f"[reactor] delete warn for {tx_short}...: {type(e).__name__}: {e}")
+
+    return True
+
+
+def _poll_reactor_once(client) -> int:
+    """
+    Single poll iteration: fetch pending signals, check circuit if any
+    exist, process each. Returns the number of signals processed (success
+    or failure). Used directly by --once mode and once per tick by the
+    loop mode.
+    """
+    try:
+        resp = client._request("GET", "/api/sdk/reactor/pending")
+    except Exception as e:
+        print(f"[reactor] poll failed: {type(e).__name__}: {e}")
+        return 0
+
+    signals = resp.get("reactor_signals", []) if isinstance(resp, dict) else []
+    if not signals:
+        return 0
+
+    print(f"[reactor] {len(signals)} pending signal(s)")
+
+    if _is_reactor_circuit_tripped(client):
+        print(f"[reactor] ⚠️  circuit tripped "
+              f"({REACTOR_CONSECUTIVE_FAILURE_LIMIT}+ consecutive failures), "
+              f"skipping {len(signals)} signal(s) — TTL will clear")
+        return 0
+
+    processed = 0
+    for signal in signals:
+        try:
+            if _process_reactor_signal(client, signal):
+                processed += 1
+            else:
+                processed += 1  # counted either way — "seen + acted"
+        except Exception as e:
+            tx_short = (signal.get("tx_hash") or "")[:12] or "<no-tx>"
+            print(f"[reactor] unexpected error on {tx_short}...: {type(e).__name__}: {e}")
+    return processed
+
+
+def run_reactor(once: bool = False) -> None:
+    """
+    Reactor entry point. `once=True` polls once and exits (cron-friendly);
+    `once=False` runs a forever loop polling every REACTOR_POLL_INTERVAL_SECONDS.
+    """
+    client = get_client()
+
+    if once:
+        print(f"[reactor] --once: single poll against /api/sdk/reactor/pending")
+        _poll_reactor_once(client)
+        return
+
+    import time as _time
+    interval = REACTOR_POLL_INTERVAL_SECONDS
+    print(f"[reactor] loop mode: polling /api/sdk/reactor/pending every {interval}s")
+    print(f"[reactor] set REACTOR_POLL_INTERVAL_SECONDS to tune; circuit trips after "
+          f"{REACTOR_CONSECUTIVE_FAILURE_LIMIT} consecutive failures")
+    while True:
+        try:
+            _poll_reactor_once(client)
+        except KeyboardInterrupt:
+            print("[reactor] keyboard interrupt — exiting loop")
+            return
+        except Exception as e:
+            print(f"[reactor] tick error ({type(e).__name__}): {e} — continuing")
+        try:
+            _time.sleep(interval)
+        except KeyboardInterrupt:
+            print("[reactor] keyboard interrupt during sleep — exiting loop")
+            return
+
+
 def show_positions():
     """Show current SDK positions."""
     print("\n📊 Your Polymarket Positions")
@@ -602,6 +871,16 @@ def main():
         action="store_true",
         help="Only output on trades/errors"
     )
+    parser.add_argument(
+        "--reactor",
+        action="store_true",
+        help="Reactor mode: poll /api/sdk/reactor/pending and mirror pre-resolved whale signals (Pro only)"
+    )
+    parser.add_argument(
+        "--once",
+        action="store_true",
+        help="With --reactor: single poll and exit (for cron-style invocation). Ignored otherwise."
+    )
     args = parser.parse_args()
 
     # Handle --set config updates
@@ -645,6 +924,18 @@ def main():
 
     # Default to dry-run unless --live is explicitly passed
     dry_run = not args.live
+
+    # Reactor mode short-circuit: polls Redis signals from the scheduler-side
+    # PolyNode firehose and mirrors them via client.trade(). Always live —
+    # --dry-run is ignored in reactor mode because the signals themselves are
+    # discrete, deduped by tx_hash, and TTL-bounded at 60s server-side. If
+    # you want dry behavior, use the polling default mode instead.
+    if args.reactor:
+        if dry_run and not args.live:
+            print("[reactor] note: reactor mode executes live trades — "
+                  "the default dry-run flag does not apply here")
+        run_reactor(once=args.once)
+        return
 
     # Validate API key by initializing client
     get_client()
