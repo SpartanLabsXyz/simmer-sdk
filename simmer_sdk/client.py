@@ -1448,54 +1448,123 @@ class SimmerClient:
             params["ticker"] = ticker
         return self._request("GET", "/api/sdk/markets/check", params=params)
 
-    def get_portfolio(self) -> Optional[Dict[str, Any]]:
+    def get_trades(
+        self,
+        venue: str = "all",
+        limit: int = 50,
+        offset: int = 0,
+    ) -> Optional[Dict[str, Any]]:
         """
-        Get portfolio summary with balance, exposure, and positions by source.
+        Get trade history across venues.
+
+        Args:
+            venue: Venue filter. One of 'all' (default), 'sim', 'polymarket',
+                or 'kalshi'. The default 'all' returns merged sim + polymarket
+                + kalshi trades sorted by timestamp; pass a specific venue to
+                filter. Each row in the response is tagged with `venue`.
+            limit: Max trades to return (1-200, default 50)
+            offset: Pagination offset (default 0)
 
         Returns:
             Dict containing:
-            - balance_usdc: Available USDC balance
-            - total_exposure: Total value in open positions
-            - positions: List of current positions
-            - by_source: Breakdown by trade source (e.g., "sdk:weather", "sdk:copytrading")
+            - trades: List of trade rows, each tagged with `venue`
+            - total_count: Total matching trades across all filtered venues
 
         Example:
+            # Cross-venue (default):
+            history = client.get_trades(limit=20)
+            for t in history['trades']:
+                print(f"{t['venue']}: {t['side']} {t['shares']}")
+
+            # Single venue:
+            poly_trades = client.get_trades(venue="polymarket")
+        """
+        return self._request(
+            "GET",
+            "/api/sdk/trades",
+            params={"venue": venue, "limit": limit, "offset": offset},
+        )
+
+    def get_portfolio(self, venue: str = "all") -> Optional[Dict[str, Any]]:
+        """
+        Get portfolio summary with per-venue buckets + legacy flat fields.
+
+        Args:
+            venue: Venue filter. One of 'all' (default), 'sim', 'polymarket',
+                or 'kalshi'. The default 'all' returns every venue bucket;
+                pass a specific venue to compute only that bucket.
+
+        Returns:
+            Dict containing (all fields optional):
+            - sim, polymarket, kalshi: per-venue buckets with
+              {balance, pnl, positions_count, total_exposure}
+            - total: {positions_count, total_exposure} summed across venues
+            - balance_usdc, sim_balance, sim_pnl, positions_count, total_exposure:
+              legacy flat fields (deprecated but still populated)
+            - by_source: Breakdown by trade source (polymarket only)
+
+        Example:
+            # Cross-venue (default):
             portfolio = client.get_portfolio()
-            print(f"Balance: ${portfolio['balance_usdc']}")
-            print(f"Weather positions: {portfolio['by_source'].get('sdk:weather', {})}")
-        """
-        return self._request("GET", "/api/sdk/portfolio")
+            for v in ('sim', 'polymarket', 'kalshi'):
+                b = portfolio.get(v) or {}
+                print(f"{v}: {b.get('positions_count', 0)} positions")
 
-    def get_market_context(self, market_id: str) -> Optional[Dict[str, Any]]:
+            # Single venue:
+            poly = client.get_portfolio(venue="polymarket")
+            print(f"Polymarket exposure: ${poly['polymarket']['total_exposure']}")
         """
-        Get market context with trading safeguards.
+        return self._request(
+            "GET", "/api/sdk/portfolio", params={"venue": venue}
+        )
 
-        Returns context useful for making trading decisions, including:
-        - Current position (if any)
-        - Recent trade history
-        - Flip-flop detection (trading discipline)
-        - Slippage estimates
-        - Warnings (time decay, low liquidity, etc.)
+    def get_market_context(
+        self,
+        market_id: str,
+        venue: str = "all",
+        my_probability: Optional[float] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Get market context with per-venue positions + trading safeguards.
 
         Args:
             market_id: Market ID to get context for
+            venue: Venue filter. One of 'all' (default), 'sim', 'polymarket',
+                or 'kalshi'. The default 'all' returns positions across every
+                venue simultaneously; pass a specific venue to filter.
+            my_probability: Your probability estimate (0-1) for edge calculation.
 
         Returns:
             Dict containing:
             - market: Market details (question, prices, resolution criteria)
-            - position: Current position in this market (if any)
+            - positions: Per-venue container {sim, polymarket, kalshi} — each
+              field is None or a position object
+            - position: Legacy flat field mirroring a single venue (deprecated)
             - discipline: Trading discipline info (flip-flop detection)
             - slippage: Estimated execution costs
-            - warnings: List of warnings (e.g., "Market resolves in 2 hours")
+            - edge: Edge analysis (if my_probability provided)
+            - warnings: List of warnings
 
         Example:
-            context = client.get_market_context(market_id)
-            if context['warnings']:
-                print(f"Warnings: {context['warnings']}")
-            if context['discipline'].get('is_flip_flop'):
-                print("Warning: This would be a flip-flop trade")
+            # Cross-venue (default):
+            ctx = client.get_market_context(market_id)
+            for v in ('sim', 'polymarket', 'kalshi'):
+                pos = ctx['positions'].get(v)
+                if pos and pos['has_position']:
+                    print(f"{v}: {pos['side']} {pos['shares']}")
+
+            # Single venue:
+            ctx = client.get_market_context(market_id, venue="sim")
+            sim_pos = ctx['positions']['sim']
+            if sim_pos and sim_pos['has_position']:
+                print(f"Holding {sim_pos['shares']} shares on sim")
         """
-        return self._request("GET", f"/api/sdk/context/{market_id}")
+        params: Dict[str, Any] = {"venue": venue}
+        if my_probability is not None:
+            params["my_probability"] = my_probability
+        return self._request(
+            "GET", f"/api/sdk/context/{market_id}", params=params
+        )
 
     def get_price_history(self, market_id: str) -> List[Dict[str, Any]]:
         """

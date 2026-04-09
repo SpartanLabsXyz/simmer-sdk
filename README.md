@@ -129,8 +129,9 @@ client.trade(market_id, side="yes", amount=10.0, venue="polymarket")
 | `get_held_markets()` | Map of market_id → source tags for held positions |
 | `check_conflict()` | Check if another skill holds a position on a market |
 | `get_open_orders()` | Open GTC/GTD orders on the CLOB |
-| `get_portfolio()` | Portfolio summary with balance and exposure |
-| `get_market_context()` | Trading safeguards (slippage, flip-flop detection, conflict) |
+| `get_portfolio(venue="all")` | Portfolio summary with per-venue buckets (sim/polymarket/kalshi/total) |
+| `get_market_context(market_id, venue="all")` | Per-venue positions + trading safeguards |
+| `get_trades(venue="all")` | Trade history merged across venues, each row tagged with venue |
 | `get_price_history()` | Price history for trend detection |
 | `import_market()` | Import a Polymarket market by URL |
 | `import_kalshi_market()` | Import a Kalshi market by URL |
