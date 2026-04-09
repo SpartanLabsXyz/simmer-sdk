@@ -475,141 +475,6 @@ def run_copytrading(wallets: list, top_n: int = None, max_usd: float = 50.0, dry
         _automaton_reported = True
 
 
-def run_reactive(max_usd: float = 25.0, dry_run: bool = True, venue: str = None):
-    """
-    Reactive mode: act on a single reactor event instead of mirroring a full portfolio.
-
-    Reads REACTOR_EVENT_* env vars set by the reactor plugin:
-    - REACTOR_EVENT_WALLET: whale wallet address
-    - REACTOR_EVENT_MARKET_SLUG: Polymarket market slug
-    - REACTOR_EVENT_CONDITION_ID: Polymarket condition ID (fallback if slug missing)
-    - REACTOR_EVENT_OUTCOME: outcome label (Yes/No) from PolyNode tokens map
-    - REACTOR_EVENT_SIDE: BUY or SELL
-    - REACTOR_EVENT_SIZE: trade size in shares
-    - REACTOR_EVENT_PRICE: execution price
-    - REACTOR_MAX_USD: max trade size from reactor config
-    """
-    wallet = os.environ.get("REACTOR_EVENT_WALLET", "")
-    market_slug = os.environ.get("REACTOR_EVENT_MARKET_SLUG", "")
-    condition_id = os.environ.get("REACTOR_EVENT_CONDITION_ID", "")
-    outcome = os.environ.get("REACTOR_EVENT_OUTCOME", "").lower().strip()
-    side_raw = os.environ.get("REACTOR_EVENT_SIDE", "").upper()
-    size = float(os.environ.get("REACTOR_EVENT_SIZE", "0"))
-    price = float(os.environ.get("REACTOR_EVENT_PRICE", "0"))
-    reactor_max = os.environ.get("REACTOR_MAX_USD")
-
-    if reactor_max:
-        max_usd = min(max_usd, float(reactor_max))
-
-    if not wallet or (not market_slug and not condition_id):
-        print("❌ Reactive mode requires REACTOR_EVENT_WALLET and either REACTOR_EVENT_MARKET_SLUG or REACTOR_EVENT_CONDITION_ID")
-        return
-
-    # Map BUY/SELL to side for our trade
-    # If whale buys, we buy the same side (yes/no is determined by which token they bought)
-    # For now, default to "yes" for BUY signals — the market slug tells us which outcome
-    if side_raw == "SELL":
-        print(f"⏭️ Whale is selling — skipping (buy-only mode)")
-        return
-
-    # PolyNode sends outcome label via tokens map + taker_token (e.g., "Yes", "No").
-    # Use it if available, default to "yes" if not (buying = bullish on the question).
-    side = outcome if outcome in ("yes", "no") else "yes"
-
-    print(f"\n⚡ Reactor: Reactive Copytrading")
-    print("=" * 50)
-    print(f"  Whale: {wallet[:10]}...{wallet[-6:]}")
-    print(f"  Market: {market_slug or condition_id}")
-    print(f"  Whale action: {side_raw} ${size:.0f} @ {price:.3f}")
-    print(f"  Outcome: {outcome.upper() if outcome else 'unknown (defaulting to YES)'}")
-    print(f"  Our action: BUY {side.upper()} up to ${max_usd:.2f}")
-    print(f"  Venue: {venue or 'auto-detect'}")
-    print(f"  Mode: {'DRY RUN' if dry_run else 'LIVE'}")
-
-    if dry_run:
-        print(f"\n🔒 DRY RUN — would import {market_slug or condition_id} and buy {side.upper()} for ${max_usd:.2f}")
-        return
-
-    client = get_client()
-
-    # Step 1: Resolve to a Simmer market_id
-    market_id = None
-
-    # 1a: Try condition_id resolve (fast DB lookup, no import)
-    if condition_id:
-        print(f"\n🔍 Resolving condition_id {condition_id[:16]}...")
-        try:
-            resolve_result = client._request("POST", "/api/sdk/markets/resolve", json={
-                "condition_ids": [condition_id],
-            })
-            results = resolve_result.get("results", [])
-            if results and results[0].get("found"):
-                market_id = results[0].get("market_id")
-                print(f"  ✅ Found in catalog: {market_id}")
-        except Exception as e:
-            print(f"  ⚠️ Resolve failed: {e}")
-
-    # 1b: If not found and we have a slug, import from Polymarket
-    if not market_id and market_slug:
-        print(f"\n📡 Importing {market_slug} from Polymarket...")
-        try:
-            import_result = client.import_market(f"https://polymarket.com/event/{market_slug}")
-            market_id = import_result.get("market_id") or import_result.get("id")
-            if market_id:
-                print(f"  ✅ Imported: {market_id}")
-            else:
-                print(f"  ⚠️ Import returned no market_id: {import_result}")
-        except Exception as e:
-            # "already exists" means it's in the catalog — resolve should have found it,
-            # but race conditions happen. Try resolve again.
-            if "already" in str(e).lower() or "exists" in str(e).lower():
-                print(f"  ℹ️ Already exists, looking up...")
-                if condition_id:
-                    try:
-                        resolve_result = client._request("POST", "/api/sdk/markets/resolve", json={
-                            "condition_ids": [condition_id],
-                        })
-                        results = resolve_result.get("results", [])
-                        if results and results[0].get("found"):
-                            market_id = results[0].get("market_id")
-                            print(f"  ✅ Found: {market_id}")
-                    except Exception:
-                        pass
-            if not market_id:
-                print(f"  ❌ Import failed: {e}")
-
-    if not market_id:
-        print(f"  ❌ Could not resolve or import market (slug={market_slug or 'none'}, cid={condition_id[:16] if condition_id else 'none'})")
-        return
-
-    # Step 2: Execute trade
-    print(f"\n💰 Executing trade...")
-    try:
-        result = client.trade(
-            market_id=market_id,
-            side=side,
-            action="buy",
-            amount=max_usd,
-            reasoning=f"Reactor copytrading: whale {wallet[:10]}... {side_raw} ${size:.0f} @ {price:.3f} on {market_slug or condition_id}",
-            source=TRADE_SOURCE,
-            skill_slug=SKILL_SLUG,
-            signal_data={
-                "signal_source": "reactor_copytrading",
-                "whale_wallet": wallet[:10],
-                "whale_side": side_raw,
-                "whale_size": round(size, 2),
-                "whale_price": round(price, 4),
-            },
-        )
-        if result.success:
-            print(f"  ✅ Trade executed! ID: {result.trade_id}")
-            print(f"     Shares: {result.shares_bought:.1f}")
-        else:
-            print(f"  ❌ Trade failed: {result.error or result.skip_reason or 'unknown'}")
-    except Exception as e:
-        print(f"  ❌ Error: {e}")
-
-
 def show_positions():
     """Show current SDK positions."""
     print("\n📊 Your Polymarket Positions")
@@ -737,12 +602,6 @@ def main():
         action="store_true",
         help="Only output on trades/errors"
     )
-    parser.add_argument(
-        "--reactive",
-        action="store_true",
-        help="Reactive mode: trade on a single reactor event (reads REACTOR_EVENT_* env vars)"
-    )
-
     args = parser.parse_args()
 
     # Handle --set config updates
@@ -786,13 +645,6 @@ def main():
 
     # Default to dry-run unless --live is explicitly passed
     dry_run = not args.live
-
-    # Reactive mode: act on a single reactor event
-    if args.reactive:
-        venue = args.venue or _config.get("venue") or None
-        max_usd = args.max_usd if args.max_usd else COPYTRADING_MAX_USD
-        run_reactive(max_usd=max_usd, dry_run=dry_run, venue=venue)
-        return
 
     # Validate API key by initializing client
     get_client()
