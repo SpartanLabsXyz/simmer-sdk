@@ -576,6 +576,7 @@ async def handle_event(
             action="buy",
             amount=amount_usd,
             venue=venue,
+            allow_rebuy=True,  # let reactor scale into positions as whales add — see 2026-04-09 overnight analysis
             source=TRADE_SOURCE,
             skill_slug=SKILL_SLUG,
             reasoning=build_reasoning(event, config),
