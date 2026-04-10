@@ -141,7 +141,6 @@ class SimmerClient:
         venue: str = "sim",
         private_key: Optional[str] = None,
         live: bool = True,
-        paper_mode: bool = False,
         starting_balance: float = 10_000.0
     ):
         """
@@ -161,14 +160,10 @@ class SimmerClient:
                 When False, trades are simulated with real market prices
                 and tracked in memory for the duration of the run. All read
                 endpoints (get_markets, get_context, etc.) work normally.
-            paper_mode: Convenience flag — equivalent to ``live=False``.
-                When True, the client uses real market data from Polymarket
-                (or any configured venue) but simulates all fills locally.
-                No real money is involved.  Positions auto-settle when the
-                market resolves.  For Polymarket, fills model the CLOB
-                bid-ask spread for realistic P&L.
+                For Polymarket, fills model the CLOB bid-ask spread for
+                realistic P&L. Positions auto-settle when markets resolve.
             starting_balance: Virtual starting capital for paper trading
-                (default: 10,000). Only used when paper_mode=True / live=False.
+                (default: 10,000). Only used when live=False.
             private_key: Optional EVM wallet private key for Polymarket trading.
                 When provided, orders are signed locally instead of server-side.
                 This enables trading with your own Polymarket wallet.
@@ -295,9 +290,6 @@ class SimmerClient:
         self._auto_redeem_enabled: bool = True
         self._auto_redeem_enabled_fetched_at: float = 0.0
 
-        # Paper trading mode (paper_mode=True is a convenience alias for live=False)
-        if paper_mode:
-            live = False
         self.live = live
         self._paper_portfolio = None
         if not self.live:
