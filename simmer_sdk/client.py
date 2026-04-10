@@ -215,6 +215,7 @@ class SimmerClient:
         self._held_markets_cache: Optional[dict] = None  # {market_id: [source_tags]}
         self._held_markets_ts: float = 0  # Cache timestamp
         self._clob_client = None  # Cached ClobClient for local CLOB operations
+        self._market_data_cache: dict = {}  # market_id -> market data for signing
 
         # EVM key: Use provided private_key, or auto-detect from environment
         # Check WALLET_PRIVATE_KEY first, fall back to deprecated SIMMER_PRIVATE_KEY
@@ -973,8 +974,17 @@ class SimmerClient:
             balance=balance,
             error=data.get("error")
         )
-        if result.success:
-            self._held_markets_cache = None  # Invalidate so next check sees new position
+        if result.success and self._held_markets_cache is not None:
+            if action == "buy":
+                # Update cache locally instead of nuking — avoids a fresh GET /positions
+                # on the next trade() call in a loop
+                existing = self._held_markets_cache.get(market_id, [])
+                if source and source not in existing:
+                    existing = existing + [source]
+                self._held_markets_cache[market_id] = existing
+            elif action == "sell":
+                # Remove from cache so subsequent buys aren't blocked
+                self._held_markets_cache.pop(market_id, None)
         return result
 
     # Default half-spread for Polymarket paper trades (in probability units).
@@ -2471,10 +2481,16 @@ class SimmerClient:
         is_sell = action == "sell"
 
         # Get market data to find token IDs, price, and tick_size
-        markets_resp = self._request("GET", f"/api/sdk/markets/{market_id}")
-        market_data = markets_resp.get("market") if isinstance(markets_resp, dict) else None
-        if not market_data:
-            raise ValueError(f"Market {market_id} not found")
+        # Cache per session — token IDs, neg_risk, tick_size don't change mid-session.
+        # Price may change but is only used as fallback when caller doesn't provide one.
+        if market_id in self._market_data_cache:
+            market_data = self._market_data_cache[market_id]
+        else:
+            markets_resp = self._request("GET", f"/api/sdk/markets/{market_id}")
+            market_data = markets_resp.get("market") if isinstance(markets_resp, dict) else None
+            if not market_data:
+                raise ValueError(f"Market {market_id} not found")
+            self._market_data_cache[market_id] = market_data
 
         # Get token ID based on side
         if side.lower() == "yes":
@@ -2694,8 +2710,14 @@ class SimmerClient:
             balance=None,  # Real trading doesn't track $SIM balance
             error=data.get("error")
         )
-        if result.success:
-            self._held_markets_cache = None  # Invalidate so next check sees new position
+        if result.success and self._held_markets_cache is not None:
+            if action == "buy":
+                existing = self._held_markets_cache.get(market_id, [])
+                if source and source not in existing:
+                    existing = existing + [source]
+                self._held_markets_cache[market_id] = existing
+            elif action == "sell":
+                self._held_markets_cache.pop(market_id, None)
         return result
 
     def link_wallet(self, signature_type: int = 0) -> Dict[str, Any]:
