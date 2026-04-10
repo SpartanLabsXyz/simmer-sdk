@@ -50,6 +50,7 @@ except ImportError:
 
 # Source tag for tracking
 TRADE_SOURCE = "sdk:copytrading"
+REACTOR_TRADE_SOURCE = "sdk:copytrading:reactor"
 SKILL_SLUG = "polymarket-copytrading"
 _automaton_reported = False
 
@@ -631,7 +632,7 @@ def _process_reactor_signal(client, signal: dict) -> bool:
             amount=amount,
             venue=venue,
             allow_rebuy=True,  # reactor signals are discrete events; allow re-entry
-            source=TRADE_SOURCE,
+            source=REACTOR_TRADE_SOURCE,
             skill_slug=SKILL_SLUG,
             reasoning=reasoning,
             signal_data=signal_data,
