@@ -119,6 +119,29 @@ client.trade(market_id, side="yes", amount=10.0, venue="polymarket")
 
 > **Spread caveat:** $SIM fills instantly (AMM, no spread). Real venues have orderbook spreads of 2–5%. Target edges >5% in $SIM before graduating to real money.
 
+### Paper trading on real venues
+
+Pass `live=False` to simulate trades with real market prices — no wallet or USDC required. For Polymarket, fills model the CLOB bid-ask spread for realistic P&L. Resolved markets auto-settle (winning shares pay $1, losers $0).
+
+```python
+client = SimmerClient(
+    api_key="sk_live_...",
+    venue="polymarket",
+    live=False,                # Simulate fills, no real money
+    starting_balance=10_000.0  # Virtual capital (default: 10,000)
+)
+
+result = client.trade(market_id=markets[0].id, side="yes", amount=50.0,
+                      reasoning="Testing strategy")
+print(f"Filled {result.shares_bought:.2f} shares (simulated)")
+
+# Portfolio summary
+summary = client.get_paper_summary()
+print(f"Balance: ${summary['balance']:.2f}, P&L: ${summary['total_pnl']:.2f}")
+```
+
+**Graduation path:** `sim` (instant fills, no spread) → `polymarket` + `live=False` (real prices, spread modeled) → `polymarket` live (real USDC).
+
 ## Key Methods
 
 | Method | Description |
@@ -145,6 +168,7 @@ client.trade(market_id, side="yes", amount=10.0, venue="polymarket")
 | `register_webhook()` | Push notifications for trades, resolutions, price moves |
 | `redeem()` | Redeem a specific winning Polymarket position |
 | `auto_redeem()` | Scan all positions and redeem any winning ones automatically |
+| `get_paper_summary()` | Paper mode portfolio summary (balance, P&L, positions) |
 | `get_settings()` / `update_settings()` | Configure trade limits and notifications |
 | `link_wallet()` | Link external EVM wallet for Polymarket |
 | `set_approvals()` | Set Polymarket token approvals |
