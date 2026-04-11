@@ -1,6 +1,6 @@
 ---
 name: polymarket-copytrading
-description: Mirror positions from top Polymarket traders. Polling mode (free) for portfolio-style copying, Reactor mode (Pro) for event-driven sub-second mirroring via Simmer-brokered PolyNode SSE.
+description: Mirror positions from top Polymarket traders. Polling mode (free) for portfolio-style copying, Reactor mode (Pro) for event-driven real-time mirroring via Simmer-brokered PolyNode signals.
 metadata:
   author: Simmer (@simmer_markets)
   version: "1.9.0"
@@ -13,14 +13,14 @@ Mirror positions from successful Polymarket traders using the Simmer SDK. Two mo
 
 | | **Polling mode** (free) | **Reactor mode** (Pro) |
 |---|---|---|
-| Entrypoint | `copytrading_trader.py` | `reactor_trader.py` |
-| Cadence | Batch scan, runs on cron or manual | Long-lived event stream |
-| Latency | Minutes (Polymarket Data API polling) | Sub-second (Simmer-brokered PolyNode SSE, 3–5s pre-confirmation edge) |
+| Entrypoint | `copytrading_trader.py` | `copytrading_trader.py --reactor` |
+| Cadence | Batch scan, runs on cron or manual | Polls every 2s for pre-resolved whale signals |
+| Latency | Minutes (Polymarket Data API polling) | Seconds (Simmer-brokered PolyNode signals, 1–3s pre-confirmation edge) |
 | Strategy | Size-weighted aggregation across wallets, conviction tiering, rebalance to target allocations, drift/stale filters | Event-by-event mirror with fixed `mirror_fraction` sizing, programmatic filters |
 | Best for | Portfolio-aware, multi-whale, periodic scans | Real-time reaction to specific whales as they trade |
 | Requires | `SIMMER_API_KEY` | `SIMMER_API_KEY` + Simmer Pro plan |
 
-> **This is a template.** The default logic mirrors whale wallets — remix it with your own wallet selection, sizing rules, filters, or cap logic. The skill handles all the plumbing (SSE streaming, trade execution, dedup, signing). Your agent provides the alpha.
+> **This is a template.** The default logic mirrors whale wallets — remix it with your own wallet selection, sizing rules, filters, or cap logic. The skill handles all the plumbing (signal polling, trade execution, dedup, signing). Your agent provides the alpha.
 
 ## When to Use This Skill
 
@@ -113,15 +113,17 @@ Each cycle the script:
 
 > **Requires Simmer Pro.** The reactor stream is gated by `users.is_pro`. Upgrade at simmer.markets/dashboard if you see a 402 error on connect.
 
-Reactor mode is a long-lived process that subscribes to Simmer's brokered PolyNode pre-settlement event stream via Server-Sent Events and mirrors whale trades as they happen — typically 3–5 seconds before the whale's transaction confirms on-chain. Unlike polling mode (which batches and rebalances), reactor reacts to each whale trade individually.
+Reactor mode polls Simmer for pre-resolved whale trade signals, derived from PolyNode's real-time on-chain settlement stream. Signals arrive typically 1–3 seconds before the whale's transaction confirms on-chain. Unlike polling mode (which batches and rebalances), reactor reacts to each whale trade individually.
 
 ### How it's different from polling mode
 
 - **Event-driven, not batched.** Each whale settlement is evaluated and acted on independently.
 - **Fixed per-event sizing.** `mirror_fraction` × whale size, capped at `max_size`. No conviction tiering, no rebalance math.
 - **Server-side watchlist filter.** Your watchlist + `min_size` are stored in Simmer's reactor config and applied on the server before events reach your skill — you only see matches.
-- **Runs indefinitely.** Long-lived loop. Killed via SIGINT or `--max-events`.
-- **Dedup across restarts.** Seen `tx_hash`es persisted at `~/.simmer/polymarket-copytrading/reactor-seen.jsonl`.
+- **Pre-resolved signals.** The server resolves Polymarket condition IDs to Simmer market UUIDs before writing the signal — the skill receives trade-ready payloads.
+- **Two run modes.** Loop mode (default, polls every 2s) or `--once` for cron-style single poll and exit.
+- **Circuit breaker.** 5 consecutive trade failures → signals are skipped until the next success. Prevents runaway failures from draining your wallet.
+- **Server-side dedup.** Signals have a 60-second TTL in Redis and are deleted after successful execution. No local state files needed.
 
 ### Configure your reactor watchlist
 
@@ -154,31 +156,29 @@ Fields:
 | `daily_cap` | Max total spend per day in venue-native units |
 | `venue` | `sim` / `polymarket` / `kalshi` |
 | `enabled` | Pause reactor by setting `false` — server will stop delivering events |
+| `price_buffer` | Fraction added to whale's fill price for buys (subtracted for sells). Default 0.02 (2%). Prevents FAK order failures on thin books after whale clears liquidity. Range 0–0.2. |
 
 ### Run reactor mode
 
 ```bash
-# Dry run (log decisions, don't execute)
-python reactor_trader.py --dry-run
+# Loop mode — polls every 2s, runs until SIGINT
+python copytrading_trader.py --reactor
 
-# Live mode (uses venue from your reactor config)
-python reactor_trader.py
-
-# Override venue for one run
-python reactor_trader.py --venue sim
-
-# Smoke test: stop after N events
-python reactor_trader.py --dry-run --max-events 10
+# Single poll — process any pending signals and exit (for cron)
+python copytrading_trader.py --reactor --once
 ```
 
-### What happens per event
+> **Note:** Reactor mode always executes live trades (venue is set in your reactor config). Use `venue: "sim"` in your config to paper trade.
 
-1. SSE delivers a pre-filtered settlement (matches your watchlist + min_size already)
-2. Skill checks dedup (is `tx_hash` in seen set?)
-3. Skill computes mirror size: `taker_size × mirror_fraction`, capped by `max_size`, floored at the 5-share Polymarket minimum
+### What happens per signal
+
+1. Skill polls `GET /api/sdk/reactor/pending` for pre-resolved whale signals
+2. Circuit breaker check: if 5+ consecutive failures in recent reactions, skip this tick
+3. For each signal: compute mirror size (`taker_size × mirror_fraction`, capped by `max_size`, floored at 5-share Polymarket minimum)
 4. If below minimum → `skipped_filter` reaction, no trade
-5. If live mode → `SimmerClient.trade()` with `skill_slug="polymarket-copytrading"` and `source="sdk:copytrading:reactor"`
-6. Skill POSTs a reaction record to `/api/sdk/reactor/reactions` for the dashboard
+5. `SimmerClient.trade()` with `skill_slug="polymarket-copytrading"` and `source="sdk:copytrading:reactor"`
+6. On success: DELETE the signal from `/api/sdk/reactor/pending/{tx_hash}` and POST a `mirrored` reaction
+7. On failure: POST a `failed` reaction, leave signal (60s TTL clears it)
 
 ### External wallets just work
 
@@ -188,7 +188,7 @@ Reactor mode runs in your harness, so `SimmerClient.trade()` signs locally with 
 
 - **Use polling** when you want portfolio-style copying: aggregate across multiple whales, rebalance to target allocations, run periodically from cron, filter drifted/stale positions. Doesn't require Pro.
 - **Use reactor** when you want real-time reaction to individual whale trades, fixed per-event sizing, and the pre-confirmation latency edge. Requires Pro.
-- **Use both** if you want: polling for your steady-state portfolio alignment + reactor for opportunistic real-time mirroring. Different entrypoints, same skill, same API key.
+- **Use both** if you want: polling for your steady-state portfolio alignment + reactor for opportunistic real-time mirroring. Different flags, same skill, same API key.
 
 ---
 

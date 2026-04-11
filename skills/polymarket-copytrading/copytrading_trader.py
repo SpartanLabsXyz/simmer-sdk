@@ -131,6 +131,13 @@ REACTOR_POLL_INTERVAL_SECONDS = float(os.environ.get("REACTOR_POLL_INTERVAL_SECO
 REACTOR_CONSECUTIVE_FAILURE_LIMIT = 5
 REACTOR_REACTIONS_CHECK_LIMIT = 10
 
+# Price buffer: fraction added to (buys) or subtracted from (sells) the whale's
+# fill price. Compensates for the whale clearing book liquidity at their fill
+# level — without a buffer, FAK orders fail with "no liquidity at this price."
+# Fetched from reactor config at startup; overridden by env var for testing.
+# Range: 0.0 (exact whale price) to 0.2 (20% buffer). Default 0.02 (2%).
+_reactor_price_buffer: float = float(os.environ.get("REACTOR_PRICE_BUFFER", "0.02"))
+
 
 def get_config() -> dict:
     """Get current configuration."""
@@ -624,8 +631,22 @@ def _process_reactor_signal(client, signal: dict) -> bool:
         "whale_price": round(float(whale.get("price") or 0), 4),
     }
 
+    # Compute a buffered price from the whale's fill price. Without this,
+    # FAK orders fail on thin books because the whale already cleared liquidity
+    # at their fill level. The buffer (default 2%) bids slightly above for buys,
+    # slightly below for sells — still FAK (no hanging orders), but tolerates
+    # post-whale spread.
+    whale_price = float(whale.get("price") or 0)
+    trade_price = None
+    if whale_price > 0 and venue == "polymarket":
+        buf = _reactor_price_buffer
+        if action == "buy":
+            trade_price = min(round(whale_price * (1 + buf), 4), 0.999)
+        else:
+            trade_price = max(round(whale_price * (1 - buf), 4), 0.001)
+
     try:
-        result = client.trade(
+        trade_kwargs = dict(
             market_id=market_id,
             side=side,
             action=action,
@@ -637,6 +658,9 @@ def _process_reactor_signal(client, signal: dict) -> bool:
             reasoning=reasoning,
             signal_data=signal_data,
         )
+        if trade_price is not None:
+            trade_kwargs["price"] = trade_price
+        result = client.trade(**trade_kwargs)
     except Exception as e:
         reason = f"trade_error: {type(e).__name__}: {e}"
         print(f"[reactor] ❌ {tx_short}... {reason}")
@@ -718,7 +742,18 @@ def run_reactor(once: bool = False) -> None:
     Reactor entry point. `once=True` polls once and exits (cron-friendly);
     `once=False` runs a forever loop polling every REACTOR_POLL_INTERVAL_SECONDS.
     """
+    global _reactor_price_buffer
     client = get_client()
+
+    # Fetch reactor config to pick up user's price_buffer setting.
+    # Falls back to env var / default if the API call fails.
+    try:
+        cfg = client._request("GET", "/api/sdk/reactor/config")
+        if isinstance(cfg, dict) and "price_buffer" in cfg:
+            _reactor_price_buffer = float(cfg["price_buffer"])
+            print(f"[reactor] price_buffer={_reactor_price_buffer:.3f} (from config)")
+    except Exception:
+        print(f"[reactor] price_buffer={_reactor_price_buffer:.3f} (default — config fetch failed)")
 
     if once:
         print(f"[reactor] --once: single poll against /api/sdk/reactor/pending")
