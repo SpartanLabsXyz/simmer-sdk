@@ -699,16 +699,30 @@ def _process_reactor_signal(client, signal: dict) -> bool:
     return True
 
 
+class _ConnectionError(Exception):
+    """Raised by _poll_reactor_once when the poll fails due to a connection
+    issue (SSL, reset, timeout). The loop uses this to decide when to
+    recycle the HTTP session."""
+    pass
+
+
 def _poll_reactor_once(client) -> int:
     """
     Single poll iteration: fetch pending signals, check circuit if any
     exist, process each. Returns the number of signals processed (success
     or failure). Used directly by --once mode and once per tick by the
-    loop mode.
+    loop mode. Raises _ConnectionError on transport-level failures so the
+    loop can recycle the session.
     """
     try:
         resp = client._request("GET", "/api/sdk/reactor/pending")
+    except (ConnectionError, OSError) as e:
+        print(f"[reactor] poll failed: {type(e).__name__}: {e}")
+        raise _ConnectionError(str(e)) from e
     except Exception as e:
+        if "SSL" in type(e).__name__ or "SSL" in str(e):
+            print(f"[reactor] poll failed: {type(e).__name__}: {e}")
+            raise _ConnectionError(str(e)) from e
         print(f"[reactor] poll failed: {type(e).__name__}: {e}")
         return 0
 
@@ -765,14 +779,32 @@ def run_reactor(once: bool = False) -> None:
     print(f"[reactor] loop mode: polling /api/sdk/reactor/pending every {interval}s")
     print(f"[reactor] set REACTOR_POLL_INTERVAL_SECONDS to tune; circuit trips after "
           f"{REACTOR_CONSECUTIVE_FAILURE_LIMIT} consecutive failures")
+    consecutive_conn_errors = 0
+    SESSION_RECYCLE_THRESHOLD = 3
+
     while True:
         try:
             _poll_reactor_once(client)
+            consecutive_conn_errors = 0  # reset on any successful poll
         except KeyboardInterrupt:
             print("[reactor] keyboard interrupt — exiting loop")
             return
+        except _ConnectionError:
+            consecutive_conn_errors += 1
+            if consecutive_conn_errors >= SESSION_RECYCLE_THRESHOLD:
+                print(f"[reactor] {consecutive_conn_errors} consecutive connection errors "
+                      f"— recycling HTTP session")
+                import requests as _req
+                client._session.close()
+                client._session = _req.Session()
+                client._session.headers.update({
+                    "Authorization": f"Bearer {client.api_key}",
+                    "Content-Type": "application/json",
+                })
+                consecutive_conn_errors = 0
         except Exception as e:
             print(f"[reactor] tick error ({type(e).__name__}): {e} — continuing")
+            consecutive_conn_errors = 0
         try:
             _time.sleep(interval)
         except KeyboardInterrupt:
