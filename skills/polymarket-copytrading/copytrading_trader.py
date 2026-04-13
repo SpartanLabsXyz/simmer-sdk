@@ -68,6 +68,7 @@ CONFIG_SCHEMA = {
     "max_usd": {"env": "SIMMER_COPYTRADING_MAX_USD", "default": 50.0, "type": float},
     "max_trades_per_run": {"env": "SIMMER_COPYTRADING_MAX_TRADES", "default": 10, "type": int},
     "venue": {"env": "TRADING_VENUE", "default": "", "type": str},  # sim or polymarket
+    "order_type": {"env": "SIMMER_COPYTRADING_ORDER_TYPE", "default": "GTC", "type": str},
 }
 
 # Load configuration
@@ -106,6 +107,7 @@ _automaton_max = os.environ.get("AUTOMATON_MAX_BET")
 if _automaton_max:
     COPYTRADING_MAX_USD = min(COPYTRADING_MAX_USD, float(_automaton_max))
 MAX_TRADES_PER_RUN = _config["max_trades_per_run"]
+ORDER_TYPE = (_config.get("order_type") or "GTC").upper()
 
 # Reactor settings — used only by --reactor mode.
 # The relay writes signals with TTL=60s (tunable server-side via
@@ -319,6 +321,7 @@ def execute_copytrading(wallets: list, top_n: int = None, max_usd: float = 50.0,
                 action=action,
                 amount=estimated_cost if action == "buy" else 0,
                 shares=shares if action == "sell" else 0,
+                order_type=ORDER_TYPE,
                 reasoning=f"Copytrading: {action} {shares:.1f} {side} to mirror whale positions on {market_title}",
                 source=TRADE_SOURCE,
                 skill_slug=SKILL_SLUG,
@@ -652,6 +655,7 @@ def _process_reactor_signal(client, signal: dict) -> bool:
             action=action,
             amount=amount,
             venue=venue,
+            order_type=ORDER_TYPE,
             allow_rebuy=True,  # reactor signals are discrete events; allow re-entry
             source=REACTOR_TRADE_SOURCE,
             skill_slug=SKILL_SLUG,

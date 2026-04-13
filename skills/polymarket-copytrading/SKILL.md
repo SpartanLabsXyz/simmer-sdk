@@ -80,6 +80,7 @@ For automated recurring scans, wallets can be saved in environment:
 | Top N positions | `SIMMER_COPYTRADING_TOP_N` | auto |
 | Max per position | `SIMMER_COPYTRADING_MAX_USD` | 50 |
 | Max trades/run | `SIMMER_COPYTRADING_MAX_TRADES` | 10 |
+| Order type | `SIMMER_COPYTRADING_ORDER_TYPE` | GTC |
 
 **Top N auto-calculation (when not specified):**
 - Balance < $50: Top 5 positions
