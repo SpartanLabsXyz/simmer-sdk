@@ -214,14 +214,18 @@ def fetch_candidate_markets(pages: int = 3) -> list:
     candidates = []
 
     for page in range(pages):
-        events = gamma.get_events(
-            active=True,
-            closed=False,
-            limit=50,
-            offset=page * 50,
-            order="volume24hr",
-            ascending=False,
-        )
+        try:
+            events = gamma.get_events(
+                active=True,
+                closed=False,
+                limit=50,
+                offset=page * 50,
+                order="volume24hr",
+                ascending=False,
+            )
+        except Exception as e:
+            print(f"[warn] Gamma API error on page {page}: {e}")
+            break
         if not events:
             break
 
@@ -306,7 +310,7 @@ def import_market(slug: str) -> tuple:
 def get_market_context(market_id: str) -> dict | None:
     """Fetch market context (fees, safeguards) from Simmer."""
     try:
-        return get_client()._request("GET", f"/api/sdk/context/{market_id}")
+        return get_client().get_market_context(market_id)
     except Exception:
         return None
 
