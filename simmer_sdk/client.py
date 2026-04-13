@@ -846,6 +846,26 @@ class SimmerClient:
         if not is_sell and amount <= 0:
             raise ValueError("amount required for buy orders")
 
+        # Round to API decimal limits before submission.
+        # Maker (USDC) supports max 2 decimals; shares support max 5.
+        # Log a warning so callers know rounding occurred.
+        if not is_sell:
+            rounded = round(amount, 2)
+            if rounded != amount:
+                logger.warning(
+                    "amount %.8f rounded to %.2f (maker amount max 2 decimal places)",
+                    amount, rounded
+                )
+                amount = rounded
+        else:
+            rounded = round(shares, 5)
+            if rounded != shares:
+                logger.warning(
+                    "shares %.10f rounded to %.5f (taker amount max 5 decimal places)",
+                    shares, rounded
+                )
+                shares = rounded
+
         # Paper trading: simulate with real prices (no live API calls)
         if not self.live:
             return self._paper_trade(
