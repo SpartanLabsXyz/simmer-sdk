@@ -1,4 +1,6 @@
 {
+  "publish": false,
+  "publish_reason": "Entertainment-only strategy (sterlingcrispin). Kept as SDK reference/example, not for ClawHub.",
   "emoji": "📉",
   "requires": {
     "env": [
