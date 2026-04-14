@@ -125,6 +125,7 @@ Reactor mode polls Simmer for pre-resolved whale trade signals, derived from Pol
 - **Two run modes.** Loop mode (default, polls every 2s) or `--once` for cron-style single poll and exit.
 - **Circuit breaker.** 5 consecutive trade failures → signals are skipped until the next success. Prevents runaway failures from draining your wallet.
 - **Server-side dedup.** Signals have a 60-second TTL in Redis and are deleted after successful execution. No local state files needed.
+- **Buys only (MVP).** Reactor currently mirrors whale **buys only** — sell signals are filtered out server-side by the relay. If a whale exits a position, reactor won't mirror the sell. Sell mirroring is planned for a future release.
 
 ### Configure your reactor watchlist
 
@@ -157,7 +158,7 @@ Fields:
 | `daily_cap` | Max total spend per day in venue-native units |
 | `venue` | `sim` / `polymarket` / `kalshi` |
 | `enabled` | Pause reactor by setting `false` — server will stop delivering events |
-| `price_buffer` | Fraction added to whale's fill price for buys (subtracted for sells). Default 0.02 (2%). Prevents FAK order failures on thin books after whale clears liquidity. Range 0–0.2. |
+| `price_buffer` | Fraction added above whale's fill price for your buy order. Default 0.02 (2%). Prevents order failures on thin books after whale clears liquidity. Range 0–0.2. |
 
 ### Run reactor mode
 
