@@ -37,9 +37,9 @@ from simmer_sdk.skill import load_config, update_config, get_config_path
 CONFIG_SCHEMA = {
     "price_cap": {
         "env": "SIMMER_NEH_PRICE_CAP",
-        "default": 0.05,
+        "default": 0.10,
         "type": float,
-        "help": "Max NO ask price to buy (e.g. 0.05 = buy NO at ≤5¢)",
+        "help": "Max NO ask price to buy (e.g. 0.10 = buy NO at ≤10¢)",
     },
     "max_bet_usd": {
         "env": "SIMMER_NEH_MAX_BET_USD",
@@ -73,7 +73,7 @@ CONFIG_SCHEMA = {
     },
     "candidate_pages": {
         "env": "SIMMER_NEH_CANDIDATE_PAGES",
-        "default": 3,
+        "default": 20,
         "type": int,
         "help": "Number of Gamma API pages to scan for candidates",
     },
@@ -249,9 +249,11 @@ def fetch_candidate_markets(pages: int = 3) -> list:
             if _is_sports(market.get("tags"), market.get("category", "")):
                 continue
 
-            # Check NO price against cap
+            # Check NO price against cap and floor
+            # Floor at 2% — markets below this are nearly resolved (YES ~98%+)
+            # and Simmer's import guard will reject them as "price too extreme"
             no_price = market.get("no_price", 1.0)
-            if no_price > PRICE_CAP:
+            if no_price > PRICE_CAP or no_price < 0.02:
                 continue
 
             # Liquidity / volume filters
@@ -477,6 +479,8 @@ def run_trades(candidates: list, dry_run: bool = True, quiet: bool = False) -> t
         if dry_run:
             log(f"  [PAPER] BUY NO ${position_size:.2f} on {question}...")
             log(f"          NO price: {no_price:.3f} | Liquidity: ${m['liquidity']:.0f}")
+            executed += 1
+            total_usd += position_size
             continue
 
         log(f"  BUY NO ${position_size:.2f} on {question}...")

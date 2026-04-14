@@ -18,10 +18,10 @@
     {
       "env": "SIMMER_NEH_PRICE_CAP",
       "type": "number",
-      "default": 0.05,
-      "range": [0.01, 0.15],
+      "default": 0.10,
+      "range": [0.01, 0.20],
       "step": 0.01,
-      "label": "NO price cap (e.g. 0.05 = 5¢)"
+      "label": "NO price cap (e.g. 0.10 = 10¢)"
     },
     {
       "env": "SIMMER_NEH_MAX_BET_USD",
@@ -66,8 +66,8 @@
     {
       "env": "SIMMER_NEH_CANDIDATE_PAGES",
       "type": "number",
-      "default": 3,
-      "range": [1, 10],
+      "default": 20,
+      "range": [1, 30],
       "step": 1,
       "label": "Gamma API pages to scan"
     }
