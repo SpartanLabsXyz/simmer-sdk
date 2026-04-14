@@ -289,7 +289,7 @@ def main():
             print(f"  Stage: {stage}")
             print(f"  {'-'*40}")
 
-        timeout = 120 if stage == "live" else args.timeout
+        timeout = max(args.timeout, 120) if stage == "live" else args.timeout
 
         r = run_skill_stage(
             skill_info, stage,
