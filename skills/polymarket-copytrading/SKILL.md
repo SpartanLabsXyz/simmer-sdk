@@ -162,13 +162,26 @@ Fields:
 
 ### Run reactor mode
 
-```bash
-# Loop mode — polls every 2s, runs until SIGINT
-python copytrading_trader.py --reactor
+**Single poll** — check for pending signals once and exit. Good for cron jobs or quick checks:
 
-# Single poll — process any pending signals and exit (for cron)
+```bash
 python copytrading_trader.py --reactor --once
 ```
+
+**Loop mode** — polls every 2s continuously. This is a long-running process that should be backgrounded in your runtime:
+
+```bash
+# Shell / systemd / launchd
+nohup python copytrading_trader.py --reactor > reactor.log 2>&1 &
+
+# OpenClaw (exec tool)
+exec command="python3 copytrading_trader.py --reactor" background=true timeout=7200
+
+# Hermes (exec tool)
+exec command="python3 copytrading_trader.py --reactor" background=true
+```
+
+Loop mode runs until SIGINT or the timeout. Set `REACTOR_POLL_INTERVAL_SECONDS` to tune the polling cadence (default 2s).
 
 > **Note:** Reactor mode always executes live trades (venue is set in your reactor config). Use `venue: "sim"` in your config to paper trade.
 
