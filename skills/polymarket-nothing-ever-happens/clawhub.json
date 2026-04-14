@@ -1,0 +1,75 @@
+{
+  "emoji": "📉",
+  "requires": {
+    "env": [
+      "SIMMER_API_KEY"
+    ],
+    "pip": [
+      "simmer-sdk"
+    ]
+  },
+  "cron": null,
+  "autostart": false,
+  "automaton": {
+    "managed": true,
+    "entrypoint": "nothing_ever_happens.py"
+  },
+  "tunables": [
+    {
+      "env": "SIMMER_NEH_PRICE_CAP",
+      "type": "number",
+      "default": 0.05,
+      "range": [0.01, 0.15],
+      "step": 0.01,
+      "label": "NO price cap (e.g. 0.05 = 5¢)"
+    },
+    {
+      "env": "SIMMER_NEH_MAX_BET_USD",
+      "type": "number",
+      "default": 5,
+      "range": [1, 100],
+      "step": 1,
+      "label": "Max bet per trade (USDC)"
+    },
+    {
+      "env": "SIMMER_NEH_DAILY_BUDGET_USD",
+      "type": "number",
+      "default": 15,
+      "range": [5, 200],
+      "step": 5,
+      "label": "Daily budget (USDC)"
+    },
+    {
+      "env": "SIMMER_NEH_MAX_TRADES_PER_RUN",
+      "type": "number",
+      "default": 3,
+      "range": [1, 20],
+      "step": 1,
+      "label": "Max trades per run"
+    },
+    {
+      "env": "SIMMER_NEH_MIN_LIQUIDITY",
+      "type": "number",
+      "default": 500,
+      "range": [100, 10000],
+      "step": 100,
+      "label": "Min market liquidity (USDC)"
+    },
+    {
+      "env": "SIMMER_NEH_MIN_VOLUME_24H",
+      "type": "number",
+      "default": 100,
+      "range": [10, 5000],
+      "step": 50,
+      "label": "Min 24h volume (USDC)"
+    },
+    {
+      "env": "SIMMER_NEH_CANDIDATE_PAGES",
+      "type": "number",
+      "default": 3,
+      "range": [1, 10],
+      "step": 1,
+      "label": "Gamma API pages to scan"
+    }
+  ]
+}
