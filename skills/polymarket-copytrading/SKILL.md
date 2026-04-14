@@ -182,6 +182,25 @@ python copytrading_trader.py --reactor --once
 6. On success: DELETE the signal from `/api/sdk/reactor/pending/{tx_hash}` and POST a `mirrored` reaction
 7. On failure: POST a `failed` reaction, leave signal (60s TTL clears it)
 
+### Example output
+
+```
+[reactor] price_buffer=0.020 (from config)
+[reactor] --once: single poll against /api/sdk/reactor/pending
+[reactor] 0 pending signals
+```
+
+When a whale trade matches your watchlist:
+
+```
+[reactor] price_buffer=0.020 (from config)
+[reactor] loop mode: polling /api/sdk/reactor/pending every 2.0s
+[reactor] 1 pending signal(s)
+[reactor] 0xbaa2bc... BUY 7067 shares on "Will Iran strike Iraq by April 30, 2026?"
+[reactor] mirror: 70.67 shares @ $0.673 (buffer +2.0%) → GTC order placed
+[reactor] ✅ mirrored — trade_id=a23dc52a, signal deleted
+```
+
 ### External wallets just work
 
 Reactor mode runs in your harness, so `SimmerClient.trade()` signs locally with your existing wallet setup (managed, or external via `WALLET_PRIVATE_KEY`). No server-side signing, no OWS dependency, no new keys to manage.

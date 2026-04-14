@@ -732,6 +732,7 @@ def _poll_reactor_once(client) -> int:
 
     signals = resp.get("reactor_signals", []) if isinstance(resp, dict) else []
     if not signals:
+        print("[reactor] 0 pending signals")
         return 0
 
     print(f"[reactor] {len(signals)} pending signal(s)")
