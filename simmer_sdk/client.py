@@ -5,6 +5,7 @@ Simple Python client for trading on Simmer prediction markets.
 """
 
 import os
+import sys
 import time
 import logging
 import requests
@@ -12,6 +13,20 @@ from typing import Optional, List, Dict, Any
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
+
+
+def _detect_runtime() -> str:
+    """Detect the agent runtime environment from environment variables."""
+    # OpenClaw sets OPENCLAW_* vars
+    if any(k.startswith("OPENCLAW_") for k in os.environ):
+        return "openclaw"
+    # Hermes sets HERMES_HOME or HERMES_* vars
+    if "HERMES_HOME" in os.environ or any(k.startswith("HERMES_") for k in os.environ):
+        return "hermes"
+    # Claude Code CLI sets CLAUDE_CODE
+    if "CLAUDE_CODE" in os.environ:
+        return "claude-code"
+    return "unknown"
 
 
 @dataclass
@@ -267,11 +282,13 @@ class SimmerClient:
                 self._solana_key_available = False
 
         from simmer_sdk import __version__ as _sdk_version
+        _py_version = f"{sys.version_info.major}.{sys.version_info.minor}"
+        _runtime = _detect_runtime()
         self._session = requests.Session()
         self._session.headers.update({
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
-            "User-Agent": f"simmer-sdk/{_sdk_version}",
+            "User-Agent": f"simmer-sdk/{_sdk_version} (python/{_py_version}; runtime/{_runtime})",
         })
 
         # Auto-detect skill slug + version from caller's SKILL.md
