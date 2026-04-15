@@ -263,3 +263,48 @@ def ows_derive_clob_creds(wallet_name: str, nonce: int = 0) -> ClobApiCreds:
             raise ValueError(f"Failed to parse CLOB credentials: {e}")
 
     raise ValueError("Failed to create or derive CLOB API credentials")
+
+
+def _clob_l2_headers(creds: ClobApiCreds, address: str, method: str, path: str, body: str = "") -> dict:
+    """Build Polymarket CLOB Level 2 (HMAC) auth headers."""
+    from datetime import datetime
+    from py_clob_client.signing.hmac import build_hmac_signature
+
+    timestamp = int(datetime.now().timestamp())
+    hmac_sig = build_hmac_signature(creds.api_secret, timestamp, method, path, body)
+
+    return {
+        "POLY_ADDRESS": address,
+        "POLY_SIGNATURE": hmac_sig,
+        "POLY_TIMESTAMP": str(timestamp),
+        "POLY_API_KEY": creds.api_key,
+        "POLY_PASSPHRASE": creds.api_passphrase,
+    }
+
+
+def ows_cancel_order(wallet_name: str, order_id: str) -> dict:
+    """Cancel a single CLOB order using OWS-derived credentials."""
+    import requests as req
+
+    address = get_ows_wallet_address(wallet_name)
+    creds = ows_derive_clob_creds(wallet_name)
+    headers = _clob_l2_headers(creds, address, "DELETE", f"/order/{order_id}")
+
+    resp = req.delete(f"{CLOB_HOST}/order/{order_id}", headers=headers, timeout=10)
+    resp.raise_for_status()
+    return resp.json()
+
+
+def ows_cancel_all_orders(wallet_name: str) -> dict:
+    """Cancel all CLOB orders using OWS-derived credentials."""
+    import requests as req
+
+    address = get_ows_wallet_address(wallet_name)
+    creds = ows_derive_clob_creds(wallet_name)
+    body = "{}"
+    headers = _clob_l2_headers(creds, address, "DELETE", "/cancel-all", body)
+    headers["Content-Type"] = "application/json"
+
+    resp = req.delete(f"{CLOB_HOST}/cancel-all", headers=headers, data=body, timeout=10)
+    resp.raise_for_status()
+    return resp.json()

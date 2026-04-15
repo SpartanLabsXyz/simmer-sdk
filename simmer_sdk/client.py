@@ -1955,6 +1955,7 @@ class SimmerClient:
         Cancel a single open order by ID.
 
         For external wallets: cancels locally via CLOB API.
+        For OWS wallets: cancels via CLOB using OWS-derived credentials.
         For managed wallets: cancels via server endpoint.
 
         Args:
@@ -1963,6 +1964,13 @@ class SimmerClient:
         Returns:
             Dict with cancellation result
         """
+        if self._ows_wallet:
+            try:
+                from simmer_sdk.ows_utils import ows_cancel_order
+                result = ows_cancel_order(self._ows_wallet, order_id)
+                return {"success": True, "order_id": order_id, "result": result}
+            except Exception as e:
+                return {"success": False, "error": str(e)}
         if self._private_key:
             return self._cancel_order_local(order_id)
         return self._request("DELETE", f"/api/sdk/orders/{order_id}")
@@ -1978,6 +1986,14 @@ class SimmerClient:
         Returns:
             Dict with cancellation result
         """
+        if self._ows_wallet:
+            # OWS: cancel all orders (CLOB doesn't support per-market cancel without token_id iteration)
+            try:
+                from simmer_sdk.ows_utils import ows_cancel_all_orders
+                result = ows_cancel_all_orders(self._ows_wallet)
+                return {"success": True, "market_id": market_id, "result": result}
+            except Exception as e:
+                return {"success": False, "error": str(e)}
         if self._private_key:
             # Look up token_id from market data (response wraps fields under "market" key)
             resp = self._request("GET", f"/api/sdk/markets/{market_id}")
@@ -2000,6 +2016,13 @@ class SimmerClient:
         Returns:
             Dict with cancellation result
         """
+        if self._ows_wallet:
+            try:
+                from simmer_sdk.ows_utils import ows_cancel_all_orders
+                result = ows_cancel_all_orders(self._ows_wallet)
+                return {"success": True, "result": result}
+            except Exception as e:
+                return {"success": False, "error": str(e)}
         if self._private_key:
             return self._cancel_all_local()
         return self._request("DELETE", "/api/sdk/orders")
