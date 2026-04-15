@@ -611,10 +611,10 @@ class SimmerClient:
         """
         Derive and register Polymarket CLOB API credentials if not already done.
 
-        Uses py_clob_client to derive credentials from the private key, then
+        Uses OWS (preferred) or py_clob_client to derive credentials, then
         sends them to the backend for encrypted storage. One-time per wallet.
         """
-        if not self._private_key or not self._wallet_address:
+        if not (self._ows_wallet or self._private_key) or not self._wallet_address:
             return
 
         if getattr(self, '_clob_creds_registered', False):
@@ -641,17 +641,23 @@ class SimmerClient:
             logger.debug("Credentials check failed unexpectedly: %s — will attempt registration", e)
 
         try:
-            from py_clob_client.client import ClobClient
+            if self._ows_wallet:
+                # OWS path: derive creds directly from Polymarket CLOB
+                # Key never leaves the vault
+                from simmer_sdk.ows_utils import ows_derive_clob_creds
+                creds = ows_derive_clob_creds(self._ows_wallet)
+            else:
+                # Raw key path: use py_clob_client
+                from py_clob_client.client import ClobClient
 
-            client = ClobClient(
-                host="https://clob.polymarket.com",
-                key=self._private_key,
-                chain_id=137,
-                signature_type=0,  # EOA
-                funder=self._wallet_address
-            )
-
-            creds = client.create_or_derive_api_creds()
+                client = ClobClient(
+                    host="https://clob.polymarket.com",
+                    key=self._private_key,
+                    chain_id=137,
+                    signature_type=0,  # EOA
+                    funder=self._wallet_address
+                )
+                creds = client.create_or_derive_api_creds()
 
             # Register with backend
             self._request("POST", "/api/sdk/wallet/credentials", json={
@@ -663,10 +669,10 @@ class SimmerClient:
             self._clob_creds_registered = True
             logger.info("CLOB credentials registered for wallet %s", self._wallet_address[:10] + "...")
 
-        except ImportError:
+        except ImportError as e:
             logger.warning(
-                "py-clob-client not installed — cannot derive CLOB credentials. "
-                "Install with: pip install py-clob-client"
+                "Cannot derive CLOB credentials: %s. "
+                "Install with: pip install py-clob-client", e
             )
         except Exception as e:
             logger.warning("Failed to derive/register CLOB credentials: %s", e)

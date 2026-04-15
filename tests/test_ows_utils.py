@@ -86,3 +86,41 @@ def test_ows_sign_message():
     sig = ows_sign_message("test-polymarket", "hello simmer")
     assert isinstance(sig, str)
     assert len(sig) > 0
+
+
+def test_build_clob_auth_typed_data():
+    """ClobAuth typed data has correct EIP-712 structure."""
+    from simmer_sdk.ows_utils import _build_clob_auth_typed_data
+    import json
+
+    result = json.loads(_build_clob_auth_typed_data(
+        "0xABCD1234abcd1234abcd1234abcd1234abcd1234", 1234567890, 0
+    ))
+    assert result["primaryType"] == "ClobAuth"
+    assert "ClobAuth" in result["types"]
+    assert result["domain"]["name"] == "ClobAuthDomain"
+    assert result["domain"]["chainId"] == 137
+    assert result["message"]["address"] == "0xABCD1234abcd1234abcd1234abcd1234abcd1234"
+    assert result["message"]["timestamp"] == "1234567890"
+    assert result["message"]["nonce"] == 0
+
+
+def test_clob_auth_signature_recovers():
+    """ClobAuth signature from OWS recovers to the wallet address."""
+    pytest.importorskip("ows")
+    pytest.importorskip("eth_account")
+    from simmer_sdk.ows_utils import _build_clob_auth_typed_data, ows_sign_typed_data, get_ows_wallet_address
+    from eth_account import Account
+    from eth_account.messages import encode_typed_data
+    import json
+
+    address = get_ows_wallet_address("test-polymarket")
+    typed_data_json = _build_clob_auth_typed_data(address, 1234567890, 0)
+    sig = ows_sign_typed_data("test-polymarket", typed_data_json)
+
+    typed_data = json.loads(typed_data_json)
+    message = encode_typed_data(full_message=typed_data)
+    recovered = Account.recover_message(
+        message, signature=bytes.fromhex(sig.replace("0x", ""))
+    )
+    assert recovered.lower() == address.lower()

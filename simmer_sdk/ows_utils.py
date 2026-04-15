@@ -1,9 +1,14 @@
 """
 OWS (Open Wallet Standard) utilities for Simmer SDK.
 
-Handles wallet detection, address resolution, and signing delegation.
-OWS is optional — the SDK works without it using raw private keys.
+Handles wallet detection, address resolution, signing delegation,
+and Polymarket CLOB credential derivation — all without exposing
+the private key outside the OWS vault.
 """
+
+import json
+from typing import Optional, Tuple
+from dataclasses import dataclass
 
 
 def _check_ows() -> bool:
@@ -102,3 +107,122 @@ def ows_sign_message(wallet_name: str, message: str) -> str:
         message=message,
     )
     return result["signature"]
+
+
+# --- Polymarket CLOB credential derivation via OWS ---
+
+CLOB_HOST = "https://clob.polymarket.com"
+CLOB_AUTH_DOMAIN_NAME = "ClobAuthDomain"
+CLOB_AUTH_VERSION = "1"
+CLOB_AUTH_CHAIN_ID = 137
+CLOB_AUTH_MESSAGE = "This message attests that I control the given wallet"
+
+
+@dataclass
+class ClobApiCreds:
+    """Polymarket CLOB API credentials."""
+    api_key: str
+    api_secret: str
+    api_passphrase: str
+
+
+def _build_clob_auth_typed_data(address: str, timestamp: int, nonce: int = 0) -> str:
+    """Build the EIP-712 typed data JSON for Polymarket CLOB Level 1 auth."""
+    typed_data = {
+        "primaryType": "ClobAuth",
+        "types": {
+            "EIP712Domain": [
+                {"name": "name", "type": "string"},
+                {"name": "version", "type": "string"},
+                {"name": "chainId", "type": "uint256"},
+            ],
+            "ClobAuth": [
+                {"name": "address", "type": "address"},
+                {"name": "timestamp", "type": "string"},
+                {"name": "nonce", "type": "uint256"},
+                {"name": "message", "type": "string"},
+            ],
+        },
+        "domain": {
+            "name": CLOB_AUTH_DOMAIN_NAME,
+            "version": CLOB_AUTH_VERSION,
+            "chainId": CLOB_AUTH_CHAIN_ID,
+        },
+        "message": {
+            "address": address,
+            "timestamp": str(timestamp),
+            "nonce": nonce,
+            "message": CLOB_AUTH_MESSAGE,
+        },
+    }
+    return json.dumps(typed_data)
+
+
+def _clob_level_1_headers(wallet_name: str, address: str, nonce: int = 0) -> dict:
+    """Build Polymarket CLOB Level 1 auth headers using OWS signing."""
+    from datetime import datetime
+
+    timestamp = int(datetime.now().timestamp())
+    typed_data_json = _build_clob_auth_typed_data(address, timestamp, nonce)
+    signature = ows_sign_typed_data(wallet_name, typed_data_json)
+
+    # Polymarket expects 0x-prefixed signature
+    if not signature.startswith("0x"):
+        signature = "0x" + signature
+
+    return {
+        "POLY_ADDRESS": address,
+        "POLY_SIGNATURE": signature,
+        "POLY_TIMESTAMP": str(timestamp),
+        "POLY_NONCE": str(nonce),
+    }
+
+
+def ows_derive_clob_creds(wallet_name: str, nonce: int = 0) -> ClobApiCreds:
+    """
+    Derive Polymarket CLOB API credentials using an OWS wallet.
+
+    Creates or derives CLOB API keys by signing the auth challenge
+    with OWS — the private key never leaves the vault.
+
+    Args:
+        wallet_name: Name of the OWS wallet.
+        nonce: Nonce for credential derivation (default 0).
+
+    Returns:
+        ClobApiCreds with api_key, api_secret, api_passphrase.
+
+    Raises:
+        ValueError: If credential derivation fails.
+    """
+    import requests
+
+    address = get_ows_wallet_address(wallet_name)
+    headers = _clob_level_1_headers(wallet_name, address, nonce)
+
+    # Try create first, fall back to derive (same pattern as py_clob_client)
+    for endpoint in ["/auth/api-key", "/auth/derive-api-key"]:
+        method = requests.post if endpoint == "/auth/api-key" else requests.get
+        try:
+            resp = method(
+                f"{CLOB_HOST}{endpoint}",
+                headers=headers,
+                timeout=10,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return ClobApiCreds(
+                api_key=data["apiKey"],
+                api_secret=data["secret"],
+                api_passphrase=data["passphrase"],
+            )
+        except requests.exceptions.HTTPError:
+            if endpoint == "/auth/api-key":
+                # Create failed — try derive
+                headers = _clob_level_1_headers(wallet_name, address, nonce)
+                continue
+            raise
+        except (KeyError, TypeError) as e:
+            raise ValueError(f"Failed to parse CLOB credentials: {e}")
+
+    raise ValueError("Failed to create or derive CLOB API credentials")
