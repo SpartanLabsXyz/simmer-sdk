@@ -1,6 +1,6 @@
 ---
 name: polymarket-copytrading
-description: Mirror positions from top Polymarket traders. Polling mode (free) for portfolio-style copying, Reactor mode (Pro) for event-driven real-time mirroring via Simmer-brokered PolyNode signals.
+description: Mirror positions from top Polymarket traders. Polling mode (free) for portfolio-style copying, Reactor mode (Pro) for event-driven real-time mirroring via Simmer's on-chain signal infrastructure.
 metadata:
   author: Simmer (@simmer_markets)
   version: "1.9.0"
@@ -15,7 +15,7 @@ Mirror positions from successful Polymarket traders using the Simmer SDK. Two mo
 |---|---|---|
 | Entrypoint | `copytrading_trader.py` | `copytrading_trader.py --reactor` |
 | Cadence | Batch scan, runs on cron or manual | Polls every 2s for pre-resolved whale signals |
-| Latency | Minutes (Polymarket Data API polling) | Seconds (Simmer-brokered PolyNode signals, 1–3s pre-confirmation edge) |
+| Latency | Minutes (Polymarket Data API polling) | Seconds (Simmer detects events in real-time, pre-confirmation) |
 | Strategy | Size-weighted aggregation across wallets, conviction tiering, rebalance to target allocations, drift/stale filters | Event-by-event mirror with fixed `mirror_fraction` sizing, programmatic filters |
 | Best for | Portfolio-aware, multi-whale, periodic scans | Real-time reaction to specific whales as they trade |
 | Requires | `SIMMER_API_KEY` | `SIMMER_API_KEY` + Simmer Pro plan |
@@ -114,7 +114,7 @@ Each cycle the script:
 
 > **Requires Simmer Pro.** The reactor stream is gated by `users.is_pro`. Upgrade at simmer.markets/dashboard if you see a 402 error on connect.
 
-Reactor mode polls Simmer for pre-resolved whale trade signals, derived from PolyNode's real-time on-chain settlement stream. Signals arrive typically 1–3 seconds before the whale's transaction confirms on-chain. Unlike polling mode (which batches and rebalances), reactor reacts to each whale trade individually.
+Reactor mode polls Simmer for pre-resolved whale trade signals derived from real-time on-chain settlement data. Simmer detects whale trades as they happen — even before on-chain confirmation — and delivers trade-ready signals to your skill. Unlike polling mode (which batches and rebalances), reactor reacts to each whale trade individually.
 
 ### How it's different from polling mode
 
@@ -221,7 +221,7 @@ Reactor mode runs in your harness, so `SimmerClient.trade()` signs locally with 
 ### When to use polling vs reactor
 
 - **Use polling** when you want portfolio-style copying: aggregate across multiple whales, rebalance to target allocations, run periodically from cron, filter drifted/stale positions. Doesn't require Pro.
-- **Use reactor** when you want real-time reaction to individual whale trades, fixed per-event sizing, and the pre-confirmation latency edge. Requires Pro.
+- **Use reactor** when you want real-time reaction to individual whale trades, fixed per-event sizing, and pre-resolved signals. Requires Pro.
 - **Use both** if you want: polling for your steady-state portfolio alignment + reactor for opportunistic real-time mirroring. Different flags, same skill, same API key.
 
 ---
