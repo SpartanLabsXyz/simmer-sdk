@@ -84,13 +84,20 @@ result = client.trade(
 
 **TradeResult fields:**
 ```python
-result.success        # bool
-result.trade_id       # UUID string
-result.shares_bought  # float (shares acquired)
-result.cost           # float (USD spent)
-result.error          # string (if failed)
-result.simulated      # bool (True = paper trade)
+result.success          # bool — order accepted (not necessarily filled)
+result.trade_id         # UUID string
+result.shares_bought    # float (shares acquired)
+result.shares_requested # float (shares requested — compare for partial fills)
+result.cost             # float (USD spent)
+result.fill_status      # "filled" | "submitted" | "unconfirmed" | "failed"
+result.order_status     # Polymarket order status: "matched", "live", "delayed"
+result.fully_filled     # bool — shares_bought >= shares_requested
+result.error            # string (if failed)
+result.simulated        # bool (True = paper trade)
+result.skip_reason      # string (why trade was skipped, if applicable)
 ```
+
+**Fill status:** `success=True` means order accepted, not filled. Check `fill_status` for the real state. `"submitted"` = GTC order on book (cost=$0 is correct). `"unconfirmed"` = fill settling (~5-15s). `"filled"` = confirmed with final shares/cost.
 
 **Before selling:** Check `status == "active"` (resolved markets can't be sold — redeem instead). Check shares >= 5 (Polymarket minimum). Always fetch fresh positions before selling.
 

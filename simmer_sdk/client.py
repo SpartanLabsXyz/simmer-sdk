@@ -89,6 +89,7 @@ class TradeResult:
     error: Optional[str] = None
     simulated: bool = False  # True for paper trades (dry-run with real prices)
     skip_reason: Optional[str] = None  # Why trade was skipped (e.g. "conflicts skipped")
+    fill_status: str = "unknown"  # Server fill status: "filled", "submitted", "unconfirmed", "failed"
 
     @property
     def fully_filled(self) -> bool:
@@ -1045,7 +1046,8 @@ class SimmerClient:
             cost=data.get("cost", 0),
             new_price=data.get("new_price", 0),
             balance=balance,
-            error=data.get("error")
+            error=data.get("error"),
+            fill_status=data.get("fill_status", "unknown"),
         )
         if result.success and self._held_markets_cache is not None:
             if action == "buy":
@@ -1151,6 +1153,7 @@ class SimmerClient:
             new_price=mid_price,
             simulated=True,
             balance=round(self._paper_portfolio.balance, 4),
+            fill_status="filled",
         )
 
     # ==========================================
