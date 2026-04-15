@@ -155,6 +155,7 @@ class SimmerClient:
         base_url: str = "https://api.simmer.markets",
         venue: str = "sim",
         private_key: Optional[str] = None,
+        ows_wallet: Optional[str] = None,
         live: bool = True,
         starting_balance: float = 10_000.0
     ):
@@ -194,6 +195,15 @@ class SimmerClient:
                 - Never commit it to version control
                 - Use environment variables or secure secret management
                 - Ensure your bot runs in a secure environment
+            ows_wallet: Optional OWS wallet name for Polymarket trading.
+                When provided, orders are signed via OWS — your private key
+                never leaves the OWS vault. Install with: pip install open-wallet-standard
+                Create a wallet: ows wallet create --name my-agent
+
+                If not provided, the SDK will auto-detect from the OWS_WALLET
+                environment variable.
+
+                Priority: ows_wallet param > OWS_WALLET env > WALLET_PRIVATE_KEY env
         """
         if venue not in self.VENUES:
             raise ValueError(f"Invalid venue '{venue}'. Must be one of: {self.VENUES}")
@@ -231,38 +241,63 @@ class SimmerClient:
         self._held_markets_ts: float = 0  # Cache timestamp
         self._clob_client = None  # Cached ClobClient for local CLOB operations
         self._market_data_cache: dict = {}  # market_id -> market data for signing
+        self._ows_wallet: Optional[str] = None  # OWS wallet name
 
-        # EVM key: Use provided private_key, or auto-detect from environment
-        # Check WALLET_PRIVATE_KEY first, fall back to deprecated SIMMER_PRIVATE_KEY
-        import warnings
-        _wallet_key = os.environ.get(self.PRIVATE_KEY_ENV_VAR)
-        _legacy_key = os.environ.get(self.PRIVATE_KEY_ENV_VAR_LEGACY)
-        if _wallet_key and _legacy_key and _wallet_key != _legacy_key:
-            warnings.warn(
-                "Both WALLET_PRIVATE_KEY and SIMMER_PRIVATE_KEY are set with different values. "
-                "Using WALLET_PRIVATE_KEY. Remove SIMMER_PRIVATE_KEY to avoid confusion.",
-                UserWarning,
-                stacklevel=2
-            )
-        elif not _wallet_key and _legacy_key:
-            warnings.warn(
-                "SIMMER_PRIVATE_KEY is deprecated. Use WALLET_PRIVATE_KEY instead.",
-                DeprecationWarning,
-                stacklevel=2
-            )
-        env_key = _wallet_key or _legacy_key
-        effective_key = private_key or env_key
-
-        if effective_key:
-            self._validate_and_set_wallet(effective_key)
-            self._private_key = effective_key
-            # Log that external wallet mode is active (but never log the key!)
-            if not private_key and env_key:
+        # OWS wallet: param > env var > fall through to raw key
+        _ows_env = os.environ.get("OWS_WALLET")
+        effective_ows = ows_wallet or _ows_env
+        if effective_ows:
+            try:
+                from simmer_sdk.ows_utils import get_ows_wallet_address
+                self._ows_wallet = effective_ows
+                self._wallet_address = get_ows_wallet_address(effective_ows)
                 logger.info(
-                    "External wallet mode (EVM): detected %s env var, wallet %s",
-                    self.PRIVATE_KEY_ENV_VAR,
+                    "OWS wallet mode: wallet '%s', address %s",
+                    effective_ows,
                     self._wallet_address[:10] + "..." if self._wallet_address else "unknown"
                 )
+            except ImportError:
+                logger.warning(
+                    "OWS wallet '%s' specified but open-wallet-standard not installed. "
+                    "Install with: pip install open-wallet-standard",
+                    effective_ows
+                )
+                self._ows_wallet = None
+            except ValueError as e:
+                raise ValueError(f"OWS wallet error: {e}")
+
+        # EVM key: only if OWS wallet not configured
+        # Check WALLET_PRIVATE_KEY first, fall back to deprecated SIMMER_PRIVATE_KEY
+        if not self._ows_wallet:
+            import warnings
+            _wallet_key = os.environ.get(self.PRIVATE_KEY_ENV_VAR)
+            _legacy_key = os.environ.get(self.PRIVATE_KEY_ENV_VAR_LEGACY)
+            if _wallet_key and _legacy_key and _wallet_key != _legacy_key:
+                warnings.warn(
+                    "Both WALLET_PRIVATE_KEY and SIMMER_PRIVATE_KEY are set with different values. "
+                    "Using WALLET_PRIVATE_KEY. Remove SIMMER_PRIVATE_KEY to avoid confusion.",
+                    UserWarning,
+                    stacklevel=2
+                )
+            elif not _wallet_key and _legacy_key:
+                warnings.warn(
+                    "SIMMER_PRIVATE_KEY is deprecated. Use WALLET_PRIVATE_KEY instead.",
+                    DeprecationWarning,
+                    stacklevel=2
+                )
+            env_key = _wallet_key or _legacy_key
+            effective_key = private_key or env_key
+
+            if effective_key:
+                self._validate_and_set_wallet(effective_key)
+                self._private_key = effective_key
+                # Log that external wallet mode is active (but never log the key!)
+                if not private_key and env_key:
+                    logger.info(
+                        "External wallet mode (EVM): detected %s env var, wallet %s",
+                        self.PRIVATE_KEY_ENV_VAR,
+                        self._wallet_address[:10] + "..." if self._wallet_address else "unknown"
+                    )
 
         # Solana key: Auto-detect from environment for Kalshi trading
         if os.environ.get(self.SOLANA_PRIVATE_KEY_ENV_VAR):
@@ -320,7 +355,7 @@ class SimmerClient:
             )
 
         # Auto-process risk alerts on init (external wallets only)
-        if self.live and self._private_key and venue in ("polymarket",):
+        if self.live and (self._private_key or self._ows_wallet) and venue in ("polymarket",):
             try:
                 self._process_risk_alerts()
             except Exception as e:
@@ -354,7 +389,7 @@ class SimmerClient:
     @property
     def has_external_wallet(self) -> bool:
         """Check if client is configured for external EVM wallet trading (Polymarket)."""
-        return self._private_key is not None
+        return self._private_key is not None or self._ows_wallet is not None
 
     @property
     def solana_wallet_address(self) -> Optional[str]:
@@ -533,7 +568,7 @@ class SimmerClient:
         Called automatically before external wallet trades.
         Caches the result to avoid repeated API calls.
         """
-        if not self._private_key or not self._wallet_address:
+        if not (self._ows_wallet or self._private_key) or not self._wallet_address:
             return
 
         # If we've already confirmed it's linked, skip
@@ -956,7 +991,7 @@ class SimmerClient:
             payload["price"] = price
 
         # External wallet: ensure linked, check approvals, sign locally
-        if self._private_key and effective_venue == "polymarket":
+        if (self._private_key or self._ows_wallet) and effective_venue == "polymarket":
             # Auto-link wallet if not already linked
             self._ensure_wallet_linked()
             # Warn about missing approvals (once per session)
@@ -2499,11 +2534,11 @@ class SimmerClient:
             order_type: Order type ('FAK', 'GTC', etc.)
             price: Optional limit price (0.001-0.999). If None, uses current market price.
         """
-        if not self._private_key or not self._wallet_address:
+        if not (self._ows_wallet or self._private_key) or not self._wallet_address:
             return None
 
         try:
-            from .signing import build_and_sign_order
+            from .signing import build_and_sign_order, build_and_sign_order_ows
         except ImportError:
             raise ImportError(
                 "Local signing requires py_order_utils. "
@@ -2560,19 +2595,33 @@ class SimmerClient:
         fee_rate_bps = market_data.get("fee_rate_bps", 0)
 
         # Build and sign the order
-        signed = build_and_sign_order(
-            private_key=self._private_key,
-            wallet_address=self._wallet_address,
-            token_id=token_id,
-            side=clob_side,
-            price=price,
-            size=size,
-            neg_risk=neg_risk,
-            signature_type=0,  # EOA
-            tick_size=tick_size,
-            fee_rate_bps=fee_rate_bps,
-            order_type=order_type,
-        )
+        if self._ows_wallet:
+            signed = build_and_sign_order_ows(
+                ows_wallet=self._ows_wallet,
+                token_id=token_id,
+                side=clob_side,
+                price=price,
+                size=size,
+                neg_risk=neg_risk,
+                signature_type=0,  # EOA
+                tick_size=tick_size,
+                fee_rate_bps=fee_rate_bps,
+                order_type=order_type,
+            )
+        else:
+            signed = build_and_sign_order(
+                private_key=self._private_key,
+                wallet_address=self._wallet_address,
+                token_id=token_id,
+                side=clob_side,
+                price=price,
+                size=size,
+                neg_risk=neg_risk,
+                signature_type=0,  # EOA
+                tick_size=tick_size,
+                fee_rate_bps=fee_rate_bps,
+                order_type=order_type,
+            )
 
         return signed.to_dict()
 
@@ -2782,24 +2831,16 @@ class SimmerClient:
             if result["success"]:
                 print(f"Linked wallet: {result['wallet_address']}")
         """
-        if not self._private_key or not self._wallet_address:
+        if not (self._ows_wallet or self._private_key) or not self._wallet_address:
             raise ValueError(
-                "private_key required for wallet linking. "
-                "Initialize client with private_key parameter."
+                "private_key or ows_wallet required for wallet linking. "
+                "Initialize client with private_key or ows_wallet parameter."
             )
 
         if signature_type not in (0, 1, 2):
             raise ValueError(
                 f"Invalid signature_type {signature_type}. "
                 "Must be 0 (EOA), 1 (Polymarket proxy), or 2 (Gnosis Safe)"
-            )
-
-        try:
-            from .signing import sign_message
-        except ImportError:
-            raise ImportError(
-                "Wallet linking requires eth_account. "
-                "Install with: pip install eth-account"
             )
 
         # Step 1: Request challenge nonce
@@ -2816,7 +2857,18 @@ class SimmerClient:
             raise ValueError("Failed to get challenge from server")
 
         # Step 2: Sign the challenge message
-        signature = sign_message(self._private_key, message)
+        if self._ows_wallet:
+            from simmer_sdk.ows_utils import ows_sign_message
+            signature = ows_sign_message(self._ows_wallet, message)
+        else:
+            try:
+                from .signing import sign_message
+            except ImportError:
+                raise ImportError(
+                    "Wallet linking requires eth_account. "
+                    "Install with: pip install eth-account"
+                )
+            signature = sign_message(self._private_key, message)
 
         # Step 3: Submit signed challenge
         result = self._request(

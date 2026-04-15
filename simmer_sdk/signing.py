@@ -194,6 +194,154 @@ def build_and_sign_order(
     )
 
 
+def build_and_sign_order_ows(
+    ows_wallet: str,
+    token_id: str,
+    side: str,  # "BUY" or "SELL"
+    price: float,
+    size: float,
+    neg_risk: bool = False,
+    signature_type: int = 0,  # 0=EOA
+    tick_size: float = 0.01,
+    fee_rate_bps: int = 0,
+    order_type: str = "FAK",
+) -> SignedOrder:
+    """
+    Build and sign a Polymarket order using an OWS wallet.
+
+    Same as build_and_sign_order() but signs via OWS instead of a raw
+    private key. The private key never leaves the OWS vault.
+
+    Args:
+        ows_wallet: Name of the OWS wallet to sign with.
+        token_id: Token ID for the outcome (YES or NO token).
+        side: "BUY" or "SELL".
+        price: Order price (0-1).
+        size: Number of shares to trade.
+        neg_risk: Whether this is a neg-risk market.
+        signature_type: Signature type (0=EOA default).
+        tick_size: Market tick size.
+        fee_rate_bps: Fee rate in basis points.
+        order_type: "FAK", "FOK", "GTC", or "GTD".
+
+    Returns:
+        SignedOrder ready for API submission.
+    """
+    try:
+        from py_order_utils.builders import OrderBuilder
+        from py_order_utils.signer import Signer
+        from py_order_utils.model import OrderData, EOA, POLY_PROXY, POLY_GNOSIS_SAFE as GNOSIS_SAFE, BUY, SELL
+        from py_clob_client.config import get_contract_config
+        from py_clob_client.order_builder.builder import OrderBuilder as ClobOrderBuilder, ROUNDING_CONFIG
+        from poly_eip712_structs import make_domain
+    except ImportError:
+        raise ImportError(
+            "py_order_utils, py_clob_client, and poly_eip712_structs are required. "
+            "Install with: pip install py-order-utils py-clob-client"
+        )
+
+    from simmer_sdk.ows_utils import get_ows_wallet_address, ows_sign_typed_data
+
+    # Validate inputs
+    if side not in ("BUY", "SELL"):
+        raise ValueError(f"Invalid side '{side}'. Must be 'BUY' or 'SELL'")
+    if price <= 0 or price >= 1:
+        raise ValueError(f"Invalid price {price}. Must be between 0 and 1")
+    if size <= 0:
+        raise ValueError(f"Invalid size {size}. Must be positive")
+    if signature_type not in (0, 1, 2):
+        raise ValueError(f"Invalid signature_type {signature_type}. Must be 0, 1, or 2")
+
+    # Get wallet address from OWS
+    wallet_address = get_ows_wallet_address(ows_wallet)
+
+    # Calculate order amounts (same logic as build_and_sign_order)
+    tick_size_str = str(tick_size)
+    if tick_size_str not in ROUNDING_CONFIG:
+        tick_size_str = "0.01"
+    round_config = ROUNDING_CONFIG[tick_size_str]
+
+    dummy_builder = ClobOrderBuilder.__new__(ClobOrderBuilder)
+    side_enum, maker_raw, taker_raw = dummy_builder.get_order_amounts(
+        side, size, price, round_config
+    )
+
+    from py_clob_client.order_builder.helpers import round_normal as _round_normal, to_token_decimals as _to_token_decimals
+    if order_type in ("FAK", "FOK"):
+        maker_raw = _to_token_decimals(_round_normal(maker_raw / 1e6, 2))
+
+    # Check minimum order size
+    shares_raw = taker_raw if side == "BUY" else maker_raw
+    effective_shares = shares_raw / POLYMARKET_DECIMAL_FACTOR
+    if effective_shares < MIN_ORDER_SIZE_SHARES:
+        raise ValueError(
+            f"Order too small: {effective_shares:.2f} shares after rounding "
+            f"is below minimum ({MIN_ORDER_SIZE_SHARES})"
+        )
+
+    # Map signature type
+    sig_type_map = {0: EOA, 1: POLY_PROXY, 2: GNOSIS_SAFE}
+    sig_type = sig_type_map.get(signature_type, EOA)
+
+    # Build unsigned order — need a dummy signer for py_order_utils
+    # (it requires a Signer to construct the order struct)
+    from eth_account import Account
+    dummy_account = Account.create()
+    contract_config = get_contract_config(POLYGON_CHAIN_ID, neg_risk)
+    order_builder = OrderBuilder(
+        contract_config.exchange,
+        POLYGON_CHAIN_ID,
+        Signer(key=dummy_account.key.hex()),
+    )
+
+    data_for_build = OrderData(
+        maker=dummy_account.address,
+        taker=ZERO_ADDRESS,
+        tokenId=token_id,
+        makerAmount=str(maker_raw),
+        takerAmount=str(taker_raw),
+        side=side_enum,
+        feeRateBps=str(fee_rate_bps),
+        nonce="0",
+        signer=dummy_account.address,
+        expiration="0",
+        signatureType=sig_type,
+    )
+    order = order_builder.build_order(data_for_build)
+
+    # Replace addresses with real OWS wallet address
+    order.values["maker"] = wallet_address
+    order.values["signer"] = wallet_address
+
+    # Generate EIP-712 typed data JSON
+    domain = make_domain(
+        name="Polymarket CTF Exchange",
+        version="1",
+        chainId=str(POLYGON_CHAIN_ID),
+        verifyingContract=contract_config.exchange,
+    )
+    typed_data_json = order.to_message_json(domain=domain)
+
+    # Sign with OWS — key never leaves the vault
+    signature = ows_sign_typed_data(ows_wallet, typed_data_json)
+
+    return SignedOrder(
+        salt=str(order.values["salt"]),
+        maker=wallet_address,
+        signer=wallet_address,
+        taker=ZERO_ADDRESS,
+        tokenId=token_id,
+        makerAmount=str(maker_raw),
+        takerAmount=str(taker_raw),
+        expiration="0",
+        nonce="0",
+        feeRateBps=str(fee_rate_bps),
+        side=side,
+        signatureType=signature_type,
+        signature=signature,
+    )
+
+
 def sign_message(private_key: str, message: str) -> str:
     """
     Sign a message with the wallet's private key.

@@ -11,6 +11,7 @@ def _make_client():
     client.live = True
     client.venue = "polymarket"
     client._private_key = None
+    client._ows_wallet = None
     client._solana_private_key = None
     client._held_markets_cache = None
     client._approvals_warned = False
