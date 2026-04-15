@@ -65,6 +65,40 @@ def get_ows_wallet_address(wallet_name: str) -> str:
     return evm_accounts[0]["address"]
 
 
+def _coerce_typed_data_uints(typed_data_json: str) -> str:
+    """
+    Coerce uint values in EIP-712 typed data to strings.
+
+    OWS's Rust EIP-712 parser requires uint values as strings when they
+    exceed JavaScript's Number.MAX_SAFE_INTEGER (e.g., Polymarket token IDs).
+    This converts all uint fields in the message to string representation.
+    """
+    data = json.loads(typed_data_json)
+    types = data.get("types", {})
+    primary_type = data.get("primaryType", "")
+    message = data.get("message", {})
+
+    # Find which fields are uint types
+    uint_fields = set()
+    for field in types.get(primary_type, []):
+        if field["type"].startswith("uint"):
+            uint_fields.add(field["name"])
+
+    # Convert int values for uint fields:
+    # - Values > 2^128: hex encoding (OWS requirement for large uint256)
+    # - Other values: string encoding
+    U128_MAX = (1 << 128) - 1
+    for field_name in uint_fields:
+        if field_name in message and isinstance(message[field_name], int):
+            val = message[field_name]
+            if val > U128_MAX:
+                message[field_name] = hex(val)
+            else:
+                message[field_name] = str(val)
+
+    return json.dumps(data)
+
+
 def ows_sign_typed_data(wallet_name: str, typed_data_json: str) -> str:
     """
     Sign EIP-712 typed data using an OWS wallet.
@@ -77,6 +111,9 @@ def ows_sign_typed_data(wallet_name: str, typed_data_json: str) -> str:
         Hex-encoded signature string.
     """
     import ows
+
+    # Coerce large ints to strings for OWS compatibility
+    typed_data_json = _coerce_typed_data_uints(typed_data_json)
 
     result = ows.sign_typed_data(
         wallet=wallet_name,
