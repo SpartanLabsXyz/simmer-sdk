@@ -162,26 +162,33 @@ Fields:
 
 ### Run reactor mode
 
-**Single poll** — check for pending signals once and exit. Good for cron jobs or quick checks:
+**Recommended: cron with `--once`** — polls for pending signals once and exits. Run on a 1-minute cron for reliable, persistent coverage:
 
 ```bash
+# Linux crontab
+*/1 * * * * cd /path/to/skill && python copytrading_trader.py --reactor --once --live
+
+# OpenClaw cron
+openclaw cron add --name "reactor-poll" --cron "*/1 * * * *" --tz UTC --session isolated \
+  --message "Run: cd /path/to/skill && python3 copytrading_trader.py --reactor --once"
+
+# One-off check
 python copytrading_trader.py --reactor --once
 ```
 
-**Loop mode** — polls every 2s continuously. This is a long-running process that should be backgrounded in your runtime:
+> **Why cron?** Reactor signals expire after a short window. A cron ensures your agent checks for signals reliably, even after reboots or process crashes. If your polling process stops, signals expire silently — cron prevents this.
+
+**Advanced: loop mode** — polls every 2s continuously. Lower latency but requires a process manager (launchd, systemd, supervisor) to auto-restart on crash. Not recommended for agent runtimes with exec timeouts.
 
 ```bash
-# Shell / systemd / launchd
+# With a process manager (launchd, systemd, supervisor)
+python copytrading_trader.py --reactor
+
+# Plain shell (will not auto-restart)
 nohup python copytrading_trader.py --reactor > reactor.log 2>&1 &
-
-# OpenClaw (exec tool)
-exec command="python3 copytrading_trader.py --reactor" background=true timeout=7200
-
-# Hermes (exec tool)
-exec command="python3 copytrading_trader.py --reactor" background=true
 ```
 
-Loop mode runs until SIGINT or the timeout. Set `REACTOR_POLL_INTERVAL_SECONDS` to tune the polling cadence (default 2s).
+Set `REACTOR_POLL_INTERVAL_SECONDS` to tune the polling cadence (default 2s).
 
 > **Note:** Reactor mode always executes live trades (venue is set in your reactor config). Use `venue: "sim"` in your config to paper trade.
 
