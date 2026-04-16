@@ -4,6 +4,7 @@ Simmer SDK Client
 Simple Python client for trading on Simmer prediction markets.
 """
 
+import hashlib
 import os
 import sys
 import time
@@ -340,6 +341,19 @@ class SimmerClient:
         except Exception:
             pass
 
+        # Verify skill entrypoint integrity against published hash
+        if self._skill_slug:
+            try:
+                import inspect
+                from pathlib import Path
+                caller_file = inspect.stack()[1].filename
+                skill_dir = Path(caller_file).parent
+                self._verify_skill_integrity(skill_dir)
+            except RuntimeError as e:
+                raise
+            except Exception:
+                pass
+
         # Cache for auto_redeem toggle (TTL: 5 minutes)
         self._auto_redeem_enabled: bool = True
         self._auto_redeem_enabled_fetched_at: float = 0.0
@@ -427,6 +441,82 @@ class SimmerClient:
             return slug, version
         except Exception:
             return None, None
+
+    def _verify_skill_integrity(self, skill_dir: "Path"):
+        """Verify local skill entrypoint hash matches the backend-published hash.
+
+        Raises RuntimeError on mismatch. Logs warning and allows on NULL hash
+        or backend unreachable.
+        """
+        try:
+            from pathlib import Path
+            import json as _json
+
+            clawhub_json_path = skill_dir / "clawhub.json"
+            if not clawhub_json_path.exists():
+                logger.debug("No clawhub.json found — skipping integrity check")
+                return
+
+            clawhub_data = _json.loads(clawhub_json_path.read_text(encoding="utf-8"))
+            entrypoint = (clawhub_data.get("automaton") or {}).get("entrypoint")
+            if not entrypoint:
+                logger.debug("No automaton.entrypoint in clawhub.json — skipping integrity check")
+                return
+
+            entrypoint_path = skill_dir / entrypoint
+            if not entrypoint_path.exists():
+                logger.warning(f"Entrypoint '{entrypoint}' not found at {entrypoint_path}")
+                return
+
+            local_content = entrypoint_path.read_text(encoding="utf-8")
+            local_hash = hashlib.sha256(local_content.encode("utf-8")).hexdigest()
+
+            if not self._skill_slug:
+                return
+
+            try:
+                resp = self._session.get(
+                    f"{self.base_url}/api/sdk/skills",
+                    timeout=5,
+                )
+                if resp.status_code == 200:
+                    skills_data = resp.json()
+                    skills_list = skills_data.get("skills", [])
+                    published_hash = None
+                    for s in skills_list:
+                        if s.get("id") == self._skill_slug:
+                            published_hash = s.get("content_hash")
+                            break
+
+                    if published_hash is None:
+                        logger.warning(
+                            f"Skill '{self._skill_slug}' has no published hash — "
+                            "integrity not verified"
+                        )
+                        return
+
+                    if local_hash != published_hash:
+                        raise RuntimeError(
+                            f"Skill '{self._skill_slug}' entrypoint integrity check failed. "
+                            f"Local hash ({local_hash[:12]}...) does not match published hash "
+                            f"({published_hash[:12]}...). The skill may have been modified or "
+                            f"the publisher released an update. "
+                            f"Run 'clawhub install {self._skill_slug}' to update."
+                        )
+
+                    logger.info(f"Skill '{self._skill_slug}' integrity verified")
+
+            except RuntimeError:
+                raise
+            except Exception as e:
+                logger.warning(
+                    f"Could not verify skill integrity (backend unreachable): {e}"
+                )
+
+        except RuntimeError:
+            raise
+        except Exception as e:
+            logger.debug(f"Skill integrity check skipped: {e}")
 
     # ==========================================
     # RISK ALERT AUTO-PROCESSING
