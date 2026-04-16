@@ -331,25 +331,24 @@ class SimmerClient:
         # Auto-detect skill slug + version from caller's SKILL.md
         self._skill_slug = None
         self._skill_version = None
+        self._skill_dir = None
         try:
             import inspect
             from pathlib import Path
             caller_file = inspect.stack()[1].filename
-            skill_md = Path(caller_file).parent / "SKILL.md"
+            skill_dir = Path(caller_file).parent
+            skill_md = skill_dir / "SKILL.md"
             if skill_md.exists():
                 self._skill_slug, self._skill_version = self._parse_skill_md(skill_md)
+                self._skill_dir = skill_dir
         except Exception:
             pass
 
         # Verify skill entrypoint integrity against published hash
-        if self._skill_slug:
+        if self._skill_slug and self._skill_dir:
             try:
-                import inspect
-                from pathlib import Path
-                caller_file = inspect.stack()[1].filename
-                skill_dir = Path(caller_file).parent
-                self._verify_skill_integrity(skill_dir)
-            except RuntimeError as e:
+                self._verify_skill_integrity(self._skill_dir)
+            except RuntimeError:
                 raise
             except Exception:
                 pass
