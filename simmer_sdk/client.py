@@ -1086,6 +1086,10 @@ class SimmerClient:
         if price is not None:
             payload["price"] = price
 
+        # Include wallet_address for per-agent wallet trades
+        if self._ows_wallet and self._wallet_address:
+            payload["wallet_address"] = self._wallet_address
+
         # External wallet: ensure linked, check approvals, sign locally
         if (self._private_key or self._ows_wallet) and effective_venue == "polymarket":
             # Auto-link wallet if not already linked
@@ -3402,6 +3406,77 @@ class SimmerClient:
 
         print()
         return {"set": set_count, "skipped": skipped, "failed": failed, "details": details}
+
+    def register_agent_wallet(self, ows_wallet_name: str) -> dict:
+        """Register an OWS wallet for this agent. Elite-only.
+
+        Creates a per-agent wallet record on the server. After registration,
+        set on-chain approvals externally, then call update_agent_wallet_creds()
+        to cache CLOB credentials server-side.
+
+        Args:
+            ows_wallet_name: Name of the OWS wallet (e.g. "agent-mybot")
+
+        Returns:
+            dict with wallet record (id, agent_id, wallet_address, approvals_set)
+        """
+        from simmer_sdk.ows_utils import get_ows_wallet_address
+        wallet_address = get_ows_wallet_address(ows_wallet_name)
+
+        resp = self._request("POST", "/api/sdk/agent-wallet/register", json={
+            "agent_id": self._agent_id,
+            "ows_wallet_name": ows_wallet_name,
+            "wallet_address": wallet_address,
+        })
+        return resp
+
+    def get_agent_wallets(self) -> list:
+        """List all agent wallets for the authenticated user.
+
+        Returns:
+            list of wallet dicts (id, agent_id, wallet_address, approvals_set, agent_name)
+        """
+        resp = self._request("GET", "/api/sdk/agent-wallets")
+        return resp.get("wallets", [])
+
+    def get_agent_wallet_pnl(self, agent_id: str = None) -> dict:
+        """Get P&L for an agent's dedicated wallet.
+
+        Args:
+            agent_id: SDK agent ID. Defaults to this client's agent_id.
+
+        Returns:
+            dict with realized_pnl, unrealized_pnl, total_cost, positions
+        """
+        aid = agent_id or self._agent_id
+        return self._request("GET", f"/api/sdk/agent-wallet/{aid}/pnl")
+
+    def update_agent_wallet_creds(self, ows_wallet_name: str) -> dict:
+        """Derive CLOB credentials via OWS and cache them server-side.
+
+        Call this after setting on-chain approvals for an agent wallet.
+        Derives Polymarket CLOB API credentials using OWS signing (no private
+        key needed) and uploads them encrypted to the server.
+
+        Args:
+            ows_wallet_name: Name of the OWS wallet
+
+        Returns:
+            dict with updated wallet record
+        """
+        from simmer_sdk.ows_utils import get_ows_wallet_address, ows_derive_clob_creds
+        wallet_address = get_ows_wallet_address(ows_wallet_name)
+        creds = ows_derive_clob_creds(ows_wallet_name)
+
+        return self._request("POST", "/api/sdk/agent-wallet/update-creds", json={
+            "wallet_address": wallet_address,
+            "clob_api_creds": {
+                "api_key": creds.api_key,
+                "api_secret": creds.api_secret,
+                "api_passphrase": creds.api_passphrase,
+            },
+            "approvals_set": True,
+        })
 
     @staticmethod
     def check_for_updates(warn: bool = True) -> Dict[str, Any]:
