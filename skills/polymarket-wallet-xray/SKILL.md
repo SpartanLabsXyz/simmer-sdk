@@ -59,6 +59,19 @@ Use this skill when you want to:
 - Assuming past returns = future returns
 - Making large bets on these metrics alone
 
+## Setup Flow
+
+When user asks to install or configure this skill:
+
+1. **Install the Simmer SDK**
+   ```bash
+   pip install simmer-sdk
+   ```
+
+2. **Ask for Simmer API key**
+   - They can get it from simmer.markets/dashboard → SDK tab
+   - Store in environment as `SIMMER_API_KEY`
+
 ## Quick Commands
 
 ```bash

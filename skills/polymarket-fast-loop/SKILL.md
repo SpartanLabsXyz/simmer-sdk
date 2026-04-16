@@ -40,22 +40,27 @@ Use this skill when the user wants to:
 
 When user asks to install or configure this skill:
 
-1. **Ask for Simmer API key**
+1. **Install the Simmer SDK**
+   ```bash
+   pip install simmer-sdk
+   ```
+
+2. **Ask for Simmer API key**
    - Get from simmer.markets/dashboard → SDK tab
    - Store in environment as `SIMMER_API_KEY`
 
-2. **Ask for wallet private key** (required for live trading)
+3. **Ask for wallet private key** (required for live trading)
    - This is the private key for their Polymarket wallet (the wallet that holds USDC)
    - Store in environment as `WALLET_PRIVATE_KEY`
    - The SDK uses this to sign orders client-side automatically — no manual signing needed
 
-3. **Ask about settings** (or confirm defaults)
+4. **Ask about settings** (or confirm defaults)
    - Asset: BTC, ETH, or SOL (default BTC)
    - Entry threshold: Min divergence to trade (default 5¢)
    - Max position: Amount per trade (default $5.00)
    - Window: 5m or 15m (default 5m)
 
-4. **Set up cron or loop** (user drives scheduling — see "How to Run on a Loop")
+5. **Set up cron or loop** (user drives scheduling — see "How to Run on a Loop")
 
 ## Quick Start
 

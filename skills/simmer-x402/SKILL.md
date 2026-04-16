@@ -21,17 +21,22 @@ Use this skill when:
 
 ## Setup
 
-1. **Set your wallet private key**
+1. **Install the Simmer SDK**
+   ```bash
+   pip install simmer-sdk
+   ```
+
+2. **Set your wallet private key**
    ```bash
    export EVM_PRIVATE_KEY=0x...your_private_key...
    ```
    Falls back to `WALLET_PRIVATE_KEY` if `EVM_PRIVATE_KEY` is not set (same key Simmer/Polymarket users already have). Your EVM address works on all chains — Polygon for trading, Base for x402 payments.
 
-2. **Fund with USDC on Base**
+3. **Fund with USDC on Base**
    - Send USDC to your wallet address on Base network
    - x402 payments on Base are fully gasless — you only need USDC, no ETH
 
-3. **Install dependencies**
+4. **Install dependencies**
    ```bash
    pip install x402[httpx,evm]
    ```

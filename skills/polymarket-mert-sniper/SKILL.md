@@ -29,22 +29,27 @@ Use this skill when the user wants to:
 
 ## Setup Flow
 
-1. **Ask for Simmer API key**
+1. **Install the Simmer SDK**
+   ```bash
+   pip install simmer-sdk
+   ```
+
+2. **Ask for Simmer API key**
    - Get it from simmer.markets/dashboard -> SDK tab
    - Store in environment as `SIMMER_API_KEY`
 
-2. **Ask for wallet private key** (required for live trading)
+3. **Ask for wallet private key** (required for live trading)
    - This is the private key for their Polymarket wallet (the wallet that holds USDC)
    - Store in environment as `WALLET_PRIVATE_KEY`
    - The SDK uses this to sign orders client-side automatically — no manual signing needed
 
-3. **Ask about settings** (or confirm defaults)
+4. **Ask about settings** (or confirm defaults)
    - Market filter: Which markets to scan (default: all)
    - Max bet: Maximum per trade (default $10)
    - Expiry window: How close to resolution (default 2 minutes)
    - Min split: Minimum odds skew (default 60/40)
 
-4. **Save settings to config.json or environment variables**
+5. **Save settings to config.json or environment variables**
 
 ## Configuration
 

@@ -28,6 +28,25 @@ On most standalone binary prediction markets, the event resolves NO — nothing 
 5. **Checks** fees (only trades zero-fee markets) and safeguards
 6. **Buys NO** via Simmer SDK, sized by `max_bet_usd`
 
+## Setup Flow
+
+When user asks to install or configure this skill:
+
+1. **Install the Simmer SDK**
+   ```bash
+   pip install simmer-sdk
+   ```
+
+2. **Ask for Simmer API key**
+   - They can get it from simmer.markets/dashboard → SDK tab
+   - Store in environment as `SIMMER_API_KEY`
+
+3. **Ask for wallet private key** (required for live trading)
+   - This is the private key for their Polymarket wallet (the wallet that holds USDC)
+   - Store in environment as `WALLET_PRIVATE_KEY`
+   - The SDK uses this to sign orders client-side automatically — no manual signing needed
+   - Not needed for $SIM paper trading on the Simmer venue
+
 ## Quick Commands
 
 ```bash

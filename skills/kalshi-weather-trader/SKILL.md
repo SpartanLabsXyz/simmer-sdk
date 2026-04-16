@@ -28,33 +28,38 @@ Use this skill when the user wants to:
 
 When user asks to install or configure this skill:
 
-1. **Ask for Simmer API key**
+1. **Install the Simmer SDK**
+   ```bash
+   pip install simmer-sdk
+   ```
+
+2. **Ask for Simmer API key**
    - They can get it from simmer.markets/dashboard → SDK tab
    - Store in environment as `SIMMER_API_KEY`
 
-2. **Ask for Solana private key** (required for live trading)
+3. **Ask for Solana private key** (required for live trading)
    - This is the base58-encoded secret key for their Solana wallet
    - Store in environment as `SOLANA_PRIVATE_KEY`
    - The SDK uses this to sign transactions client-side automatically
 
-3. **Verify KYC**
+4. **Verify KYC**
    - Required for Kalshi buys (not sells)
    - Complete at [dflow.net/proof](https://dflow.net/proof)
    - Check status: `curl "https://api.simmer.markets/api/proof/status?wallet=YOUR_SOLANA_ADDRESS"`
 
-4. **Fund the wallet**
+5. **Fund the wallet**
    - SOL on Solana mainnet for transaction fees (~0.01 SOL)
    - USDC on Solana mainnet for trading capital
 
-5. **Ask about settings** (or confirm defaults)
+6. **Ask about settings** (or confirm defaults)
    - Entry threshold: When to buy (default 15¢)
    - Exit threshold: When to sell (default 45¢)
    - Max position: Amount per trade (default $2.00)
    - Locations: Which cities to trade (default NYC)
 
-6. **Save settings to environment variables**
+7. **Save settings to environment variables**
 
-7. **Set up cron** (disabled by default — user must enable scheduling)
+8. **Set up cron** (disabled by default — user must enable scheduling)
 
 ## Configuration
 

@@ -22,6 +22,31 @@ Mirror positions from successful Polymarket traders using the Simmer SDK. Two mo
 
 > **This is a template.** The default logic mirrors whale wallets — remix it with your own wallet selection, sizing rules, filters, or cap logic. The skill handles all the plumbing (signal polling, trade execution, dedup, signing). Your agent provides the alpha.
 
+## Setup Flow
+
+When user asks to install or configure this skill:
+
+1. **Install the Simmer SDK**
+   ```bash
+   pip install simmer-sdk
+   ```
+
+2. **Ask for Simmer API key**
+   - They can get it from simmer.markets/dashboard → SDK tab
+   - Store in environment as `SIMMER_API_KEY`
+
+3. **Ask for wallet private key** (required for live trading on Polymarket)
+   - This is the private key for their Polymarket wallet (the wallet that holds USDC)
+   - Store in environment as `WALLET_PRIVATE_KEY`
+   - The SDK uses this to sign orders client-side automatically — no manual signing needed
+   - Not needed for $SIM paper trading
+
+4. **Ask about settings** (or confirm defaults)
+   - Target wallets: Whale addresses to copy
+   - Max per position: Amount per trade (default $50)
+   - Top N positions: How many positions to track (auto-calculated from balance)
+   - Max trades per run: Safety cap (default 10)
+
 ## When to Use This Skill
 
 Use this skill when the user wants to:

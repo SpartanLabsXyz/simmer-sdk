@@ -19,6 +19,19 @@ Use this skill when the user wants to:
 - Generate trading reports
 - Analyze which strategies work best
 
+## Setup Flow
+
+When user asks to install or configure this skill:
+
+1. **Install the Simmer SDK**
+   ```bash
+   pip install simmer-sdk
+   ```
+
+2. **Ask for Simmer API key**
+   - They can get it from simmer.markets/dashboard → SDK tab
+   - Store in environment as `SIMMER_API_KEY`
+
 ## Quick Commands
 
 ```bash
