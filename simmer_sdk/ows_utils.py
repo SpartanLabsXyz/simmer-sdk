@@ -146,6 +146,140 @@ def ows_sign_message(wallet_name: str, message: str) -> str:
     return result["signature"]
 
 
+def ows_sign_transaction(wallet_name: str, tx_hex: str) -> dict:
+    """
+    Sign a raw EVM transaction envelope using an OWS wallet.
+
+    OWS computes keccak256 of the unsigned tx bytes and signs the hash;
+    callers assemble the final signed transaction (signature + tx envelope)
+    and broadcast separately. Use ows_send_transaction() if you want OWS to
+    broadcast for you.
+
+    Args:
+        wallet_name: Name of the OWS wallet.
+        tx_hex: Hex-encoded unsigned EVM transaction bytes (RLP envelope,
+            with or without 0x prefix). Supports legacy and EIP-1559 typed txs.
+
+    Returns:
+        dict with `signature` (hex string, 65 bytes: r || s || v) and
+        `recovery_id` (int).
+    """
+    import ows
+
+    result = ows.sign_transaction(
+        wallet=wallet_name,
+        chain="polygon",
+        tx_hex=tx_hex,
+    )
+    return {
+        "signature": result["signature"],
+        "recovery_id": result["recovery_id"],
+    }
+
+
+def ows_send_transaction(wallet_name: str, tx_hex: str, rpc_url: Optional[str] = None) -> dict:
+    """
+    Sign and broadcast a raw EVM transaction in one call via OWS.
+
+    Convenience wrapper for the simple case (no custom relay routing).
+    For Polymarket flows that require the PolyNode relay, sign with
+    ows_sign_transaction() and broadcast through your own path instead.
+
+    Args:
+        wallet_name: Name of the OWS wallet.
+        tx_hex: Hex-encoded unsigned EVM transaction bytes.
+        rpc_url: Optional RPC URL override. Defaults to OWS-configured Polygon RPC.
+
+    Returns:
+        dict with `tx_hash` (hex string).
+    """
+    import ows
+
+    result = ows.sign_and_send(
+        wallet=wallet_name,
+        chain="polygon",
+        tx_hex=tx_hex,
+        rpc_url=rpc_url,
+    )
+    return {"tx_hash": result["tx_hash"]}
+
+
+def ows_sign_typed_tx(wallet_name: str, tx_fields: dict) -> str:
+    """
+    Sign an EIP-1559 (type 2) transaction via OWS, returning the broadcast-ready hex.
+
+    The SDK already builds tx_fields dicts (to/data/value/chainId/nonce/gas/maxFeePerGas/
+    maxPriorityFeePerGas/type=2) for both approvals and redeem paths. This helper takes
+    that same dict and returns a fully signed RLP-encoded envelope, ready to broadcast
+    via Simmer's relay (`/api/sdk/wallet/broadcast-tx`) — same shape that
+    `eth_account.Account.sign_transaction(...).raw_transaction` produces, but signed
+    by OWS instead of a raw private key.
+
+    Implementation: signs with a throwaway eth_account key to get the RLP structure,
+    extracts the unsigned envelope bytes, asks OWS to sign them, then re-assembles
+    the signed envelope with OWS's signature. Avoids depending on eth_account internals.
+
+    Args:
+        wallet_name: OWS wallet name.
+        tx_fields: Standard eth_account transaction dict with type=2.
+
+    Returns:
+        Hex-encoded signed transaction envelope (0x-prefixed), ready to broadcast.
+
+    Raises:
+        ValueError: If the tx is not EIP-1559 or OWS returns an unexpected signature shape.
+    """
+    import rlp
+    from eth_account import Account
+
+    # Step 1: produce the canonical RLP envelope structure via a throwaway sign.
+    dummy_acc = Account.create()
+    signed_dummy = Account.sign_transaction(tx_fields, dummy_acc.key)
+    raw_dummy = bytes(signed_dummy.raw_transaction)
+
+    if not raw_dummy or raw_dummy[0] != 0x02:
+        raise ValueError(
+            f"ows_sign_typed_tx only supports EIP-1559 (type 2) transactions; "
+            f"got envelope prefix {hex(raw_dummy[0]) if raw_dummy else 'empty'}"
+        )
+
+    decoded = rlp.decode(raw_dummy[1:])
+    if len(decoded) != 12:
+        raise ValueError(
+            f"Unexpected RLP field count {len(decoded)} for signed EIP-1559 (expected 12)"
+        )
+
+    # Step 2: build the unsigned envelope (first 9 fields, 0x02 prefix).
+    unsigned_fields = list(decoded[:9])
+    unsigned_envelope = b"\x02" + rlp.encode(unsigned_fields)
+
+    # Step 3: ask OWS to sign.
+    sig_result = ows_sign_transaction(wallet_name, "0x" + unsigned_envelope.hex())
+    sig_hex = sig_result["signature"]
+    if sig_hex.startswith("0x"):
+        sig_hex = sig_hex[2:]
+    sig_bytes = bytes.fromhex(sig_hex)
+    if len(sig_bytes) != 65:
+        raise ValueError(
+            f"OWS returned {len(sig_bytes)}-byte signature, expected 65 (r || s || v)"
+        )
+
+    # Step 4: re-assemble with OWS signature.
+    # RLP canonical encoding requires stripping leading zero bytes from integers
+    # (v, r, s). Polygon RPC rejects non-canonical txs with:
+    #   "rlp: non-canonical integer (leading zero bytes) for *big.Int"
+    # OWS returns 32-byte fixed-width r/s; ~1-in-256-per-byte chance the high
+    # byte is zero, which in practice means several percent of broadcasts fail
+    # without this lstrip (caught by live test 2026-04-17).
+    v_byte = sig_bytes[64]
+    v_field = bytes([v_byte]) if v_byte != 0 else b""
+    r_field = sig_bytes[:32].lstrip(b"\x00")
+    s_field = sig_bytes[32:64].lstrip(b"\x00")
+
+    signed_envelope = b"\x02" + rlp.encode(unsigned_fields + [v_field, r_field, s_field])
+    return "0x" + signed_envelope.hex()
+
+
 # --- Polymarket CLOB credential derivation via OWS ---
 
 CLOB_HOST = "https://clob.polymarket.com"

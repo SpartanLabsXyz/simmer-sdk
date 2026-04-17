@@ -789,6 +789,20 @@ class SimmerClient:
         except Exception as e:
             logger.debug("Could not check approvals: %s", e)
 
+    def _sign_eip1559_tx_for_broadcast(self, tx_fields: dict) -> str:
+        """Sign an EIP-1559 tx via OWS (beta) or raw private key, return broadcast-ready hex.
+
+        Used by set_approvals() and redeem(). Centralizes the signing decision so the
+        OWS branch lives in one place. Caller is responsible for ensuring at least
+        one signing source is configured.
+        """
+        if self._ows_wallet:
+            from .ows_utils import ows_sign_typed_tx
+            return ows_sign_typed_tx(self._ows_wallet, tx_fields)
+        from eth_account import Account
+        signed = Account.sign_transaction(tx_fields, self._private_key)
+        return "0x" + signed.raw_transaction.hex()
+
     def _request(
         self,
         method: str,
@@ -2210,17 +2224,18 @@ class SimmerClient:
         if not result.get("unsigned_tx"):
             return result
 
-        # External wallet — sign locally and broadcast
-        if not self._private_key:
+        # External / OWS wallet — sign locally (or via OWS vault) and broadcast
+        if not self._private_key and not self._ows_wallet:
             raise ValueError(
-                "Redemption requires signing. Set WALLET_PRIVATE_KEY env var or pass private_key to constructor."
+                "Redemption requires signing. Set WALLET_PRIVATE_KEY env var, pass private_key to constructor, "
+                "or configure an OWS wallet (OWS_WALLET env var or ows_wallet constructor arg)."
             )
 
         try:
-            from eth_account import Account
+            import eth_account  # noqa: F401 — early dep check; signing happens in _sign_eip1559_tx_for_broadcast
         except ImportError:
             raise ImportError(
-                "eth-account is required for external wallet redemption. "
+                "eth-account is required for external/OWS wallet redemption. "
                 "Install with: pip install eth-account"
             )
 
@@ -2282,8 +2297,8 @@ class SimmerClient:
             "type": 2,
         }
 
-        signed = Account.sign_transaction(tx_fields, self._private_key)
-        signed_tx_hex = "0x" + signed.raw_transaction.hex()
+        # Sign via OWS or raw key (centralized in helper)
+        signed_tx_hex = self._sign_eip1559_tx_for_broadcast(tx_fields)
 
         # Broadcast via Simmer's Alchemy relay
         broadcast = self._request("POST", "/api/sdk/wallet/broadcast-tx", json={
@@ -3122,13 +3137,19 @@ class SimmerClient:
             result = client.set_approvals()
             print(f"Set {result['set']} approvals, skipped {result['skipped']}")
         """
-        if not self._private_key or not self._wallet_address:
+        if not self._wallet_address:
             raise ValueError(
-                "No wallet configured. Set WALLET_PRIVATE_KEY env var or pass private_key to constructor."
+                "No wallet configured. Set WALLET_PRIVATE_KEY env var or pass private_key to constructor "
+                "(or set OWS_WALLET / pass ows_wallet for OWS-managed signing)."
+            )
+        if not self._private_key and not self._ows_wallet:
+            raise ValueError(
+                "No signing key available. Set WALLET_PRIVATE_KEY env var, pass private_key to constructor, "
+                "or configure an OWS wallet (OWS_WALLET env var or ows_wallet constructor arg)."
             )
 
         try:
-            from eth_account import Account
+            import eth_account  # noqa: F401 — early dep check; signing happens in _sign_eip1559_tx_for_broadcast
         except ImportError:
             raise ImportError(
                 "eth-account is required for set_approvals(). "
@@ -3292,9 +3313,8 @@ class SimmerClient:
                         "type": 2,  # EIP-1559
                     }
 
-                    # Sign locally — private key never leaves this machine
-                    signed = Account.sign_transaction(tx_fields, self._private_key)
-                    signed_tx_hex = "0x" + signed.raw_transaction.hex()
+                    # Sign via OWS or raw key (centralized in helper)
+                    signed_tx_hex = self._sign_eip1559_tx_for_broadcast(tx_fields)
 
                     # Broadcast via Simmer backend (Alchemy RPC)
                     result = self._request("POST", "/api/sdk/wallet/broadcast-tx", json={
@@ -3408,11 +3428,11 @@ class SimmerClient:
         return {"set": set_count, "skipped": skipped, "failed": failed, "details": details}
 
     def register_agent_wallet(self, ows_wallet_name: str) -> dict:
-        """Register an OWS wallet for this agent. Elite-only.
+        """Register an OWS wallet for this agent. Elite-only (beta).
 
         Creates a per-agent wallet record on the server. After registration,
-        set on-chain approvals externally, then call update_agent_wallet_creds()
-        to cache CLOB credentials server-side.
+        set on-chain approvals via set_approvals(), then call
+        update_agent_wallet_creds() to cache CLOB credentials server-side.
 
         Args:
             ows_wallet_name: Name of the OWS wallet (e.g. "agent-mybot")
