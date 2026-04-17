@@ -110,6 +110,37 @@ class TestGetAgentWalletPnl:
 
         client._request.assert_called_once_with("GET", "/api/sdk/agent-wallet/other-agent/pnl")
 
+    def test_none_unrealized_pnl_coerced_to_zero(self):
+        """Backend returns unrealized_pnl=None on the PolyNode path (SIM-854).
+        SDK must coerce to 0.0 so callers doing arithmetic don't crash."""
+        client = _make_client(agent_id="my-agent")
+        client._request.return_value = {
+            "agent_id": "my-agent",
+            "realized_pnl": 5.0,
+            "unrealized_pnl": None,
+            "total_cost": 20.0,
+            "positions": [],
+        }
+
+        pnl = client.get_agent_wallet_pnl()
+
+        assert pnl["unrealized_pnl"] == 0.0
+        assert isinstance(pnl["unrealized_pnl"], float)
+
+    def test_missing_unrealized_pnl_key_coerced_to_zero(self):
+        """If the backend omits the key entirely, SDK must still be safe."""
+        client = _make_client(agent_id="my-agent")
+        client._request.return_value = {
+            "agent_id": "my-agent",
+            "realized_pnl": 5.0,
+            "total_cost": 20.0,
+            "positions": [],
+        }
+
+        pnl = client.get_agent_wallet_pnl()
+
+        assert pnl["unrealized_pnl"] == 0.0
+
 
 class TestUpdateAgentWalletCreds:
 
