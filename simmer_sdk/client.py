@@ -3466,10 +3466,20 @@ class SimmerClient:
             agent_id: SDK agent ID. Defaults to this client's agent_id.
 
         Returns:
-            dict with realized_pnl, unrealized_pnl, total_cost, positions
+            dict with realized_pnl, unrealized_pnl (nullable), total_cost, positions.
+
+            .. deprecated::
+                ``unrealized_pnl`` may be ``None`` and will be removed in a
+                future version.  Use ``total_pnl`` from ``/v1/trader``
+                instead.
         """
         aid = agent_id or self._agent_id
-        return self._request("GET", f"/api/sdk/agent-wallet/{aid}/pnl")
+        resp = self._request("GET", f"/api/sdk/agent-wallet/{aid}/pnl")
+        # Defensive: coerce None → 0 so callers doing arithmetic don't crash.
+        # Deprecated — will be removed in a future version. Use total_pnl from /v1/trader instead.
+        if resp.get("unrealized_pnl") is None:
+            resp["unrealized_pnl"] = 0.0
+        return resp
 
     def update_agent_wallet_creds(self, ows_wallet_name: str) -> dict:
         """Derive CLOB credentials via OWS and cache them server-side.
