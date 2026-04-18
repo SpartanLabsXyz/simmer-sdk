@@ -756,11 +756,45 @@ def _poll_reactor_once(client) -> int:
     return processed
 
 
+REACTOR_MIN_SDK_VERSION = "0.9.17"
+
+
+def _assert_reactor_sdk_version() -> None:
+    """
+    Fail fast if the installed simmer-sdk is too old for reactor mode.
+
+    Reactor mode passes `signal_data` to `client.trade()`, a kwarg added in
+    simmer-sdk 0.9.17. Older SDKs raise TypeError on every signal; after 5
+    such failures the server-side circuit breaker trips and new whale signals
+    are silently skipped. Gate reactor startup so the user sees an explicit
+    upgrade message instead of silently burning signals.
+    """
+    try:
+        import simmer_sdk
+        from packaging.version import Version
+    except ImportError as e:
+        print(f"[reactor] ERROR: missing dependency ({e}). Run: pip install -U 'simmer-sdk>=0.9.19' packaging")
+        sys.exit(1)
+
+    have_str = getattr(simmer_sdk, "__version__", "0.0.0")
+    try:
+        have = Version(have_str)
+    except Exception:
+        print(f"[reactor] WARNING: could not parse simmer-sdk version {have_str!r} — skipping version gate")
+        return
+    minimum = Version(REACTOR_MIN_SDK_VERSION)
+    if have < minimum:
+        print(f"[reactor] ERROR: simmer-sdk {have} is too old. Reactor mode requires >= {minimum}.")
+        print("[reactor] Run: pip install -U 'simmer-sdk>=0.9.19'")
+        sys.exit(1)
+
+
 def run_reactor(once: bool = False) -> None:
     """
     Reactor entry point. `once=True` polls once and exits (cron-friendly);
     `once=False` runs a forever loop polling every REACTOR_POLL_INTERVAL_SECONDS.
     """
+    _assert_reactor_sdk_version()
     global _reactor_price_buffer
     client = get_client()
 
