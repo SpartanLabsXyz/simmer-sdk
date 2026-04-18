@@ -26,9 +26,9 @@ Mirror positions from successful Polymarket traders using the Simmer SDK. Two mo
 
 When user asks to install or configure this skill:
 
-1. **Install the Simmer SDK**
+1. **Install the Simmer SDK** (version 0.9.19 or newer — reactor mode requires it)
    ```bash
-   pip install simmer-sdk
+   pip install -U 'simmer-sdk>=0.9.19'
    ```
 
 2. **Ask for Simmer API key**
