@@ -756,6 +756,10 @@ def _poll_reactor_once(client) -> int:
     return processed
 
 
+# Minimum SDK that supports the `signal_data` kwarg on client.trade().
+# The install hints below suggest >= 0.9.19 to nudge users to the latest
+# bugfix release (adds reactor retry + better error surfacing); the gate
+# itself only fails on < 0.9.17 so users on 0.9.17/0.9.18 keep working.
 REACTOR_MIN_SDK_VERSION = "0.9.17"
 
 

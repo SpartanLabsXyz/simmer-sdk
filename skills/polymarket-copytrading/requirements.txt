@@ -1,1 +1,2 @@
 simmer-sdk>=0.9.19
+packaging>=20
