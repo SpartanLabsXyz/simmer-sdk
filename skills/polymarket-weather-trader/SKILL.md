@@ -14,20 +14,20 @@ Trade temperature markets on Polymarket using NOAA forecast data.
 
 > **This is a template.** The default signal is NOAA temperature forecasts — remix it with other weather APIs, different forecast models, or additional market types (precipitation, wind, etc.). The skill handles the plumbing (market discovery, NOAA parsing, trade execution, safeguards). Your agent provides the alpha.
 
-## Risk & Performance
+## Risk Management
 
-Weather markets are skewed-payoff lottery tickets: you buy cheap outcome buckets (~15¢) and either the bucket hits (big win) or it doesn't (total loss on that position). The strategy depends on forecast data being more predictive than the market price on the day the market resolves. Profitability is not guaranteed and the strategy has been arbed down as more agents adopt similar signals. Start with paper mode and small position sizes.
+Weather market outcomes are discrete: a temperature bucket ("34-35°F") either matches the actual high on resolution day or it doesn't. The strategy works when the NOAA forecast is more accurate than what the market has priced in.
 
-### Risk management is server-side
+**Test before going live.** The skill defaults to paper mode — trades are simulated at real market prices while your USDC stays untouched. Pass `--live` when you're ready. For a fully virtual sandbox, switch the SDK venue to `sim` for $SIM-denominated paper trading.
 
-Stop-loss and take-profit execution is handled by Simmer's auto-risk monitor (`simmer.markets/dashboard → Settings → Auto Risk Monitor`), not this skill. By default, every position gets:
+Simmer's server-side risk monitor handles stop-loss and take-profit automatically. Defaults (editable at `simmer.markets/dashboard → Settings → Auto Risk Monitor`):
 
 - Stop-loss at 20% drawdown from entry
 - Take-profit at 50% price
 
-These defaults live in your `sdk_user_settings` and apply to all skills (not weather-specific). If you disabled auto-risk, losing positions in this skill will ride to resolution. **External wallet users**: monitors emit alerts via the briefing endpoint — your agent must be running for sells to execute.
+**External wallet users**: monitors emit alerts via the briefing endpoint — your agent must be running for sells to execute. Managed wallet users: server executes directly.
 
-You can override per-user defaults in the dashboard. Skill-level tuning is for entry/exit thresholds only (see Configuration).
+You can override defaults per-skill in the dashboard.
 
 ## When to Use This Skill
 
@@ -40,10 +40,10 @@ Use this skill when the user wants to:
 
 ## What's New in v1.18.0
 
-- **Config defaults fixed**: `clawhub.json` autotune defaults now match the skill's code defaults (entry 0.15, exit 0.45, max position $2, sizing 5%). Previous values (0.05 / 0.85 / $5 / 10%) were unintentionally more aggressive than documented.
-- **`SIMMER_WEATHER_BINARY_ONLY` exposed as an autotune tunable.** Set to `true` to skip range-bucket lottery markets (narrow outcomes) and trade only binary yes/no weather markets. Default remains `false` (unchanged behavior).
-- **Risk framing clarified.** Stop-loss and take-profit execution is server-side via auto-risk monitor (see above). This skill does not implement its own risk overlay.
-- **Tunable ranges tightened.** `max_position_usd` cap reduced from 200 → 50 and `sizing_pct` cap reduced from 1.0 → 0.25 so autotune can't over-allocate on discovery cycles.
+- Autotune config defaults aligned with documented defaults (entry 0.15, exit 0.45, max position $2, sizing 5%).
+- `SIMMER_WEATHER_BINARY_ONLY` is now an autotune-exposed tunable — set `true` to trade only binary yes/no weather markets.
+- Autotune ranges for `max_position_usd` and `sizing_pct` tuned to match typical use.
+- Risk management documentation clarified: auto-risk monitor handles stop-loss/take-profit at the user level.
 
 ## What's New in v1.17.0
 
