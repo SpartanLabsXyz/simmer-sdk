@@ -1,0 +1,30 @@
+{
+  "emoji": "🌡️",
+  "requires": {
+    "env": ["SIMMER_API_KEY"],
+    "pip": ["simmer-sdk"]
+  },
+  "cron": null,
+  "autostart": false,
+  "automaton": {
+    "managed": false,
+    "entrypoint": "weather_ev_port.py"
+  },
+  "tunables": [
+    {"env": "SIMMER_WEATHER_EV_MIN_EV",           "type": "number",  "default": 0.05,  "range": [0.01, 0.30], "step": 0.01, "label": "Minimum expected value to enter"},
+    {"env": "SIMMER_WEATHER_EV_MAX_PRICE",        "type": "number",  "default": 0.45,  "range": [0.10, 0.95], "step": 0.01, "label": "Max entry price (per share)"},
+    {"env": "SIMMER_WEATHER_EV_KELLY_FRACTION",   "type": "number",  "default": 0.25,  "range": [0.05, 1.00], "step": 0.05, "label": "Kelly fraction (0.25 = quarter-Kelly)"},
+    {"env": "SIMMER_WEATHER_EV_MAX_BET_USD",      "type": "number",  "default": 20,    "range": [1, 500],     "step": 1,    "label": "Max dollar size per trade"},
+    {"env": "SIMMER_WEATHER_EV_MIN_BET_USD",      "type": "number",  "default": 0.5,   "range": [0.1, 10],    "step": 0.1,  "label": "Min dollar size per trade (skip below)"},
+    {"env": "SIMMER_WEATHER_EV_MIN_VOLUME",       "type": "number",  "default": 500,   "range": [0, 10000],   "step": 100,  "label": "Min market lifetime volume (USD)"},
+    {"env": "SIMMER_WEATHER_EV_MIN_HOURS",        "type": "number",  "default": 2,     "range": [0.5, 48],    "step": 0.5,  "label": "Min hours to resolution"},
+    {"env": "SIMMER_WEATHER_EV_MAX_HOURS",        "type": "number",  "default": 72,    "range": [12, 168],    "step": 6,    "label": "Max hours to resolution"},
+    {"env": "SIMMER_WEATHER_EV_MAX_SLIPPAGE",     "type": "number",  "default": 0.03,  "range": [0.01, 0.20], "step": 0.01, "label": "Max ask-bid spread to take trade"},
+    {"env": "SIMMER_WEATHER_EV_STOP_LOSS_PCT",    "type": "number",  "default": 0.20,  "range": [0.05, 0.60], "step": 0.05, "label": "Stop-loss drawdown (0.20 = 20%)"},
+    {"env": "SIMMER_WEATHER_EV_TRAILING_TRIGGER", "type": "number",  "default": 0.20,  "range": [0.05, 0.50], "step": 0.05, "label": "Move stop to breakeven when up (0.20 = 20%)"},
+    {"env": "SIMMER_WEATHER_EV_BALANCE",          "type": "number",  "default": 1000,  "range": [100, 100000], "step": 100, "label": "Kelly sizing baseline balance (local)"},
+    {"env": "SIMMER_WEATHER_EV_LOCATIONS",        "type": "string",  "default": "nyc,chicago,miami,dallas,seattle,atlanta", "label": "Active city slugs (comma-separated)"},
+    {"env": "SIMMER_WEATHER_EV_CALIBRATION_MIN",  "type": "number",  "default": 30,    "range": [10, 200],    "step": 10,   "label": "Min resolved markets before sigma update"},
+    {"env": "SIMMER_WEATHER_EV_SCAN_SLEEP",       "type": "number",  "default": 0.3,   "range": [0.0, 5.0],   "step": 0.1,  "label": "Sleep between city scans (sec)"}
+  ]
+}

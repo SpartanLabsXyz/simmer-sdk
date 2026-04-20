@@ -1,0 +1,17 @@
+{
+  "min_ev": 0.05,
+  "max_price": 0.45,
+  "kelly_fraction": 0.25,
+  "max_bet_usd": 20.0,
+  "min_bet_usd": 0.5,
+  "min_volume": 500,
+  "min_hours": 2.0,
+  "max_hours": 72.0,
+  "max_slippage": 0.03,
+  "stop_loss_pct": 0.20,
+  "trailing_trigger": 0.20,
+  "balance_start": 1000.0,
+  "locations": "nyc,chicago,miami,dallas,seattle,atlanta",
+  "calibration_min": 30,
+  "scan_sleep_sec": 0.3
+}
