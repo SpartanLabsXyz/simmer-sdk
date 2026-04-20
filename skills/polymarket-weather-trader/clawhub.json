@@ -79,7 +79,7 @@
     {
       "env": "SIMMER_WEATHER_BINARY_ONLY",
       "type": "boolean",
-      "default": true,
+      "default": false,
       "label": "Binary markets only (skip range-bucket)"
     },
     {
