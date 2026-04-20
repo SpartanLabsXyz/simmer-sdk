@@ -14,21 +14,9 @@ Trade temperature markets on Polymarket using NOAA forecast data.
 
 > **This is a template.** The default signal is NOAA temperature forecasts — remix it with other weather APIs, different forecast models, or additional market types (precipitation, wind, etc.). The skill handles the plumbing (market discovery, NOAA parsing, trade execution, safeguards). Your agent provides the alpha.
 
-> **Looking for a more sophisticated weather strategy?** A successor skill based on AlterEgo's open-source [weatherbot](https://github.com/alteregoeth-ai/weatherbot) is in development (SIM-952). It adds EV-gated entry, fractional Kelly sizing, per-city-per-source sigma calibration, trailing stop-loss, forecast-change exits, and multi-source forecasts (ECMWF + HRRR + METAR) across 20 cities. This skill (threshold-buy on NOAA) will remain supported as the simpler, lower-ceremony option.
-
 ## Risk & Performance
 
-Weather markets are skewed-payoff lottery tickets: you buy cheap outcome buckets (~15¢) and either the bucket hits (big win) or it doesn't (total loss on that position). The strategy depends on forecast data being more predictive than the market price on the day the market resolves. Profitability is not guaranteed and the strategy has been arbed down as more agents adopt similar signals.
-
-### Cohort performance (as of 2026-04)
-
-Honest numbers from the wallets where this skill dominates their trade mix (≥80% of Polymarket trades via `sdk:weather`):
-
-- **435 dominant wallets**
-- **13.3% profitable** (58 of 435)
-- **-$13.6K aggregate P&L**, average **-$31 per wallet**
-
-If you're considering running this skill, factor this in. The strategy has been net-negative across the dominant-wallet cohort. The threshold can be tuned (try raising `SIMMER_WEATHER_ENTRY_THRESHOLD` for fewer, higher-conviction buys; enable `SIMMER_WEATHER_BINARY_ONLY=true` to skip range-bucket lottery tickets) but the base approach is not magic. See the AlterEgo-successor skill referenced above for a more principled alternative.
+Weather markets are skewed-payoff lottery tickets: you buy cheap outcome buckets (~15¢) and either the bucket hits (big win) or it doesn't (total loss on that position). The strategy depends on forecast data being more predictive than the market price on the day the market resolves. Profitability is not guaranteed and the strategy has been arbed down as more agents adopt similar signals. Start with paper mode and small position sizes.
 
 ### Risk management is server-side
 
