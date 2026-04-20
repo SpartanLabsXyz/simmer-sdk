@@ -14,6 +14,8 @@ Trade temperature markets on Polymarket using NOAA forecast data.
 
 > **This is a template.** The default signal is NOAA temperature forecasts — remix it with other weather APIs, different forecast models, or additional market types (precipitation, wind, etc.). The skill handles all the plumbing (market discovery, NOAA parsing, trade execution, safeguards). Your agent provides the alpha.
 
+> **Looking for a more sophisticated weather strategy?** A successor skill based on AlterEgo's open-source [weatherbot](https://github.com/alteregoeth-ai/weatherbot) is in development. It adds EV-gated entry, fractional Kelly sizing, per-city-per-source sigma calibration, trailing stop-loss, forecast-change exits, and multi-source forecasts (ECMWF + HRRR + METAR) across 20 cities. Track progress in SIM-952. This skill (threshold-buy on NOAA) remains supported as the simpler, lower-ceremony option.
+
 ## When to Use This Skill
 
 Use this skill when the user wants to:
@@ -30,6 +32,18 @@ Use this skill when the user wants to:
   - `SIMMER_WEATHER_VOL_MAX_LEVERAGE` — max scale-up multiplier (default 2.0x)
   - `SIMMER_WEATHER_VOL_MIN_ALLOC` — min allocation floor (default 20%)
   - `SIMMER_WEATHER_VOL_SPAN` — EWMA responsiveness (default 10)
+
+## Cohort Performance (as of 2026-04)
+
+Honest numbers from the wallets running the pre-v1.18.0 version of this strategy:
+
+- **435 dominant wallets** using this strategy
+- **13.3% profitable** (58 of 435)
+- **-$13.6K aggregate P&L** across all wallets
+- Strategy is threshold-buy without stop-loss (v1.17.0 and earlier)
+- v1.18.0 adds stop-loss protection (default 50% drawdown) to limit downside on the 86.7% of wallets that have been losing money
+
+If you're considering running this skill, factor this cohort performance into your decision. The thresholds can be tuned (try raising `SIMMER_WEATHER_ENTRY_THRESHOLD` for fewer, higher-conviction buys), and v1.18.0's stop-loss will cap per-position drawdown — but the base strategy has been net-negative across the dominant-wallet cohort. The successor AlterEgo-based skill (see header above) is the more sophisticated alternative.
 
 ### v1.14.0
 
