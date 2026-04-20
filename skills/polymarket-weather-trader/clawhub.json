@@ -18,7 +18,7 @@
     {
       "env": "SIMMER_WEATHER_ENTRY_THRESHOLD",
       "type": "number",
-      "default": 0.05,
+      "default": 0.15,
       "range": [
         0.01,
         0.3
@@ -29,9 +29,9 @@
     {
       "env": "SIMMER_WEATHER_EXIT_THRESHOLD",
       "type": "number",
-      "default": 0.85,
+      "default": 0.45,
       "range": [
-        0.5,
+        0.1,
         0.99
       ],
       "step": 0.01,
@@ -40,18 +40,18 @@
     {
       "env": "SIMMER_WEATHER_MAX_POSITION_USD",
       "type": "number",
-      "default": 5,
+      "default": 2.0,
       "range": [
         1,
         200
       ],
-      "step": 5,
+      "step": 1,
       "label": "Max position size (USD)"
     },
     {
       "env": "SIMMER_WEATHER_SIZING_PCT",
       "type": "number",
-      "default": 0.1,
+      "default": 0.05,
       "range": [
         0.01,
         1.0
@@ -69,6 +69,90 @@
       ],
       "step": 1,
       "label": "Max trades per run"
+    },
+    {
+      "env": "SIMMER_WEATHER_LOCATIONS",
+      "type": "string",
+      "default": "NYC",
+      "label": "Target cities (comma-separated)"
+    },
+    {
+      "env": "SIMMER_WEATHER_BINARY_ONLY",
+      "type": "boolean",
+      "default": true,
+      "label": "Binary markets only (skip range-bucket)"
+    },
+    {
+      "env": "SIMMER_WEATHER_SLIPPAGE_MAX",
+      "type": "number",
+      "default": 0.15,
+      "range": [
+        0.01,
+        0.5
+      ],
+      "step": 0.01,
+      "label": "Max slippage tolerated (skip trades above)"
+    },
+    {
+      "env": "SIMMER_WEATHER_MIN_LIQUIDITY",
+      "type": "number",
+      "default": 0,
+      "range": [
+        0,
+        1000
+      ],
+      "step": 10,
+      "label": "Min market liquidity in USD (0 = disabled)"
+    },
+    {
+      "env": "SIMMER_WEATHER_VOL_TARGETING",
+      "type": "boolean",
+      "default": false,
+      "label": "Enable volatility targeting (dynamic sizing)"
+    },
+    {
+      "env": "SIMMER_WEATHER_TARGET_VOL",
+      "type": "number",
+      "default": 0.20,
+      "range": [
+        0.05,
+        1.0
+      ],
+      "step": 0.01,
+      "label": "Target annualized volatility"
+    },
+    {
+      "env": "SIMMER_WEATHER_VOL_MAX_LEVERAGE",
+      "type": "number",
+      "default": 2.0,
+      "range": [
+        1.0,
+        5.0
+      ],
+      "step": 0.1,
+      "label": "Max scale-up multiplier (calm markets)"
+    },
+    {
+      "env": "SIMMER_WEATHER_VOL_MIN_ALLOC",
+      "type": "number",
+      "default": 0.2,
+      "range": [
+        0.05,
+        1.0
+      ],
+      "step": 0.05,
+      "label": "Min allocation floor (volatile markets)"
+    },
+    {
+      "env": "SIMMER_WEATHER_VOL_SPAN",
+      "type": "number",
+      "default": 10,
+      "range": [
+        2,
+        60
+      ],
+      "step": 1,
+      "label": "EWMA span for vol calculation"
     }
   ]
 }
