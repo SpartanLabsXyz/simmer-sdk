@@ -1,18 +1,45 @@
 ---
 name: polymarket-weather-trader
-description: Trade Polymarket weather markets using NOAA (US) and Open-Meteo (international) forecasts via Simmer API. Inspired by gopfan2's $2M+ strategy. Use when user wants to trade temperature markets, automate weather bets, check forecasts, or run gopfan2-style trading.
+description: Trade Polymarket weather markets using NOAA (US) and Open-Meteo (international) forecasts via Simmer API. Inspired by gopfan2's weather trading approach. Use when user wants to trade temperature markets, automate weather bets, check forecasts, or run weather-based strategies.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.17.0"
+  version: "1.18.0"
   displayName: Polymarket Weather Trader
   difficulty: beginner
-  attribution: Strategy inspired by gopfan2
+  attribution: Strategy inspired by gopfan2 (public Polymarket trader — approach referenced, not endorsed).
 ---
 # Polymarket Weather Trader
 
 Trade temperature markets on Polymarket using NOAA forecast data.
 
-> **This is a template.** The default signal is NOAA temperature forecasts — remix it with other weather APIs, different forecast models, or additional market types (precipitation, wind, etc.). The skill handles all the plumbing (market discovery, NOAA parsing, trade execution, safeguards). Your agent provides the alpha.
+> **This is a template.** The default signal is NOAA temperature forecasts — remix it with other weather APIs, different forecast models, or additional market types (precipitation, wind, etc.). The skill handles the plumbing (market discovery, NOAA parsing, trade execution, safeguards). Your agent provides the alpha.
+
+> **Looking for a more sophisticated weather strategy?** A successor skill based on AlterEgo's open-source [weatherbot](https://github.com/alteregoeth-ai/weatherbot) is in development (SIM-952). It adds EV-gated entry, fractional Kelly sizing, per-city-per-source sigma calibration, trailing stop-loss, forecast-change exits, and multi-source forecasts (ECMWF + HRRR + METAR) across 20 cities. This skill (threshold-buy on NOAA) will remain supported as the simpler, lower-ceremony option.
+
+## Risk & Performance
+
+Weather markets are skewed-payoff lottery tickets: you buy cheap outcome buckets (~15¢) and either the bucket hits (big win) or it doesn't (total loss on that position). The strategy depends on forecast data being more predictive than the market price on the day the market resolves. Profitability is not guaranteed and the strategy has been arbed down as more agents adopt similar signals.
+
+### Cohort performance (as of 2026-04)
+
+Honest numbers from the wallets where this skill dominates their trade mix (≥80% of Polymarket trades via `sdk:weather`):
+
+- **435 dominant wallets**
+- **13.3% profitable** (58 of 435)
+- **-$13.6K aggregate P&L**, average **-$31 per wallet**
+
+If you're considering running this skill, factor this in. The strategy has been net-negative across the dominant-wallet cohort. The threshold can be tuned (try raising `SIMMER_WEATHER_ENTRY_THRESHOLD` for fewer, higher-conviction buys; enable `SIMMER_WEATHER_BINARY_ONLY=true` to skip range-bucket lottery tickets) but the base approach is not magic. See the AlterEgo-successor skill referenced above for a more principled alternative.
+
+### Risk management is server-side
+
+Stop-loss and take-profit execution is handled by Simmer's auto-risk monitor (`simmer.markets/dashboard → Settings → Auto Risk Monitor`), not this skill. By default, every position gets:
+
+- Stop-loss at 20% drawdown from entry
+- Take-profit at 50% price
+
+These defaults live in your `sdk_user_settings` and apply to all skills (not weather-specific). If you disabled auto-risk, losing positions in this skill will ride to resolution. **External wallet users**: monitors emit alerts via the briefing endpoint — your agent must be running for sells to execute.
+
+You can override per-user defaults in the dashboard. Skill-level tuning is for entry/exit thresholds only (see Configuration).
 
 ## When to Use This Skill
 
@@ -22,6 +49,13 @@ Use this skill when the user wants to:
 - Buy low on weather predictions
 - Check their weather trading positions
 - Configure trading thresholds or locations
+
+## What's New in v1.18.0
+
+- **Config defaults fixed**: `clawhub.json` autotune defaults now match the skill's code defaults (entry 0.15, exit 0.45, max position $2, sizing 5%). Previous values (0.05 / 0.85 / $5 / 10%) were unintentionally more aggressive than documented.
+- **`SIMMER_WEATHER_BINARY_ONLY` exposed as an autotune tunable.** Set to `true` to skip range-bucket lottery markets (narrow outcomes) and trade only binary yes/no weather markets. Default remains `false` (unchanged behavior).
+- **Risk framing clarified.** Stop-loss and take-profit execution is server-side via auto-risk monitor (see above). This skill does not implement its own risk overlay.
+- **Tunable ranges tightened.** `max_position_usd` cap reduced from 200 → 50 and `sizing_pct` cap reduced from 1.0 → 0.25 so autotune can't over-allocate on discovery cycles.
 
 ## What's New in v1.17.0
 
