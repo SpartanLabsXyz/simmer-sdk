@@ -74,6 +74,8 @@ CONFIG_SCHEMA = {
                           "help": "Min allocation floor from vol targeting (stay in market during high vol)."},
     "vol_span":          {"env": "SIMMER_WEATHER_VOL_SPAN",          "default": 10,    "type": int,
                           "help": "EWMA span for volatility calculation (lower = more responsive)."},
+    "stop_loss_pct":     {"env": "SIMMER_WEATHER_STOP_LOSS_PCT",     "default": 0.50,  "type": float,
+                          "help": "Exit position when drawdown vs avg cost exceeds this fraction (0.50 = 50% loss). Set to 0 to disable."},
 }
 
 # Backwards-compatible env var aliases (old name -> new name)
@@ -116,6 +118,7 @@ def get_client(live=True):
 
 # Source tag for tracking
 TRADE_SOURCE = "sdk:weather"
+STOP_LOSS_SOURCE = "sdk:weather:stop-loss"
 SKILL_SLUG = "polymarket-weather-trader"
 _automaton_reported = False
 
@@ -146,6 +149,9 @@ TARGET_VOL = _config["target_vol"]
 VOL_MAX_LEVERAGE = _config["vol_max_leverage"]
 VOL_MIN_ALLOCATION = _config["vol_min_allocation"]
 VOL_SPAN = _config["vol_span"]
+
+# Stop-loss — exit when drawdown vs avg cost exceeds this fraction (0 = disabled)
+STOP_LOSS_PCT = _config["stop_loss_pct"]
 
 # Context safeguard thresholds
 SLIPPAGE_MAX_PCT = _config["slippage_max"]  # Skip if slippage exceeds this (tunable)
@@ -768,12 +774,19 @@ def execute_trade(market_id: str, side: str, amount: float, reasoning: str = Non
         return {"error": str(e)}
 
 
-def execute_sell(market_id: str, shares: float) -> dict:
-    """Execute a sell trade via Simmer SDK with source tagging."""
+def execute_sell(market_id: str, shares: float, source: str = TRADE_SOURCE) -> dict:
+    """Execute a sell trade via Simmer SDK with source tagging.
+
+    Args:
+        market_id: Market to sell.
+        shares: Share count to sell.
+        source: Trade source tag (default 'sdk:weather'; pass STOP_LOSS_SOURCE
+                for stop-loss exits to enable separate P&L tracking).
+    """
     try:
         result = get_client().trade(
             market_id=market_id, side="yes", action="sell",
-            shares=shares, source=TRADE_SOURCE, skill_slug=SKILL_SLUG,
+            shares=shares, source=source, skill_slug=SKILL_SLUG,
             order_type=ORDER_TYPE,
         )
         out = {
@@ -829,8 +842,16 @@ def calculate_position_size(default_size: float, smart_sizing: bool) -> float:
 # Exit Strategy
 # =============================================================================
 
-def check_exit_opportunities(dry_run: bool = False, use_safeguards: bool = True) -> tuple:
-    """Check open positions for exit opportunities. Returns: (exits_found, exits_executed)"""
+def check_exit_opportunities(dry_run: bool = False, use_safeguards: bool = True,
+                             use_stop_loss: bool = True) -> tuple:
+    """Check open positions for exit opportunities. Returns: (exits_found, exits_executed)
+
+    Two exit triggers run per position:
+      1. Stop-loss — drawdown vs avg cost exceeds STOP_LOSS_PCT (checked first)
+      2. Exit threshold — price has risen above EXIT_THRESHOLD (take profit)
+
+    Stop-loss exits are tagged with STOP_LOSS_SOURCE for separate P&L tracking.
+    """
     positions = get_positions()
 
     if not positions:
@@ -841,7 +862,9 @@ def check_exit_opportunities(dry_run: bool = False, use_safeguards: bool = True)
         question = pos.get("question", "").lower()
         sources = pos.get("sources", [])
         # Check if from weather skill OR has weather keywords
-        if TRADE_SOURCE in sources or any(kw in question for kw in ["temperature", "°f", "highest temp", "lowest temp"]):
+        # Include stop-loss-tagged positions (still ours, just exited via stop-loss historically)
+        if (TRADE_SOURCE in sources or STOP_LOSS_SOURCE in sources or
+                any(kw in question for kw in ["temperature", "°f", "highest temp", "lowest temp"])):
             weather_positions.append(pos)
 
     if not weather_positions:
@@ -856,11 +879,64 @@ def check_exit_opportunities(dry_run: bool = False, use_safeguards: bool = True)
         market_id = pos.get("market_id")
         current_price = pos.get("current_price") or pos.get("price_yes") or 0
         shares = pos.get("shares_yes") or pos.get("shares") or 0
+        avg_cost = pos.get("avg_cost") or 0
         question = pos.get("question", "Unknown")[:50]
 
         if shares < MIN_SHARES_PER_ORDER:
             continue
 
+        # ---- Stop-loss check (runs first) ----
+        stop_loss_triggered = False
+        drawdown = 0.0
+        if use_stop_loss and STOP_LOSS_PCT > 0 and avg_cost > 0 and current_price > 0:
+            drawdown = (avg_cost - current_price) / avg_cost
+            if drawdown >= STOP_LOSS_PCT:
+                stop_loss_triggered = True
+
+        if stop_loss_triggered:
+            exits_found += 1
+            print(f"  🛑 {question}...")
+            print(f"     STOP-LOSS: drawdown {drawdown:.0%} >= threshold {STOP_LOSS_PCT:.0%} "
+                  f"(avg cost ${avg_cost:.2f} → current ${current_price:.2f})")
+
+            # Re-fetch fresh share count to avoid selling more than available
+            fresh_positions = get_positions()
+            fresh_pos = next((p for p in fresh_positions if p.get("market_id") == market_id), None)
+            if fresh_pos:
+                fresh_shares = fresh_pos.get("shares_yes") or fresh_pos.get("shares") or 0
+                if fresh_shares < MIN_SHARES_PER_ORDER:
+                    print(f"     ⏭️  Skipped: fresh share count {fresh_shares:.1f} below minimum")
+                    continue
+                if fresh_shares != shares:
+                    print(f"     ℹ️  Share count updated: {shares:.1f} → {fresh_shares:.1f}")
+                    shares = fresh_shares
+
+            tag = "SIMULATED" if dry_run else "LIVE"
+            print(f"     Selling {shares:.1f} shares ({tag}) — stop-loss exit...")
+            result = execute_sell(market_id, shares, source=STOP_LOSS_SOURCE)
+
+            if result.get("success"):
+                exits_executed += 1
+                trade_id = result.get("trade_id")
+                print(f"     ✅ {'[PAPER] ' if result.get('simulated') else ''}"
+                      f"Stop-loss sold {shares:.1f} shares @ ${current_price:.2f} "
+                      f"(realized loss ~{drawdown:.0%})")
+
+                if trade_id and JOURNAL_AVAILABLE and not result.get("simulated"):
+                    log_trade(
+                        trade_id=trade_id,
+                        source=STOP_LOSS_SOURCE, skill_slug=SKILL_SLUG,
+                        thesis=f"Stop-loss: drawdown {drawdown:.0%} (avg cost ${avg_cost:.2f} → "
+                               f"price ${current_price:.2f}) exceeded threshold {STOP_LOSS_PCT:.0%}",
+                        action="sell",
+                    )
+            else:
+                error = result.get("error", "Unknown error")
+                print(f"     ❌ Stop-loss sell failed: {error}")
+            # Skip the take-profit branch — already exited
+            continue
+
+        # ---- Take-profit exit threshold ----
         if current_price >= EXIT_THRESHOLD:
             exits_found += 1
             print(f"  📤 {question}...")
@@ -910,7 +986,10 @@ def check_exit_opportunities(dry_run: bool = False, use_safeguards: bool = True)
                 print(f"     ❌ Sell failed: {error}")
         else:
             print(f"  📊 {question}...")
-            print(f"     Price ${current_price:.2f} < exit threshold ${EXIT_THRESHOLD:.2f} - hold")
+            hold_msg = f"Price ${current_price:.2f} < exit threshold ${EXIT_THRESHOLD:.2f} - hold"
+            if use_stop_loss and STOP_LOSS_PCT > 0 and avg_cost > 0 and current_price > 0:
+                hold_msg += f" (drawdown {drawdown:.0%}, stop @ {STOP_LOSS_PCT:.0%})"
+            print(f"     {hold_msg}")
 
     return exits_found, exits_executed
 
@@ -922,7 +1001,8 @@ def check_exit_opportunities(dry_run: bool = False, use_safeguards: bool = True)
 def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
                          show_config: bool = False, smart_sizing: bool = False,
                          use_safeguards: bool = True, use_trends: bool = True,
-                         quiet: bool = False, vol_targeting: bool = VOL_TARGETING):
+                         quiet: bool = False, vol_targeting: bool = VOL_TARGETING,
+                         use_stop_loss: bool = True):
     """Run the weather trading strategy."""
     def log(msg, force=False):
         """Print unless quiet mode is on. force=True always prints."""
@@ -945,6 +1025,10 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
     log(f"  Safeguards:      {'✓ Enabled' if use_safeguards else '✗ Disabled'}")
     log(f"  Trend detection: {'✓ Enabled' if use_trends else '✗ Disabled'}")
     log(f"  Vol targeting:   {'✓ Enabled' if vol_targeting else '✗ Disabled'}")
+    if use_stop_loss and STOP_LOSS_PCT > 0:
+        log(f"  Stop-loss:       ✓ Enabled (exit at {STOP_LOSS_PCT:.0%} drawdown)")
+    else:
+        log(f"  Stop-loss:       ✗ Disabled")
     if vol_targeting:
         log(f"    Target vol:    {TARGET_VOL:.0%} annualized")
         log(f"    Max leverage:  {VOL_MAX_LEVERAGE:.1f}x")
@@ -1228,7 +1312,7 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
         else:
             log(f"  ⏸️  Price ${price:.2f} above threshold ${ENTRY_THRESHOLD:.2f} - skip")
 
-    exits_found, exits_executed = check_exit_opportunities(dry_run, use_safeguards)
+    exits_found, exits_executed = check_exit_opportunities(dry_run, use_safeguards, use_stop_loss)
 
     log("\n" + "=" * 50)
     total_trades = trades_executed + exits_executed
@@ -1271,6 +1355,7 @@ if __name__ == "__main__":
     parser.add_argument("--no-safeguards", action="store_true", help="Disable context safeguards")
     parser.add_argument("--no-trends", action="store_true", help="Disable price trend detection")
     parser.add_argument("--vol-targeting", action="store_true", help="Enable volatility targeting (dynamic position sizing based on realized vol)")
+    parser.add_argument("--no-stop-loss", action="store_true", help="Disable stop-loss exits (default: enabled at SIMMER_WEATHER_STOP_LOSS_PCT, default 50% drawdown)")
     parser.add_argument("--quiet", "-q", action="store_true", help="Only output when trades execute or errors occur (ideal for high-frequency runs)")
     args = parser.parse_args()
 
@@ -1306,6 +1391,7 @@ if __name__ == "__main__":
             globals()["VOL_MAX_LEVERAGE"] = _config["vol_max_leverage"]
             globals()["VOL_MIN_ALLOCATION"] = _config["vol_min_allocation"]
             globals()["VOL_SPAN"] = _config["vol_span"]
+            globals()["STOP_LOSS_PCT"] = _config["stop_loss_pct"]
             _locations_str = _config["locations"]
             globals()["ACTIVE_LOCATIONS"] = [loc.strip().upper() for loc in _locations_str.split(",") if loc.strip()]
 
@@ -1321,6 +1407,7 @@ if __name__ == "__main__":
         use_trends=not args.no_trends,
         quiet=args.quiet,
         vol_targeting=args.vol_targeting or VOL_TARGETING,
+        use_stop_loss=not args.no_stop_loss,
     )
 
     # Fallback report for automaton if the strategy returned early (no signal)

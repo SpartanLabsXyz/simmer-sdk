@@ -3,7 +3,7 @@ name: polymarket-weather-trader
 description: Trade Polymarket weather markets using NOAA (US) and Open-Meteo (international) forecasts via Simmer API. Inspired by gopfan2's $2M+ strategy. Use when user wants to trade temperature markets, automate weather bets, check forecasts, or run gopfan2-style trading.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.17.0"
+  version: "1.18.0"
   displayName: Polymarket Weather Trader
   difficulty: beginner
   attribution: Strategy inspired by gopfan2
@@ -22,6 +22,13 @@ Use this skill when the user wants to:
 - Buy low on weather predictions
 - Check their weather trading positions
 - Configure trading thresholds or locations
+
+## What's New in v1.18.0
+
+- **Stop-loss exits**: Positions are automatically closed when drawdown vs average cost exceeds a configurable threshold (default 50%). Tag `sdk:weather:stop-loss` is applied to these exits so realized losses can be tracked separately from take-profit exits.
+  - `SIMMER_WEATHER_STOP_LOSS_PCT` — drawdown fraction (default `0.50`, range 0.1–0.9). Set to `0` to disable.
+  - `--no-stop-loss` CLI flag disables the check for a given run.
+  - Stop-loss runs before the take-profit branch on each scan cycle. Dry-run mode shows triggered stop-loss candidates without selling.
 
 ## What's New in v1.17.0
 
@@ -104,6 +111,7 @@ When user asks to install or configure this skill:
 | Vol max leverage | `SIMMER_WEATHER_VOL_MAX_LEVERAGE` | 2.0 | Max scale-up multiplier in calm markets |
 | Vol min alloc | `SIMMER_WEATHER_VOL_MIN_ALLOC` | 0.2 | Min allocation floor in volatile markets (0.2 = 20%) |
 | Vol EWMA span | `SIMMER_WEATHER_VOL_SPAN` | 10 | EWMA span for vol calculation (lower = more responsive) |
+| Stop-loss % | `SIMMER_WEATHER_STOP_LOSS_PCT` | 0.50 | Exit position when drawdown vs avg cost exceeds this (0 = disabled) |
 
 **Legacy env var aliases** (still accepted for backwards compatibility): `SIMMER_WEATHER_ENTRY`, `SIMMER_WEATHER_EXIT`, `SIMMER_WEATHER_MAX_POSITION`, `SIMMER_WEATHER_MAX_TRADES`
 
@@ -148,6 +156,9 @@ python weather_trader.py --no-safeguards
 
 # Disable trend detection
 python weather_trader.py --no-trends
+
+# Disable stop-loss for this run (default: enabled at 50% drawdown)
+python weather_trader.py --live --no-stop-loss
 
 # Enable volatility targeting (dynamic sizing based on market vol)
 python weather_trader.py --live --smart-sizing --vol-targeting

@@ -69,6 +69,17 @@
       ],
       "step": 1,
       "label": "Max trades per run"
+    },
+    {
+      "env": "SIMMER_WEATHER_STOP_LOSS_PCT",
+      "type": "number",
+      "default": 0.50,
+      "range": [
+        0.1,
+        0.9
+      ],
+      "step": 0.05,
+      "label": "Stop-loss drawdown (% loss before exit)"
     }
   ]
 }
