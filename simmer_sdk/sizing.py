@@ -28,7 +28,9 @@ Sizing methods:
       Simple but ignores edge magnitude.
 """
 
-from typing import Optional
+from typing import Optional, Sequence
+import math
+import statistics
 
 
 def expected_value(p_win: float, market_price: float) -> float:
@@ -153,6 +155,113 @@ def size_position(
 
     f = min(f, max_fraction)
     return bankroll * f
+
+
+def empirical_kelly(
+    edge_samples: Sequence[float],
+    market_price: float,
+    clip: float = 0.25,
+) -> float:
+    """Coefficient-of-variation adjusted Kelly fraction for a binary market.
+
+    Textbook Kelly assumes the edge is known with certainty. In practice a
+    model's edge estimate is a point estimate over a distribution — the true
+    edge might be half or double. Treating the point estimate as fact causes
+    systematic overbetting; the standard fix is to haircut Kelly by the
+    coefficient of variation (CV) of the edge distribution::
+
+        f_empirical = f_kelly × (1 − CV_edge)
+        CV_edge     = stdev(edge_samples) / mean(edge_samples)
+
+    High model uncertainty (wide edge distribution) → aggressive haircut.
+    Low uncertainty (tight distribution) → sizing approaches theoretical Kelly.
+
+    ``edge_samples`` are typically produced by Monte Carlo resampling of a
+    historical analog set (see SIM-1011 dataset-backtest-ingest skill), but
+    any iterable of edge estimates (e.g. bootstrap resamples of a backtest)
+    works. The function takes the raw samples so callers are not required
+    to install a specific dataset.
+
+    The Kelly conversion uses the prediction-market form consistent with
+    :func:`kelly_fraction`::
+
+        f_kelly = mean(edge_samples) / (1 − market_price)
+
+    The result is clamped to ``[0, clip]``: negative point estimates,
+    CV ≥ 1 (uncertainty swamps edge), and pathological inputs all map
+    to 0. Positive values are capped at ``clip`` — an absolute cap,
+    separate from the relative ``max_fraction`` used by
+    :func:`size_position`. The default ``clip=0.25`` reflects the
+    empirical-method stance that sizing should be conservative even when
+    uncertainty is low; callers wanting a tighter cap can pass ``clip`` down.
+
+    Args:
+        edge_samples: Sequence of edge estimates (``p_win − market_price``),
+            one per Monte Carlo / bootstrap resample. Must contain at least
+            one sample. With a single sample ``stdev`` is undefined and CV
+            is treated as 0 (falls back to point-estimate Kelly).
+        market_price: Current market price / cost per YES share (0 < price < 1).
+            Called ``odds`` in the source spec — in a binary prediction market
+            this is the cost per share, which equals implied probability.
+        clip: Absolute cap on returned fraction. Defaults to 0.25 (quarter
+            of bankroll). Pass a larger value to opt out of the cap.
+
+    Returns:
+        Fraction of bankroll to wager, in ``[0, clip]``. Never negative,
+        never > ``clip``. Returns 0 for invalid inputs (empty samples,
+        non-positive mean edge, CV ≥ 1, invalid market_price).
+
+    Example:
+        >>> # 6% point estimate with 3–9% distribution (article worked example),
+        >>> # market at 50¢. Five uniformly-spaced samples.
+        >>> samples = [0.03, 0.045, 0.06, 0.075, 0.09]
+        >>> round(empirical_kelly(samples, 0.50), 4)
+        0.0726
+
+        >>> # Zero variance → matches theoretical Kelly (capped at clip).
+        >>> empirical_kelly([0.15, 0.15, 0.15], 0.55)  # f_kelly = 0.333, clipped
+        0.25
+
+        >>> # CV = 1 → full haircut.
+        >>> round(empirical_kelly([0.0, 0.2], 0.50), 6)
+        0.0
+    """
+    if not edge_samples:
+        return 0.0
+    if market_price <= 0.0 or market_price >= 1.0:
+        return 0.0
+    if clip <= 0.0:
+        return 0.0
+
+    samples = list(edge_samples)
+    for s in samples:
+        if not math.isfinite(s):
+            return 0.0
+
+    mean_edge = statistics.fmean(samples)
+    if mean_edge <= 0.0:
+        return 0.0
+
+    # stdev requires n >= 2; with a single sample there is no variance
+    # information, so CV defaults to 0 (use point-estimate Kelly).
+    if len(samples) >= 2:
+        stdev_edge = statistics.stdev(samples)
+    else:
+        stdev_edge = 0.0
+
+    cv_edge = stdev_edge / mean_edge
+    haircut = 1.0 - cv_edge
+    # Snap floating-point epsilon around CV ≈ 1 to a hard zero so
+    # "CV = 1.0 → full haircut" holds exactly.
+    if haircut <= 1e-12:
+        return 0.0
+
+    f_kelly = mean_edge / (1.0 - market_price)
+    f_empirical = f_kelly * haircut
+
+    if f_empirical <= 0.0:
+        return 0.0
+    return min(f_empirical, clip)
 
 
 # Config schema that skills can merge into their CONFIG_SCHEMA for

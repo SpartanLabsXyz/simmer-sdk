@@ -100,6 +100,7 @@ __all__ = [
     "kelly_fraction",
     "expected_value",
     "size_position",
+    "empirical_kelly",
     "SIZING_CONFIG_SCHEMA",
 ]
 
@@ -109,4 +110,10 @@ from .skill import update_config as update_skill_config
 from .skill import get_config_path as get_skill_config_path
 
 # Position sizing utilities
-from .sizing import kelly_fraction, expected_value, size_position, SIZING_CONFIG_SCHEMA
+from .sizing import (
+    kelly_fraction,
+    expected_value,
+    size_position,
+    empirical_kelly,
+    SIZING_CONFIG_SCHEMA,
+)
