@@ -101,7 +101,7 @@ SIGMA_F_DEFAULT = 2.0  # Fahrenheit sigma default (°F)
 SIGMA_C_DEFAULT = 1.2  # Celsius sigma default (°C)
 
 SKILL_SLUG   = "weather-ev-port"
-TRADE_SOURCE = "sdk:weather-ev"
+TRADE_SOURCE = "sdk:weather-ev-port"  # convention: sdk:<skill-slug> (docs.simmer.markets/skills/building)
 ORDER_TYPE   = "GTC"  # Good-till-cancelled — weather markets are illiquid
 
 # Storage — lives next to the skill, not the user's cwd
@@ -110,6 +110,7 @@ DATA_DIR         = _SKILL_DIR / "data"
 MARKETS_DIR      = DATA_DIR / "markets"
 STATE_FILE       = DATA_DIR / "state.json"
 CALIBRATION_FILE = DATA_DIR / "calibration.json"
+IMPORT_CACHE_FILE = DATA_DIR / "imported.json"  # Polymarket market_id → Simmer indexing state
 DATA_DIR.mkdir(exist_ok=True)
 MARKETS_DIR.mkdir(exist_ok=True)
 
@@ -118,8 +119,9 @@ MARKETS_DIR.mkdir(exist_ok=True)
 # =============================================================================
 
 _client = None
+_LIVE_MODE = False  # set by main() from --live flag
 
-def get_client(live=True):
+def get_client():
     global _client
     if _client is None:
         try:
@@ -132,8 +134,12 @@ def get_client(live=True):
             print("Error: SIMMER_API_KEY environment variable not set", file=sys.stderr)
             print("Get your API key from https://simmer.markets/dashboard → SDK tab", file=sys.stderr)
             sys.exit(1)
-        venue = os.environ.get("TRADING_VENUE", "sim")
-        _client = SimmerClient(api_key=api_key, venue=venue, live=live)
+        # Weather markets live on Polymarket. `venue=sim` (Simmer LMSR) has
+        # distinct markets — it can't route Polymarket market IDs. Dogfood path
+        # is `venue=polymarket` with `live=False` (SDK paper mode against real
+        # Polymarket data, no USDC moves).
+        venue = os.environ.get("TRADING_VENUE", "polymarket")
+        _client = SimmerClient(api_key=api_key, venue=venue, live=_LIVE_MODE)
     return _client
 
 # =============================================================================
@@ -548,6 +554,82 @@ def execute_sell(market_id, side, shares, reasoning=None):
     except Exception as e:
         return {"success": False, "error": str(e)}
 
+_import_cache: dict = {}
+
+def load_import_cache():
+    global _import_cache
+    if IMPORT_CACHE_FILE.exists():
+        try:
+            _import_cache = json.loads(IMPORT_CACHE_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            _import_cache = {}
+    return _import_cache
+
+def save_import_cache():
+    IMPORT_CACHE_FILE.write_text(json.dumps(_import_cache, indent=2), encoding="utf-8")
+
+def ensure_market_indexed(market_id, condition_id=None, polymarket_url=None):
+    """Ensure a Polymarket market is indexed by Simmer so SDK paper/live trade works.
+
+    Returns (simmer_market_id, error). On error, simmer_market_id is None and
+    error is a human-readable string. Hits cache → check (free) → import (quota).
+    """
+    cached = _import_cache.get(market_id)
+    if cached and cached.get("simmer_market_id"):
+        return cached["simmer_market_id"], None
+
+    try:
+        client = get_client()
+    except SystemExit:
+        return None, "SDK client unavailable"
+
+    # Free pre-check first (no quota cost)
+    try:
+        kwargs = {}
+        if condition_id:
+            kwargs["condition_id"] = condition_id
+        elif polymarket_url:
+            kwargs["url"] = polymarket_url
+        else:
+            return None, "no condition_id or url to check"
+        check = client.check_market_exists(**kwargs)
+        if check and check.get("exists"):
+            simmer_id = check.get("market_id")
+            _import_cache[market_id] = {
+                "simmer_market_id": simmer_id,
+                "via": "check",
+                "checked_at": datetime.now(timezone.utc).isoformat(),
+            }
+            save_import_cache()
+            return simmer_id, None
+    except Exception as e:
+        # Check failures are non-fatal — fall through to import attempt
+        print(f"  [check] {market_id}: {e}")
+
+    # Not indexed — attempt import (consumes quota)
+    if not polymarket_url:
+        return None, "no URL to import (need polymarket_url)"
+    try:
+        result = client.import_market(polymarket_url)
+    except Exception as e:
+        return None, f"import_market threw: {e}"
+    if not result:
+        return None, "import_market returned None"
+    if result.get("error"):
+        return None, result.get("error")
+    status = result.get("status")
+    if status not in ("imported", "already_exists"):
+        # Common: status='resolved' for past markets
+        return None, f"import status={status}"
+    simmer_id = result.get("market_id")
+    _import_cache[market_id] = {
+        "simmer_market_id": simmer_id,
+        "via": status,
+        "imported_at": datetime.now(timezone.utc).isoformat(),
+    }
+    save_import_cache()
+    return simmer_id, None
+
 def sdk_positions_for_skill():
     """List Simmer positions tagged with this skill's source."""
     try:
@@ -568,14 +650,16 @@ def sdk_positions_for_skill():
 # CORE SCAN LOOP
 # =============================================================================
 
-def scan_and_update(live=False, dry_run=False):
+def scan_and_update(dry_run=False):
     """One scan cycle: forecasts, market discovery, entry/exit decisions.
 
-    live=False + dry_run=True: show opportunities, never call SDK trade.
-    live=True:                 execute real trades via SimmerClient.
-    live=False + dry_run=False: paper — local bookkeeping only.
+    - dry_run=True: print opportunities, don't call SDK or persist state.
+    - dry_run=False: always call SDK. Paper vs real-money is controlled by the
+      module-level _LIVE_MODE flag (set by main() from --live) which is passed
+      to SimmerClient(live=...). live=False → SDK paper mode; live=True → real.
     """
     load_calibration()
+    load_import_cache()
 
     now    = datetime.now(timezone.utc)
     state  = load_state()
@@ -619,8 +703,10 @@ def scan_and_update(live=False, dry_run=False):
             if mkt["status"] == "resolved":
                 continue
 
-            # Collect outcomes from the event
+            # Collect outcomes from the event. Track condition_id + slug so we
+            # can route through Simmer's import layer at trade time.
             outcomes = []
+            event_slug = event.get("slug") or ""
             for market in event.get("markets", []):
                 question = market.get("question", "")
                 mid      = str(market.get("id", ""))
@@ -635,14 +721,16 @@ def scan_and_update(live=False, dry_run=False):
                 except Exception:
                     continue
                 outcomes.append({
-                    "question":  question,
-                    "market_id": mid,
-                    "range":     rng,
-                    "bid":       round(bid, 4),
-                    "ask":       round(ask, 4),
-                    "price":     round(bid, 4),
-                    "spread":    round(ask - bid, 4),
-                    "volume":    round(volume, 0),
+                    "question":     question,
+                    "market_id":    mid,
+                    "condition_id": market.get("conditionId"),
+                    "polymarket_url": f"https://polymarket.com/event/{event_slug}" if event_slug else None,
+                    "range":        rng,
+                    "bid":          round(bid, 4),
+                    "ask":          round(ask, 4),
+                    "price":        round(bid, 4),
+                    "spread":       round(ask - bid, 4),
+                    "volume":       round(volume, 0),
                 })
             outcomes.sort(key=lambda x: x["range"][0])
             mkt["all_outcomes"] = outcomes
@@ -681,7 +769,7 @@ def scan_and_update(live=False, dry_run=False):
                         pos["trailing_activated"] = True
                     if cur_bid <= stop:
                         reason = "trailing_stop" if pos.get("trailing_activated") and cur_bid >= entry * 0.99 else "stop_loss"
-                        _close_position(mkt, pos, cur_bid, reason, live, dry_run)
+                        _close_position(mkt, pos, cur_bid, reason, dry_run)
                         pnl = pos.get("pnl") or 0
                         balance += pos["cost"] + pnl
                         closed += 1
@@ -729,6 +817,8 @@ def scan_and_update(live=False, dry_run=False):
                         if size >= MIN_BET:
                             signal = {
                                 "market_id":    matched["market_id"],
+                                "condition_id": matched.get("condition_id"),
+                                "polymarket_url": matched.get("polymarket_url"),
                                 "question":     matched["question"],
                                 "bucket_low":   t_low,
                                 "bucket_high":  t_high,
@@ -772,7 +862,7 @@ def scan_and_update(live=False, dry_run=False):
                                     signal["stop_price"]   = round(real_ask * (1 - STOP_LOSS_PCT), 4)
 
                             if signal:
-                                _open_position(mkt, signal, live, dry_run)
+                                _open_position(mkt, signal, dry_run)
                                 if signal.get("status") == "open":
                                     balance -= signal["cost"]
                                     state["total_trades"] += 1
@@ -845,51 +935,72 @@ def scan_and_update(live=False, dry_run=False):
 
     return new_pos, closed, resolved
 
-def _open_position(mkt, signal, live, dry_run):
-    """Open a position — via Simmer SDK (live) or local bookkeeping (paper).
+def _open_position(mkt, signal, dry_run):
+    """Open a position. Always routes through SimmerClient.trade() unless dry_run.
 
-    Dry-run: mutates the in-memory market with status='open' so the scanner's
-    accounting increments correctly, but the caller skips save_market/save_state
-    so nothing persists to disk.
+    Paper vs real-money is decided by SimmerClient's live= param (set from
+    --live). Mutates signal in place; caller reads signal['status'] to decide
+    whether to debit the local balance. Successful open → status='open'.
+    SDK failure → status='failed' + sdk_error.
     """
     if dry_run:
-        mkt["position"] = signal  # status already 'open' from caller
+        mkt["position"] = signal
         return
-    if live:
-        reasoning = (f"EV {signal['ev']:+.2f} | forecast {signal['forecast_temp']}° "
-                     f"via {signal['forecast_src']} | bucket {signal['bucket_low']}-{signal['bucket_high']}")
-        signal_data = {
-            "edge": signal["ev"],
-            "confidence": signal["p"],
-            "signal_source": signal["forecast_src"],
-            "forecast_temp": signal["forecast_temp"],
-            "kelly": signal["kelly"],
-            "sigma": signal["sigma"],
-        }
-        # Weather markets resolve YES/NO on the bucket — we always buy YES on the matched bucket.
-        result = execute_buy(signal["market_id"], "yes", signal["cost"], reasoning, signal_data)
-        if not result.get("success"):
-            mkt["position"] = {**signal, "status": "failed", "sdk_error": result.get("error")}
-            return
-        # Reconcile shares with actual fill if provided
-        actual_shares = result.get("shares") or signal["shares"]
-        signal["shares"] = actual_shares
-        signal["sdk_trade_id"] = result.get("trade_id")
-        signal["sdk_order_status"] = result.get("order_status")
+
+    # Ensure the Polymarket market is indexed by Simmer (free check, then import-on-miss).
+    simmer_market_id, idx_err = ensure_market_indexed(
+        signal["market_id"],
+        condition_id=signal.get("condition_id"),
+        polymarket_url=signal.get("polymarket_url"),
+    )
+    if not simmer_market_id:
+        signal["status"] = "failed"
+        signal["sdk_error"] = f"index failed: {idx_err}"
+        mkt["position"] = signal
+        return
+    signal["simmer_market_id"] = simmer_market_id
+
+    reasoning = (f"EV {signal['ev']:+.2f} | forecast {signal['forecast_temp']}° "
+                 f"via {signal['forecast_src']} | bucket {signal['bucket_low']}-{signal['bucket_high']}")
+    signal_data = {
+        "edge": signal["ev"],
+        "confidence": signal["p"],
+        "signal_source": signal["forecast_src"],
+        "forecast_temp": signal["forecast_temp"],
+        "kelly": signal["kelly"],
+        "sigma": signal["sigma"],
+    }
+    result = execute_buy(simmer_market_id, "yes", signal["cost"], reasoning, signal_data)
+    if not result.get("success"):
+        signal["status"] = "failed"
+        signal["sdk_error"] = result.get("error")
+        mkt["position"] = signal
+        return
+    signal["shares"] = result.get("shares") or signal["shares"]
+    signal["sdk_trade_id"] = result.get("trade_id")
+    signal["sdk_order_status"] = result.get("order_status")
+    signal["sdk_simulated"] = result.get("simulated", False)
     mkt["position"] = signal
 
-def _close_position(mkt, pos, exit_bid, reason, live, dry_run):
-    """Close a position — mirrors AlterEgo's in-code stop logic."""
+def _close_position(mkt, pos, exit_bid, reason, dry_run):
+    """Close a position — mirrors AlterEgo's in-code stop logic.
+
+    Always routes the sell through SimmerClient.trade() unless dry_run.
+    SDK's live= flag (set at init from --live) controls paper vs real-money.
+    """
     pnl = round((exit_bid - pos["entry_price"]) * pos["shares"], 2)
     pos["closed_at"]    = datetime.now(timezone.utc).isoformat()
     pos["close_reason"] = reason
     pos["exit_price"]   = exit_bid
     pos["pnl"]          = pnl
-    if live and not dry_run:
-        # YES-side sell — same side as the open.
-        result = execute_sell(pos["market_id"], "yes", pos["shares"], reasoning=f"exit: {reason}")
+    if not dry_run:
+        # Use Simmer's market_id (cached at open time) — pos["market_id"] is the
+        # Polymarket ID, which the SDK doesn't know how to route.
+        sell_market_id = pos.get("simmer_market_id") or pos["market_id"]
+        result = execute_sell(sell_market_id, "yes", pos["shares"], reasoning=f"exit: {reason}")
         pos["sdk_sell_trade_id"] = result.get("trade_id")
         pos["sdk_sell_status"]   = result.get("order_status")
+        pos["sdk_sell_simulated"] = result.get("simulated", False)
     pos["status"] = "closed"
 
 # =============================================================================
@@ -1000,11 +1111,13 @@ def main():
         return
 
     mode = "LIVE" if args.live else ("DRY-RUN" if args.dry_run else "PAPER (local)")
-    print(f"\n  Weather-EV port | mode: {mode} | venue: {os.environ.get('TRADING_VENUE', 'sim')}")
+    print(f"\n  Weather-EV port | mode: {mode} | venue: {os.environ.get('TRADING_VENUE', 'polymarket')}")
     print(f"  Cities: {list(active_locations().keys())}")
     print(f"  MIN_EV={MIN_EV} KELLY_FRAC={KELLY_FRACTION} MAX_BET=${MAX_BET} STOP={STOP_LOSS_PCT:.0%}\n")
 
-    new_pos, closed, resolved = scan_and_update(live=args.live, dry_run=args.dry_run)
+    global _LIVE_MODE
+    _LIVE_MODE = args.live
+    new_pos, closed, resolved = scan_and_update(dry_run=args.dry_run)
     print(f"\n  Scan complete: opened={new_pos} closed={closed} resolved={resolved}\n")
     print_status()
 
