@@ -14,15 +14,16 @@ alteregoeth-ai/weatherbot (MIT). See ATTRIBUTION.md and LICENSE.UPSTREAM.
 This is a WORK-IN-PROGRESS port. Placeholder slug `weather-ev-port`. Not published.
 
 Usage:
-    python weather_ev_port.py            # Dry run — show opportunities, no trades
-    python weather_ev_port.py --live     # Execute real trades via Simmer SDK
-    python weather_ev_port.py --positions  # Show current Simmer positions only
+    python weather_ev_port.py            # Dogfood — $SIM trades on imported Polymarket mirrors
+    python weather_ev_port.py --live     # Real USDC orders on Polymarket via PolyNode
+    python weather_ev_port.py --dry-run  # Read-only — show opportunities, no SDK calls
     python weather_ev_port.py status     # Local balance + open positions from state.json
     python weather_ev_port.py report     # Full resolved-market report
+    python weather_ev_port.py positions  # Show current Simmer-side positions
 
 Requires:
     SIMMER_API_KEY environment variable (https://simmer.markets/dashboard -> SDK)
-    TRADING_VENUE=sim  (recommended for initial dogfood — paper trading on Simmer LMSR)
+    TRADING_VENUE override only if you need to force a venue (default: sim w/o --live, polymarket w/ --live)
 """
 
 import argparse
@@ -122,6 +123,17 @@ _client = None
 _LIVE_MODE = False  # set by main() from --live flag
 
 def get_client():
+    """Return a SimmerClient. Venue + currency depend on _LIVE_MODE.
+
+    Default (--live not passed): venue='sim'. Once a Polymarket market is
+    imported via import_market(), Simmer creates a tradeable mirror that
+    accepts $SIM trades at real Polymarket prices, with full Simmer-side
+    position tracking. This is the canonical dogfood path.
+
+    --live: venue='polymarket'. Real USDC orders routed via PolyNode.
+
+    Override via TRADING_VENUE env var if you need to force a specific venue.
+    """
     global _client
     if _client is None:
         try:
@@ -134,12 +146,9 @@ def get_client():
             print("Error: SIMMER_API_KEY environment variable not set", file=sys.stderr)
             print("Get your API key from https://simmer.markets/dashboard → SDK tab", file=sys.stderr)
             sys.exit(1)
-        # Weather markets live on Polymarket. `venue=sim` (Simmer LMSR) has
-        # distinct markets — it can't route Polymarket market IDs. Dogfood path
-        # is `venue=polymarket` with `live=False` (SDK paper mode against real
-        # Polymarket data, no USDC moves).
-        venue = os.environ.get("TRADING_VENUE", "polymarket")
-        _client = SimmerClient(api_key=api_key, venue=venue, live=_LIVE_MODE)
+        default_venue = "polymarket" if _LIVE_MODE else "sim"
+        venue = os.environ.get("TRADING_VENUE", default_venue)
+        _client = SimmerClient(api_key=api_key, venue=venue, live=True)
     return _client
 
 # =============================================================================
@@ -654,9 +663,9 @@ def scan_and_update(dry_run=False):
     """One scan cycle: forecasts, market discovery, entry/exit decisions.
 
     - dry_run=True: print opportunities, don't call SDK or persist state.
-    - dry_run=False: always call SDK. Paper vs real-money is controlled by the
-      module-level _LIVE_MODE flag (set by main() from --live) which is passed
-      to SimmerClient(live=...). live=False → SDK paper mode; live=True → real.
+    - dry_run=False: route real trades through SimmerClient. Default venue is
+      `sim` ($SIM trades on imported Polymarket mirrors); `--live` switches the
+      client to `venue=polymarket` (real USDC).
     """
     load_calibration()
     load_import_cache()
@@ -1110,8 +1119,14 @@ def main():
         print_sdk_positions()
         return
 
-    mode = "LIVE" if args.live else ("DRY-RUN" if args.dry_run else "PAPER (local)")
-    print(f"\n  Weather-EV port | mode: {mode} | venue: {os.environ.get('TRADING_VENUE', 'polymarket')}")
+    if args.dry_run:
+        mode = "DRY-RUN (read-only)"
+    elif args.live:
+        mode = "LIVE (real USDC)"
+    else:
+        mode = "DOGFOOD ($SIM)"
+    default_venue = "polymarket" if args.live else "sim"
+    print(f"\n  Weather-EV port | mode: {mode} | venue: {os.environ.get('TRADING_VENUE', default_venue)}")
     print(f"  Cities: {list(active_locations().keys())}")
     print(f"  MIN_EV={MIN_EV} KELLY_FRAC={KELLY_FRACTION} MAX_BET=${MAX_BET} STOP={STOP_LOSS_PCT:.0%}\n")
 
