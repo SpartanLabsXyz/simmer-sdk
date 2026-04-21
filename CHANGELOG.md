@@ -3,6 +3,11 @@
 All notable changes to `simmer-sdk` are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Added
+- **`empirical_kelly(edge_samples, market_price, clip=0.25)`** in `simmer_sdk.sizing` — coefficient-of-variation haircut on Kelly sizing for use with Monte Carlo / bootstrap resamples of a historical analog set: `f_empirical = f_kelly × (1 − CV_edge)`. High model uncertainty → aggressive haircut; low uncertainty → closer to theoretical Kelly. Opt-in primitive alongside existing `kelly_fraction` / `size_position` — default behavior of existing callers is unchanged. Result is always clipped to `[0, clip]`. (SIM-1012)
+
 ## [0.9.21] — 2026-04-07
 
 ### Added
