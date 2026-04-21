@@ -1589,22 +1589,35 @@ class SimmerClient:
             sandbox: DEPRECATED - ignored. All imports are now public.
 
         Returns:
-            Dict with market_id, question, and import details
+            Dict with market_id, question, status (imported/already_exists/resolved),
+            and import details. Inspect `status` before assuming the market is tradeable.
 
         Rate Limits:
-            - 10 imports per day per agent
-            - Requires claimed agent for imports
+            - Free tier:  10/day, 10/minute per agent
+            - Pro tier:   100/day per agent
+            - Elite tier: 250/day per agent
+            - On 429, response includes `x402_url` — pay $0.005/import in USDC
+              on Base for unlimited overflow.
+            - Requires claimed agent.
+
+        Tip:
+            Pre-flight with `check_market_exists(url=...)` to avoid wasting
+            quota on already-imported markets — that endpoint is free.
 
         Example:
-            # Import a market
-            result = client.import_market("https://polymarket.com/event/will-x-happen")
-            print(f"Imported: {result['market_id']}")
+            # Avoid wasting quota on already-imported markets
+            check = client.check_market_exists(url="https://polymarket.com/event/will-x-happen")
+            if check["exists"]:
+                market_id = check["market_id"]
+            else:
+                result = client.import_market("https://polymarket.com/event/will-x-happen")
+                market_id = result["market_id"]
 
             # Trade on it (simmer - $SIM)
-            client.trade(market_id=result['market_id'], side="yes", amount=10)
+            client.trade(market_id=market_id, side="yes", amount=10)
 
             # Or trade real money
-            client.trade(market_id=result['market_id'], side="yes", amount=50, venue="polymarket")
+            client.trade(market_id=market_id, side="yes", amount=50, venue="polymarket")
         """
         if sandbox is not None:
             import warnings
@@ -1641,11 +1654,20 @@ class SimmerClient:
             kalshi_url: Full Kalshi URL (e.g. https://kalshi.com/markets/KXHIGHNY-26FEB19/...)
 
         Returns:
-            Dict with market_id, question, kalshi_ticker, and import details
+            Dict with market_id, question, kalshi_ticker, status
+            (imported/already_exists/resolved), and import details.
 
         Rate Limits:
-            - 10 imports per day per agent (50 for pro)
-            - Requires claimed agent for imports
+            - Free tier:  10/day, 10/minute per agent
+            - Pro tier:   100/day per agent
+            - Elite tier: 250/day per agent
+            - On 429, response includes `x402_url` — pay $0.005/import in USDC
+              on Base for unlimited overflow.
+            - Requires claimed agent.
+
+        Tip:
+            Pre-flight with `check_market_exists(ticker=...)` to avoid wasting
+            quota on already-imported markets — that endpoint is free.
 
         Example:
             result = client.import_kalshi_market("https://kalshi.com/markets/KXHIGHNY-26FEB19/...")
