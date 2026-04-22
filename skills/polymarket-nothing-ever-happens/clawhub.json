@@ -4,7 +4,8 @@
   "emoji": "📉",
   "requires": {
     "env": [
-      "SIMMER_API_KEY"
+      "SIMMER_API_KEY",
+      "WALLET_PRIVATE_KEY"
     ],
     "pip": [
       "simmer-sdk"

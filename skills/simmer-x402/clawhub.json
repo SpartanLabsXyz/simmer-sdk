@@ -2,7 +2,8 @@
   "emoji": "\ud83d\udcb3",
   "requires": {
     "env": [
-      "EVM_PRIVATE_KEY"
+      "EVM_PRIVATE_KEY",
+      "WALLET_PRIVATE_KEY"
     ],
     "pip": [
       "x402[httpx,evm]"

@@ -7,6 +7,7 @@
 #
 # Safety:
 #   - Only publishes if SKILL.md has `published: true`
+#   - Refuses if clawhub.json has `"publish": false`
 #   - Slug comes from `name:` field (no folder name guessing)
 #   - Version comes from `version:` field (matches --version flag)
 #   - Copies full directory (no missing files)
@@ -58,6 +59,19 @@ if [ "$PUBLISHED" != "true" ]; then
   echo "❌ Skill '$NAME' is not marked for publishing (published: $PUBLISHED)"
   echo "   Add 'published: true' to $SKILL_MD frontmatter to enable"
   exit 1
+fi
+
+# Second guard: honor clawhub.json "publish": false
+CLAWHUB_JSON="$SKILL_DIR/clawhub.json"
+if [ -f "$CLAWHUB_JSON" ]; then
+  PUBLISH_FLAG=$(python3 -c "import json,sys; print(json.load(open('$CLAWHUB_JSON')).get('publish', True))" 2>/dev/null || echo "True")
+  if [ "$PUBLISH_FLAG" = "False" ]; then
+    REASON=$(python3 -c "import json; print(json.load(open('$CLAWHUB_JSON')).get('publish_reason', 'no reason given'))" 2>/dev/null || echo "unknown")
+    echo "❌ Skill '$NAME' is marked 'publish: false' in clawhub.json"
+    echo "   Reason: $REASON"
+    echo "   Remove the flag from clawhub.json if you intend to publish."
+    exit 1
+  fi
 fi
 
 echo "📦 Publishing $NAME@$VERSION"

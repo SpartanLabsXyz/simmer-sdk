@@ -2,7 +2,8 @@
   "emoji": "\ud83d\udd2e",
   "requires": {
     "env": [
-      "SIMMER_API_KEY"
+      "SIMMER_API_KEY",
+      "WALLET_PRIVATE_KEY"
     ],
     "pip": [
       "simmer-sdk"
