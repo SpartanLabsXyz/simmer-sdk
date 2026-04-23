@@ -3,7 +3,7 @@ name: polymarket-elon-tweets
 description: 'Trade Polymarket "Elon Musk # tweets" markets using XTracker post count data. Buys adjacent range buckets when combined cost < $1 for structural edge. Use when user wants to trade tweet count markets, automate Elon tweet bets, check XTracker stats, or run noovd-style trading.'
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.2.1"
+  version: "1.3.0"
   displayName: Polymarket Elon Tweet Trader
   difficulty: advanced
   attribution: Strategy inspired by @noovd
@@ -232,10 +232,10 @@ All trades are tagged with `source: "sdk:elon-tweets"`. This means:
 - Fix: `export WALLET_PRIVATE_KEY=0x<your-polymarket-wallet-private-key>`
 - Do NOT attempt to sign orders manually or modify the skill code — the SDK handles it
 
-**"Balance shows $0 but I have USDC on Polygon"**
-- Polymarket uses **USDC.e** (bridged USDC, contract `0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174`) — not native USDC
-- If you bridged USDC to Polygon recently, you likely received native USDC
-- Swap native USDC to USDC.e, then retry
+**"Balance shows $0 but I have funds on Polygon"**
+- Polymarket V2 (live 2026-04-28) uses **pUSD** (PolyUSD, 1:1 backed by USDC.e). If your wallet holds USDC.e, migrate at [simmer.markets/dashboard](https://simmer.markets/dashboard) with one click (~30s)
+- If you bridged native USDC (Circle), swap to USDC.e first, then migrate to pUSD
+- Full migration guide: [docs.simmer.markets/v2-migration](https://docs.simmer.markets/v2-migration)
 
 **"API key invalid"**
 - Get new key from simmer.markets/dashboard → SDK tab
