@@ -3,6 +3,20 @@
 All notable changes to `simmer-sdk` are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`simmer_sdk.risk`** — new module for portfolio-level risk
+  primitives.
+  - **`DrawdownController`** — stateful peak-trough tracker with sticky
+    auto-halt. Bot calls `update(new_bankroll)` after every realized
+    PnL event and `can_trade()` before every new order. Halts at a
+    caller-configured `max_drawdown_pct` (default 15%); halt is sticky
+    until the operator explicitly calls `resume()`. Distinct from the
+    per-trade simulate-before-execute guardian — this is portfolio-level
+    and time-invariant. Refs SIM-1072.
+
 ## [0.10.0] — 2026-04-28
 
 ### Polymarket V2 migration support
