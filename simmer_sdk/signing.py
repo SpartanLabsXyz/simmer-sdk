@@ -334,8 +334,10 @@ def _build_and_sign_order_v2(
     if signature_type != 0:
         raise ValueError(
             f"V2 signing only supports signature_type=0 (EOA). "
-            f"Got {signature_type}. For Safe/Proxy wallets, use the "
-            f"polynode SDK's relayer path or the Simmer dashboard Migrate flow."
+            f"Got {signature_type}. Simmer's wallets are all EOAs — managed "
+            f"(server-custody) and external (user-custody via browser wallet, "
+            f"e.g. MetaMask). If you're hitting this, verify you're passing "
+            f"signature_type=0 (the default) and not overriding it."
         )
 
     # Resolve builder_code: explicit arg > env > zero bytes32
