@@ -2,62 +2,108 @@
 Polymarket Order Signing Utilities
 
 Signs orders locally for external wallet trading.
-Uses py_order_utils for Polymarket CLOB order construction.
+
+- V1 (pre-2026-04-28): uses `py_order_utils` — the legacy path.
+- V2 (default starting `simmer-sdk 0.10.0`): uses `py_clob_client_v2`
+  which produces the V2 order shape (drops taker/nonce/feeRateBps from
+  the signed struct; adds timestamp/metadata/builder).
+
+Selected automatically via `SIMMER_POLYMARKET_EXCHANGE_VERSION` env or
+the 0.10.0-default-V2 behavior.
 
 SECURITY NOTE: The private key should NEVER be logged, transmitted, or stored
 outside of memory. It is only used for signing operations.
 """
 
-from typing import Dict, Any
-from dataclasses import dataclass
+from typing import Dict, Any, Optional
+from dataclasses import dataclass, field
 
-# Polymarket token/USDC decimals (1 share = 1e6 raw units, 1 USDC = 1e6 raw units)
+from simmer_sdk.polymarket_contracts import (
+    POLYGON_CHAIN_ID,
+    is_v2_enabled,
+)
+
+# Polymarket token/USDC decimals (1 share = 1e6 raw units, 1 USDC/pUSD = 1e6 raw units)
 POLYMARKET_DECIMAL_FACTOR = 1e6
 
 # Minimum order size (Polymarket requires >= 5 shares)
 MIN_ORDER_SIZE_SHARES = 5
 
-# Polygon mainnet chain ID
-POLYGON_CHAIN_ID = 137
-
 # Zero address for open orders (anyone can fill)
 ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
+
+# Zero bytes32 — V2 default for metadata / builder when unset
+ZERO_BYTES32 = "0x" + "00" * 32
 
 
 @dataclass
 class SignedOrder:
-    """A signed Polymarket order ready for submission."""
+    """A signed Polymarket order ready for submission.
+
+    Supports both V1 and V2 order shapes via optional fields. V1 uses
+    `taker` / `nonce` / `feeRateBps` in the signed struct; V2 drops those
+    and adds `timestamp` / `metadata` / `builder` instead. `expiration`
+    is retained in the HTTP body on both versions (V2 keeps it at "0"
+    out of the signed hash).
+    """
+    # Common to both V1 and V2
     salt: str
     maker: str
     signer: str
-    taker: str
     tokenId: str
     makerAmount: str
     takerAmount: str
-    expiration: str
-    nonce: str
-    feeRateBps: str
     side: str  # "BUY" or "SELL"
     signatureType: int
     signature: str
 
+    # V1-only (absent on V2)
+    taker: Optional[str] = None
+    nonce: Optional[str] = None
+    feeRateBps: Optional[str] = None
+
+    # V2-only (absent on V1)
+    timestamp: Optional[str] = None
+    metadata: Optional[str] = None
+    builder: Optional[str] = None
+
+    # Shared: V1 in signed hash; V2 in HTTP body only, at "0"
+    expiration: Optional[str] = None
+
+    # Meta: which exchange version this order targets
+    exchange_version: str = "v1"
+
     def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for API submission."""
-        return {
+        """Convert to dictionary for API submission. Omits None fields so
+        V1 orders don't carry V2 fields and vice versa."""
+        out: Dict[str, Any] = {
             "salt": self.salt,
             "maker": self.maker,
             "signer": self.signer,
-            "taker": self.taker,
             "tokenId": self.tokenId,
             "makerAmount": self.makerAmount,
             "takerAmount": self.takerAmount,
-            "expiration": self.expiration,
-            "nonce": self.nonce,
-            "feeRateBps": self.feeRateBps,
             "side": self.side,
             "signatureType": self.signatureType,
             "signature": self.signature,
         }
+        # Include V1 or V2 specific fields based on what's populated
+        if self.taker is not None:
+            out["taker"] = self.taker
+        if self.nonce is not None:
+            out["nonce"] = self.nonce
+        if self.feeRateBps is not None:
+            out["feeRateBps"] = self.feeRateBps
+        if self.timestamp is not None:
+            out["timestamp"] = self.timestamp
+        if self.metadata is not None:
+            out["metadata"] = self.metadata
+        if self.builder is not None:
+            out["builder"] = self.builder
+        # expiration lives in HTTP body on both versions; default "0" on V2
+        if self.expiration is not None:
+            out["expiration"] = self.expiration
+        return out
 
 
 def build_and_sign_order(
@@ -72,6 +118,8 @@ def build_and_sign_order(
     tick_size: float = 0.01,
     fee_rate_bps: int = 0,
     order_type: str = "FAK",  # "FAK", "FOK", "GTC", "GTD"
+    builder_code: Optional[str] = None,
+    metadata: Optional[str] = None,
 ) -> SignedOrder:
     """
     Build and sign a Polymarket order.
@@ -86,14 +134,64 @@ def build_and_sign_order(
         neg_risk: Whether this is a neg-risk market
         signature_type: Signature type (0=EOA default)
         tick_size: Market tick size (e.g., 0.01 or 0.001)
+        fee_rate_bps: V1 only. Ignored on V2 (fees are match-time, not signed).
+        builder_code: V2 only. bytes32 hex for builder attribution. Reads env
+            `POLY_BUILDER_CODE` if None; defaults to zero bytes32 if unset.
+            Mint yours at polymarket.com/settings?tab=builder.
+        metadata: V2 only. bytes32 hex, default zero bytes32.
 
     Returns:
-        SignedOrder ready for API submission
+        SignedOrder ready for API submission. V1 or V2 shape based on
+        `SIMMER_POLYMARKET_EXCHANGE_VERSION` (default V2 on 0.10.0+).
 
     Raises:
-        ImportError: If py_order_utils is not installed
+        ImportError: If required signing deps aren't installed
         ValueError: If order parameters are invalid
     """
+    if is_v2_enabled():
+        return _build_and_sign_order_v2(
+            private_key=private_key,
+            wallet_address=wallet_address,
+            token_id=token_id,
+            side=side,
+            price=price,
+            size=size,
+            neg_risk=neg_risk,
+            signature_type=signature_type,
+            tick_size=tick_size,
+            order_type=order_type,
+            builder_code=builder_code,
+            metadata=metadata,
+        )
+    return _build_and_sign_order_v1(
+        private_key=private_key,
+        wallet_address=wallet_address,
+        token_id=token_id,
+        side=side,
+        price=price,
+        size=size,
+        neg_risk=neg_risk,
+        signature_type=signature_type,
+        tick_size=tick_size,
+        fee_rate_bps=fee_rate_bps,
+        order_type=order_type,
+    )
+
+
+def _build_and_sign_order_v1(
+    private_key: str,
+    wallet_address: str,
+    token_id: str,
+    side: str,
+    price: float,
+    size: float,
+    neg_risk: bool,
+    signature_type: int,
+    tick_size: float,
+    fee_rate_bps: int,
+    order_type: str,
+) -> SignedOrder:
+    """V1 signing path (legacy). Unchanged from pre-0.10.0 behavior."""
     try:
         from py_order_utils.builders import OrderBuilder
         from py_order_utils.signer import Signer
@@ -102,7 +200,7 @@ def build_and_sign_order(
         from py_clob_client.order_builder.builder import OrderBuilder as ClobOrderBuilder, ROUNDING_CONFIG
     except ImportError:
         raise ImportError(
-            "py_order_utils and py_clob_client are required for local signing. "
+            "py_order_utils and py_clob_client are required for V1 local signing. "
             "Install with: pip install py-order-utils py-clob-client"
         )
 
@@ -191,6 +289,125 @@ def build_and_sign_order(
         side=side,
         signatureType=signature_type,
         signature=order_dict["signature"],
+        exchange_version="v1",
+    )
+
+
+def _build_and_sign_order_v2(
+    private_key: str,
+    wallet_address: str,
+    token_id: str,
+    side: str,
+    price: float,
+    size: float,
+    neg_risk: bool,
+    signature_type: int,
+    tick_size: float,
+    order_type: str,
+    builder_code: Optional[str],
+    metadata: Optional[str],
+) -> SignedOrder:
+    """V2 signing path. Uses `py_clob_client_v2`'s ClobClient.create_order().
+
+    V2 drops taker/nonce/feeRateBps from the signed struct and adds
+    timestamp/metadata/builder. The HTTP POST body keeps `expiration`
+    at "0" (not part of signed hash). See docs.simmer.markets/v2-migration.
+    """
+    import os
+    try:
+        from py_clob_client_v2.client import ClobClient
+        from py_clob_client_v2.clob_types import OrderArgs, PartialCreateOrderOptions
+    except ImportError:
+        raise ImportError(
+            "py_clob_client_v2 >= 1.0.0 is required for V2 local signing. "
+            "Install with: pip install 'py-clob-client-v2>=1.0.0'. "
+            "Or pin simmer-sdk<0.10.0 to stay on V1 (V1 CLOB retired 2026-04-28)."
+        )
+
+    # Validate inputs
+    if side not in ("BUY", "SELL"):
+        raise ValueError(f"Invalid side '{side}'. Must be 'BUY' or 'SELL'")
+    if price <= 0 or price >= 1:
+        raise ValueError(f"Invalid price {price}. Must be between 0 and 1")
+    if size <= 0:
+        raise ValueError(f"Invalid size {size}. Must be positive")
+    if signature_type != 0:
+        raise ValueError(
+            f"V2 signing only supports signature_type=0 (EOA). "
+            f"Got {signature_type}. For Safe/Proxy wallets, use the "
+            f"polynode SDK's relayer path or the Simmer dashboard Migrate flow."
+        )
+
+    # Resolve builder_code: explicit arg > env > zero bytes32
+    if builder_code is None:
+        builder_code = os.getenv("POLY_BUILDER_CODE", "").strip() or ZERO_BYTES32
+    if not builder_code.startswith("0x"):
+        builder_code = "0x" + builder_code
+    if metadata is None:
+        metadata = ZERO_BYTES32
+
+    # GTC/GTD expiration is a unix-seconds int; FAK/FOK use 0
+    expiration_seconds = 0
+
+    clob_host = os.getenv("POLYMARKET_CLOB_HOST", "https://clob.polymarket.com")
+    client = ClobClient(
+        host=clob_host,
+        chain_id=POLYGON_CHAIN_ID,
+        key=private_key,
+        signature_type=0,
+        funder=wallet_address,
+    )
+
+    tick_size_str = str(tick_size)
+    order_args = OrderArgs(
+        token_id=token_id,
+        price=price,
+        size=size,
+        side=side.upper(),
+        expiration=expiration_seconds,
+        builder_code=builder_code,
+        metadata=metadata,
+    )
+    options = PartialCreateOrderOptions(
+        tick_size=tick_size_str,
+        neg_risk=neg_risk,
+    )
+    signed = client.create_order(order_args, options)
+    if hasattr(signed, "dict"):
+        order_dict = signed.dict()
+    elif hasattr(signed, "model_dump"):
+        order_dict = signed.model_dump()
+    else:
+        order_dict = {k: getattr(signed, k) for k in signed.__dataclass_fields__}
+
+    # Minimum order size check (after SDK-computed amounts)
+    maker_raw = int(order_dict["makerAmount"])
+    taker_raw = int(order_dict["takerAmount"])
+    shares_raw = taker_raw if side == "BUY" else maker_raw
+    effective_shares = shares_raw / POLYMARKET_DECIMAL_FACTOR
+    if effective_shares < MIN_ORDER_SIZE_SHARES:
+        raise ValueError(
+            f"Order too small: {effective_shares:.2f} shares after rounding "
+            f"is below minimum ({MIN_ORDER_SIZE_SHARES})"
+        )
+
+    return SignedOrder(
+        salt=str(order_dict["salt"]),
+        maker=order_dict["maker"],
+        signer=order_dict["signer"],
+        tokenId=order_dict["tokenId"],
+        makerAmount=order_dict["makerAmount"],
+        takerAmount=order_dict["takerAmount"],
+        side=side,
+        signatureType=int(order_dict.get("signatureType", 0)),
+        signature=order_dict["signature"],
+        # V2 fields
+        timestamp=str(order_dict.get("timestamp", "")),
+        metadata=str(order_dict.get("metadata", metadata)),
+        builder=str(order_dict.get("builder", builder_code)),
+        # Expiration stays in HTTP body at "0"
+        expiration="0",
+        exchange_version="v2",
     )
 
 
