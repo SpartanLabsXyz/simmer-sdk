@@ -1,14 +1,26 @@
 {
   "emoji": "\ud83d\udc26",
+  "primaryEnv": "SIMMER_API_KEY",
   "requires": {
     "env": [
-      "SIMMER_API_KEY",
-      "WALLET_PRIVATE_KEY"
+      "SIMMER_API_KEY"
     ],
     "pip": [
       "simmer-sdk"
     ]
   },
+  "envVars": [
+    {
+      "name": "SIMMER_API_KEY",
+      "required": true,
+      "description": "Your Simmer SDK API key \u2014 get from simmer.markets/dashboard"
+    },
+    {
+      "name": "WALLET_PRIVATE_KEY",
+      "required": false,
+      "description": "Only needed for external-wallet self-custody trading. Not required when using managed wallets."
+    }
+  ],
   "cron": null,
   "autostart": false,
   "automaton": {

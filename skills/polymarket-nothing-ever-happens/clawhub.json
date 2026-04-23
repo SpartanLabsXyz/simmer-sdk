@@ -1,16 +1,28 @@
 {
   "publish": false,
   "publish_reason": "Entertainment-only strategy (sterlingcrispin). Kept as SDK reference/example, not for ClawHub.",
-  "emoji": "📉",
+  "emoji": "\ud83d\udcc9",
+  "primaryEnv": "SIMMER_API_KEY",
   "requires": {
     "env": [
-      "SIMMER_API_KEY",
-      "WALLET_PRIVATE_KEY"
+      "SIMMER_API_KEY"
     ],
     "pip": [
       "simmer-sdk"
     ]
   },
+  "envVars": [
+    {
+      "name": "SIMMER_API_KEY",
+      "required": true,
+      "description": "Your Simmer SDK API key \u2014 get from simmer.markets/dashboard"
+    },
+    {
+      "name": "WALLET_PRIVATE_KEY",
+      "required": false,
+      "description": "Only needed for external-wallet self-custody trading. Not required when using managed wallets."
+    }
+  ],
   "cron": null,
   "autostart": false,
   "automaton": {
@@ -21,16 +33,22 @@
     {
       "env": "SIMMER_NEH_PRICE_CAP",
       "type": "number",
-      "default": 0.10,
-      "range": [0.01, 0.20],
+      "default": 0.1,
+      "range": [
+        0.01,
+        0.2
+      ],
       "step": 0.01,
-      "label": "NO price cap (e.g. 0.10 = 10¢)"
+      "label": "NO price cap (e.g. 0.10 = 10\u00a2)"
     },
     {
       "env": "SIMMER_NEH_MAX_BET_USD",
       "type": "number",
       "default": 5,
-      "range": [1, 100],
+      "range": [
+        1,
+        100
+      ],
       "step": 1,
       "label": "Max bet per trade (USDC)"
     },
@@ -38,7 +56,10 @@
       "env": "SIMMER_NEH_DAILY_BUDGET_USD",
       "type": "number",
       "default": 15,
-      "range": [5, 200],
+      "range": [
+        5,
+        200
+      ],
       "step": 5,
       "label": "Daily budget (USDC)"
     },
@@ -46,7 +67,10 @@
       "env": "SIMMER_NEH_MAX_TRADES_PER_RUN",
       "type": "number",
       "default": 3,
-      "range": [1, 20],
+      "range": [
+        1,
+        20
+      ],
       "step": 1,
       "label": "Max trades per run"
     },
@@ -54,7 +78,10 @@
       "env": "SIMMER_NEH_MIN_LIQUIDITY",
       "type": "number",
       "default": 500,
-      "range": [100, 10000],
+      "range": [
+        100,
+        10000
+      ],
       "step": 100,
       "label": "Min market liquidity (USDC)"
     },
@@ -62,7 +89,10 @@
       "env": "SIMMER_NEH_MIN_VOLUME_24H",
       "type": "number",
       "default": 100,
-      "range": [10, 5000],
+      "range": [
+        10,
+        5000
+      ],
       "step": 50,
       "label": "Min 24h volume (USDC)"
     },
@@ -70,7 +100,10 @@
       "env": "SIMMER_NEH_CANDIDATE_PAGES",
       "type": "number",
       "default": 20,
-      "range": [1, 30],
+      "range": [
+        1,
+        30
+      ],
       "step": 1,
       "label": "Gamma API pages to scan"
     }
