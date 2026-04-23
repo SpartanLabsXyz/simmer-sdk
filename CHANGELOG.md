@@ -3,6 +3,22 @@
 All notable changes to `simmer-sdk` are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`simmer_sdk.execution.await_fill()`** — execution-time partial-fill
+  wait wrapper with time-boxed escape (SIM-1079). Polls an open limit
+  order's `size_matched` and returns one of four terminal statuses:
+  `FILLED`, `PARTIAL`, `TIMEOUT_PARTIAL`, `TIMEOUT_NO_FILL`. All
+  thresholds (`accept_pct`, `partial_exit_pct`,
+  `partial_exit_time_frac`, `poll_interval`) are caller-configurable;
+  defaults are 0.95 / 0.50 / 0.70 / 2.0s. Handles cancel-failure and
+  transient poll errors gracefully. Opt-in — `client.trade()` is
+  unchanged. See https://docs.simmer.markets/sdk/execution.
+- **`simmer_sdk.execution.clob_poll_fn` / `clob_cancel_fn`** —
+  one-line wiring helpers for `py_clob_client.ClobClient`.
+
 ## [0.10.0] — 2026-04-28
 
 ### Polymarket V2 migration support
