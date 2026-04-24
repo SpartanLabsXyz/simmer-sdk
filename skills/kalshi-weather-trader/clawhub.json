@@ -1,5 +1,6 @@
 {
   "emoji": "\ud83c\udf21\ufe0f",
+  "primaryEnv": "SIMMER_API_KEY",
   "requires": {
     "env": [
       "SIMMER_API_KEY",
@@ -9,6 +10,18 @@
       "simmer-sdk"
     ]
   },
+  "envVars": [
+    {
+      "name": "SIMMER_API_KEY",
+      "required": true,
+      "description": "Your Simmer SDK API key \u2014 get from simmer.markets/dashboard"
+    },
+    {
+      "name": "SOLANA_PRIVATE_KEY",
+      "required": true,
+      "description": "Solana wallet private key (base58) for signing DFlow trades. Kalshi has no managed-wallet mode \u2014 self-custody is the only option."
+    }
+  ],
   "cron": null,
   "autostart": false,
   "automaton": {
