@@ -52,7 +52,7 @@ class FillResult:
     order_id: str
     target_size: float
     filled_size: float
-    fill_ratio: float  # filled_size / target_size, clamped to [0, inf)
+    fill_ratio: float  # filled_size / target_size; non-negative, may exceed 1.0 if filled overshoots target
     elapsed: float  # seconds spent polling
     polls: int
     cancel_attempted: bool = False
