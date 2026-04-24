@@ -1,13 +1,10 @@
 """
 Risk primitives for Simmer SDK.
 
-Portfolio-level risk controls that a trading skill composes on top of
-per-trade sizing. These primitives are intentionally stateless about the
-Simmer backend — they track local bot state and decide whether the bot
-should keep trading.
-
-Currently exports:
-    DrawdownController — peak-trough tracker with sticky auto-halt.
+DEPRECATED module — all exports scheduled for removal in simmer-sdk 0.12.0.
+See simmer_sdk.risk.drawdown for the full rationale. Skill authors wanting
+portfolio halt logic should compute drawdown from SimmerClient.get_briefing()
+directly rather than wiring a client-side primitive.
 """
 
 from .drawdown import DrawdownController, DrawdownState

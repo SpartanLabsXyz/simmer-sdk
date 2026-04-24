@@ -3,6 +3,23 @@
 All notable changes to `simmer-sdk` are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.2] — 2026-04-24
+
+### Deprecated
+
+- **`simmer_sdk.risk.DrawdownController`** — scheduled for removal in
+  0.12.0. Instantiating now emits `DeprecationWarning`. Rationale:
+  portfolio drawdown is already visible on the agent profile PnL chart
+  (the chart's peak is the same peak this class tracked), and
+  platform-level auto-halt was never wired in — silent agent halts are a
+  worse UX than the rare cascading-loss case they catch. Skills that
+  need programmatic halt logic should compute drawdown from
+  `SimmerClient.get_briefing()` portfolio values directly; a five-line
+  in-skill check is strictly better than this primitive (no restart
+  persistence gap, no hidden state, no silent trigger). The class stays
+  functional in 0.11.x for any adopters; no server-side replacement is
+  planned.
+
 ## [0.11.1] — 2026-04-24
 
 ### Added

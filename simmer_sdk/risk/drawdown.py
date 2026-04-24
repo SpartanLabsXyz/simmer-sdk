@@ -1,36 +1,33 @@
 """
 DrawdownController — portfolio-level circuit breaker.
 
-Stateful peak-trough tracker. After every realized PnL event, a bot
-calls `update(new_bankroll)`. Before placing a new order, the bot calls
-`can_trade()`. When the drawdown from peak exceeds the configured
-threshold, the controller latches into a halted state and stays halted
-until the operator explicitly calls `resume()`.
+DEPRECATED: scheduled for removal in simmer-sdk 0.12.0.
 
-Distinct from per-trade guardians (e.g. simulate-before-execute) — this
-is portfolio-level and time-invariant. A bounce back to the peak does
-NOT un-halt the controller; that decision is deliberately operator-gated.
+Portfolio drawdown is already visible on the agent profile PnL chart
+(https://simmer.markets/agent/<your-agent>) — the peak of that chart is
+the same peak this class tracks. Platform-level auto-halt is not
+supported by design; the silent-failure UX (agent stops trading, user
+doesn't know why) outweighs the rare cascading-loss case it catches.
 
-Usage:
+If your skill needs programmatic halt logic, compute drawdown directly
+from SimmerClient.get_briefing() portfolio values — the server already
+returns everything you need. A five-line in-skill halt is strictly
+better than this primitive: no restart persistence problem, no hidden
+state, no silent trigger.
+
+Legacy usage (still functional until 0.12.0):
     from simmer_sdk.risk import DrawdownController
 
     dc = DrawdownController(bankroll=1000.0, max_drawdown_pct=0.15)
-
-    # After every realized PnL event
     state = dc.update(current_bankroll)
-    if state["halted"]:
-        notify_operator(f"Halted at {state['drawdown']:.1%} drawdown")
-
-    # Before every new order
     if not dc.can_trade():
-        return  # skip trading this cycle
-
-    # Operator-initiated recovery
-    dc.resume()
+        return
+    dc.resume()  # operator-initiated recovery
 """
 
 from __future__ import annotations
 
+import warnings
 from typing import TypedDict
 
 
@@ -56,6 +53,15 @@ class DrawdownController:
     """
 
     def __init__(self, bankroll: float, max_drawdown_pct: float = 0.15) -> None:
+        warnings.warn(
+            "DrawdownController is deprecated and will be removed in "
+            "simmer-sdk 0.12.0. Portfolio drawdown is already visible on the "
+            "agent profile PnL chart; for skill-level halt logic, compute "
+            "drawdown from SimmerClient.get_briefing() portfolio values "
+            "directly. See https://docs.simmer.markets/sdk/risk for details.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         if bankroll <= 0:
             raise ValueError(f"bankroll must be positive, got {bankroll!r}")
         if not (0 < max_drawdown_pct < 1):

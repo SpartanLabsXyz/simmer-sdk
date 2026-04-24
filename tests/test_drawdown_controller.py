@@ -6,9 +6,32 @@ boundary), sticky-halt behavior, operator-explicit resume, input
 validation.
 """
 
+import warnings
+
 import pytest
 
 from simmer_sdk.risk import DrawdownController
+
+# Class is deprecated (removal scheduled for 0.12.0). Silence the warning
+# across the legacy behavioural tests so signal stays on the assertions;
+# the contract test below explicitly verifies the warning still fires.
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:DrawdownController is deprecated:DeprecationWarning"
+)
+
+
+# --- deprecation contract -------------------------------------------------
+
+
+def test_instantiation_emits_deprecation_warning():
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        DrawdownController(bankroll=1000.0)
+    assert any(
+        issubclass(w.category, DeprecationWarning)
+        and "DrawdownController is deprecated" in str(w.message)
+        for w in caught
+    ), "Expected DeprecationWarning on DrawdownController instantiation"
 
 
 # --- construction ---------------------------------------------------------
