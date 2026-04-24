@@ -3,6 +3,28 @@
 All notable changes to `simmer-sdk` are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.1] — 2026-04-24
+
+### Added
+
+- **`SimmerClient.ensure_can_trade(min_usd, venue, safety_buffer)`** —
+  collateral-agnostic balance pre-flight helper for trading skills. One
+  status fetch replaces many failed trade round-trips when a wallet is
+  underfunded. Reads pUSD on V2 (post-2026-04-28 cutover), USDC.e on V1,
+  per the server's `exchange_version`. Returns a stable `{ok, balance,
+  collateral, exchange_version, reason, max_safe_size}` dict so skills
+  can skip cleanly and cap per-run size to `balance × (1 − safety_buffer)`
+  (default 2% buffer for fees / slippage). See
+  https://docs.simmer.markets/sdk/risk#balance-pre-flight—client-ensure-can-trade.
+  Refs SIM-1063.
+- Integrated `ensure_can_trade()` into all 8 first-party Polymarket
+  trading skills (copytrading, fast-loop, mert-sniper, signal-sniper,
+  weather-trader, elon-tweets, ai-divergence, nothing-ever-happens).
+  Underfunded skills now emit a clean automaton skip report
+  (`skip_reason="insufficient_balance"`) instead of looping on rejected
+  orders. Expected to eliminate ~78% of current skill failures caused
+  by underfunded-wallet retry loops.
+
 ## [0.11.0] — 2026-04-24
 
 ### Added
