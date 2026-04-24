@@ -19,6 +19,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   persistence gap, no hidden state, no silent trigger). The class stays
   functional in 0.11.x for any adopters; no server-side replacement is
   planned.
+- **`simmer_sdk.execution.await_fill`** (and `FillStatus`, `FillResult`,
+  `clob_poll_fn`, `clob_cancel_fn`) — scheduled for removal in 0.12.0.
+  Calling `await_fill()` now emits `DeprecationWarning`. Rationale: the
+  wrapper only applies to GTC/GTD orders; Simmer skills default to FAK
+  (Fill-And-Kill), which the exchange auto-cancels at submission, making
+  the wrapper a no-op for the common case. No first-party skill has
+  adopted it, and the narrow case (explicit GTC + programmatic cancel
+  policy) is better served by a short in-skill poll loop tuned to the
+  skill's own strategy than by a shared primitive with shared defaults.
+  The function stays functional in 0.11.x; we'll revisit a shared
+  primitive when a first-party skill has concrete requirements.
 
 ## [0.11.1] — 2026-04-24
 

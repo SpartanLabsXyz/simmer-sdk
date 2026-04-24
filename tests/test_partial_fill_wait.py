@@ -16,9 +16,17 @@ time.sleep calls are actually made.
 
 from __future__ import annotations
 
+import warnings
 from typing import List, Optional
 
 import pytest
+
+# Function is deprecated (removal scheduled for 0.12.0). Silence the warning
+# across the behavioural tests so signal stays on the assertions; the contract
+# test below explicitly verifies the warning still fires on call.
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:simmer_sdk.execution.await_fill is deprecated:DeprecationWarning"
+)
 
 from simmer_sdk.execution import (
     FillResult,
@@ -68,6 +76,31 @@ def counting_cancel(result=None):
 
     _cancel.calls = calls  # type: ignore[attr-defined]
     return _cancel
+
+
+# ---- Deprecation contract --------------------------------------------------
+
+
+def test_await_fill_emits_deprecation_warning():
+    clock = FakeClock()
+    poll = scripted_poll([100.0])
+    cancel = counting_cancel()
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        await_fill(
+            "ord",
+            target_size=100.0,
+            max_wait=10.0,
+            poll=poll,
+            cancel=cancel,
+            _time=clock.time,
+            _sleep=clock.sleep,
+        )
+    assert any(
+        issubclass(w.category, DeprecationWarning)
+        and "await_fill is deprecated" in str(w.message)
+        for w in caught
+    ), "Expected DeprecationWarning on await_fill() call"
 
 
 # ---- Path 1: FILLED --------------------------------------------------------

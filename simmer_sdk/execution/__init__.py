@@ -1,10 +1,9 @@
 """
 simmer_sdk.execution — execution-layer utilities for order lifecycle.
 
-Currently exposes the partial-fill wait-vs-cancel wrapper (SIM-1079). This is
-the execution-time counterpart to the SIM-917 backfill/accounting work: it
-gives SDK callers a first-class `await_fill()` primitive for structuring the
-wait-or-cancel decision on limit orders.
+DEPRECATED module — `await_fill()` and its helpers are scheduled for removal
+in simmer-sdk 0.12.0. See `simmer_sdk.execution.partial_fill` for the full
+rationale and migration guidance.
 """
 
 from .partial_fill import (

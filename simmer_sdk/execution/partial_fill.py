@@ -1,8 +1,23 @@
 """
-Partial-fill wait wrapper with time-boxed escape logic (SIM-1079).
+Partial-fill wait wrapper with time-boxed escape logic.
+
+DEPRECATED: scheduled for removal in simmer-sdk 0.12.0.
+
+`await_fill()` was shipped as a general-purpose wait-or-cancel wrapper, but
+only applies to GTC/GTD orders — the default order type in Simmer skills is
+FAK (Fill-And-Kill), which the exchange auto-cancels at submission, making
+this wrapper a no-op. No first-party skill has adopted `await_fill`, and the
+narrow use case (a skill explicitly using GTC/GTD with programmatic cancel
+policy) is better handled with a short in-skill poll loop tuned to that
+skill's strategy than a shared primitive with shared defaults.
+
+If your skill genuinely needs GTC wait-and-cancel logic today, copy the
+state machine into your skill and tune the thresholds to your strategy; the
+source will remain available in 0.11.x for reference. We'll reconsider a
+shared primitive when a first-party skill has concrete requirements.
 
 `await_fill()` polls an open limit order's `size_matched` and returns one of
-four statuses, giving callers a structured wait-or-cancel decision:
+four statuses:
 
   1. FILLED           — filled/target >= accept_pct (default 0.95)
   2. PARTIAL          — early exit: filled/target >= partial_exit_pct AND
@@ -10,28 +25,23 @@ four statuses, giving callers a structured wait-or-cancel decision:
                          (default 0.50 past 70% of timeout)
   3. TIMEOUT_PARTIAL  — max_wait elapsed with filled > 0
   4. TIMEOUT_NO_FILL  — max_wait elapsed with zero fill
-
-This is the execution-time counterpart to SIM-917's backfill/accounting work
-— it does not replace or touch that path, it's a separate surface for callers
-that want explicit partial-fill discipline at order-submit time.
-
-The function is duck-typed: the caller supplies a `poll` callable that
-returns the current `size_matched` (or an order dict containing it) and a
-`cancel` callable to abort the remainder. Helpers `clob_poll_fn()` and
-`clob_cancel_fn()` wire a `py_clob_client.ClobClient` in one line; see the
-test file for a mock-based example.
-
-Design intent: thin wrapper. The only logic here is the state machine that
-maps (elapsed, filled_ratio) to a FillStatus — everything else (auth,
-signing, network) stays in the existing CLOB or SDK client layer.
 """
 
 from __future__ import annotations
 
 import time
+import warnings
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable, Dict, Optional, Union
+
+_DEPRECATION_MSG = (
+    "simmer_sdk.execution.await_fill is deprecated and will be removed in "
+    "simmer-sdk 0.12.0. The wrapper only applies to GTC/GTD orders (FAK, the "
+    "default order type, auto-cancels at submission) and has no first-party "
+    "adopters; skills that need GTC wait-and-cancel should tune a short poll "
+    "loop to their own strategy. See https://docs.simmer.markets/sdk/execution."
+)
 
 
 class FillStatus(str, Enum):
@@ -150,6 +160,9 @@ def await_fill(
 ) -> FillResult:
     """Poll an open order and return one of four terminal `FillStatus` values.
 
+    .. deprecated:: 0.11.2
+       Removal scheduled for 0.12.0. See module docstring for rationale.
+
     Args:
         order_id: Order to poll.
         target_size: Requested size at submit time (same units as
@@ -179,6 +192,8 @@ def await_fill(
         ValueError on out-of-range threshold configuration.
     """
     _validate_thresholds(accept_pct, partial_exit_pct, partial_exit_time_frac)
+
+    warnings.warn(_DEPRECATION_MSG, DeprecationWarning, stacklevel=2)
 
     if target_size <= 0:
         raise ValueError(f"target_size must be > 0, got {target_size}")
