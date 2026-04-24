@@ -924,6 +924,10 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
                          use_safeguards: bool = True, use_trends: bool = True,
                          quiet: bool = False, vol_targeting: bool = VOL_TARGETING):
     """Run the weather trading strategy."""
+    # Globals declared up-front: balance pre-flight (below) may cap MAX_POSITION_USD,
+    # and automaton skip reports flip _automaton_reported.
+    global MAX_POSITION_USD, _automaton_reported
+
     def log(msg, force=False):
         """Print unless quiet mode is on. force=True always prints."""
         if not quiet or force:
@@ -975,6 +979,27 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
                 log(f"  💰 Redeemed {r['market_id'][:8]}... ({r.get('side', '?')})")
     except Exception:
         pass  # Non-critical — don't block trading
+
+    # Balance pre-flight: skip cleanly when wallet is underfunded instead of
+    # looping on rejected trades. Helper is collateral-agnostic — checks pUSD
+    # on V2, USDC.e on V1 per server's exchange_version.
+    if not dry_run:
+        _preflight = client.ensure_can_trade(min_usd=1.0)
+        if not _preflight["ok"]:
+            log(f"  ⏸️  insufficient_balance: ${_preflight['balance']:.2f} {_preflight['collateral']} "
+                f"(need ≥ $1.00) — skip", force=True)
+            if os.environ.get("AUTOMATON_MANAGED"):
+                print(json.dumps({"automaton": {
+                    "signals": 0, "trades_attempted": 0, "trades_executed": 0,
+                    "skip_reason": _preflight["reason"],
+                    "balance_usd": round(_preflight["balance"], 2),
+                }}))
+                _automaton_reported = True
+            return
+        if _preflight["max_safe_size"] < MAX_POSITION_USD:
+            log(f"  💰 Capping max bet ${MAX_POSITION_USD:.2f} → ${_preflight['max_safe_size']:.2f} "
+                f"(balance ${_preflight['balance']:.2f} {_preflight['collateral']})", force=True)
+            MAX_POSITION_USD = _preflight["max_safe_size"]
 
     # Show portfolio if smart sizing enabled
     if smart_sizing:
@@ -1242,7 +1267,6 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
 
     # Structured report for automaton
     if os.environ.get("AUTOMATON_MANAGED"):
-        global _automaton_reported
         report = {"signals": opportunities_found + exits_found, "trades_attempted": opportunities_found + exits_found, "trades_executed": total_trades, "amount_usd": round(total_usd_spent, 2)}
         if (opportunities_found + exits_found) > 0 and total_trades == 0 and skip_reasons:
             report["skip_reason"] = ", ".join(dict.fromkeys(skip_reasons))

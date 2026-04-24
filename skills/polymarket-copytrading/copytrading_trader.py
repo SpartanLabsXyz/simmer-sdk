@@ -393,6 +393,28 @@ def run_copytrading(wallets: list, top_n: int = None, max_usd: float = 50.0, dry
     except Exception:
         pass  # Non-critical — don't block trading
 
+    # Balance pre-flight: skip cleanly when wallet is underfunded instead of
+    # looping on rejected trades. Helper is collateral-agnostic — checks pUSD
+    # on V2, USDC.e on V1 per server's exchange_version.
+    global _automaton_reported
+    if not dry_run and (venue or "polymarket") == "polymarket":
+        _preflight = get_client().ensure_can_trade(min_usd=1.0)
+        if not _preflight["ok"]:
+            print(f"\n  ⏸️  insufficient_balance: ${_preflight['balance']:.2f} {_preflight['collateral']} "
+                  f"(need ≥ $1.00) — skip")
+            if os.environ.get("AUTOMATON_MANAGED"):
+                print(json.dumps({"automaton": {
+                    "signals": 0, "trades_attempted": 0, "trades_executed": 0,
+                    "skip_reason": _preflight["reason"],
+                    "balance_usd": round(_preflight["balance"], 2),
+                }}))
+                _automaton_reported = True
+            return
+        if _preflight["max_safe_size"] < max_usd:
+            print(f"  💰 Capping max per position ${max_usd:.2f} → ${_preflight['max_safe_size']:.2f} "
+                  f"(balance ${_preflight['balance']:.2f} {_preflight['collateral']})")
+            max_usd = _preflight["max_safe_size"]
+
     # Execute copytrading via SDK
     print("\n📡 Calling Simmer API...")
     try:
@@ -480,7 +502,6 @@ def run_copytrading(wallets: list, top_n: int = None, max_usd: float = 50.0, dry
 
     # Structured report for automaton
     if os.environ.get("AUTOMATON_MANAGED"):
-        global _automaton_reported
         positions_found = result.get('positions_found', 0) if result else 0
         _trades_needed = result.get('trades_needed', 0) if result else 0
         _trades_exec = result.get('trades_executed', 0) if result else 0
