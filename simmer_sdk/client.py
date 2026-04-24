@@ -1877,6 +1877,140 @@ class SimmerClient:
             "GET", "/api/sdk/portfolio", params={"venue": venue}
         )
 
+    def ensure_can_trade(
+        self,
+        min_usd: float = 1.0,
+        venue: Optional[str] = None,
+        safety_buffer: float = 0.02,
+    ) -> Dict[str, Any]:
+        """
+        Pre-flight balance check for trading skills.
+
+        One status fetch replaces many failed trade round-trips when a wallet
+        is underfunded. Skills should call this once per run before discovering
+        markets / placing orders. Result is collateral-agnostic — `balance`
+        reflects the active collateral token (pUSD on V2, USDC.e on V1) per
+        the server's `exchange_version`.
+
+        Args:
+            min_usd: Minimum viable trade size in active collateral. If wallet
+                balance is below this, returns `ok=False, reason="insufficient_balance"`
+                so the skill can skip cleanly instead of looping on rejected orders.
+            venue: Venue to check. Defaults to client's venue. Only "polymarket"
+                does a balance check today; other venues short-circuit to ok=True.
+            safety_buffer: Fraction of balance to keep as fee buffer. Default 0.02
+                (2%). `max_safe_size = balance * (1 - safety_buffer)` is the
+                largest order size the skill should place to leave room for
+                Polymarket fees + price slippage.
+
+        Returns:
+            Dict containing:
+            - ok (bool): True if balance >= min_usd (or non-polymarket venue)
+            - balance (float): Active collateral balance in USD-equivalent units
+            - collateral (str): "pUSD" (V2), "USDC.e" (V1), or "" (non-polymarket)
+            - exchange_version (str): "v1" or "v2" — matches server-side flag
+            - reason (str): "ok" | "insufficient_balance" | "no_wallet" |
+              "balance_unavailable" | "skipped_non_polymarket"
+            - max_safe_size (float): balance * (1 - safety_buffer); 0 when not ok
+
+        Example:
+            preflight = client.ensure_can_trade(min_usd=2.0)
+            if not preflight["ok"]:
+                print(f"Skip: {preflight['reason']} (balance ${preflight['balance']:.2f})")
+                return  # emit automaton skip and exit
+            order_size = min(MY_MAX_BET, preflight["max_safe_size"])
+        """
+        effective_venue = venue or self.venue
+
+        # Non-polymarket venues: paper trading or kalshi. Skip the check —
+        # caller's existing flow handles balance differently (sim is virtual,
+        # kalshi uses Solana balance which has its own preflight elsewhere).
+        if effective_venue != "polymarket":
+            return {
+                "ok": True,
+                "balance": 0.0,
+                "collateral": "",
+                "exchange_version": "",
+                "reason": "skipped_non_polymarket",
+                "max_safe_size": float("inf"),
+            }
+
+        # Active collateral label — matches server-side exchange_version flag.
+        # Imported lazily so the SDK doesn't pay the cost on every import.
+        try:
+            from .polymarket_contracts import exchange_version_str
+            ev = exchange_version_str()
+        except Exception:
+            ev = "v2"  # safe default post-cutover (2026-04-28)
+        collateral_label = "pUSD" if ev == "v2" else "USDC.e"
+
+        try:
+            portfolio = self.get_portfolio(venue="polymarket")
+        except Exception as e:
+            return {
+                "ok": False,
+                "balance": 0.0,
+                "collateral": collateral_label,
+                "exchange_version": ev,
+                "reason": "balance_unavailable",
+                "max_safe_size": 0.0,
+            }
+
+        if not portfolio:
+            return {
+                "ok": False,
+                "balance": 0.0,
+                "collateral": collateral_label,
+                "exchange_version": ev,
+                "reason": "balance_unavailable",
+                "max_safe_size": 0.0,
+            }
+
+        poly_bucket = portfolio.get("polymarket") or {}
+        # Per-venue bucket is the source of truth; balance_usdc is the legacy
+        # mirror but per-venue lets us distinguish "no wallet linked" cleanly.
+        raw_balance = poly_bucket.get("balance")
+        if raw_balance is None:
+            # bucket present but balance None = wallet not linked OR RPC failed.
+            # Server returns null balance when balance fetch fails (RPC outage)
+            # vs 0.0 when wallet is genuinely empty. Distinguish:
+            balance_usdc = portfolio.get("balance_usdc")
+            if balance_usdc is None:
+                # Try to detect "no wallet" vs RPC failure: check warnings list
+                # is one heuristic, but simplest is to treat null as RPC issue.
+                # No wallet → polymarket bucket itself is None (handled above).
+                return {
+                    "ok": False,
+                    "balance": 0.0,
+                    "collateral": collateral_label,
+                    "exchange_version": ev,
+                    "reason": "balance_unavailable",
+                    "max_safe_size": 0.0,
+                }
+            balance = float(balance_usdc)
+        else:
+            balance = float(raw_balance)
+
+        max_safe = round(balance * (1.0 - safety_buffer), 2)
+        if balance < min_usd:
+            return {
+                "ok": False,
+                "balance": balance,
+                "collateral": collateral_label,
+                "exchange_version": ev,
+                "reason": "insufficient_balance",
+                "max_safe_size": 0.0,
+            }
+
+        return {
+            "ok": True,
+            "balance": balance,
+            "collateral": collateral_label,
+            "exchange_version": ev,
+            "reason": "ok",
+            "max_safe_size": max_safe,
+        }
+
     def get_market_context(
         self,
         market_id: str,

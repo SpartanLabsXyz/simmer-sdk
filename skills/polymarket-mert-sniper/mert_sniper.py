@@ -342,6 +342,9 @@ def run_mert_strategy(dry_run=True, positions_only=False, show_config=False,
                       smart_sizing=False, use_safeguards=True,
                       filter_override=None, expiry_override=None):
     """Run the Mert Sniper near-expiry strategy."""
+    # Globals declared up-front: balance pre-flight (below) may cap MAX_BET_USD,
+    # and automaton skip reports flip _automaton_reported.
+    global MAX_BET_USD, _automaton_reported
     print("🎯 Mert Sniper - Near-Expiry Conviction Trading")
     print("=" * 50)
 
@@ -359,6 +362,27 @@ def run_mert_strategy(dry_run=True, positions_only=False, show_config=False,
                 print(f"  💰 Redeemed {r['market_id'][:8]}... ({r.get('side', '?')})")
     except Exception:
         pass  # Non-critical — don't block trading
+
+    # Balance pre-flight: skip cleanly when wallet is underfunded instead of
+    # looping on rejected trades. Helper is collateral-agnostic — checks pUSD
+    # on V2, USDC.e on V1 per server's exchange_version.
+    if not dry_run:
+        _preflight = client.ensure_can_trade(min_usd=1.0)
+        if not _preflight["ok"]:
+            print(f"  ⏸️  insufficient_balance: ${_preflight['balance']:.2f} {_preflight['collateral']} "
+                  f"(need ≥ $1.00) — skip")
+            if os.environ.get("AUTOMATON_MANAGED"):
+                print(json.dumps({"automaton": {
+                    "signals": 0, "trades_attempted": 0, "trades_executed": 0,
+                    "skip_reason": _preflight["reason"],
+                    "balance_usd": round(_preflight["balance"], 2),
+                }}))
+                _automaton_reported = True
+            return
+        if _preflight["max_safe_size"] < MAX_BET_USD:
+            print(f"  💰 Capping max bet ${MAX_BET_USD:.2f} → ${_preflight['max_safe_size']:.2f} "
+                  f"(balance ${_preflight['balance']:.2f} {_preflight['collateral']})")
+            MAX_BET_USD = _preflight["max_safe_size"]
 
     if dry_run:
         print("\n  [PAPER MODE] Trades will be simulated with real prices. Use --live for real trades.")
@@ -569,7 +593,6 @@ def run_mert_strategy(dry_run=True, positions_only=False, show_config=False,
 
     # Structured report for automaton
     if os.environ.get("AUTOMATON_MANAGED"):
-        global _automaton_reported
         report = {"signals": strong_split_count, "trades_attempted": strong_split_count, "trades_executed": trades_executed, "amount_usd": round(total_usd_spent, 2)}
         if strong_split_count > 0 and trades_executed == 0 and skip_reasons:
             report["skip_reason"] = ", ".join(dict.fromkeys(skip_reasons))

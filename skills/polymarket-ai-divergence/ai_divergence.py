@@ -564,6 +564,29 @@ def main():
     except Exception:
         pass  # Non-critical — don't block trading
 
+    # Balance pre-flight: skip cleanly when wallet is underfunded instead of
+    # looping on rejected trades. Helper is collateral-agnostic — checks pUSD
+    # on V2, USDC.e on V1 per server's exchange_version.
+    global MAX_BET_USD, _automaton_reported
+    is_paper_venue_pre = os.environ.get("TRADING_VENUE", "polymarket") == "sim"
+    if not dry_run and not is_paper_venue_pre:
+        _preflight = client.ensure_can_trade(min_usd=1.0)
+        if not _preflight["ok"]:
+            print(f"  ⏸️  insufficient_balance: ${_preflight['balance']:.2f} {_preflight['collateral']} "
+                  f"(need ≥ $1.00) — skip")
+            if os.environ.get("AUTOMATON_MANAGED"):
+                print(json.dumps({"automaton": {
+                    "signals": 0, "trades_attempted": 0, "trades_executed": 0,
+                    "skip_reason": _preflight["reason"],
+                    "balance_usd": round(_preflight["balance"], 2),
+                }}))
+                _automaton_reported = True
+            return
+        if _preflight["max_safe_size"] < MAX_BET_USD:
+            print(f"  💰 Capping max bet ${MAX_BET_USD:.2f} → ${_preflight['max_safe_size']:.2f} "
+                  f"(balance ${_preflight['balance']:.2f} {_preflight['collateral']})")
+            MAX_BET_USD = _preflight["max_safe_size"]
+
     direction = DEFAULT_DIRECTION or None
     if args.bullish:
         direction = "bullish"
@@ -605,7 +628,6 @@ def main():
 
     # Structured report for automaton
     if os.environ.get("AUTOMATON_MANAGED"):
-        global _automaton_reported
         report = {"signals": signals, "trades_attempted": attempted, "trades_executed": executed, "amount_usd": round(total_usd_spent, 2)}
         if signals > 0 and executed == 0 and skip_reasons:
             report["skip_reason"] = ", ".join(dict.fromkeys(skip_reasons))
