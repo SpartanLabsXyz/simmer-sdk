@@ -3,33 +3,34 @@
 All notable changes to `simmer-sdk` are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.11.2] — 2026-04-24
+## [0.12.0] — 2026-04-25
 
-### Deprecated
+### Removed
 
-- **`simmer_sdk.risk.DrawdownController`** — scheduled for removal in
-  0.12.0. Instantiating now emits `DeprecationWarning`. Rationale:
-  portfolio drawdown is already visible on the agent profile PnL chart
-  (the chart's peak is the same peak this class tracked), and
-  platform-level auto-halt was never wired in — silent agent halts are a
-  worse UX than the rare cascading-loss case they catch. Skills that
-  need programmatic halt logic should compute drawdown from
-  `SimmerClient.get_briefing()` portfolio values directly; a five-line
-  in-skill check is strictly better than this primitive (no restart
-  persistence gap, no hidden state, no silent trigger). The class stays
-  functional in 0.11.x for any adopters; no server-side replacement is
-  planned.
-- **`simmer_sdk.execution.await_fill`** (and `FillStatus`, `FillResult`,
-  `clob_poll_fn`, `clob_cancel_fn`) — scheduled for removal in 0.12.0.
-  Calling `await_fill()` now emits `DeprecationWarning`. Rationale: the
-  wrapper only applies to GTC/GTD orders; Simmer skills default to FAK
+- **`simmer_sdk.risk` module** (entire module — `DrawdownController`,
+  `DrawdownState`, and the `from simmer_sdk import DrawdownController`
+  top-level export) — withdrawn one day after 0.11.0 with no known
+  adopters. The intended use case is already addressed by the agent
+  profile PnL chart (whose peak equals the peak this class tracked),
+  and platform-level auto-halt was never appropriate to ship as an SDK
+  primitive — silent agent halts are a worse UX than the rare cascading
+  loss they would catch. Skills that want a portfolio drawdown halt
+  should compute it from `SimmerClient.get_briefing()` portfolio values
+  directly. No server-side replacement is planned.
+- **`simmer_sdk.execution` module** (entire module — `await_fill`,
+  `FillStatus`, `FillResult`, `clob_poll_fn`, `clob_cancel_fn`) —
+  withdrawn one day after 0.11.0 with no known adopters. The wrapper
+  only applied to GTC/GTD orders; Simmer skills default to `FAK`
   (Fill-And-Kill), which the exchange auto-cancels at submission, making
-  the wrapper a no-op for the common case. No first-party skill has
-  adopted it, and the narrow case (explicit GTC + programmatic cancel
-  policy) is better served by a short in-skill poll loop tuned to the
-  skill's own strategy than by a shared primitive with shared defaults.
-  The function stays functional in 0.11.x; we'll revisit a shared
-  primitive when a first-party skill has concrete requirements.
+  the wrapper a no-op for the common case. Skills with a genuine
+  GTC wait-and-cancel requirement should inline a short poll loop tuned
+  to their own strategy — shared defaults across strategies were the
+  wrong abstraction.
+
+If you imported either module from 0.11.0 or 0.11.1, pin to `0.11.1` or
+migrate per the guidance above. Future replacements (if any) will be
+introduced only when a concrete first-party skill has adoption
+requirements driving them.
 
 ## [0.11.1] — 2026-04-24
 
