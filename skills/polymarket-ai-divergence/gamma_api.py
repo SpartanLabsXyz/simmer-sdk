@@ -17,8 +17,8 @@ Usage:
     for event in results:
         print(event["title"], len(event["markets"]), "markets")
 
-    # List active markets with filters
-    markets = gamma.get_markets(active=True, limit=10)
+    # List active markets with filters (cursor-paginated)
+    markets, next_cursor = gamma.get_markets(active=True, limit=10)
 
     # Get a single event by slug
     event = gamma.get_event("will-trump-win-2024")
@@ -26,7 +26,7 @@ Usage:
 
 import json
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
@@ -120,46 +120,51 @@ class GammaClient:
         active: bool = True,
         closed: bool = False,
         limit: int = 50,
-        offset: int = 0,
+        after_cursor: Optional[str] = None,
         order: str = "volume24hr",
         ascending: bool = False,
-    ) -> List[Dict[str, Any]]:
+    ) -> Tuple[List[Dict[str, Any]], Optional[str]]:
         """List markets with optional filters, sorted by a field.
 
         Args:
             active: Only active markets.
             closed: Only closed markets.
-            limit: Max results (API caps at ~100).
-            offset: Pagination offset.
+            limit: Max results per page (1-1000).
+            after_cursor: Cursor from a prior call's ``next_cursor``. None for first page.
             order: Sort field (volume24hr, liquidity, volume, startDate, endDate).
             ascending: Sort direction.
 
         Returns:
-            List of parsed market dicts.
+            Tuple of (parsed market dicts, next_cursor). next_cursor is None on the last page.
         """
         params: Dict[str, Any] = {
             "limit": limit,
-            "offset": offset,
             "order": order,
             "ascending": str(ascending).lower(),
         }
+        if after_cursor:
+            params["after_cursor"] = after_cursor
         if active:
             params["active"] = "true"
             params["closed"] = "false"
         elif closed:
             params["closed"] = "true"
 
-        data = self._get("/markets", params)
-        if not data or not isinstance(data, list):
-            return []
-        return [self._parse_market(m) for m in data]
+        data = self._get("/markets/keyset", params)
+        if not data or not isinstance(data, dict):
+            return [], None
+        markets = [self._parse_market(m) for m in data.get("markets", [])]
+        return markets, data.get("next_cursor")
 
     def get_market(self, condition_id: str) -> Optional[Dict[str, Any]]:
         """Get a single market by its condition ID."""
-        data = self._get(f"/markets/{condition_id}")
+        data = self._get("/markets/keyset", {"condition_ids": condition_id})
         if not data or not isinstance(data, dict):
             return None
-        return self._parse_market(data)
+        markets = data.get("markets", [])
+        if not markets:
+            return None
+        return self._parse_market(markets[0])
 
     # ------------------------------------------------------------------
     # Events
@@ -171,39 +176,41 @@ class GammaClient:
         active: bool = True,
         closed: bool = False,
         limit: int = 50,
-        offset: int = 0,
+        after_cursor: Optional[str] = None,
         order: str = "volume24hr",
         ascending: bool = False,
-    ) -> List[Dict[str, Any]]:
+    ) -> Tuple[List[Dict[str, Any]], Optional[str]]:
         """List events (groups of related markets).
 
         Args:
             active: Only active events.
             closed: Only closed events.
-            limit: Max results.
-            offset: Pagination offset.
+            limit: Max results per page (1-500).
+            after_cursor: Cursor from a prior call's ``next_cursor``. None for first page.
             order: Sort field.
             ascending: Sort direction.
 
         Returns:
-            List of parsed event dicts with nested markets.
+            Tuple of (parsed event dicts with nested markets, next_cursor).
         """
         params: Dict[str, Any] = {
             "limit": limit,
-            "offset": offset,
             "order": order,
             "ascending": str(ascending).lower(),
         }
+        if after_cursor:
+            params["after_cursor"] = after_cursor
         if active:
             params["active"] = "true"
             params["closed"] = "false"
         elif closed:
             params["closed"] = "true"
 
-        data = self._get("/events", params)
-        if not data or not isinstance(data, list):
-            return []
-        return [self._parse_event(e) for e in data]
+        data = self._get("/events/keyset", params)
+        if not data or not isinstance(data, dict):
+            return [], None
+        events = [self._parse_event(e) for e in data.get("events", [])]
+        return events, data.get("next_cursor")
 
     def get_event(self, slug: str) -> Optional[Dict[str, Any]]:
         """Get a single event by slug.
@@ -214,10 +221,13 @@ class GammaClient:
         Returns:
             Parsed event dict or None.
         """
-        data = self._get("/events", {"slug": slug})
-        if not data or not isinstance(data, list) or len(data) == 0:
+        data = self._get("/events/keyset", {"slug": slug})
+        if not data or not isinstance(data, dict):
             return None
-        return self._parse_event(data[0])
+        events = data.get("events", [])
+        if not events:
+            return None
+        return self._parse_event(events[0])
 
     # ------------------------------------------------------------------
     # Parsing helpers

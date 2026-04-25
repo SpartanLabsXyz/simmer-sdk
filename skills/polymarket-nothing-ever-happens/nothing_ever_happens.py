@@ -23,6 +23,7 @@ import json
 import argparse
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Optional
 
 # Force line-buffered stdout for non-TTY environments (cron, Docker, OpenClaw)
 sys.stdout.reconfigure(line_buffering=True)
@@ -212,14 +213,15 @@ def fetch_candidate_markets(pages: int = 3) -> list:
 
     gamma = GammaClient()
     candidates = []
+    after_cursor: Optional[str] = None
 
     for page in range(pages):
         try:
-            events = gamma.get_events(
+            events, after_cursor = gamma.get_events(
                 active=True,
                 closed=False,
                 limit=50,
-                offset=page * 50,
+                after_cursor=after_cursor,
                 order="volume24hr",
                 ascending=False,
             )
@@ -273,6 +275,9 @@ def fetch_candidate_markets(pages: int = 3) -> list:
                 "end_date": market.get("end_date", ""),
                 "category": market.get("category", ""),
             })
+
+        if not after_cursor:
+            break
 
     # Sort by cheapest NO first
     candidates.sort(key=lambda m: m["no_price"])

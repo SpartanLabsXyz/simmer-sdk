@@ -358,15 +358,16 @@ def _discover_via_gamma(asset="BTC", window="5m"):
     """Fallback: Find active fast markets on Polymarket via Gamma API."""
     patterns = ASSET_PATTERNS.get(asset, ASSET_PATTERNS["BTC"])
     url = (
-        "https://gamma-api.polymarket.com/markets"
+        "https://gamma-api.polymarket.com/markets/keyset"
         "?limit=100&closed=false&tag=crypto&order=endDate&ascending=true"
     )
     result = _api_request(url)
-    if not result or isinstance(result, dict) and result.get("error"):
+    if not result or not isinstance(result, dict) or result.get("error"):
         return []
+    raw_markets = result.get("markets", [])
 
     markets = []
-    for m in result:
+    for m in raw_markets:
         q = (m.get("question") or "").lower()
         slug = m.get("slug", "")
         matches_window = f"-{window}-" in slug

@@ -3,7 +3,7 @@ name: polymarket-nothing-ever-happens
 description: Buy NO on standalone non-sports yes/no Polymarket markets priced below a configurable cap. Based on the "nothing-ever-happens" thesis — binary markets often resolve NO, and cheap NO shares offer asymmetric value. Scans for candidates via Gamma API, filters out sports and grouped markets, checks fees, and executes.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.0.0"
+  version: "1.0.1"
   displayName: Polymarket Nothing-Ever-Happens
   difficulty: beginner
 ---

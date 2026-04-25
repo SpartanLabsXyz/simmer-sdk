@@ -3,7 +3,7 @@ name: polymarket-wallet-xray
 description: X-ray any Polymarket wallet — skill level, entry quality, bot detection, and edge analysis. Queries Polymarket's public APIs, no authentication needed. Inspired by @thejayden's "Autopsy of a Polymarket Whale" analysis.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.1.0"
+  version: "1.1.1"
   displayName: Polymarket Wallet X-Ray
   difficulty: beginner
 ---
@@ -92,7 +92,7 @@ python scripts/status.py
 ```
 
 **APIs Used (Public, No Auth Required):**
-- Gamma API: `https://gamma-api.polymarket.com` — Market search
+- Gamma API: `https://gamma-api.polymarket.com/markets/keyset` — Market search (cursor-paginated)
 - CLOB API: `https://clob.polymarket.com` — Trade history and orderbook
 
 ## What You Get Back
