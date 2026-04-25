@@ -244,6 +244,10 @@ class SimmerClient:
         self._clob_client = None  # Cached ClobClient for local CLOB operations
         self._market_data_cache: dict = {}  # market_id -> market data for signing
         self._ows_wallet: Optional[str] = None  # OWS wallet name
+        self._agent_wallet_registered: Optional[bool] = None  # lazy: cached check whether
+        # the OWS wallet is registered in user_agent_wallets (per-agent-wallets feature).
+        # Used to decide whether to inject wallet_address into the trade payload — see
+        # _execute_polymarket_trade(). When None, the check has not yet been performed.
 
         # OWS wallet: param > env var > fall through to raw key
         _ows_env = os.environ.get("OWS_WALLET")
@@ -1100,8 +1104,13 @@ class SimmerClient:
         if price is not None:
             payload["price"] = price
 
-        # Include wallet_address for per-agent wallet trades
-        if self._ows_wallet and self._wallet_address:
+        # Include wallet_address only for users who explicitly opted into per-agent
+        # wallet attribution by registering this OWS wallet (Elite feature).
+        # Otherwise the server would reject with "Agent wallet not found" because
+        # the wallet has no row in user_agent_wallets — but the user-level
+        # linked_wallet_address path still works fine. Don't conflate "OWS configured"
+        # with "wants per-agent isolation."
+        if self._ows_wallet and self._wallet_address and self._is_agent_wallet_registered():
             payload["wallet_address"] = self._wallet_address
 
         # External wallet: ensure linked, check approvals, sign locally
@@ -3614,6 +3623,33 @@ class SimmerClient:
         """
         resp = self._request("GET", "/api/sdk/agent-wallets")
         return resp.get("wallets", [])
+
+    def _is_agent_wallet_registered(self) -> bool:
+        """Return True if `self._wallet_address` has a row in user_agent_wallets.
+
+        Cached for the lifetime of the client. Used by trade() to decide whether
+        to inject `wallet_address` into the payload — only registered wallets
+        take the per-agent-wallet route on the server. Unregistered OWS wallets
+        fall through to the user-level `linked_wallet_address` path so trading
+        works without requiring Elite-tier registration.
+        """
+        cached = getattr(self, "_agent_wallet_registered", None)
+        if cached is not None:
+            return cached
+        if not self._wallet_address:
+            self._agent_wallet_registered = False
+            return False
+        try:
+            wallets = self.get_agent_wallets()
+            target = self._wallet_address.lower()
+            self._agent_wallet_registered = any(
+                (w.get("wallet_address") or "").lower() == target for w in wallets
+            )
+        except Exception as e:
+            # On error, default to False so we take the safer fallback path.
+            logger.debug("agent-wallet registration check failed: %s — falling back to user-level path", e)
+            self._agent_wallet_registered = False
+        return self._agent_wallet_registered
 
     def get_agent_wallet_pnl(self, agent_id: str = None) -> dict:
         """Get P&L for an agent's dedicated wallet.

@@ -177,13 +177,14 @@ class TestUpdateAgentWalletCreds:
 
 class TestTradeWalletAddress:
 
-    def test_includes_wallet_address_when_ows_wallet_set(self):
-        """Trade payload includes wallet_address when OWS wallet is configured."""
+    def test_includes_wallet_address_when_ows_wallet_registered(self):
+        """Trade payload includes wallet_address when OWS wallet is registered in user_agent_wallets."""
         client = _make_client(
             ows_wallet="agent-mybot",
             wallet_address="0x1234567890abcdef1234567890abcdef12345678",
         )
-        # Mock the _request to return a successful trade
+        # Pre-cache: this wallet IS registered (per-agent-wallet feature opted into)
+        client._agent_wallet_registered = True
         client._request.return_value = {
             "success": True,
             "market_id": "test-market",
@@ -193,16 +194,44 @@ class TestTradeWalletAddress:
             "new_price": 0.5,
             "fill_status": "filled",
         }
-        # Need to mock _get_held_markets to avoid side effects
         client._get_held_markets = MagicMock(return_value={})
 
-        from simmer_sdk.client import TradeResult
         result = client.trade("test-market", "yes", amount=10.0)
 
-        # Verify wallet_address was in the payload
+        # Verify wallet_address WAS in the payload
         call_args = client._request.call_args
         payload = call_args.kwargs.get("json") or call_args[1].get("json")
         assert payload.get("wallet_address") == "0x1234567890abcdef1234567890abcdef12345678"
+
+    def test_omits_wallet_address_when_ows_wallet_not_registered(self):
+        """OWS wallet without per-agent-wallet registration falls through to user-level path.
+
+        Regression test for the case where an OWS user without an Elite-tier
+        per-agent-wallet registration was rejected with 'Agent wallet not found'.
+        """
+        client = _make_client(
+            ows_wallet="agent-mybot",
+            wallet_address="0x1234567890abcdef1234567890abcdef12345678",
+        )
+        # Pre-cache: this wallet is NOT registered
+        client._agent_wallet_registered = False
+        client._request.return_value = {
+            "success": True,
+            "market_id": "test-market",
+            "side": "yes",
+            "shares_bought": 10.0,
+            "cost": 5.0,
+            "new_price": 0.5,
+            "fill_status": "filled",
+        }
+        client._get_held_markets = MagicMock(return_value={})
+
+        result = client.trade("test-market", "yes", amount=10.0)
+
+        # Verify wallet_address was OMITTED — server takes user-level wallet path
+        call_args = client._request.call_args
+        payload = call_args.kwargs.get("json") or call_args[1].get("json")
+        assert "wallet_address" not in payload
 
     def test_no_wallet_address_without_ows(self):
         """Trade payload does NOT include wallet_address when no OWS wallet."""
