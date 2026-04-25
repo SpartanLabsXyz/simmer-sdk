@@ -3,6 +3,26 @@
 All notable changes to `simmer-sdk` are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.1] — 2026-04-25
+
+### Fixed
+
+- **OWS wallet trades no longer require Elite-tier per-agent wallet
+  registration.** When `OWS_WALLET` was set, `client.trade()` was
+  unconditionally injecting `wallet_address` into the request payload,
+  forcing the server through the per-agent-wallet validation path
+  (`user_agent_wallets` lookup) and rejecting any unregistered wallet
+  with `"Agent wallet not found or not owned by you"`. This locked out
+  OWS-configured users at Free/Pro tiers and Elite users who hadn't
+  gone through the dashboard registration flow. Standard external
+  wallets using `WALLET_PRIVATE_KEY` were unaffected.
+- The SDK now checks `/api/sdk/agent-wallets` once per client lifetime
+  and only injects `wallet_address` when the OWS wallet has a matching
+  registration row. Otherwise the trade falls through to the
+  user-account-level `linked_wallet_address` path, which works at any
+  tier. Per-agent isolation remains an opt-in feature for users who
+  explicitly register via dashboard or `register_agent_wallet()`.
+
 ## [0.12.0] — 2026-04-25
 
 ### Removed
