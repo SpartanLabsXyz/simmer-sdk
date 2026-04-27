@@ -43,9 +43,8 @@ def test_v1_flag_returns_three_spenders_usdce():
     assert collateral_token().lower() == "0x2791bca1f2de4661ed88a30c99a7a9449aa84174"
 
 
-def test_v2_default_returns_four_spenders_pusd():
-    # No env override — 0.10.0 defaults to V2
-    _set_version(None)
+def test_v2_explicit_returns_four_spenders_pusd():
+    _set_version("v2")
     from simmer_sdk.polymarket_contracts import (
         is_v2_enabled, active_spenders, collateral_token, exchange_version_str,
     )
@@ -57,11 +56,98 @@ def test_v2_default_returns_four_spenders_pusd():
     assert collateral_token().lower() == "0xc011a7e12a19f7b1f670d46f03b03f3342e82dfb"
 
 
-def test_v2_explicit_matches_default():
+# ==================== time-gated default (0.12.2+) ====================
+
+def test_default_pre_cutover_signs_v1():
+    """Before the cutover instant, the unset default returns V1."""
+    _set_version(None)
+    from datetime import datetime, timezone, timedelta
+    from unittest.mock import patch
+    import simmer_sdk.polymarket_contracts as pc
+
+    one_min_before = pc.POLYMARKET_V2_CUTOVER_UTC - timedelta(minutes=1)
+
+    class _FrozenDT(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return one_min_before if tz is None else one_min_before.astimezone(tz)
+
+    with patch.object(pc, "datetime", _FrozenDT):
+        assert pc.is_v2_enabled() is False
+        assert pc.exchange_version_str() == "v1"
+
+
+def test_default_at_cutover_signs_v2():
+    """At the exact cutover instant, the unset default returns V2."""
+    _set_version(None)
+    from datetime import datetime, timezone
+    from unittest.mock import patch
+    import simmer_sdk.polymarket_contracts as pc
+
+    at_cutover = pc.POLYMARKET_V2_CUTOVER_UTC
+
+    class _FrozenDT(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return at_cutover if tz is None else at_cutover.astimezone(tz)
+
+    with patch.object(pc, "datetime", _FrozenDT):
+        assert pc.is_v2_enabled() is True
+        assert pc.exchange_version_str() == "v2"
+
+
+def test_default_post_cutover_signs_v2():
+    """After the cutover instant, the unset default returns V2."""
+    _set_version(None)
+    from datetime import datetime, timezone, timedelta
+    from unittest.mock import patch
+    import simmer_sdk.polymarket_contracts as pc
+
+    one_hour_after = pc.POLYMARKET_V2_CUTOVER_UTC + timedelta(hours=1)
+
+    class _FrozenDT(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return one_hour_after if tz is None else one_hour_after.astimezone(tz)
+
+    with patch.object(pc, "datetime", _FrozenDT):
+        assert pc.is_v2_enabled() is True
+
+
+def test_env_override_wins_over_time_gate_v1():
+    """Even post-cutover, SIMMER_POLYMARKET_EXCHANGE_VERSION=v1 forces V1."""
+    _set_version("v1")
+    from datetime import datetime, timezone, timedelta
+    from unittest.mock import patch
+    import simmer_sdk.polymarket_contracts as pc
+
+    one_hour_after = pc.POLYMARKET_V2_CUTOVER_UTC + timedelta(hours=1)
+
+    class _FrozenDT(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return one_hour_after if tz is None else one_hour_after.astimezone(tz)
+
+    with patch.object(pc, "datetime", _FrozenDT):
+        assert pc.is_v2_enabled() is False
+
+
+def test_env_override_wins_over_time_gate_v2():
+    """Even pre-cutover, SIMMER_POLYMARKET_EXCHANGE_VERSION=v2 forces V2."""
     _set_version("v2")
-    from simmer_sdk.polymarket_contracts import is_v2_enabled, active_spenders
-    assert is_v2_enabled() is True
-    assert len(active_spenders()) == 4
+    from datetime import datetime, timezone, timedelta
+    from unittest.mock import patch
+    import simmer_sdk.polymarket_contracts as pc
+
+    one_hour_before = pc.POLYMARKET_V2_CUTOVER_UTC - timedelta(hours=1)
+
+    class _FrozenDT(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return one_hour_before if tz is None else one_hour_before.astimezone(tz)
+
+    with patch.object(pc, "datetime", _FrozenDT):
+        assert pc.is_v2_enabled() is True
 
 
 # ==================== approvals ====================
@@ -77,7 +163,7 @@ def test_v1_approvals_count_and_tokens():
 
 
 def test_v2_approvals_count_and_tokens():
-    _set_version(None)  # default V2 on 0.10.0
+    _set_version("v2")  # explicit V2 (default is time-gated as of 0.12.2)
     from simmer_sdk.approvals import get_approval_transactions
     txs = get_approval_transactions()
     # 4 spenders × (pUSD + CTF) = 8 txs

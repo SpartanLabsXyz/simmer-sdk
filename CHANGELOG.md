@@ -3,6 +3,29 @@
 All notable changes to `simmer-sdk` are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.2] — 2026-04-27
+
+### Fixed
+
+- **`is_v2_enabled()` default is now time-gated on the Polymarket V2
+  cutover (2026-04-28 11:00 UTC).** Versions 0.10.0–0.12.1 defaulted
+  to V2 unconditionally, which signed V2-shaped orders against the
+  still-active V1 CLOB pre-cutover and got back
+  `{"error": "order_version_mismatch"}`. Affected external-wallet
+  users on `simmer-sdk 0.10.0`–`0.12.1` should `pip install -U
+  simmer-sdk` to pick up 0.12.2.
+
+  The new default signs V1 before the cutover instant and V2 from
+  that instant onward — same installed binary, no upgrade or env-var
+  change needed at cutover. The `SIMMER_POLYMARKET_EXCHANGE_VERSION`
+  env override (`v1` / `v2`) still wins over the time gate for
+  testing or break-glass.
+
+  Managed-wallet users (no `WALLET_PRIVATE_KEY` / `OWS_WALLET` set)
+  were unaffected — the SDK forwards their requests to the server,
+  which signs server-side based on its own Railway flag. This fix
+  only changes behavior for external-wallet (locally-signed) flows.
+
 ## [0.12.1] — 2026-04-25
 
 ### Fixed

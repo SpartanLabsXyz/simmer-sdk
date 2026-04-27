@@ -8,12 +8,15 @@ the Simmer API expects. Callers should use `active_spenders()`,
 V1 or V2 constants directly.
 
 Exchange version:
-- Default starting `simmer-sdk 0.10.0`: **V2** (Polymarket cut over
-  on 2026-04-28 ~11:00 UTC). Pre-cutover, pin `simmer-sdk <0.10.0`
-  for V1. Post-cutover, upgrade to 0.10.0+ for V2.
-- Override via `SIMMER_POLYMARKET_EXCHANGE_VERSION=v1` env var (use
-  with care — only applicable if you're testing against the old V1
-  CLOB, which stopped accepting orders at cutover).
+- Default starting `simmer-sdk 0.12.2`: **time-gated**. Signs V1
+  before the Polymarket V2 cutover at 2026-04-28 11:00 UTC, and
+  V2 from that timestamp onward. Same installed binary auto-flips
+  at cutover — no upgrade needed.
+- Override via `SIMMER_POLYMARKET_EXCHANGE_VERSION=v1` or `=v2`
+  env var to force a shape (rare — use only for testing).
+- Note: 0.10.0 through 0.12.1 defaulted to V2 unconditionally,
+  which signed V2-shaped orders against the V1 CLOB pre-cutover
+  and got `order_version_mismatch`. 0.12.2 fixes that.
 
 Sources:
 - Polymarket docs: docs.polymarket.com/v2-migration
@@ -25,6 +28,12 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from datetime import datetime, timezone
+
+# Polymarket V2 cutover timestamp. Before this instant the SDK signs V1;
+# at and after this instant it signs V2. The same installed binary auto-
+# flips — no upgrade required at cutover.
+POLYMARKET_V2_CUTOVER_UTC = datetime(2026, 4, 28, 11, 0, 0, tzinfo=timezone.utc)
 
 # ============================================================
 # Chain + shared constants (unchanged V1 → V2)
@@ -83,17 +92,20 @@ class ActiveAddresses:
 def is_v2_enabled() -> bool:
     """True when the SDK should build V2-shaped orders / approvals.
 
-    Default: **V2** starting `simmer-sdk 0.10.0`. Override with env
-    `SIMMER_POLYMARKET_EXCHANGE_VERSION=v1` to force V1 shape (e.g., for
-    testing against the retired V1 CLOB — rare).
+    Default behavior (since `simmer-sdk 0.12.2`): time-gated on the
+    Polymarket V2 cutover at 2026-04-28 11:00 UTC. Signs V1 before that
+    instant, V2 from that instant onward. Same installed binary auto-
+    flips — no upgrade or env-var change needed at cutover.
+
+    Override via `SIMMER_POLYMARKET_EXCHANGE_VERSION=v1` or `=v2` env
+    var to force a shape (rare — use only for testing).
     """
     override = os.getenv("SIMMER_POLYMARKET_EXCHANGE_VERSION", "").strip().lower()
     if override == "v1":
         return False
     if override == "v2":
         return True
-    # Unset / unrecognized → v2 default on 0.10.0+
-    return True
+    return datetime.now(timezone.utc) >= POLYMARKET_V2_CUTOVER_UTC
 
 
 def get_active_addresses() -> ActiveAddresses:
