@@ -2900,6 +2900,10 @@ class SimmerClient:
         fee_rate_bps = market_data.get("fee_rate_bps", 0)
 
         # Build and sign the order
+        # For V2 FAK/FOK BUY, pass the original USDC `amount` so the
+        # market-order builder rounds maker to 2 decimals on a value the
+        # caller asked for, not a derived size*price that may shave a cent.
+        amount_usdc = float(amount) if (not is_sell and amount > 0) else None
         if self._ows_wallet:
             signed = build_and_sign_order_ows(
                 ows_wallet=self._ows_wallet,
@@ -2926,6 +2930,7 @@ class SimmerClient:
                 tick_size=tick_size,
                 fee_rate_bps=fee_rate_bps,
                 order_type=order_type,
+                amount_usdc=amount_usdc,
             )
 
         return signed.to_dict()
