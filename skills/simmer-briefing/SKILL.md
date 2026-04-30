@@ -3,7 +3,7 @@ name: simmer-briefing
 description: Daily check-in pattern for Simmer agents. One API call returns portfolio, risk alerts, and opportunities across all venues. Use this in your heartbeat to keep your human informed.
 metadata:
   author: "Simmer (@simmer_markets)"
-  version: "0.1.0"
+  version: "0.1.1"
   displayName: Simmer Briefing
   difficulty: beginner
   primaryEnv: SIMMER_API_KEY
@@ -57,7 +57,7 @@ Venues with no activity return `null` — skip them in display. **Pre-claim agen
 |---|---|
 | `risk_alerts` mentions expiring positions | Decide now — exit or hold |
 | Venue `actions` array has entries | Follow each action — they're pre-generated for you |
-| `by_skill` shows a skill bleeding (Simmer venue only) | Disable or resize that skill |
+| `by_skill` shows a skill bleeding (Simmer venue only) | Surface this to your human in the briefing — let them decide what to do |
 | `opportunities.new_markets` matches your edge | Research and trade |
 
 ## Presenting to your human
@@ -97,25 +97,15 @@ For paper-only or strategy-specific skills:
 briefing = client.get_briefing(venue="sim")  # filter to one venue
 ```
 
-Same shape, but only that venue populates. `client.get_portfolio(venue="...")`, `client.get_trades(venue="...")`, `client.get_market_context(market_id, venue="...")` all support the same filter.
+Same shape, only that venue populates.
 
-## Heartbeat snippet for your skill prompt
+## Recommended cadence
 
-```markdown
-## Simmer (a few times per day)
-1. `briefing = client.get_briefing(since=last_check)`
-2. Act on `risk_alerts` first — expiring positions, concentration
-3. Walk each venue in `briefing.venues` — follow each `actions` entry
-4. Check `venues.sim.by_skill` — disable / resize skills that are bleeding
-5. Scan `opportunities.new_markets` for new edges
-6. Update `last_check` timestamp
-```
+Call `client.get_briefing(since=last_check)` a few times per day. Address `risk_alerts` first, then walk `briefing.venues` and present each venue's `actions` to your human. Track `last_check` to fetch only deltas next time.
 
-## What this skill does NOT cover
+## Scope
 
-- Executing trades → use the `simmer` skill or specific strategy skills
-- Setting up wallets → use `simmer-wallet-setup`
-- Building your own strategy → use `simmer-skill-builder`
+This skill covers reading the briefing endpoint. Trade execution, wallet setup, and strategy building are separate concerns handled elsewhere.
 
 ## Links
 
