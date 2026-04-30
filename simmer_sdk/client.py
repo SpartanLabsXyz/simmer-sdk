@@ -927,7 +927,7 @@ class SimmerClient:
         Args:
             market_id: Market ID to trade on
             side: 'yes' or 'no'
-            amount: Dollar amount to spend (for buys)
+            amount: Amount to spend (for buys) — USDC for polymarket/kalshi, $SIM for sim
             shares: Number of shares to sell (for sells)
             action: 'buy' or 'sell' (default: 'buy')
             venue: Override client's default venue for this trade.
@@ -1381,7 +1381,7 @@ class SimmerClient:
         Args:
             market_id: Market ID to trade on (must be a Polymarket market)
             side: 'yes' or 'no'
-            amount: Dollar amount to spend
+            amount: USDC amount to spend
 
         Returns:
             RealTradeResult with order_params for CLOB submission
@@ -2833,7 +2833,7 @@ class SimmerClient:
         Args:
             market_id: Market to trade on
             side: 'yes' or 'no'
-            amount: Dollar amount (for buys)
+            amount: USDC amount (for buys)
             shares: Number of shares (for sells)
             action: 'buy' or 'sell'
             order_type: Order type ('FAK', 'GTC', etc.)
@@ -2959,7 +2959,7 @@ class SimmerClient:
         Args:
             market_id: Market ID to trade on
             side: 'yes' or 'no'
-            amount: Dollar amount (for buys)
+            amount: USDC amount (for buys)
             shares: Number of shares (for sells)
             action: 'buy' or 'sell'
             reasoning: Optional trade explanation

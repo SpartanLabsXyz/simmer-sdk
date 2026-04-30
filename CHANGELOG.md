@@ -3,6 +3,27 @@
 All notable changes to `simmer-sdk` are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.4] — 2026-04-30
+
+### Docs
+
+- **`amount` parameter currency disambiguation across SDK docstrings.**
+  Per CLAUDE.md currency-formatting rule (`$SIM` for sim venue, `USDC`
+  for real venues), the `amount` parameter docstrings on `client.trade()`
+  and the internal Polymarket/Kalshi execution methods previously read
+  `Dollar amount to spend`, which is ambiguous for `venue='sim'`. Updated:
+
+  - `client.trade(amount=...)` (top-level): now `Amount to spend (for buys)
+    — USDC for polymarket/kalshi, $SIM for sim`
+  - `prepare_polymarket_order(amount=...)`: now `USDC amount to spend`
+    (Polymarket-only path)
+  - `_build_signed_order(amount=...)`: now `USDC amount (for buys)`
+    (Polymarket-only path)
+  - `_execute_kalshi_byow_trade(amount=...)`: now `USDC amount (for buys)`
+    (Kalshi-only path)
+
+  Behavior is unchanged. Follow-up to SIM-1252.
+
 ## [0.12.3] — 2026-04-30
 
 ### Fixed
