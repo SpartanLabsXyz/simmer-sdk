@@ -3,6 +3,44 @@
 All notable changes to `simmer-sdk` are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.3] — 2026-04-30
+
+### Fixed
+
+- **Polymarket V2 FAK/FOK BUY: maker amount precision rejection on
+  non-cent-aligned prices.** `client.trade(action="buy",
+  order_type="FAK")` was producing `makerAmount` values with
+  4–5 decimals of USDC precision (e.g. `$5.99767` for a `$6.00` BUY
+  on a `tick_size=0.001` market). Polymarket CLOB enforces "FAK/FOK
+  maker max 2 decimals" and rejected these orders with `Order
+  rejected: invalid amounts, the market buy orders maker amount
+  supports a max accuracy of 2 decimals`.
+
+  The V2 path now routes FAK/FOK orders through Polymarket's
+  canonical market-order builder (`MarketOrderArgsV2` →
+  `OrderBuilder.build_market_order`), which rounds maker (USDC for
+  BUY, shares for SELL) down to 2 decimals by construction across
+  all tick sizes (`0.01`, `0.001`, `0.0001`). GTC/GTD limit orders
+  continue using `OrderArgsV2` → `build_order` and preserve full
+  `price × size = maker` precision (CLOB validates that exactly for
+  limit orders).
+
+  `build_and_sign_order(...)` gains an optional `amount_usdc` kwarg
+  (the original USDC dollar amount for FAK/FOK BUY) so the signed
+  maker matches what the caller asked for, not a derived
+  `size × price` which can shave a cent under float drift.
+  `client._execute_polymarket_byow_trade` plumbs it through
+  automatically — most callers do not need to touch this.
+
+  V1 signing path was already correct (post-hoc 2-dec rounding step
+  has been there since Feb 17). OWS path remains V1-only and is
+  out of scope for this fix; tracked separately in the
+  wallet-custody-migration workstream.
+
+  External-wallet users on V2 (default since 2026-04-28 cutover)
+  hitting precision rejections on non-cent-aligned prices should
+  `pip install -U simmer-sdk` to pick up 0.12.3.
+
 ## [0.12.2] — 2026-04-27
 
 ### Fixed

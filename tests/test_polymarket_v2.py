@@ -241,3 +241,92 @@ def test_signed_order_v2_shape_omits_v1_fields():
     assert "taker" not in d
     assert "nonce" not in d
     assert "feeRateBps" not in d
+
+
+# ==================== V2 maker-precision regression ====================
+# CLOB rejects FAK/FOK orders whose makerAmount has more than 2 decimals
+# (raw not divisible by 10000). For tick=0.001 BUYs and many tick=0.01
+# BUYs at non-cent-aligned prices, the OrderArgsV2/get_order_amounts path
+# produces sub-cent maker. Routing FAK/FOK through MarketOrderArgsV2/
+# build_market_order is the canonical pattern per Polymarket V2 docs.
+# See _dev/active/_polymarket-rounding-precision/HISTORY.md.
+
+_TEST_KEY = "0x" + "a" * 64
+_TEST_TOKEN = "71321045679252212594626385532706912750332728571942532289631379312455583992563"
+
+
+def _v2_signed(**kwargs):
+    """Build a V2-signed order with a throwaway key. V2 forced via env."""
+    _set_version("v2")
+    from simmer_sdk.signing import build_and_sign_order
+    return build_and_sign_order(
+        private_key=_TEST_KEY,
+        wallet_address="0x" + "11" * 20,
+        token_id=_TEST_TOKEN,
+        **kwargs,
+    ).to_dict()
+
+
+def test_v2_fak_buy_tick_0001_user_reported_case():
+    """User TG report: \\$6.00 BUY on tick=0.001 NO market produced
+    makerAmount=5.99767 → CLOB rejects (>2 dec). Fix routes through
+    create_market_order so maker is exactly the user's intended USDC."""
+    d = _v2_signed(
+        side="BUY", price=0.949, size=6.0 / 0.949,
+        tick_size=0.001, order_type="FAK", amount_usdc=6.0,
+    )
+    maker = int(d["makerAmount"])
+    assert maker == 6_000_000, f"expected $6.00 maker, got {maker / 1e6}"
+    assert maker % 10000 == 0, "maker must be 2-dec aligned for FAK/FOK"
+
+
+def test_v2_fak_buy_tick_001_subcent_prices_round_to_cents():
+    """Pre-fix, ~80% of FAK BUYs at non-cent prices produced sub-cent
+    makerAmount on tick=0.01. Spot-check the worst offenders."""
+    for amount, price in [(5, 0.47), (6, 0.19), (10, 0.33), (25, 0.89), (100, 0.68)]:
+        d = _v2_signed(
+            side="BUY", price=price, size=amount / price,
+            tick_size=0.01, order_type="FAK", amount_usdc=float(amount),
+        )
+        maker = int(d["makerAmount"])
+        assert maker == amount * 1_000_000, (
+            f"amount=${amount} price={price}: expected {amount * 1_000_000} maker, got {maker}"
+        )
+        assert maker % 10000 == 0
+
+
+def test_v2_fak_sell_maker_is_2dec_shares():
+    """SELL FAK: maker=shares, must be 2-dec aligned (cents-of-share).
+    Use an adversarial size with extra decimals to verify round_down kicks
+    in — 10.5 alone is already 2-dec aligned and trivially passes."""
+    d = _v2_signed(
+        side="SELL", price=0.421, size=10.555,
+        tick_size=0.001, order_type="FAK",
+    )
+    maker = int(d["makerAmount"])
+    # round_down(10.555, 2) = 10.55 → 10_550_000 raw
+    assert maker == 10_550_000, f"expected 10.55 shares maker, got {maker / 1e6}"
+    assert maker % 10000 == 0
+
+
+def test_v2_gtc_preserves_full_precision():
+    """GTC must NOT post-round maker — CLOB validates maker = price × size
+    exactly. Per HISTORY.md, that was the regression in attempts 1-4."""
+    d = _v2_signed(
+        side="BUY", price=0.421, size=5.68,
+        tick_size=0.001, order_type="GTC",
+    )
+    maker = int(d["makerAmount"])
+    taker = int(d["takerAmount"])
+    # tick=0.001 keeps price.421 at 3 dec, so maker = 5.68 × 0.421 = 2.39128
+    assert maker == 2_391_280
+    assert taker == 5_680_000
+
+
+def test_v2_invalid_order_type_rejected():
+    import pytest
+    with pytest.raises(ValueError, match="Invalid order_type"):
+        _v2_signed(
+            side="BUY", price=0.5, size=10,
+            tick_size=0.01, order_type="GIBBERISH",
+        )

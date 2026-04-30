@@ -120,6 +120,7 @@ def build_and_sign_order(
     order_type: str = "FAK",  # "FAK", "FOK", "GTC", "GTD"
     builder_code: Optional[str] = None,
     metadata: Optional[str] = None,
+    amount_usdc: Optional[float] = None,
 ) -> SignedOrder:
     """
     Build and sign a Polymarket order.
@@ -139,6 +140,16 @@ def build_and_sign_order(
             `POLY_BUILDER_CODE` if None; defaults to zero bytes32 if unset.
             Mint yours at polymarket.com/settings?tab=builder.
         metadata: V2 only. bytes32 hex, default zero bytes32.
+        amount_usdc: V2 FAK/FOK BUY only. Original USDC dollar amount. If
+            provided, the V2 path routes through `build_market_order` with
+            this amount as maker (CLOB requires maker max 2 dec on FAK/FOK).
+            If None, the V2 path derives it from `size * price`. Ignored
+            for SELL (uses `size` as shares) and for GTC/GTD (uses `size`).
+            **OWS path scope:** `build_and_sign_order_ows` is still V1-only
+            and does not accept this kwarg. OWS BYOW users on V2-default
+            configs hit a different rejection (V1-shape order at V2 CLOB)
+            that this fix does not address; tracked separately in
+            `_dev/active/_wallet-custody-migration/`.
 
     Returns:
         SignedOrder ready for API submission. V1 or V2 shape based on
@@ -162,6 +173,7 @@ def build_and_sign_order(
             order_type=order_type,
             builder_code=builder_code,
             metadata=metadata,
+            amount_usdc=amount_usdc,
         )
     return _build_and_sign_order_v1(
         private_key=private_key,
@@ -306,17 +318,48 @@ def _build_and_sign_order_v2(
     order_type: str,
     builder_code: Optional[str],
     metadata: Optional[str],
+    amount_usdc: Optional[float] = None,
 ) -> SignedOrder:
-    """V2 signing path. Uses `py_clob_client_v2`'s ClobClient.create_order().
+    """V2 signing path. Uses `py_clob_client_v2.OrderBuilder` directly.
+
+    For FAK/FOK orders we route through ``build_market_order`` with
+    ``MarketOrderArgsV2`` (canonical pattern per Polymarket V2 docs):
+    BUY ``amount`` is USDC, SELL ``amount`` is shares. The library's
+    ``get_market_order_amounts`` rounds maker (USDC for BUY, shares for
+    SELL) down to ``round_config.size=2`` decimals, satisfying the
+    CLOB's "FAK/FOK maker max 2 decimals" rule for all tick sizes.
+
+    For GTC/GTD orders we use ``build_order`` with ``OrderArgsV2``,
+    where the library's ``get_order_amounts`` preserves full precision —
+    GTC/GTD must satisfy ``price × size = amount`` exactly, so we never
+    re-round.
+
+    Bypassing ``ClobClient.create_order/create_market_order`` avoids
+    network calls (`get_tick_size`, `get_version`, `get_clob_market_info`)
+    that the high-level helpers make on every order. We sign locally and
+    let `local_dev_server` route the signed order to CLOB.
 
     V2 drops taker/nonce/feeRateBps from the signed struct and adds
     timestamp/metadata/builder. The HTTP POST body keeps `expiration`
     at "0" (not part of signed hash). See docs.simmer.markets/v2-migration.
+
+    See ``_dev/active/_polymarket-rounding-precision/HISTORY.md`` for
+    the full rationale: V1 used post-hoc maker rounding, but V2's
+    ``OrderArgsV2`` path produces sub-cent maker on tick=0.01 BUYs at
+    most prices and on tick=0.001 BUYs at virtually all prices — the
+    canonical fix is the market-order builder, not post-hoc rounding.
     """
     import os
     try:
-        from py_clob_client_v2.client import ClobClient
-        from py_clob_client_v2.clob_types import OrderArgs, PartialCreateOrderOptions
+        from py_clob_client_v2.order_builder.builder import OrderBuilder, ROUNDING_CONFIG
+        from py_clob_client_v2.clob_types import (
+            OrderArgsV2,
+            MarketOrderArgsV2,
+            CreateOrderOptions,
+            OrderType,
+        )
+        from py_clob_client_v2.signer import Signer
+        from py_clob_client_v2.order_utils import SignatureTypeV2
     except ImportError:
         raise ImportError(
             "py_clob_client_v2 >= 1.0.0 is required for V2 local signing. "
@@ -337,6 +380,10 @@ def _build_and_sign_order_v2(
             f"Got {signature_type}. For Safe/Proxy wallets, use the "
             f"polynode SDK's relayer path or the Simmer dashboard Migrate flow."
         )
+    if order_type not in ("FAK", "FOK", "GTC", "GTD"):
+        raise ValueError(
+            f"Invalid order_type '{order_type}'. Must be FAK, FOK, GTC, or GTD."
+        )
 
     # Resolve builder_code: explicit arg > env > zero bytes32
     if builder_code is None:
@@ -349,38 +396,62 @@ def _build_and_sign_order_v2(
     # GTC/GTD expiration is a unix-seconds int; FAK/FOK use 0
     expiration_seconds = 0
 
-    clob_host = os.getenv("POLYMARKET_CLOB_HOST", "https://clob.polymarket.com")
-    client = ClobClient(
-        host=clob_host,
-        chain_id=POLYGON_CHAIN_ID,
-        key=private_key,
-        signature_type=0,
+    tick_size_str = str(tick_size)
+    if tick_size_str not in ROUNDING_CONFIG:
+        # Safe fallback to most common tick. Mirrors V1 behavior.
+        tick_size_str = "0.01"
+    options = CreateOrderOptions(tick_size=tick_size_str, neg_risk=neg_risk)
+
+    signer = Signer(private_key=private_key, chain_id=POLYGON_CHAIN_ID)
+    order_builder = OrderBuilder(
+        signer=signer,
+        signature_type=SignatureTypeV2.EOA,
         funder=wallet_address,
     )
 
-    tick_size_str = str(tick_size)
-    order_args = OrderArgs(
-        token_id=token_id,
-        price=price,
-        size=size,
-        side=side.upper(),
-        expiration=expiration_seconds,
-        builder_code=builder_code,
-        metadata=metadata,
-    )
-    options = PartialCreateOrderOptions(
-        tick_size=tick_size_str,
-        neg_risk=neg_risk,
-    )
-    signed = client.create_order(order_args, options)
+    is_market = order_type in ("FAK", "FOK")
+    if is_market:
+        # FAK/FOK: amount in USDC for BUY, shares for SELL.
+        # For BUY, prefer caller-provided USDC amount; fall back to size*price
+        # (lossy: round_down inside helper may shave a cent due to float drift).
+        if side == "BUY":
+            market_amount = (
+                float(amount_usdc) if amount_usdc is not None else float(size) * float(price)
+            )
+        else:
+            market_amount = float(size)
+        market_args = MarketOrderArgsV2(
+            token_id=token_id,
+            amount=market_amount,
+            side=side.upper(),
+            price=price,
+            order_type=getattr(OrderType, order_type),
+            builder_code=builder_code,
+            metadata=metadata,
+        )
+        signed = order_builder.build_market_order(market_args, options, version=2)
+    else:
+        # GTC/GTD: size in shares; library preserves price × size = amount.
+        order_args = OrderArgsV2(
+            token_id=token_id,
+            price=price,
+            size=size,
+            side=side.upper(),
+            expiration=expiration_seconds,
+            builder_code=builder_code,
+            metadata=metadata,
+        )
+        signed = order_builder.build_order(order_args, options, version=2)
+
     if hasattr(signed, "dict"):
         order_dict = signed.dict()
     elif hasattr(signed, "model_dump"):
         order_dict = signed.model_dump()
     else:
-        order_dict = {k: getattr(signed, k) for k in signed.__dataclass_fields__}
+        import dataclasses
+        order_dict = dataclasses.asdict(signed)
 
-    # Minimum order size check (after SDK-computed amounts)
+    # Minimum order size check (after library-computed amounts)
     maker_raw = int(order_dict["makerAmount"])
     taker_raw = int(order_dict["takerAmount"])
     shares_raw = taker_raw if side == "BUY" else maker_raw
