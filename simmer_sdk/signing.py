@@ -145,6 +145,11 @@ def build_and_sign_order(
             this amount as maker (CLOB requires maker max 2 dec on FAK/FOK).
             If None, the V2 path derives it from `size * price`. Ignored
             for SELL (uses `size` as shares) and for GTC/GTD (uses `size`).
+            **OWS path scope:** `build_and_sign_order_ows` is still V1-only
+            and does not accept this kwarg. OWS BYOW users on V2-default
+            configs hit a different rejection (V1-shape order at V2 CLOB)
+            that this fix does not address; tracked separately in
+            `_dev/active/_wallet-custody-migration/`.
 
     Returns:
         SignedOrder ready for API submission. V1 or V2 shape based on

@@ -296,13 +296,16 @@ def test_v2_fak_buy_tick_001_subcent_prices_round_to_cents():
 
 
 def test_v2_fak_sell_maker_is_2dec_shares():
-    """SELL FAK: maker=shares, must be 2-dec aligned (cents-of-share)."""
+    """SELL FAK: maker=shares, must be 2-dec aligned (cents-of-share).
+    Use an adversarial size with extra decimals to verify round_down kicks
+    in — 10.5 alone is already 2-dec aligned and trivially passes."""
     d = _v2_signed(
-        side="SELL", price=0.421, size=10.5,
-        tick_size=0.01, order_type="FAK",
+        side="SELL", price=0.421, size=10.555,
+        tick_size=0.001, order_type="FAK",
     )
     maker = int(d["makerAmount"])
-    assert maker == 10_500_000, f"expected 10.50 shares maker, got {maker / 1e6}"
+    # round_down(10.555, 2) = 10.55 → 10_550_000 raw
+    assert maker == 10_550_000, f"expected 10.55 shares maker, got {maker / 1e6}"
     assert maker % 10000 == 0
 
 
