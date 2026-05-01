@@ -42,3 +42,4 @@ Thumbs.db
 
 # Claude Code (worktrees, temporary files)
 .claude/
+.worktrees/
