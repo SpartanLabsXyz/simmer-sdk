@@ -103,21 +103,16 @@ def get_client(live=True):
         try:
             from simmer_sdk import SimmerClient
         except ImportError:
-            print("Error: simmer-sdk not installed. Run: pip install simmer-sdk")
+            print("Error: simmer-sdk>=0.13.0 not installed. Run: pip install --upgrade simmer-sdk")
             sys.exit(1)
-        api_key = os.environ.get("SIMMER_API_KEY")
-        if not api_key:
-            print("Error: SIMMER_API_KEY environment variable not set")
-            print("Get your API key from: simmer.markets/dashboard -> SDK tab")
-            sys.exit(1)
+        # TRADING_VENUE is user-tunable — defaults to polymarket; set to "sim" for paper trading.
         venue = os.environ.get("TRADING_VENUE", "polymarket")
-        _client = SimmerClient(api_key=api_key, venue=venue, live=live)
+        _client = SimmerClient.from_env(venue=venue, live=live)
     return _client
 
 # Source tag for tracking
 TRADE_SOURCE = "sdk:weather"
 SKILL_SLUG = "polymarket-weather-trader"
-_automaton_reported = False
 
 # Polymarket constraints
 MIN_SHARES_PER_ORDER = 5.0  # Polymarket requires minimum 5 shares
@@ -127,9 +122,6 @@ MIN_TICK_SIZE = 0.01        # Minimum tradeable price
 ENTRY_THRESHOLD = _config["entry_threshold"]
 EXIT_THRESHOLD = _config["exit_threshold"]
 MAX_POSITION_USD = _config["max_position_usd"]
-_automaton_max = os.environ.get("AUTOMATON_MAX_BET")
-if _automaton_max:
-    MAX_POSITION_USD = min(MAX_POSITION_USD, float(_automaton_max))
 
 # Smart sizing parameters
 SMART_SIZING_PCT = _config["sizing_pct"]
@@ -924,9 +916,8 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
                          use_safeguards: bool = True, use_trends: bool = True,
                          quiet: bool = False, vol_targeting: bool = VOL_TARGETING):
     """Run the weather trading strategy."""
-    # Globals declared up-front: balance pre-flight (below) may cap MAX_POSITION_USD,
-    # and automaton skip reports flip _automaton_reported.
-    global MAX_POSITION_USD, _automaton_reported
+    # Globals declared up-front: balance pre-flight (below) may cap MAX_POSITION_USD.
+    global MAX_POSITION_USD
 
     def log(msg, force=False):
         """Print unless quiet mode is on. force=True always prints."""
@@ -988,13 +979,6 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
         if not _preflight["ok"]:
             log(f"  ⏸️  insufficient_balance: ${_preflight['balance']:.2f} {_preflight['collateral']} "
                 f"(need ≥ $1.00) — skip", force=True)
-            if os.environ.get("AUTOMATON_MANAGED"):
-                print(json.dumps({"automaton": {
-                    "signals": 0, "trades_attempted": 0, "trades_executed": 0,
-                    "skip_reason": _preflight["reason"],
-                    "balance_usd": round(_preflight["balance"], 2),
-                }}))
-                _automaton_reported = True
             return
         if _preflight["max_safe_size"] < MAX_POSITION_USD:
             log(f"  💰 Capping max bet ${MAX_POSITION_USD:.2f} → ${_preflight['max_safe_size']:.2f} "
@@ -1265,16 +1249,6 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
         print(f"  Exit opportunities:  {exits_found}")
         print(f"  Trades executed:     {total_trades}")
 
-    # Structured report for automaton
-    if os.environ.get("AUTOMATON_MANAGED"):
-        report = {"signals": opportunities_found + exits_found, "trades_attempted": opportunities_found + exits_found, "trades_executed": total_trades, "amount_usd": round(total_usd_spent, 2)}
-        if (opportunities_found + exits_found) > 0 and total_trades == 0 and skip_reasons:
-            report["skip_reason"] = ", ".join(dict.fromkeys(skip_reasons))
-        if execution_errors:
-            report["execution_errors"] = execution_errors
-        print(json.dumps({"automaton": report}))
-        _automaton_reported = True
-
     if dry_run and show_summary:
         print("\n  [PAPER MODE - trades simulated with real prices]")
 
@@ -1346,7 +1320,3 @@ if __name__ == "__main__":
         quiet=args.quiet,
         vol_targeting=args.vol_targeting or VOL_TARGETING,
     )
-
-    # Fallback report for automaton if the strategy returned early (no signal)
-    if os.environ.get("AUTOMATON_MANAGED") and not _automaton_reported:
-        print(json.dumps({"automaton": {"signals": 0, "trades_attempted": 0, "trades_executed": 0, "skip_reason": "no_signal"}}))
