@@ -3275,7 +3275,14 @@ class SimmerClient:
                 - 2: Gnosis Safe
 
         Returns:
-            Dict with success status and wallet info
+            Dict with success status and wallet info. When `success` is True,
+            the dict additionally contains:
+              - `clob_credentials_registered` (bool): whether Polymarket CLOB
+                API credentials were derived and stored after the link. False
+                means trading will fail until creds are derived (the SDK
+                retries on the next `trade()` call automatically).
+              - `clob_credentials_error` (str, optional): the underlying
+                exception message when `clob_credentials_registered` is False.
 
         Raises:
             ValueError: If no private_key is configured
@@ -3289,6 +3296,8 @@ class SimmerClient:
             result = client.link_wallet()
             if result["success"]:
                 print(f"Linked wallet: {result['wallet_address']}")
+                if not result.get("clob_credentials_registered", True):
+                    print(f"Note: creds will derive on first trade")
         """
         if not (self._ows_wallet or self._private_key) or not self._wallet_address:
             raise ValueError(
@@ -3346,6 +3355,14 @@ class SimmerClient:
         # polymarket_api_creds_encrypted, so the post-migration first link
         # needs a fresh derive — without this, link_wallet() returning success
         # leaves the user with has_credentials=false and trades will fail.
+        #
+        # The link itself either succeeded or it didn't — that's what
+        # `result["success"]` reports. Credential registration is a separate
+        # concern: it can fail independently (network, CF block on local
+        # derive AND on proxy fallback) without invalidating the wallet link.
+        # We surface the credential state in two extra fields so direct
+        # callers of link_wallet() can tell which step failed; we don't
+        # raise, because that would obscure a successful link.
         if result.get("success"):
             self._wallet_linked = True
             # Force re-derive even if a stale flag from earlier in this session
@@ -3353,11 +3370,15 @@ class SimmerClient:
             self._clob_creds_registered = False
             try:
                 self._ensure_clob_credentials()
+                result["clob_credentials_registered"] = True
             except Exception as e:
+                result["clob_credentials_registered"] = False
+                result["clob_credentials_error"] = str(e)
                 logger.warning(
                     "Wallet linked, but CLOB credential registration failed: %s. "
-                    "Trades may fail until credentials are derived. "
-                    "Try `client.trade(...)` once to retry derivation.",
+                    "Trades will fail until credentials are derived. "
+                    "Inspect `result['clob_credentials_error']` or retry by calling "
+                    "`client.trade(...)`, which re-attempts derivation.",
                     e
                 )
 
