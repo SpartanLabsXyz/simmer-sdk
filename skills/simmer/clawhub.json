@@ -1,0 +1,30 @@
+{
+  "emoji": "🔮",
+  "primaryEnv": "SIMMER_API_KEY",
+  "requires": {
+    "env": [
+      "SIMMER_API_KEY"
+    ],
+    "pip": [
+      "simmer-sdk"
+    ]
+  },
+  "envVars": [
+    {
+      "name": "SIMMER_API_KEY",
+      "required": true,
+      "description": "Your Simmer SDK API key. Created during agent registration; recoverable from simmer.markets/dashboard."
+    },
+    {
+      "name": "TRADING_VENUE",
+      "required": false,
+      "description": "Set to 'polymarket' or 'kalshi' to default real-money trades to that venue. Omit (or set 'sim') for paper trading at real prices."
+    }
+  ],
+  "cron": null,
+  "autostart": false,
+  "automaton": {
+    "managed": false,
+    "entrypoint": null
+  }
+}
