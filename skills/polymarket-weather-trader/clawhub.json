@@ -6,7 +6,7 @@
       "SIMMER_API_KEY"
     ],
     "pip": [
-      "simmer-sdk>=0.11.1"
+      "simmer-sdk>=0.13.0"
     ]
   },
   "envVars": [
@@ -19,6 +19,86 @@
       "name": "WALLET_PRIVATE_KEY",
       "required": false,
       "description": "Only needed for external-wallet self-custody trading. Not required when using managed wallets."
+    },
+    {
+      "name": "TRADING_VENUE",
+      "required": false,
+      "description": "Optional. Set to 'sim' for paper trading or 'kalshi' for Solana trading. Defaults to 'polymarket'."
+    },
+    {
+      "name": "SIMMER_WEATHER_ENTRY_THRESHOLD",
+      "required": false,
+      "description": "Buy when bucket price below this (default 0.15)."
+    },
+    {
+      "name": "SIMMER_WEATHER_EXIT_THRESHOLD",
+      "required": false,
+      "description": "Sell when price above this (default 0.45)."
+    },
+    {
+      "name": "SIMMER_WEATHER_MAX_POSITION_USD",
+      "required": false,
+      "description": "Max USD per trade (default 2.00)."
+    },
+    {
+      "name": "SIMMER_WEATHER_SIZING_PCT",
+      "required": false,
+      "description": "Smart-sizing fraction of available balance (default 0.05)."
+    },
+    {
+      "name": "SIMMER_WEATHER_MAX_TRADES_PER_RUN",
+      "required": false,
+      "description": "Max trades per scan cycle (default 5)."
+    },
+    {
+      "name": "SIMMER_WEATHER_LOCATIONS",
+      "required": false,
+      "description": "Comma-separated cities (default 'NYC'). Supported: NYC, Chicago, Seattle, Atlanta, Dallas, Miami."
+    },
+    {
+      "name": "SIMMER_WEATHER_BINARY_ONLY",
+      "required": false,
+      "description": "Set true to skip range-bucket events and only trade binary yes/no markets (default false)."
+    },
+    {
+      "name": "SIMMER_WEATHER_SLIPPAGE_MAX",
+      "required": false,
+      "description": "Skip trades with slippage above this (default 0.15 = 15%)."
+    },
+    {
+      "name": "SIMMER_WEATHER_MIN_LIQUIDITY",
+      "required": false,
+      "description": "Skip markets with liquidity below this USD threshold (default 0 = disabled)."
+    },
+    {
+      "name": "SIMMER_WEATHER_ORDER_TYPE",
+      "required": false,
+      "description": "Order type: GTC (default, limit waits for fill) or FAK (cancel if not filled immediately)."
+    },
+    {
+      "name": "SIMMER_WEATHER_VOL_TARGETING",
+      "required": false,
+      "description": "Enable volatility targeting for dynamic position sizing (default false)."
+    },
+    {
+      "name": "SIMMER_WEATHER_TARGET_VOL",
+      "required": false,
+      "description": "Target annualized volatility when vol_targeting is enabled (default 0.20 = 20%)."
+    },
+    {
+      "name": "SIMMER_WEATHER_VOL_MAX_LEVERAGE",
+      "required": false,
+      "description": "Max scale-up multiplier from vol targeting (default 2.0)."
+    },
+    {
+      "name": "SIMMER_WEATHER_VOL_MIN_ALLOC",
+      "required": false,
+      "description": "Min allocation floor from vol targeting (default 0.2)."
+    },
+    {
+      "name": "SIMMER_WEATHER_VOL_SPAN",
+      "required": false,
+      "description": "EWMA span for vol calculation; lower = more responsive (default 10)."
     }
   ],
   "cron": null,

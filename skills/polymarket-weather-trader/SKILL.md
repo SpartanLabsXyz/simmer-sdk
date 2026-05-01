@@ -3,7 +3,7 @@ name: polymarket-weather-trader
 description: Trade Polymarket weather markets using NOAA (US) and Open-Meteo (international) forecasts via Simmer API. Inspired by gopfan2's weather trading approach. Use when user wants to trade temperature markets, automate weather bets, check forecasts, or run weather-based strategies.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.19.2"
+  version: "1.20.0"
   displayName: Polymarket Weather Trader
   difficulty: beginner
   attribution: Strategy inspired by gopfan2 (public Polymarket trader — approach referenced, not endorsed).
@@ -38,84 +38,27 @@ Use this skill when the user wants to:
 - Check their weather trading positions
 - Configure trading thresholds or locations
 
-## What's New in v1.18.1
+## What's New in v1.20.0
 
-- SKILL.md rewrite highlighting paper mode (default) and $SIM venue as first-class ways to test the skill before going live.
+- **SDK 0.13.0 integration** — uses `SimmerClient.from_env()` (auto-reads `SIMMER_API_KEY`, raises a clear `RuntimeError` with a dashboard pointer if unset). Requires `simmer-sdk>=0.13.0`.
+- **Slim per skill catalog reshape (Phase 3)** — duplicated wallet-setup / changelog / decorative content removed; SKILL.md trimmed to focus on what's specific to this skill.
+- **Dead code removed** — retired `AUTOMATON_*` env reads (the automaton runtime was retired 2026-04-20).
 
-## What's New in v1.18.0
+## Setup
 
-- Autotune config defaults aligned with documented defaults (entry 0.15, exit 0.45, max position $2, sizing 5%).
-- `SIMMER_WEATHER_BINARY_ONLY` is now an autotune-exposed tunable — set `true` to trade only binary yes/no weather markets.
-- Autotune ranges for `max_position_usd` and `sizing_pct` tuned to match typical use.
-- Risk management documentation clarified: auto-risk monitor handles stop-loss/take-profit at the user level.
+For wallet setup, see [simmer-wallet-setup on ClawHub](https://clawhub.ai/skills/simmer-wallet-setup) or [docs.simmer.markets/wallets](https://docs.simmer.markets/wallets).
 
-## What's New in v1.17.0
+Required environment:
+- `SIMMER_API_KEY` — get from `simmer.markets/dashboard → SDK tab`
+- `WALLET_PRIVATE_KEY` — Polymarket wallet private key (the SDK signs orders client-side)
 
-- **Volatility Targeting**: Dynamic position sizing based on realized market volatility. Uses EWMA of log returns from price history. High vol → smaller positions, low vol → larger positions. Enable with `--vol-targeting` flag or `SIMMER_WEATHER_VOL_TARGETING=true`.
-  - `SIMMER_WEATHER_TARGET_VOL` — target annualized vol (default 20%)
-  - `SIMMER_WEATHER_VOL_MAX_LEVERAGE` — max scale-up multiplier (default 2.0x)
-  - `SIMMER_WEATHER_VOL_MIN_ALLOC` — min allocation floor (default 20%)
-  - `SIMMER_WEATHER_VOL_SPAN` — EWMA responsiveness (default 10)
-
-### v1.14.0
-
-- **Fixed env var names** to match autotune registry (old names still work as aliases):
-  - `SIMMER_WEATHER_ENTRY` → `SIMMER_WEATHER_ENTRY_THRESHOLD`
-  - `SIMMER_WEATHER_EXIT` → `SIMMER_WEATHER_EXIT_THRESHOLD`
-  - `SIMMER_WEATHER_MAX_POSITION` → `SIMMER_WEATHER_MAX_POSITION_USD`
-  - `SIMMER_WEATHER_MAX_TRADES` → `SIMMER_WEATHER_MAX_TRADES_PER_RUN`
-- **New tunable: `SIMMER_WEATHER_SLIPPAGE_MAX`** — adjustable slippage safeguard (default 15%). Set higher for research mode on illiquid markets.
-- **New tunable: `SIMMER_WEATHER_MIN_LIQUIDITY`** — skip markets with liquidity below this USD threshold (default 0 = disabled). Pre-filters thin markets before execution.
-- **`SIMMER_WEATHER_LOCATIONS` and `SIMMER_WEATHER_BINARY_ONLY` now exposed as autotune tunables.**
-
-### v1.13.0
-- **Binary Only Mode**: New `SIMMER_WEATHER_BINARY_ONLY` config to skip range-bucket events (e.g., "NYC 34-35°F") and only trade binary yes/no weather markets
-
-### v1.2.0
-- **Max Trades Per Run**: New `SIMMER_WEATHER_MAX_TRADES` config to limit trades per scan cycle (default: 5)
-
-### v1.1.1
-- **Status Script**: New `scripts/status.py` for quick balance and position checks
-- **API Reference**: Added Quick Commands section with API endpoints
-
-### v1.1.0
-- **Source Tagging**: All trades tagged with `sdk:weather` for portfolio tracking
-- **Smart Sizing**: Position sizing based on available balance (`--smart-sizing`)
-- **Context Safeguards**: Checks for flip-flop warnings, slippage, time decay
-- **Price Trend Detection**: Detects recent price drops for stronger signals
-
-## Setup Flow
-
-When user asks to install or configure this skill:
-
-1. **Install the Simmer SDK**
-   ```bash
-   pip install simmer-sdk
-   ```
-
-2. **Ask for Simmer API key**
-   - They can get it from simmer.markets/dashboard → SDK tab
-   - Store in environment as `SIMMER_API_KEY`
-
-3. **Ask for wallet private key** (required for live trading)
-   - This is the private key for their Polymarket wallet (the wallet that holds USDC)
-   - Store in environment as `WALLET_PRIVATE_KEY`
-   - The SDK uses this to sign orders client-side automatically — no manual signing needed
-
-4. **Ask about settings** (or confirm defaults)
-   - Entry threshold: When to buy (default 15¢)
-   - Exit threshold: When to sell (default 45¢)
-   - Max position: Amount per trade (default $2.00)
-   - Locations: Which cities to trade (default NYC)
-
-5. **Save settings to environment variables**
-
-6. **Set up cron** (disabled by default — user must enable scheduling)
+Then `pip install --upgrade simmer-sdk` (>=0.13.0) and configure tunables below.
 
 ## Configuration
 
 | Setting | Environment Variable | Default | Description |
 |---------|---------------------|---------|-------------|
+| Trading venue | `TRADING_VENUE` | polymarket | Venue to trade on. Set `sim` for paper trading. |
 | Entry threshold | `SIMMER_WEATHER_ENTRY_THRESHOLD` | 0.15 | Buy when price below this |
 | Exit threshold | `SIMMER_WEATHER_EXIT_THRESHOLD` | 0.45 | Sell when price above this |
 | Max position | `SIMMER_WEATHER_MAX_POSITION_USD` | 2.00 | Maximum USD per trade |
@@ -130,10 +73,21 @@ When user asks to install or configure this skill:
 | Vol max leverage | `SIMMER_WEATHER_VOL_MAX_LEVERAGE` | 2.0 | Max scale-up multiplier in calm markets |
 | Vol min alloc | `SIMMER_WEATHER_VOL_MIN_ALLOC` | 0.2 | Min allocation floor in volatile markets (0.2 = 20%) |
 | Vol EWMA span | `SIMMER_WEATHER_VOL_SPAN` | 10 | EWMA span for vol calculation (lower = more responsive) |
+| Order type | `SIMMER_WEATHER_ORDER_TYPE` | GTC | GTC (limit, waits for fill) or FAK (cancel if not filled). GTC recommended. |
 
 **Legacy env var aliases** (still accepted for backwards compatibility): `SIMMER_WEATHER_ENTRY`, `SIMMER_WEATHER_EXIT`, `SIMMER_WEATHER_MAX_POSITION`, `SIMMER_WEATHER_MAX_TRADES`
 
 **Supported locations:** NYC, Chicago, Seattle, Atlanta, Dallas, Miami
+
+## SDK initialization
+
+```python
+from simmer_sdk import SimmerClient
+
+client = SimmerClient.from_env(venue="polymarket", live=True)
+```
+
+`from_env()` (added in simmer-sdk 0.13.0) reads `SIMMER_API_KEY` from the environment and raises `RuntimeError` with a dashboard pointer if unset. If `OWS_WALLET` is set, it auto-routes through the OpenClaw shared wallet.
 
 ## Quick Commands
 
@@ -180,9 +134,6 @@ python weather_trader.py --live --smart-sizing --vol-targeting
 
 # Quiet mode — only output on trades/errors (ideal for high-frequency runs)
 python weather_trader.py --live --quiet
-
-# Combine: frequent scanning, minimal noise
-python weather_trader.py --live --smart-sizing --quiet
 ```
 
 ## How It Works
@@ -206,8 +157,6 @@ With `--smart-sizing`, position size is calculated as:
 - Capped at max position setting ($2.00 default)
 - Falls back to fixed size if portfolio unavailable
 
-This prevents over-deployment and scales with your account size.
-
 ## Volatility Targeting
 
 With `--vol-targeting`, position sizes are dynamically adjusted based on realized market volatility:
@@ -216,17 +165,15 @@ With `--vol-targeting`, position sizes are dynamically adjusted based on realize
 position_size = base_size × clamp(target_vol / realized_vol, min_alloc, max_leverage)
 ```
 
-- **High volatility** (price swinging): positions scale down → less risk
-- **Low volatility** (price stable): positions scale up → more alpha capture
+- **High volatility**: positions scale down → less risk
+- **Low volatility**: positions scale up → more alpha capture
 - Falls back to base size if insufficient price history (< 15 data points)
-
-Combines with smart sizing: first calculate base size from portfolio %, then apply the vol multiplier.
 
 ## Safeguards
 
 Before trading, the skill checks:
 - **Flip-flop warning**: Skips if you've been reversing too much
-- **Slippage**: Skips if estimated slippage > 15%
+- **Slippage**: Skips if estimated slippage > 15% (tunable)
 - **Time decay**: Skips if market resolves in < 2 hours
 - **Market status**: Skips if market already resolved
 
@@ -236,68 +183,21 @@ Disable with `--no-safeguards` (not recommended).
 
 All trades are tagged with `source: "sdk:weather"`. This means:
 - Portfolio shows breakdown by strategy
-- Copytrading skill won't sell your weather positions
+- Trades tagged `sdk:weather` are excluded from generic copytrade sells.
 - You can track weather P&L separately
-
-## Example Output
-
-```
-🌤️ Simmer Weather Trading Skill
-==================================================
-
-⚙️ Configuration:
-  Entry threshold: 15% (buy below this)
-  Exit threshold:  45% (sell above this)
-  Max position:    $2.00
-  Locations:       NYC
-  Smart sizing:    ✓ Enabled
-  Safeguards:      ✓ Enabled
-  Trend detection: ✓ Enabled
-
-💰 Portfolio:
-  Balance: $150.00
-  Exposure: $45.00
-  Positions: 8
-
-📍 NYC 2026-01-28 (high temp)
-  NOAA forecast: 34°F
-  Matching bucket: 34-35°F @ $0.12
-  💡 Smart sizing: $2.00 (capped at max position)
-  ✅ Below threshold ($0.15) - BUY opportunity! 📉 (dropped 15% in 24h)
-  Executing trade...
-  ✅ Bought 62.5 shares @ $0.12
-
-📊 Summary:
-  Events scanned: 12
-  Entry opportunities: 1
-  Trades executed: 1
-```
 
 ## Troubleshooting
 
-**"Safeguard blocked: Severe flip-flop warning"**
-- You've been changing direction too much on this market
-- Wait before trading again
+**"Safeguard blocked: Severe flip-flop warning"** — you've been changing direction too much on this market; wait before trading again.
 
-**"Slippage too high"**
-- Market is illiquid, reduce position size or skip
+**"Slippage too high"** — market is illiquid; reduce position size or skip.
 
-**"Resolves in Xh - too soon"**
-- Market resolving soon, risk is elevated
+**"Resolves in Xh - too soon"** — market resolving soon, risk is elevated.
 
-**"No weather markets found"**
-- Weather markets may not be active (seasonal)
+**"No weather markets found"** — weather markets may not be active (seasonal).
 
-**"External wallet requires a pre-signed order"**
-- `WALLET_PRIVATE_KEY` is not set in the environment
-- The SDK signs orders automatically when this env var is present — no manual signing code needed
-- Fix: `export WALLET_PRIVATE_KEY=0x<your-polymarket-wallet-private-key>`
-- Do NOT attempt to sign orders manually or modify the skill code — the SDK handles it
+**"External wallet requires a pre-signed order"** — `WALLET_PRIVATE_KEY` is not set. Fix: `export WALLET_PRIVATE_KEY=0x<your-polymarket-wallet-private-key>`. The SDK signs orders automatically when this env var is present — do not attempt to sign orders manually.
 
-**"Balance shows $0 but I have funds on Polygon"**
-- Polymarket V2 (live 2026-04-28) uses **pUSD** (PolyUSD, 1:1 backed by USDC.e). If your wallet holds USDC.e, migrate at [simmer.markets/dashboard](https://simmer.markets/dashboard) with one click (~30s)
-- If you bridged native USDC (Circle), swap to USDC.e first, then migrate to pUSD
-- Full migration guide: [docs.simmer.markets/v2-migration](https://docs.simmer.markets/v2-migration)
+**"Balance shows $0 but I have funds on Polygon"** — Polymarket V2 (live 2026-04-28) uses **pUSD** (PolyUSD, 1:1 backed by USDC.e). Migrate at [simmer.markets/dashboard](https://simmer.markets/dashboard) (~30s). Full guide: [docs.simmer.markets/v2-migration](https://docs.simmer.markets/v2-migration).
 
-**"API key invalid"**
-- Get new key from simmer.markets/dashboard → SDK tab
+**"API key invalid"** — get a new key from simmer.markets/dashboard → SDK tab.
