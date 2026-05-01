@@ -382,6 +382,92 @@ class SimmerClient:
     def __repr__(self):
         return f"SimmerClient(venue={self.venue!r}, base_url={self.base_url!r})"
 
+    @classmethod
+    def from_env(cls, **kwargs) -> "SimmerClient":
+        """Construct a client by reading SIMMER_API_KEY from the environment.
+
+        The standard `__init__` path already auto-detects ``WALLET_PRIVATE_KEY``
+        (external EVM wallet) and ``OWS_WALLET`` (OWS-managed wallet) when set,
+        so this classmethod only needs to surface ``SIMMER_API_KEY`` itself.
+        Calling code never has to touch ``os.environ`` directly — useful for
+        skill bundles where direct env reads trip surface-area scanners.
+
+        Args:
+            **kwargs: Optional keyword arguments forwarded to ``__init__``
+                (e.g. ``venue``, ``base_url``, ``live``, ``starting_balance``).
+                Do not pass ``api_key`` here — use the regular constructor if
+                you want to override the env var.
+
+        Returns:
+            A configured ``SimmerClient`` instance.
+
+        Raises:
+            RuntimeError: If ``SIMMER_API_KEY`` is unset or empty.
+
+        Example:
+            >>> # Sim trading (default)
+            >>> client = SimmerClient.from_env()
+            >>>
+            >>> # Polymarket with auto-detected WALLET_PRIVATE_KEY
+            >>> client = SimmerClient.from_env(venue="polymarket")
+        """
+        api_key = os.environ.get("SIMMER_API_KEY")
+        if not api_key:
+            raise RuntimeError(
+                "SIMMER_API_KEY environment variable is not set. "
+                "Get an API key at simmer.markets/dashboard → SDK tab, "
+                "then export SIMMER_API_KEY=sk_live_... in your environment."
+            )
+        return cls(api_key=api_key, **kwargs)
+
+    @classmethod
+    def with_ows_wallet(
+        cls,
+        name: str,
+        *,
+        api_key: Optional[str] = None,
+        **kwargs,
+    ) -> "SimmerClient":
+        """Construct a client routed through an OWS-managed wallet.
+
+        OWS (Open Wallet Standard) keeps the private key in a vault — orders
+        are signed by the OWS daemon, never by the SDK. The wallet ``name`` is
+        passed explicitly here so callers don't have to read ``OWS_WALLET``
+        from the environment themselves.
+
+        Args:
+            name: OWS wallet name (e.g. ``"my-agent-wallet"``). Created via
+                ``ows wallet create --name <name>``.
+            api_key: Simmer SDK API key (``sk_live_...``). If ``None``, falls
+                back to ``SIMMER_API_KEY`` from the environment.
+            **kwargs: Optional keyword arguments forwarded to ``__init__``
+                (e.g. ``venue``, ``base_url``, ``live``). Do not pass
+                ``ows_wallet`` here — it is set from ``name``.
+
+        Returns:
+            A configured ``SimmerClient`` instance with ``ows_wallet=name``.
+
+        Raises:
+            RuntimeError: If ``api_key`` is None and ``SIMMER_API_KEY`` is
+                unset or empty.
+
+        Example:
+            >>> client = SimmerClient.with_ows_wallet("my-agent")
+            >>> # Or with explicit api_key:
+            >>> client = SimmerClient.with_ows_wallet(
+            ...     "my-agent", api_key="sk_live_...", venue="polymarket"
+            ... )
+        """
+        if api_key is None:
+            api_key = os.environ.get("SIMMER_API_KEY")
+        if not api_key:
+            raise RuntimeError(
+                "No api_key provided and SIMMER_API_KEY environment variable "
+                "is not set. Get an API key at simmer.markets/dashboard → SDK "
+                "tab, then either pass api_key=... or export SIMMER_API_KEY."
+            )
+        return cls(api_key=api_key, ows_wallet=name, **kwargs)
+
     def _validate_and_set_wallet(self, private_key: str) -> None:
         """Validate private key format and derive wallet address."""
         if not private_key.startswith("0x"):

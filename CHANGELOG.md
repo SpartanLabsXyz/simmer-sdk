@@ -3,6 +3,38 @@
 All notable changes to `simmer-sdk` are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.0] — 2026-05-01
+
+### Added
+
+- **`SimmerClient.from_env()` and `SimmerClient.with_ows_wallet()`
+  classmethods.** Two ergonomic constructors so callers never have to read
+  `os.environ` directly.
+
+  ```python
+  from simmer_sdk import SimmerClient
+
+  # Reads SIMMER_API_KEY from env. Auto-detects WALLET_PRIVATE_KEY (external
+  # EVM wallet) and OWS_WALLET (OWS-managed wallet) via the regular __init__
+  # path. Raises RuntimeError with a dashboard pointer if SIMMER_API_KEY is
+  # unset.
+  client = SimmerClient.from_env()
+
+  # Explicit OWS routing — pass the wallet name directly. api_key falls back
+  # to SIMMER_API_KEY env when None.
+  client = SimmerClient.with_ows_wallet("my-agent-wallet")
+  client = SimmerClient.with_ows_wallet("my-agent-wallet", api_key="sk_live_...")
+  ```
+
+  Both methods forward extra kwargs (`venue`, `base_url`, `live`, etc.) to
+  the regular constructor, so any existing usage pattern is reachable
+  without going through `__init__` directly.
+
+  This is sugar over the existing `SimmerClient(api_key=..., ...)`
+  constructor — no change in client behavior, just a cleaner construction
+  surface for skill bundles and bots that want to keep `import os` out of
+  their entrypoints.
+
 ## [0.12.3] — 2026-04-30
 
 ### Fixed
