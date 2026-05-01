@@ -3,6 +3,41 @@
 All notable changes to `simmer-sdk` are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.2] — 2026-05-01
+
+### Fixed
+
+- **CLOB credential derivation falls back to the Simmer relay when
+  Polymarket's `/auth/api-key` route is Cloudflare-blocked from the
+  user's IP** (commonly residential AU / SE Asia ranges). Previously,
+  external-wallet users on blocked networks would land at
+  `has_credentials=false` with no recovery path — the SDK would log a
+  warning and trades would fail with `Missing Polymarket API
+  credentials`.
+
+  The new flow: `_ensure_clob_credentials()` first attempts the local
+  derive (`py_clob_client.create_or_derive_api_creds()` for raw-key,
+  `ows_derive_clob_creds()` for OWS). If that raises (network error,
+  HTTP 403, etc.), the SDK falls through to a new private method
+  `_derive_creds_via_proxy()`. It builds the L1 auth headers locally —
+  the user's private key never leaves their machine — and POSTs only
+  those headers to a new Simmer endpoint
+  (`POST /api/sdk/wallet/credentials/derive-via-proxy`), which forwards
+  to Polymarket from a non-blocked IP and stores the resulting creds.
+
+  No user action required; the fallback is transparent on first trade.
+
+- **`client.link_wallet()` now derives + registers CLOB credentials
+  after a successful link.** Before, calling `link_wallet()` on a
+  user whose wallet had been migrated managed→external left the user
+  in a state where `linked_wallet_address` was set but
+  `polymarket_api_creds_encrypted` was null — the next trade would
+  fail with `Missing Polymarket API credentials` and re-running
+  `link_wallet()` would short-circuit on "already linked" without
+  fixing it. The link flow now resets `_clob_creds_registered` and
+  calls `_ensure_clob_credentials()` (which goes through the new
+  proxy fallback if the direct derive is CF-blocked).
+
 ## [0.13.1] — 2026-05-01
 
 ### Docs

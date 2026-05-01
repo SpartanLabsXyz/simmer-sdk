@@ -755,28 +755,36 @@ class SimmerClient:
         if self._wallet_linked is True:
             return
 
-        # Check if wallet is already linked via API
+        # Check if wallet is already linked via API. The link-status check and
+        # the credential-derivation call are kept in separate try blocks so a
+        # credential failure (which now propagates from _ensure_clob_credentials
+        # rather than being silently swallowed) doesn't fall through to the
+        # auto-link path. link_wallet() also calls _ensure_clob_credentials at
+        # the end, so re-linking would just re-attempt the same derive.
+        already_linked = False
         try:
             settings = self._request("GET", "/api/sdk/settings")
             linked_address = settings.get("linked_wallet_address") or settings.get("wallet_address")
-
             if linked_address and linked_address.lower() == self._wallet_address.lower():
-                self._wallet_linked = True
-                logger.debug("Wallet %s already linked", self._wallet_address[:10] + "...")
-                self._ensure_clob_credentials()
-                return
+                already_linked = True
         except Exception as e:
             logger.debug("Could not check wallet link status: %s", e)
 
-        # Wallet not linked - attempt to link automatically
+        if already_linked:
+            self._wallet_linked = True
+            logger.debug("Wallet %s already linked", self._wallet_address[:10] + "...")
+            self._ensure_clob_credentials()
+            return
+
+        # Wallet not linked - attempt to link automatically. link_wallet()
+        # calls _ensure_clob_credentials() internally on success, so don't
+        # call it again here.
         print(f"Auto-linking wallet {self._wallet_address[:10]}... to Simmer account...")
         try:
             result = self.link_wallet(signature_type=0)
             if result.get("success"):
                 self._wallet_linked = True
                 print("Wallet linked successfully")
-                # Derive and register CLOB credentials right after linking
-                self._ensure_clob_credentials()
             else:
                 error = result.get("error") or result.get("message") or f"Server returned: {result}"
                 print(f"ERROR: Wallet linking failed: {error}")
@@ -820,42 +828,97 @@ class SimmerClient:
         except Exception as e:
             logger.debug("Credentials check failed unexpectedly: %s — will attempt registration", e)
 
+        # Phase 1: derive creds locally against Polymarket. This can fail when
+        # Polymarket's /auth/api-key route is Cloudflare-blocked from the
+        # user's IP (commonly residential AU, SE Asia, etc.). On failure here
+        # we fall through to phase 2 (proxy derive). Phase 1 and the backend
+        # registration call (phase 1b) are kept in separate try-blocks so a
+        # registration failure does NOT silently fall through to the proxy
+        # path — that would mask a server-side bug as a CF block.
+        creds = None
         try:
             if self._ows_wallet:
-                # OWS path: derive creds directly from Polymarket CLOB
-                # Key never leaves the vault
                 from simmer_sdk.ows_utils import ows_derive_clob_creds
                 creds = ows_derive_clob_creds(self._ows_wallet)
             else:
-                # Raw key path: use py_clob_client
                 from py_clob_client.client import ClobClient
-
                 client = ClobClient(
                     host="https://clob.polymarket.com",
                     key=self._private_key,
                     chain_id=137,
                     signature_type=0,  # EOA
-                    funder=self._wallet_address
+                    funder=self._wallet_address,
                 )
                 creds = client.create_or_derive_api_creds()
+        except ImportError as e:
+            raise RuntimeError(
+                f"Cannot derive CLOB credentials: {e}. "
+                "Install with: pip install py-clob-client"
+            ) from e
+        except Exception as local_derive_err:
+            logger.info(
+                "Local CLOB credential derivation failed (%s); falling back to proxy derive",
+                local_derive_err,
+            )
+            try:
+                self._derive_creds_via_proxy()
+                return
+            except Exception as proxy_err:
+                raise RuntimeError(
+                    f"Failed to derive CLOB credentials (local: {local_derive_err}; proxy: {proxy_err})"
+                ) from proxy_err
 
-            # Register with backend
+        # Phase 1b: register the locally-derived creds with the Simmer backend.
+        try:
             self._request("POST", "/api/sdk/wallet/credentials", json={
                 "api_key": creds.api_key,
                 "api_secret": creds.api_secret,
-                "api_passphrase": creds.api_passphrase
+                "api_passphrase": creds.api_passphrase,
             })
+        except Exception as register_err:
+            raise RuntimeError(
+                f"Locally derived CLOB credentials but failed to register with Simmer backend: {register_err}"
+            ) from register_err
 
-            self._clob_creds_registered = True
-            logger.info("CLOB credentials registered for wallet %s", self._wallet_address[:10] + "...")
+        self._clob_creds_registered = True
+        logger.info("CLOB credentials registered for wallet %s", self._wallet_address[:10] + "...")
 
-        except ImportError as e:
-            logger.warning(
-                "Cannot derive CLOB credentials: %s. "
-                "Install with: pip install py-clob-client", e
-            )
-        except Exception as e:
-            logger.warning("Failed to derive/register CLOB credentials: %s", e)
+    def _derive_creds_via_proxy(self) -> None:
+        """
+        Derive CLOB credentials by forwarding locally-signed L1 headers
+        through the Simmer backend.
+
+        Used when the direct call to Polymarket's /auth/api-key fails for
+        reasons unrelated to the signature itself — most commonly a Cloudflare
+        block on residential IPs. The user's private key never leaves their
+        machine: we build the L1 auth headers locally (signature is a one-time
+        challenge bound to a timestamp + nonce, not a transaction) and POST
+        only those headers to the backend, which forwards them to Polymarket
+        from Railway and stores the resulting creds.
+        """
+        if self._ows_wallet:
+            from simmer_sdk.ows_utils import _clob_level_1_headers, get_ows_wallet_address
+            address = get_ows_wallet_address(self._ows_wallet)
+            headers = _clob_level_1_headers(self._ows_wallet, address, nonce=0)
+        else:
+            from py_clob_client.signer import Signer
+            from py_clob_client.headers.headers import create_level_1_headers
+            signer = Signer(key=self._private_key, chain_id=137)
+            headers = create_level_1_headers(signer, nonce=0)
+
+        body = {
+            "poly_address": headers["POLY_ADDRESS"],
+            "poly_signature": headers["POLY_SIGNATURE"],
+            "poly_timestamp": headers["POLY_TIMESTAMP"],
+            "poly_nonce": headers["POLY_NONCE"],
+        }
+
+        self._request("POST", "/api/sdk/wallet/credentials/derive-via-proxy", json=body)
+        self._clob_creds_registered = True
+        logger.info(
+            "CLOB credentials derived via proxy and registered for wallet %s",
+            self._wallet_address[:10] + "..."
+        )
 
     def _warn_approvals_once(self) -> None:
         """
@@ -3277,6 +3340,26 @@ class SimmerClient:
                 "signature_type": signature_type
             }
         )
+
+        # After link (or re-link reporting "already linked"), ensure CLOB creds
+        # are registered. Server-side managed→external migration nulls
+        # polymarket_api_creds_encrypted, so the post-migration first link
+        # needs a fresh derive — without this, link_wallet() returning success
+        # leaves the user with has_credentials=false and trades will fail.
+        if result.get("success"):
+            self._wallet_linked = True
+            # Force re-derive even if a stale flag from earlier in this session
+            # would short-circuit the check.
+            self._clob_creds_registered = False
+            try:
+                self._ensure_clob_credentials()
+            except Exception as e:
+                logger.warning(
+                    "Wallet linked, but CLOB credential registration failed: %s. "
+                    "Trades may fail until credentials are derived. "
+                    "Try `client.trade(...)` once to retry derivation.",
+                    e
+                )
 
         return result
 
