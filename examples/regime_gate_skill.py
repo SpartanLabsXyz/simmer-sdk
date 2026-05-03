@@ -18,6 +18,21 @@ Kelly haircut in `simmer_sdk.sizing` (SIM-1012), which only scales an
 already-allowed trade. The gate decides trade / no-trade; the haircut
 decides how much.
 
+Tuning vol_threshold (read this before deploying):
+    "Trending" here means *volatile*, not *directional*. Realized vol is
+    the std-dev of per-candle price diffs, so a perfectly linear ramp
+    (constant per-candle move) has stdev 0 and is classified as
+    range_bound — even though it is monotonically directional. Operators
+    tuning `vol_threshold` should pick a value that separates "choppy /
+    direction-flipping" from "calm / mean-reverting" candle series in
+    their target asset and timeframe, not "going up" from "going down".
+
+    Recommended starting workflow: pull a few hours of historical candles
+    that you would have liked the strategy to skip vs trade, compute
+    `realized_volatility(...)` over rolling 12-candle windows on each,
+    and set `vol_threshold` between the two distributions. Re-tune per
+    asset / timeframe — there is no universal value.
+
 Usage:
     export SIMMER_API_KEY="sk_live_..."
     python regime_gate_skill.py

@@ -41,6 +41,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   realized vol of the prior 12 candles turned trending-period losses into
   no-ops and meaningfully improved overall results.
 
+  **Operator note — tuning `vol_threshold`:** "trending" in this gate
+  means *volatile*, not *directional*. Realized vol is the std-dev of
+  per-candle price diffs, so a perfectly linear ramp has stdev 0 and is
+  classified as range_bound. Tune the threshold against your asset's
+  *choppy vs calm* distribution, not its *up vs down* distribution. See
+  the tuning workflow in `examples/regime_gate_skill.py`.
+
 ## [0.13.2] — 2026-05-01
 
 ### Fixed
