@@ -101,6 +101,12 @@ __all__ = [
     "expected_value",
     "size_position",
     "SIZING_CONFIG_SCHEMA",
+    # Risk management — portfolio-level concurrent-exposure cap
+    "check_portfolio_cap",
+    "sum_open_notional",
+    "PortfolioCapDecision",
+    "DEFAULT_TOTAL_CAP_PCT",
+    "PORTFOLIO_CAP_CONFIG_SCHEMA",
 ]
 
 # Convenience aliases for skill config
@@ -110,3 +116,12 @@ from .skill import get_config_path as get_skill_config_path
 
 # Position sizing utilities
 from .sizing import kelly_fraction, expected_value, size_position, SIZING_CONFIG_SCHEMA
+
+# Risk-management primitives (portfolio-level exposure cap, etc.)
+from .risk import (
+    check_portfolio_cap,
+    sum_open_notional,
+    PortfolioCapDecision,
+    DEFAULT_TOTAL_CAP_PCT,
+    PORTFOLIO_CAP_CONFIG_SCHEMA,
+)
