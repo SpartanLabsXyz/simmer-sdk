@@ -3,6 +3,44 @@
 All notable changes to `simmer-sdk` are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`simmer_sdk.regime` — realized-vol regime gate (SIM-1450).** A
+  venue-agnostic primitive that lets a strategy declare which regime
+  (range-bound vs trending) it is registered for, then skip entirely when
+  the current realized volatility says we're in the wrong regime.
+
+  ```python
+  from simmer_sdk import realized_vol_gate, size_position
+
+  decision = realized_vol_gate(
+      close_prices,                     # last N candle closes, oldest first
+      lookback_candles=12,
+      regime_strategy="range_bound",    # or "trending"
+      vol_threshold=0.02,               # tune per asset/timeframe
+  )
+  if not decision.allowed:
+      return  # log decision.reason and skip — do not size
+
+  amount = size_position(p_win, market_price, bankroll)
+  ```
+
+  Returns a `RegimeDecision` with `allowed` (bool), `realized_vol`,
+  `regime` (`"trending"` / `"range_bound"`), `reason`
+  (`"ok"` / `"regime_mismatch"` / `"insufficient_data"` / `"invalid_input"`),
+  and `n_candles`. Fails closed when fewer than `lookback_candles` prices
+  are supplied. Distinct from the empirical-Kelly haircut in
+  `simmer_sdk.sizing` (SIM-1012): the gate is trade / no-trade, the
+  haircut scales an already-allowed trade. See
+  `examples/regime_gate_skill.py` for the canonical wiring pattern, and
+  `REGIME_CONFIG_SCHEMA` for opt-in via `config.json` / env vars.
+
+  Origin: stacyonchain noted that gating a 1¢-reversal strategy on the
+  realized vol of the prior 12 candles turned trending-period losses into
+  no-ops and meaningfully improved overall results.
+
 ## [0.13.2] — 2026-05-01
 
 ### Fixed

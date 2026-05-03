@@ -101,6 +101,11 @@ __all__ = [
     "expected_value",
     "size_position",
     "SIZING_CONFIG_SCHEMA",
+    # Regime gate (realized-vol precondition for sizing)
+    "RegimeDecision",
+    "realized_volatility",
+    "realized_vol_gate",
+    "REGIME_CONFIG_SCHEMA",
 ]
 
 # Convenience aliases for skill config
@@ -110,3 +115,11 @@ from .skill import get_config_path as get_skill_config_path
 
 # Position sizing utilities
 from .sizing import kelly_fraction, expected_value, size_position, SIZING_CONFIG_SCHEMA
+
+# Regime gate (realized-vol precondition to sizing)
+from .regime import (
+    RegimeDecision,
+    realized_volatility,
+    realized_vol_gate,
+    REGIME_CONFIG_SCHEMA,
+)
