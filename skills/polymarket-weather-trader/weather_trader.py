@@ -224,23 +224,29 @@ INTERNATIONAL_LOCATIONS = {
     "Taipei":     {"lat": 25.0330, "lon": 121.5654, "tz": "Asia/Taipei"},
 }
 
-# Reverse map: ICAO station ID → city key in INTERNATIONAL_LOCATIONS. Used by
-# parse_resolution_station() to route international markets to Open-Meteo with
-# the right city coords. Sourced from Polymarket's wunderground URLs (e.g.
-# `wunderground.com/history/daily/it/milan/LIMC` → Milan / LIMC).
-INTERNATIONAL_STATION_TO_CITY = {
-    "LLBG": "Tel Aviv",
-    "EDDM": "Munich",
-    "EGLL": "London",
-    "RJTT": "Tokyo",   "RJAA": "Tokyo",
-    "RKSI": "Seoul",   "RKSS": "Seoul",
-    "LTAC": "Ankara",
-    "VILK": "Lucknow",
-    "NZWN": "Wellington",
-    "LEMD": "Madrid",
-    "LIMC": "Milan",   "LIML": "Milan",
-    "EHAM": "Amsterdam",
-    "RCSS": "Taipei",  "RCTP": "Taipei",
+# Per-station coordinates for international Open-Meteo lookup. Keyed by ICAO
+# code, NOT city — because some cities have airports far from the city center
+# (Milan/Malpensa is ~50km away, Tokyo/Narita is ~60km away, Seoul/Incheon
+# ~50km, Madrid/Barajas ~13km). Routing by city would re-introduce the same
+# class of bug the US side fixes by going per-station. Coords are the airport
+# itself; tz is the local timezone.
+INTERNATIONAL_STATION_COORDS = {
+    "LLBG": {"lat": 32.0114, "lon": 34.8867, "tz": "Asia/Jerusalem",   "city": "Tel Aviv"},   # Ben Gurion
+    "EDDM": {"lat": 48.3538, "lon": 11.7861, "tz": "Europe/Berlin",    "city": "Munich"},     # Munich Airport
+    "EGLL": {"lat": 51.4700, "lon": -0.4543, "tz": "Europe/London",    "city": "London"},     # Heathrow
+    "RJTT": {"lat": 35.5494, "lon": 139.7798, "tz": "Asia/Tokyo",      "city": "Tokyo"},      # Haneda
+    "RJAA": {"lat": 35.7647, "lon": 140.3863, "tz": "Asia/Tokyo",      "city": "Tokyo"},      # Narita
+    "RKSI": {"lat": 37.4602, "lon": 126.4407, "tz": "Asia/Seoul",      "city": "Seoul"},      # Incheon
+    "RKSS": {"lat": 37.5586, "lon": 126.7906, "tz": "Asia/Seoul",      "city": "Seoul"},      # Gimpo
+    "LTAC": {"lat": 40.1281, "lon": 32.9951, "tz": "Europe/Istanbul",  "city": "Ankara"},     # Esenboga
+    "VILK": {"lat": 26.7606, "lon": 80.8893, "tz": "Asia/Kolkata",     "city": "Lucknow"},    # Chaudhary Charan Singh
+    "NZWN": {"lat": -41.3272, "lon": 174.8053, "tz": "Pacific/Auckland", "city": "Wellington"},  # Wellington Intl
+    "LEMD": {"lat": 40.4839, "lon": -3.5680, "tz": "Europe/Madrid",    "city": "Madrid"},     # Barajas
+    "LIMC": {"lat": 45.6306, "lon": 8.7281, "tz": "Europe/Rome",       "city": "Milan"},      # Malpensa
+    "LIML": {"lat": 45.4451, "lon": 9.2767, "tz": "Europe/Rome",       "city": "Milan"},      # Linate
+    "EHAM": {"lat": 52.3105, "lon": 4.7683, "tz": "Europe/Amsterdam",  "city": "Amsterdam"},  # Schiphol
+    "RCSS": {"lat": 25.0697, "lon": 121.5519, "tz": "Asia/Taipei",     "city": "Taipei"},     # Songshan
+    "RCTP": {"lat": 25.0777, "lon": 121.2328, "tz": "Asia/Taipei",     "city": "Taipei"},     # Taoyuan
 }
 
 # =============================================================================
@@ -306,19 +312,13 @@ def parse_resolution_station(criteria: str) -> dict:
 
 OPEN_METEO_BASE = "https://api.open-meteo.com/v1/forecast"
 
-def get_openmeteo_forecast(city: str) -> dict:
-    """Get Open-Meteo forecast for an international city.
-    Returns dict with date -> {"high_c": temp, "low_c": temp} in Celsius.
-    """
-    loc = INTERNATIONAL_LOCATIONS.get(city)
-    if not loc:
-        return {}
-
+def _fetch_openmeteo_at(lat: float, lon: float, tz: str, label: str) -> dict:
+    """Internal: fetch Open-Meteo daily highs/lows at the given coords."""
     params = (
-        f"?latitude={loc['lat']}&longitude={loc['lon']}"
+        f"?latitude={lat}&longitude={lon}"
         f"&daily=temperature_2m_max,temperature_2m_min"
         f"&temperature_unit=celsius"
-        f"&timezone={loc['tz'].replace('/', '%2F')}"
+        f"&timezone={tz.replace('/', '%2F')}"
         f"&forecast_days=10"
     )
     url = OPEN_METEO_BASE + params
@@ -328,7 +328,7 @@ def get_openmeteo_forecast(city: str) -> dict:
         with urlopen(url, timeout=15) as resp:
             data = _json.loads(resp.read().decode())
     except Exception as e:
-        print(f"  Open-Meteo error for {city}: {e}")
+        print(f"  Open-Meteo error for {label}: {e}")
         return {}
 
     daily = data.get("daily", {})
@@ -343,6 +343,28 @@ def get_openmeteo_forecast(city: str) -> dict:
             "low_c":  round(l) if l is not None else None,
         }
     return forecasts
+
+
+def get_openmeteo_forecast(city: str) -> dict:
+    """Legacy city-keyed Open-Meteo wrapper. Used as a fallback when the
+    skill can't parse a per-station ICAO from resolution_criteria. Routes
+    through INTERNATIONAL_LOCATIONS (city-center coords).
+    """
+    loc = INTERNATIONAL_LOCATIONS.get(city)
+    if not loc:
+        return {}
+    return _fetch_openmeteo_at(loc["lat"], loc["lon"], loc["tz"], city)
+
+
+def get_openmeteo_forecast_for_station(station_id: str) -> dict:
+    """Get Open-Meteo forecast at the airport's exact coords (not the city
+    center). Critical for cities with airports far from downtown — Milan/
+    Malpensa is ~50km out, Tokyo/Narita ~60km, Seoul/Incheon ~50km.
+    """
+    coords = INTERNATIONAL_STATION_COORDS.get(station_id)
+    if not coords:
+        return {}
+    return _fetch_openmeteo_at(coords["lat"], coords["lon"], coords["tz"], station_id)
 
 
 def fetch_json(url, headers=None):
@@ -1246,32 +1268,30 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
         station_id = parsed.get("station_id")
         station_name = parsed.get("station_name") or station_id or "?"
 
-        # Route forecast source by station_id:
-        # - Known NOAA station → US weather, fetch via NOAA per-station
-        # - Known international ICAO → Open-Meteo using city coords
-        # - Unknown → skip (don't fall back to city default — that's how the
-        #   skill silently traded Dallas markets against the wrong forecast
-        #   for weeks pre-rework).
+        # Route forecast source by station_id. Cache key is the station_id
+        # itself (not the city) so multi-airport cities like NYC/Chicago/
+        # Milan/Tokyo/Seoul get distinct forecasts per airport. Unknown
+        # stations are skipped (no city-default fallback — that's how the
+        # original Dallas bug hid).
         is_international = False
-        cache_key = None
         if station_id and station_id in STATION_ID_TO_NOAA:
-            cache_key = station_id
             log(f"  Oracle: {station_name} ({station_id}) → NOAA")
-        elif station_id and station_id in INTERNATIONAL_STATION_TO_CITY:
+        elif station_id and station_id in INTERNATIONAL_STATION_COORDS:
             is_international = True
-            cache_key = INTERNATIONAL_STATION_TO_CITY[station_id]
-            log(f"  Oracle: {station_name} ({station_id}) → Open-Meteo / {cache_key}")
+            _intl_city = INTERNATIONAL_STATION_COORDS[station_id]["city"]
+            log(f"  Oracle: {station_name} ({station_id}) → Open-Meteo @ airport coords ({_intl_city})")
         else:
             log(f"  ⏭️  Skipping — station {station_id or 'unknown'} ({station_name}) not in NOAA/Open-Meteo maps")
             skip_reasons.append(f"unknown station {station_id or station_name}")
             continue
 
+        cache_key = station_id  # station-keyed so per-airport forecasts don't collide
         temp_unit = event_info.get("unit", "F")
 
         if cache_key not in forecast_cache:
             if is_international:
                 log(f"  Fetching Open-Meteo forecast for {cache_key}...")
-                raw = get_openmeteo_forecast(cache_key)
+                raw = get_openmeteo_forecast_for_station(cache_key)
                 # Normalise to {"high": temp, "low": temp} using Celsius keys
                 forecast_cache[cache_key] = {
                     d: {"high": v.get("high_c"), "low": v.get("low_c")}
