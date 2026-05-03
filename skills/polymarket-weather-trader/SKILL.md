@@ -3,7 +3,7 @@ name: polymarket-weather-trader
 description: Trade Polymarket weather markets using NOAA (US) and Open-Meteo (international) forecasts via Simmer API. Inspired by gopfan2's weather trading approach. Use when user wants to trade temperature markets, automate weather bets, check forecasts, or run weather-based strategies.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.20.1"
+  version: "1.21.0"
   displayName: Polymarket Weather Trader
   difficulty: beginner
   attribution: Strategy inspired by gopfan2 (public Polymarket trader — approach referenced, not endorsed).
@@ -47,6 +47,13 @@ Use this skill when the user wants to:
 - Buy low on weather predictions
 - Check their weather trading positions
 - Configure trading thresholds or locations
+
+## What's New in v1.21.0
+
+- **Per-market resolution source.** Each market is now routed to the specific weather station Polymarket actually reads (parsed from the market's `resolution_criteria` field). Previously the skill used a hardcoded city → station map, which silently traded against the wrong forecast in a few cases (notably Dallas, where Polymarket resolves on Love Field / KDAL but the skill assumed DFW / KDFW). Markets that name a station the skill doesn't know are now skipped with a log line — better to skip than to trade a stale oracle. Robust to Polymarket swapping airports.
+- **Expanded NOAA station coverage.** KLGA, KJFK, KEWR, KNYC, KORD, KMDW, KSEA, KATL, KDAL, KDFW, KMIA, KBOS, KDCA, KIAD, KPHX, KLAS, KSFO, KLAX, KDEN, KMSP, KPHL.
+- **Expanded international coverage.** Adds Madrid, Milan, Amsterdam, Taipei to Open-Meteo routing (alongside existing Tel Aviv, Munich, London, Tokyo, Seoul, Ankara, Lucknow, Wellington).
+- **Requires the new `?include=resolution_criteria` flag** on `/api/sdk/markets` (live on Simmer backend 2026-05-03).
 
 ## What's New in v1.20.1
 
@@ -93,7 +100,11 @@ Then `pip install --upgrade simmer-sdk` (>=0.13.0) and configure tunables below.
 
 **Legacy env var aliases** (still accepted for backwards compatibility): `SIMMER_WEATHER_ENTRY`, `SIMMER_WEATHER_EXIT`, `SIMMER_WEATHER_MAX_POSITION`, `SIMMER_WEATHER_MAX_TRADES`
 
-**Supported locations:** NYC, Chicago, Seattle, Atlanta, Dallas, Miami
+**Supported locations** (city-name filter applied to market questions): NYC, Chicago, Seattle, Atlanta, Dallas, Miami, plus international cities (Tel Aviv, Munich, London, Tokyo, Seoul, Ankara, Lucknow, Wellington, Madrid, Milan, Amsterdam, Taipei). The actual oracle station is parsed per-market from `resolution_criteria` — see "Resolution-source routing" below.
+
+## Resolution-source routing
+
+Polymarket weather markets carry a `resolution_criteria` field that names the exact station the market resolves on (e.g. "Chicago O'Hare Intl Airport Station" with `wunderground.com/.../KORD`). v1.21.0+ parses that text per-market and routes to the matching forecast station instead of a city default. If a market names a station the skill doesn't know, the event is skipped with a log line. Add new stations to `STATION_ID_TO_NOAA` (US) or `INTERNATIONAL_STATION_TO_CITY` (international) in `weather_trader.py` to extend coverage — PRs welcome.
 
 ## SDK initialization
 
