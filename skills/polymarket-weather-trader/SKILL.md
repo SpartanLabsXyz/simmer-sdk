@@ -3,7 +3,7 @@ name: polymarket-weather-trader
 description: Trade Polymarket weather markets using NOAA (US) and Open-Meteo (international) forecasts via Simmer API. Inspired by gopfan2's weather trading approach. Use when user wants to trade temperature markets, automate weather bets, check forecasts, or run weather-based strategies.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.20.0"
+  version: "1.20.1"
   displayName: Polymarket Weather Trader
   difficulty: beginner
   attribution: Strategy inspired by gopfan2 (public Polymarket trader — approach referenced, not endorsed).
@@ -12,22 +12,32 @@ metadata:
 
 Trade temperature markets on Polymarket using NOAA forecast data.
 
-> **This is a template.** The default signal is NOAA temperature forecasts — remix it with other weather APIs, different forecast models, or additional market types (precipitation, wind, etc.). The skill handles the plumbing (market discovery, NOAA parsing, trade execution, safeguards). Your agent provides the alpha.
+> **Template skill.** Defaults to dry-run mode (no real money). The `--live` flag is a deliberate single-command opt-in for real-money execution. Configure tunables (entry/exit thresholds, locations, etc.) via env vars listed below.
 
-## Risk Management
+## Safety rails (read first)
+
+This skill executes real-money trades on Polymarket only when the `--live` flag is passed AND the human's wallet is linked to their Simmer account. Trading is bounded by default:
+
+- **Dry-run is the default.** `python weather_trader.py` (no flag) shows opportunities but executes no trades. The `--live` flag is required for real-money execution. There is no "auto-graduate" path.
+- **`$SIM` paper sandbox option.** Set `TRADING_VENUE=sim` to trade Simmer's $SIM virtual currency at real prices — useful for validating the strategy without USDC exposure.
+- **Real-money trading requires explicit human verification.** A wallet must be linked at [simmer.markets/dashboard](https://simmer.markets/dashboard) before any real trade lands. Without a linked wallet the SDK rejects real-money order construction.
+- **Per-trade cap.** `SIMMER_WEATHER_MAX_POSITION_USD` defaults to `$2.00` per trade. Configurable via env var, capped at the user's dashboard-set platform per-trade limit.
+- **Daily caps.** Platform-level daily caps apply (max trades/day, max USD/day). Set at [simmer.markets/dashboard](https://simmer.markets/dashboard) → SDK settings.
+- **Auto stop-loss is ON by default.** Server-side risk monitor watches every buy. Threshold is configurable per user at simmer.markets/dashboard → Settings → Auto Risk Monitor.
+- **Strategy-side safeguards.** Beyond platform risk monitors, this skill checks flip-flop, slippage (`SIMMER_WEATHER_SLIPPAGE_MAX`, default 15%), time-decay, and resolved-market status before every order. Disable only with `--no-safeguards` (not recommended).
+- **Reversibility.** Open positions exit automatically when price > `SIMMER_WEATHER_EXIT_THRESHOLD` (default `0.45`), or via `client.cancel_order()` / a manual sell.
+
+If anything above isn't clear, stop and ask the user before passing `--live`.
+
+## Strategy logic
 
 Weather market outcomes are discrete: a temperature bucket ("34-35°F") either matches the actual high on resolution day or it doesn't. The strategy works when the NOAA forecast is more accurate than what the market has priced in.
 
-**Test before going live.** The skill defaults to paper mode — trades are simulated at real market prices while your USDC stays untouched. Pass `--live` when you're ready. For a fully virtual sandbox, switch the SDK venue to `sim` for $SIM-denominated paper trading.
+**Test before going live.** The `$SIM` venue gives you a fully virtual sandbox at real market prices — recommended before any `--live` run.
 
-Simmer's server-side risk monitor handles stop-loss and take-profit automatically. Defaults (editable at `simmer.markets/dashboard → Settings → Auto Risk Monitor`):
-
-- Stop-loss at 20% drawdown from entry
-- Take-profit at 50% price
+**Risk monitor.** Stop-loss and take-profit thresholds are user settings (configurable at [simmer.markets/dashboard](https://simmer.markets/dashboard) → Settings → Auto Risk Monitor), shared across all skills under that user account. Per-position overrides via `client.set_monitor(market_id, side, stop_loss_pct=..., take_profit_pct=...)`.
 
 **External wallet users**: monitors emit alerts via the briefing endpoint — your agent must be running for sells to execute. Managed wallet users: server executes directly.
-
-You can override defaults per-skill in the dashboard.
 
 ## When to Use This Skill
 
@@ -38,6 +48,12 @@ Use this skill when the user wants to:
 - Check their weather trading positions
 - Configure trading thresholds or locations
 
+## What's New in v1.20.1
+
+- **Safety rails section first.** Bounding contract surfaced at the top — paper-default, `--live` requirement, configurable caps, server-side risk monitor, strategy-side safeguards, reversibility.
+- **Risk monitor framing genericized.** Stop-loss / take-profit thresholds are described as configurable user settings rather than specific percentages. (See FAQ at docs.simmer.markets for current defaults — they're user-tunable in the dashboard.)
+- **Wallet setup link genericized.** Points at [docs.simmer.markets/wallets](https://docs.simmer.markets/wallets) instead of a named cross-skill.
+
 ## What's New in v1.20.0
 
 - **SDK 0.13.0 integration** — uses `SimmerClient.from_env()` (auto-reads `SIMMER_API_KEY`, raises a clear `RuntimeError` with a dashboard pointer if unset). Requires `simmer-sdk>=0.13.0`.
@@ -46,7 +62,7 @@ Use this skill when the user wants to:
 
 ## Setup
 
-For wallet setup, see [simmer-wallet-setup on ClawHub](https://clawhub.ai/skills/simmer-wallet-setup) or [docs.simmer.markets/wallets](https://docs.simmer.markets/wallets).
+For wallet setup, see [docs.simmer.markets/wallets](https://docs.simmer.markets/wallets).
 
 Required environment:
 - `SIMMER_API_KEY` — get from `simmer.markets/dashboard → SDK tab`
