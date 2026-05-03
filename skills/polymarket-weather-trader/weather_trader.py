@@ -147,14 +147,56 @@ TIME_TO_RESOLUTION_MIN_HOURS = 2  # Skip if resolving in < 2 hours
 # Price trend detection
 PRICE_DROP_THRESHOLD = 0.10  # 10% drop in last 24h = stronger signal
 
-# Supported locations (matching Polymarket resolution sources)
+# City fallback coordinates. Used only as a last resort when a market does not
+# expose resolution_criteria (older API responses pre 2026-05-03). Polymarket's
+# actual oracle is parsed per-market from resolution_criteria — see
+# parse_resolution_station() and STATION_ID_TO_NOAA below. Note: prior to the
+# resolution-source rework, this table hardcoded KDFW for Dallas. Polymarket
+# actually resolves Dallas weather on KDAL (Love Field), not KDFW. Keeping
+# Dallas out of the fallback so we fail loud rather than silently re-introduce
+# the bug.
 LOCATIONS = {
     "NYC": {"lat": 40.7769, "lon": -73.8740, "name": "New York City (LaGuardia)", "station": "KLGA"},
     "Chicago": {"lat": 41.9742, "lon": -87.9073, "name": "Chicago (O'Hare)", "station": "KORD"},
     "Seattle": {"lat": 47.4502, "lon": -122.3088, "name": "Seattle (Sea-Tac)", "station": "KSEA"},
     "Atlanta": {"lat": 33.6407, "lon": -84.4277, "name": "Atlanta (Hartsfield)", "station": "KATL"},
-    "Dallas": {"lat": 32.8998, "lon": -97.0403, "name": "Dallas (DFW)", "station": "KDFW"},
     "Miami": {"lat": 25.7959, "lon": -80.2870, "name": "Miami (MIA)", "station": "KMIA"},
+}
+
+# Per-station coordinates for NOAA `/points/{lat},{lon}` lookup. Keyed by the
+# ICAO code Polymarket cites in resolution_criteria. Add new entries here as
+# Polymarket adds new resolution stations — the parser surfaces unknowns as
+# skip-with-log so we notice quickly.
+STATION_ID_TO_NOAA = {
+    # NYC area
+    "KLGA": {"lat": 40.7769, "lon": -73.8740, "name": "LaGuardia Airport"},
+    "KJFK": {"lat": 40.6413, "lon": -73.7781, "name": "JFK International Airport"},
+    "KEWR": {"lat": 40.6895, "lon": -74.1745, "name": "Newark Liberty International"},
+    "KNYC": {"lat": 40.7831, "lon": -73.9712, "name": "NYC Central Park"},
+    # Chicago area
+    "KORD": {"lat": 41.9742, "lon": -87.9073, "name": "Chicago O'Hare Intl Airport"},
+    "KMDW": {"lat": 41.7860, "lon": -87.7524, "name": "Chicago Midway"},
+    # Seattle
+    "KSEA": {"lat": 47.4502, "lon": -122.3088, "name": "Seattle-Tacoma International Airport"},
+    # Atlanta
+    "KATL": {"lat": 33.6407, "lon": -84.4277, "name": "Hartsfield-Jackson Atlanta International Airport"},
+    # Dallas area — KDAL is Polymarket's actual oracle for Dallas; KDFW kept
+    # so a future market that resolves on DFW also works
+    "KDAL": {"lat": 32.8471, "lon": -96.8517, "name": "Dallas Love Field"},
+    "KDFW": {"lat": 32.8998, "lon": -97.0403, "name": "Dallas/Fort Worth International Airport"},
+    # Miami
+    "KMIA": {"lat": 25.7959, "lon": -80.2870, "name": "Miami International Airport"},
+    # Common additions (pre-populated to reduce churn as Polymarket expands)
+    "KBOS": {"lat": 42.3656, "lon": -71.0096, "name": "Boston Logan International"},
+    "KDCA": {"lat": 38.8512, "lon": -77.0402, "name": "Reagan National (DC)"},
+    "KIAD": {"lat": 38.9531, "lon": -77.4565, "name": "Washington Dulles"},
+    "KPHX": {"lat": 33.4373, "lon": -112.0078, "name": "Phoenix Sky Harbor"},
+    "KLAS": {"lat": 36.0840, "lon": -115.1537, "name": "Las Vegas McCarran"},
+    "KSFO": {"lat": 37.6213, "lon": -122.3790, "name": "San Francisco International"},
+    "KLAX": {"lat": 33.9416, "lon": -118.4085, "name": "Los Angeles International"},
+    "KDEN": {"lat": 39.8561, "lon": -104.6737, "name": "Denver International"},
+    "KMSP": {"lat": 44.8848, "lon": -93.2223, "name": "Minneapolis-St. Paul International"},
+    "KPHL": {"lat": 39.8744, "lon": -75.2424, "name": "Philadelphia International"},
 }
 
 # Active locations - from config
@@ -176,23 +218,107 @@ INTERNATIONAL_LOCATIONS = {
     "Ankara":     {"lat": 39.9334, "lon": 32.8597,  "tz": "Europe/Istanbul"},
     "Lucknow":    {"lat": 26.8467, "lon": 80.9462,  "tz": "Asia/Kolkata"},
     "Wellington": {"lat": -41.2866, "lon": 174.7756, "tz": "Pacific/Auckland"},
+    "Madrid":     {"lat": 40.4168, "lon": -3.7038,  "tz": "Europe/Madrid"},
+    "Milan":      {"lat": 45.4642, "lon": 9.1900,   "tz": "Europe/Rome"},
+    "Amsterdam":  {"lat": 52.3676, "lon": 4.9041,   "tz": "Europe/Amsterdam"},
+    "Taipei":     {"lat": 25.0330, "lon": 121.5654, "tz": "Asia/Taipei"},
 }
+
+# Per-station coordinates for international Open-Meteo lookup. Keyed by ICAO
+# code, NOT city — because some cities have airports far from the city center
+# (Milan/Malpensa is ~50km away, Tokyo/Narita is ~60km away, Seoul/Incheon
+# ~50km, Madrid/Barajas ~13km). Routing by city would re-introduce the same
+# class of bug the US side fixes by going per-station. Coords are the airport
+# itself; tz is the local timezone.
+INTERNATIONAL_STATION_COORDS = {
+    "LLBG": {"lat": 32.0114, "lon": 34.8867, "tz": "Asia/Jerusalem",   "city": "Tel Aviv"},   # Ben Gurion
+    "EDDM": {"lat": 48.3538, "lon": 11.7861, "tz": "Europe/Berlin",    "city": "Munich"},     # Munich Airport
+    "EGLL": {"lat": 51.4700, "lon": -0.4543, "tz": "Europe/London",    "city": "London"},     # Heathrow
+    "RJTT": {"lat": 35.5494, "lon": 139.7798, "tz": "Asia/Tokyo",      "city": "Tokyo"},      # Haneda
+    "RJAA": {"lat": 35.7647, "lon": 140.3863, "tz": "Asia/Tokyo",      "city": "Tokyo"},      # Narita
+    "RKSI": {"lat": 37.4602, "lon": 126.4407, "tz": "Asia/Seoul",      "city": "Seoul"},      # Incheon
+    "RKSS": {"lat": 37.5586, "lon": 126.7906, "tz": "Asia/Seoul",      "city": "Seoul"},      # Gimpo
+    "LTAC": {"lat": 40.1281, "lon": 32.9951, "tz": "Europe/Istanbul",  "city": "Ankara"},     # Esenboga
+    "VILK": {"lat": 26.7606, "lon": 80.8893, "tz": "Asia/Kolkata",     "city": "Lucknow"},    # Chaudhary Charan Singh
+    "NZWN": {"lat": -41.3272, "lon": 174.8053, "tz": "Pacific/Auckland", "city": "Wellington"},  # Wellington Intl
+    "LEMD": {"lat": 40.4839, "lon": -3.5680, "tz": "Europe/Madrid",    "city": "Madrid"},     # Barajas
+    "LIMC": {"lat": 45.6306, "lon": 8.7281, "tz": "Europe/Rome",       "city": "Milan"},      # Malpensa
+    "LIML": {"lat": 45.4451, "lon": 9.2767, "tz": "Europe/Rome",       "city": "Milan"},      # Linate
+    "EHAM": {"lat": 52.3105, "lon": 4.7683, "tz": "Europe/Amsterdam",  "city": "Amsterdam"},  # Schiphol
+    "RCSS": {"lat": 25.0697, "lon": 121.5519, "tz": "Asia/Taipei",     "city": "Taipei"},     # Songshan
+    "RCTP": {"lat": 25.0777, "lon": 121.2328, "tz": "Asia/Taipei",     "city": "Taipei"},     # Taoyuan
+}
+
+# =============================================================================
+# Resolution-source parser
+# =============================================================================
+#
+# Polymarket weather markets carry a `resolution_criteria` field that names
+# the exact station the market resolves on, e.g.:
+#
+#   "This market will resolve to the temperature range that contains the
+#    highest temperature recorded at the Chicago O'Hare Intl Airport Station
+#    in degrees Fahrenheit on 2 May '26.
+#    The resolution source for this market will be information from
+#    Wunderground, specifically the highest temperature recorded for all
+#    times on this day by the Forecast for the Chicago O'Hare Intl Airport
+#    Station once information is finalized, available here:
+#    https://www.wunderground.com/history/daily/us/il/chicago/KORD."
+#
+# We extract the ICAO code from the trailing wunderground URL — most reliable
+# signal, present on every weather market we've sampled. Fall back to the
+# station-name phrase when the URL is absent.
+#
+# Returns {"station_id": "KORD", "station_name": "Chicago O'Hare Intl Airport"}
+# or None when the criteria text doesn't look like a recognized weather market.
+_WUNDERGROUND_URL_RE = re.compile(
+    # /history/daily/<country>/<region>/<city>/<ICAO> for US (3 path segments
+    # after country) and /history/daily/<country>/<city>/<ICAO> for most
+    # international (2 segments). The (?:.../)+ allows either shape.
+    r"wunderground\.com/history/daily/[a-z]{2}/(?:[a-z0-9_\-]+/)+([A-Z]{4})\b",
+    re.IGNORECASE,
+)
+_STATION_PHRASE_RE = re.compile(
+    r"recorded at the (.+?) Station",
+    re.IGNORECASE,
+)
+
+
+def parse_resolution_station(criteria: str) -> dict:
+    """Extract the resolution station from a market's resolution_criteria.
+
+    Returns a dict with `station_id` (4-letter ICAO, uppercase) and
+    `station_name` (human-readable airport name), or None if the criteria
+    doesn't reference a recognized weather station.
+    """
+    if not criteria or not isinstance(criteria, str):
+        return None
+
+    station_id = None
+    url_match = _WUNDERGROUND_URL_RE.search(criteria)
+    if url_match:
+        station_id = url_match.group(1).upper()
+
+    station_name = None
+    phrase_match = _STATION_PHRASE_RE.search(criteria)
+    if phrase_match:
+        station_name = phrase_match.group(1).strip()
+
+    if not station_id and not station_name:
+        return None
+
+    return {"station_id": station_id, "station_name": station_name}
+
 
 OPEN_METEO_BASE = "https://api.open-meteo.com/v1/forecast"
 
-def get_openmeteo_forecast(city: str) -> dict:
-    """Get Open-Meteo forecast for an international city.
-    Returns dict with date -> {"high_c": temp, "low_c": temp} in Celsius.
-    """
-    loc = INTERNATIONAL_LOCATIONS.get(city)
-    if not loc:
-        return {}
-
+def _fetch_openmeteo_at(lat: float, lon: float, tz: str, label: str) -> dict:
+    """Internal: fetch Open-Meteo daily highs/lows at the given coords."""
     params = (
-        f"?latitude={loc['lat']}&longitude={loc['lon']}"
+        f"?latitude={lat}&longitude={lon}"
         f"&daily=temperature_2m_max,temperature_2m_min"
         f"&temperature_unit=celsius"
-        f"&timezone={loc['tz'].replace('/', '%2F')}"
+        f"&timezone={tz.replace('/', '%2F')}"
         f"&forecast_days=10"
     )
     url = OPEN_METEO_BASE + params
@@ -202,7 +328,7 @@ def get_openmeteo_forecast(city: str) -> dict:
         with urlopen(url, timeout=15) as resp:
             data = _json.loads(resp.read().decode())
     except Exception as e:
-        print(f"  Open-Meteo error for {city}: {e}")
+        print(f"  Open-Meteo error for {label}: {e}")
         return {}
 
     daily = data.get("daily", {})
@@ -217,6 +343,28 @@ def get_openmeteo_forecast(city: str) -> dict:
             "low_c":  round(l) if l is not None else None,
         }
     return forecasts
+
+
+def get_openmeteo_forecast(city: str) -> dict:
+    """Legacy city-keyed Open-Meteo wrapper. Used as a fallback when the
+    skill can't parse a per-station ICAO from resolution_criteria. Routes
+    through INTERNATIONAL_LOCATIONS (city-center coords).
+    """
+    loc = INTERNATIONAL_LOCATIONS.get(city)
+    if not loc:
+        return {}
+    return _fetch_openmeteo_at(loc["lat"], loc["lon"], loc["tz"], city)
+
+
+def get_openmeteo_forecast_for_station(station_id: str) -> dict:
+    """Get Open-Meteo forecast at the airport's exact coords (not the city
+    center). Critical for cities with airports far from downtown — Milan/
+    Malpensa is ~50km out, Tokyo/Narita ~60km, Seoul/Incheon ~50km.
+    """
+    coords = INTERNATIONAL_STATION_COORDS.get(station_id)
+    if not coords:
+        return {}
+    return _fetch_openmeteo_at(coords["lat"], coords["lon"], coords["tz"], station_id)
 
 
 def fetch_json(url, headers=None):
@@ -236,13 +384,19 @@ def fetch_json(url, headers=None):
         return None
 
 
-def get_noaa_forecast(location: str) -> dict:
-    """Get NOAA forecast for a location. Returns dict with date -> {"high": temp, "low": temp}"""
-    if location not in LOCATIONS:
-        print(f"  Unknown location: {location}")
+def get_noaa_forecast_for_station(station_id: str) -> dict:
+    """Get NOAA forecast for a specific ICAO station id.
+
+    Looks up coordinates from STATION_ID_TO_NOAA, fetches the NOAA gridpoint
+    forecast, and supplements today's high/low from the station's latest
+    observation when the forecast period misses it. Returns dict keyed by
+    `YYYY-MM-DD` -> {"high": int, "low": int} (Fahrenheit).
+    """
+    if station_id not in STATION_ID_TO_NOAA:
+        print(f"  Unknown NOAA station: {station_id}")
         return {}
 
-    loc = LOCATIONS[location]
+    loc = STATION_ID_TO_NOAA[station_id]
     headers = {
         "User-Agent": "SimmerWeatherSkill/1.0 (https://simmer.markets)",
         "Accept": "application/geo+json",
@@ -252,17 +406,17 @@ def get_noaa_forecast(location: str) -> dict:
     points_data = fetch_json(points_url, headers)
 
     if not points_data or "properties" not in points_data:
-        print(f"  Failed to get NOAA grid for {location}")
+        print(f"  Failed to get NOAA grid for {station_id}")
         return {}
 
     forecast_url = points_data["properties"].get("forecast")
     if not forecast_url:
-        print(f"  No forecast URL for {location}")
+        print(f"  No forecast URL for {station_id}")
         return {}
 
     forecast_data = fetch_json(forecast_url, headers)
     if not forecast_data or "properties" not in forecast_data:
-        print(f"  Failed to get NOAA forecast for {location}")
+        print(f"  Failed to get NOAA forecast for {station_id}")
         return {}
 
     periods = forecast_data["properties"].get("periods", [])
@@ -285,29 +439,43 @@ def get_noaa_forecast(location: str) -> dict:
         else:
             forecasts[date_str]["low"] = temp
 
-    # Supplement with NOAA observations for today (D+0)
-    # /forecast often starts from the next period, missing today's daytime high
+    # Supplement with NOAA observations for today (D+0). /forecast often
+    # starts from the next period, missing today's daytime high. NOAA's
+    # `/stations/{id}/observations/latest` keys by the same ICAO code
+    # Polymarket cites in resolution_criteria, so this just works.
     today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     if today_str not in forecasts or forecasts[today_str].get("high") is None:
-        station_id = loc.get("station")
-        if station_id:
-            try:
-                obs_url = f"{NOAA_API_BASE}/stations/{station_id}/observations/latest"
-                obs_data = fetch_json(obs_url, headers)
-                if obs_data and "properties" in obs_data:
-                    temp_c = obs_data["properties"].get("temperature", {}).get("value")
-                    if temp_c is not None:
-                        temp_f = round(temp_c * 9 / 5 + 32)
-                        if today_str not in forecasts:
-                            forecasts[today_str] = {"high": None, "low": None}
-                        if forecasts[today_str]["high"] is None:
-                            forecasts[today_str]["high"] = temp_f
-                        if forecasts[today_str]["low"] is None:
-                            forecasts[today_str]["low"] = temp_f
-            except Exception:
-                pass  # Observation fetch is best-effort
+        try:
+            obs_url = f"{NOAA_API_BASE}/stations/{station_id}/observations/latest"
+            obs_data = fetch_json(obs_url, headers)
+            if obs_data and "properties" in obs_data:
+                temp_c = obs_data["properties"].get("temperature", {}).get("value")
+                if temp_c is not None:
+                    temp_f = round(temp_c * 9 / 5 + 32)
+                    if today_str not in forecasts:
+                        forecasts[today_str] = {"high": None, "low": None}
+                    if forecasts[today_str]["high"] is None:
+                        forecasts[today_str]["high"] = temp_f
+                    if forecasts[today_str]["low"] is None:
+                        forecasts[today_str]["low"] = temp_f
+        except Exception:
+            pass  # Observation fetch is best-effort
 
     return forecasts
+
+
+def get_noaa_forecast(location: str) -> dict:
+    """Legacy city-keyed wrapper. Routes to the per-station fetcher using the
+    LOCATIONS fallback table. Kept only for the rare case a market is missing
+    `resolution_criteria` (older API responses or non-Polymarket sources).
+    """
+    if location not in LOCATIONS:
+        print(f"  Unknown location: {location}")
+        return {}
+    fallback_station = LOCATIONS[location].get("station")
+    if not fallback_station:
+        return {}
+    return get_noaa_forecast_for_station(fallback_station)
 
 
 # =============================================================================
@@ -345,6 +513,10 @@ def parse_weather_event(event_name: str) -> dict:
         'ankara': 'Ankara',
         'lucknow': 'Lucknow',
         'wellington': 'Wellington',
+        'madrid': 'Madrid',
+        'milan': 'Milan',
+        'amsterdam': 'Amsterdam',
+        'taipei': 'Taipei',
     }
 
     for alias, loc in location_aliases.items():
@@ -730,10 +902,22 @@ def discover_and_import_weather_markets(log=print):
 # =============================================================================
 
 def fetch_weather_markets():
-    """Fetch weather-tagged markets from Simmer API."""
+    """Fetch weather-tagged markets from Simmer API.
+
+    Requests `resolution_criteria` so we can route each market to the
+    specific station Polymarket actually reads (KDAL vs KDFW, KORD vs KMDW,
+    LIMC vs LIML, etc.) instead of trusting a city → station hardcode.
+    """
     try:
-        result = get_client()._request("GET", "/api/sdk/markets",
-                                       params={"tags": "weather", "status": "active", "limit": 100})
+        result = get_client()._request(
+            "GET", "/api/sdk/markets",
+            params={
+                "tags": "weather",
+                "status": "active",
+                "limit": 100,
+                "include": "resolution_criteria",
+            },
+        )
         return result.get("markets", [])
     except Exception:
         print("  Failed to fetch markets from Simmer API")
@@ -1067,24 +1251,57 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
 
         log(f"\n📍 {location} {date_str} ({metric} temp)")
 
-        # Determine forecast source: NOAA for US cities, Open-Meteo for international
-        is_international = location in INTERNATIONAL_LOCATIONS
+        # Resolve the actual oracle station for this event from
+        # resolution_criteria (the source of truth Polymarket publishes).
+        # All markets in the event share the same oracle, so we read the
+        # first market's criteria. If the criteria is missing or names a
+        # station we don't know, skip the event with a log line — we'd
+        # rather skip than trade against the wrong forecast (which is the
+        # bug this code path replaces).
+        sample_criteria = event_markets[0].get("resolution_criteria", "")
+        parsed = parse_resolution_station(sample_criteria)
+        if not parsed:
+            log(f"  ⏭️  Skipping — no resolution_criteria on market (need SDK ≥ 2026-05-03)")
+            skip_reasons.append("no resolution_criteria")
+            continue
+
+        station_id = parsed.get("station_id")
+        station_name = parsed.get("station_name") or station_id or "?"
+
+        # Route forecast source by station_id. Cache key is the station_id
+        # itself (not the city) so multi-airport cities like NYC/Chicago/
+        # Milan/Tokyo/Seoul get distinct forecasts per airport. Unknown
+        # stations are skipped (no city-default fallback — that's how the
+        # original Dallas bug hid).
+        is_international = False
+        if station_id and station_id in STATION_ID_TO_NOAA:
+            log(f"  Oracle: {station_name} ({station_id}) → NOAA")
+        elif station_id and station_id in INTERNATIONAL_STATION_COORDS:
+            is_international = True
+            _intl_city = INTERNATIONAL_STATION_COORDS[station_id]["city"]
+            log(f"  Oracle: {station_name} ({station_id}) → Open-Meteo @ airport coords ({_intl_city})")
+        else:
+            log(f"  ⏭️  Skipping — station {station_id or 'unknown'} ({station_name}) not in NOAA/Open-Meteo maps")
+            skip_reasons.append(f"unknown station {station_id or station_name}")
+            continue
+
+        cache_key = station_id  # station-keyed so per-airport forecasts don't collide
         temp_unit = event_info.get("unit", "F")
 
-        if location not in forecast_cache:
+        if cache_key not in forecast_cache:
             if is_international:
-                log(f"  Fetching Open-Meteo forecast...")
-                raw = get_openmeteo_forecast(location)
+                log(f"  Fetching Open-Meteo forecast for {cache_key}...")
+                raw = get_openmeteo_forecast_for_station(cache_key)
                 # Normalise to {"high": temp, "low": temp} using Celsius keys
-                forecast_cache[location] = {
+                forecast_cache[cache_key] = {
                     d: {"high": v.get("high_c"), "low": v.get("low_c")}
                     for d, v in raw.items()
                 }
             else:
-                log(f"  Fetching NOAA forecast...")
-                forecast_cache[location] = get_noaa_forecast(location)
+                log(f"  Fetching NOAA forecast for {cache_key}...")
+                forecast_cache[cache_key] = get_noaa_forecast_for_station(cache_key)
 
-        forecasts = forecast_cache[location]
+        forecasts = forecast_cache[cache_key]
         day_forecast = forecasts.get(date_str, {})
         forecast_temp = day_forecast.get(metric)
 
