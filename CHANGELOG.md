@@ -3,6 +3,28 @@
 All notable changes to `simmer-sdk` are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0] — 2026-05-04
+
+### Added
+
+- **`client.trade()` now logs failures at `WARNING`.** When a real-trading
+  trade returns `success=False` with an `error`, the SDK emits
+  `logger.warning("Trade failed on <venue>: <error>")` before returning the
+  result. Bots that don't explicitly check `result.success` previously
+  looped silently when upstream venues rejected orders (observed
+  2026-05-04: a user's bot logged 72 failed Polymarket trades over 17h
+  without a single visible signal because the harness only printed on
+  exception). Bots that already check `result.success` see no behavior
+  change beyond the extra log line. Suppress with
+  `logging.getLogger("simmer_sdk.client").setLevel(logging.ERROR)`.
+
+### Changed
+
+- **`skills/simmer/SKILL.md`** trade example now demonstrates the
+  `if not result.success` check that idiomatic bots should perform —
+  catches the same class of silent-failure bug at the documentation
+  layer for LLM-driven agents loading the skill.
+
 ## [0.13.3] — 2026-05-04
 
 ### Fixed

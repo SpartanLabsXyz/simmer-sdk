@@ -73,6 +73,12 @@ result = client.trade(
     markets[0].id, "yes", 10.0,
     reasoning="NOAA forecasts 35°F, bucket underpriced",
 )
+
+# Always check result.success — client.trade() returns a TradeResult on
+# failure (with result.error set), it does NOT raise. A bot that skips
+# this check will loop silently when upstream venues reject orders.
+if not result.success:
+    print(f"Trade failed: {result.error}")
 ```
 
 `reasoning=` is optional in the API but expected by convention — it's displayed publicly on the trade page.
