@@ -3,6 +3,26 @@
 All notable changes to `simmer-sdk` are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.3] — 2026-05-04
+
+### Fixed
+
+- **External-wallet auto-redeem failed with `Unsigned tx targets unknown
+  contract`.** Server-side SIM-1389/1421 (shipped 2026-05-03) routes
+  redemption through the new Polymarket collateral adapters
+  (`0xAdA100…` for binary, `0xadA200…` for neg-risk) so payouts land in
+  pUSD instead of USDC.e. The SDK's pre-flight contract whitelist on
+  `redeem()` only knew the legacy CTF + NegRiskAdapter addresses, so it
+  rejected every server-built unsigned tx targeting the new adapters.
+  Both new adapters expose the same selector (`0x01b7037c`) and ABI as
+  the legacy binary CTF, so the fix is a whitelist add — no signing
+  changes. Legacy entries stay in place so older server versions still
+  verify.
+
+  External-wallet users on `< 0.13.3` will keep hitting this until they
+  upgrade. Managed-wallet users were never affected (server signs +
+  broadcasts itself, no client-side validation).
+
 ## [0.13.2] — 2026-05-01
 
 ### Fixed

@@ -2555,10 +2555,20 @@ class SimmerClient:
 
         unsigned_tx = result["unsigned_tx"]
 
-        # Validate unsigned tx before signing
+        # Validate unsigned tx before signing.
+        #
+        # SIM-1389/1421 (server-side, 2026-05-03): redemption now routes through
+        # the new Polymarket collateral adapters by default — they pay out in
+        # pUSD instead of USDC.e. Both adapters expose the same selector
+        # (`0x01b7037c` — `redeemPositions(address,bytes32,bytes32,uint256[])`)
+        # as the legacy CTF, so we add their addresses with the same expected
+        # selector. The legacy CTF + legacy NegRiskAdapter entries stay so old
+        # server versions and any still-USDC.e-bound paths continue to verify.
         _REDEEM_CONTRACT_WHITELIST = {
             "0x4D97DCd97eC945f40cF65F87097ACe5EA0476045".lower(): "0x01b7037c",   # CTF: redeemPositions(address,bytes32,bytes32,uint256[])
             "0xd91E80cF2E7be2e162c6513ceD06f1dD0dA35296".lower(): "0xdbeccb23",   # NegRiskAdapter: redeemPositions(bytes32,uint256[])
+            "0xAdA100Db00Ca00073811820692005400218FcE1f".lower(): "0x01b7037c",   # CtfCollateralAdapter (SIM-1389): pays pUSD instead of USDC.e
+            "0xadA2005600Dec949baf300f4C6120000bDB6eAab".lower(): "0x01b7037c",   # NegRiskCtfCollateralAdapter (SIM-1421): same selector + ABI as binary
         }
         tx_to = unsigned_tx.get("to", "")
         if not tx_to or tx_to.lower() not in _REDEEM_CONTRACT_WHITELIST:
