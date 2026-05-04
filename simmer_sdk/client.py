@@ -2643,9 +2643,19 @@ class SimmerClient:
         else:
             tx_gas = int(unsigned_tx.get("gas", 300_000))
 
-        # Cap gas limit to prevent POL drain
-        if tx_gas > 500_000:
-            return {"success": False, "error": f"Gas limit too high ({tx_gas}), max 500000"}
+        # Cap gas limit to prevent POL drain.
+        #
+        # 2026-05-04: raised from 500k to 1.5M. The new pUSD collateral
+        # adapters (added to whitelist in 0.13.3) do extra on-chain work —
+        # USDC.e wrap → CTF burn → pUSD mint — that legitimately consumes
+        # 500-1000k gas. weather-trader999 reported a wave of "Gas limit
+        # too high" failures with eth_estimateGas-derived budgets of
+        # 502k–956k for adapter redemptions; all were honest estimates
+        # the old cap was clipping. 1.5M gives ~50% headroom for the
+        # heaviest adapter calls while still guarding against pathological
+        # estimates (1.5M @ ~30 gwei ≈ 0.045 POL ≈ $0.01 worst case).
+        if tx_gas > 1_500_000:
+            return {"success": False, "error": f"Gas limit too high ({tx_gas}), max 1500000"}
 
         nonce = int(_rpc_call("eth_getTransactionCount", [self._wallet_address, "pending"]) or "0x0", 16)
 
