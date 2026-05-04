@@ -1294,26 +1294,62 @@ class SimmerClient:
             json=payload
         )
 
-        # Extract balance: only meaningful for simmer venue ($SIM balance)
-        # Polymarket/Kalshi trades don't return a balance (use get_portfolio() instead)
-        position = data.get("position") or {}
-        balance = position.get("sim_balance") if effective_venue == "sim" else None
+        # Build TradeResult from a server response. Extracted as a closure so
+        # the cred-recovery retry path below can rebuild from a second response
+        # without duplicating the field mapping. Sim-venue is the only one that
+        # returns a balance (in `position.sim_balance`); real venues use
+        # get_portfolio() instead.
+        def _build_result(d):
+            _pos = d.get("position") or {}
+            _bal = _pos.get("sim_balance") if effective_venue == "sim" else None
+            return TradeResult(
+                success=d.get("success", False),
+                trade_id=d.get("trade_id"),
+                market_id=d.get("market_id", market_id),
+                side=d.get("side", side),
+                venue=effective_venue,
+                shares_bought=d.get("shares_bought", 0),
+                shares_requested=d.get("shares_requested", 0),
+                order_status=d.get("order_status"),
+                cost=d.get("cost", 0),
+                new_price=d.get("new_price", 0),
+                balance=_bal,
+                error=d.get("error"),
+                fill_status=d.get("fill_status", "unknown"),
+            )
 
-        result = TradeResult(
-            success=data.get("success", False),
-            trade_id=data.get("trade_id"),
-            market_id=data.get("market_id", market_id),
-            side=data.get("side", side),
-            venue=effective_venue,
-            shares_bought=data.get("shares_bought", 0),
-            shares_requested=data.get("shares_requested", 0),
-            order_status=data.get("order_status"),
-            cost=data.get("cost", 0),
-            new_price=data.get("new_price", 0),
-            balance=balance,
-            error=data.get("error"),
-            fill_status=data.get("fill_status", "unknown"),
-        )
+        result = _build_result(data)
+
+        # Auto-recover from stale CLOB creds (Polymarket rotated server-side or
+        # rejected our cached creds). Only relevant for external/OWS Polymarket
+        # — managed wallets re-derive server-side on the same error. The server
+        # NULLs its cached creds on this same condition, so our next call to
+        # _ensure_clob_credentials() finds has_credentials=False and triggers a
+        # local re-derive + register. We bypass the SDK's own one-shot cache
+        # (`_clob_creds_registered`) by resetting it. Single retry only — if
+        # the retry also fails, surface the original style of error.
+        if (not result.success and result.error
+                and effective_venue == "polymarket"
+                and (self._private_key or self._ows_wallet)):
+            err_lower = result.error.lower()
+            if "unauthorized" in err_lower or "invalid api key" in err_lower:
+                logger.warning(
+                    "Polymarket rejected CLOB creds — re-deriving and retrying once"
+                )
+                try:
+                    self._clob_creds_registered = False
+                    self._ensure_clob_credentials()
+                    retry_data = self._request(
+                        "POST", "/api/sdk/trade", json=payload
+                    )
+                    result = _build_result(retry_data)
+                    if result.success:
+                        logger.info("Trade succeeded after cred re-derive")
+                except Exception as retry_err:
+                    logger.warning(
+                        "Cred re-derive + retry failed: %s", retry_err
+                    )
+
         if result.success and self._held_markets_cache is not None:
             if action == "buy":
                 # Update cache locally instead of nuking — avoids a fresh GET /positions

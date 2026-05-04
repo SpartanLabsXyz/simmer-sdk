@@ -3,6 +3,30 @@
 All notable changes to `simmer-sdk` are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.1] — 2026-05-04
+
+### Added
+
+- **External-wallet auto-recovery from stale CLOB credentials.** When
+  Polymarket rejects a trade with `Unauthorized` / `Invalid api key` (most
+  often after Polymarket rotates server-side creds, as happened during
+  the 2026-04-28 V2 cutover), `client.trade()` now resets its internal
+  `_clob_creds_registered` cache, re-runs `_ensure_clob_credentials()`
+  (which derives locally with the user's private key / OWS wallet and
+  re-registers with Simmer), and retries the trade once. Single retry
+  only — if the retry also fails the original error is surfaced.
+
+  The simmer server clears its cached encrypted creds on the same
+  condition (`scripts/local_dev_server.py` external-wallet path), so the
+  re-derive's server-side existence check returns false and forces a
+  fresh derive. Previously only the managed-wallet path had this
+  recovery (line ~19940 of the same file); external wallets sat in a
+  silent retry loop, last seen 2026-05-04 with 4 wallets stuck on the
+  Polymarket V2 cutover with 0 successes in 6h.
+
+  Managed wallets unaffected (server-side recovery already exists).
+  Sim/Kalshi venues unaffected.
+
 ## [0.14.0] — 2026-05-04
 
 ### Added
