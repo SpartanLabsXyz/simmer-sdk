@@ -1325,6 +1325,14 @@ class SimmerClient:
             elif action == "sell":
                 # Remove from cache so subsequent buys aren't blocked
                 self._held_markets_cache.pop(market_id, None)
+        elif not result.success and result.error:
+            # Surface failures to bots that don't check result.success themselves.
+            # A silent loop of failing trades (e.g. upstream creds rejected) can
+            # otherwise run for hours unnoticed — this gives any bot using stdlib
+            # logging a stderr signal at WARNING level on the first failure.
+            logger.warning(
+                "Trade failed on %s: %s", effective_venue, result.error
+            )
         return result
 
     # Default half-spread for Polymarket paper trades (in probability units).
