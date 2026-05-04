@@ -3,6 +3,27 @@
 All notable changes to `simmer-sdk` are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.2] — 2026-05-04
+
+### Fixed
+
+- **`Gas limit too high (XXX), max 500000`** on external-wallet auto-redeem
+  for the new pUSD collateral adapters added in 0.13.3. The 500k cap was
+  set when redemption hit `CTF.redeemPositions` directly (~150-300k). The
+  new `CtfCollateralAdapter` / `NegRiskCtfCollateralAdapter` do extra
+  on-chain work (USDC.e wrap → CTF burn → pUSD mint) that legitimately
+  consumes 500-1000k gas. weather-trader999 reported a wave of failures
+  with `eth_estimateGas`-derived budgets of 502k–956k getting clipped.
+  Cap raised to 1.5M, which gives ~50% headroom for the heaviest adapter
+  calls while still guarding against pathological estimates (1.5M @
+  ~30 gwei ≈ 0.045 POL ≈ $0.01 worst case).
+
+  External-wallet users on `0.13.3` / `0.14.0` / `0.14.1` need
+  `pip install --upgrade simmer-sdk` to pick this up. Note: a parallel
+  server-side fix landed in simmer PR #491 — `/api/sdk/wallet/broadcast-tx`
+  had the same legacy whitelist gap and rejected adapter txs; the
+  dashboard ships that automatically.
+
 ## [0.14.1] — 2026-05-04
 
 ### Added
