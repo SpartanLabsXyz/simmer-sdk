@@ -3,6 +3,20 @@
 All notable changes to `simmer-sdk` are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.0] — 2026-05-06
+
+### Changed
+
+- **Auto-relink no longer silently replaces a managed wallet.** When `_ensure_wallet_linked` (the implicit per-trade auto-link path) detects a mismatch between the local key's address and the server's wallet, it now passes `confirm_replace_managed=false` to `/api/sdk/wallet/link`. The paired server-side guard (SIM-1580) rejects the request with a clear 4xx if the displacement would replace an existing managed wallet — instead of silently moving the managed wallet to legacy and oscillating the account state.
+
+  Surfaced by wongc305@: account migrated from external to a managed deposit wallet via CTO one-off, but his bot env still had `WALLET_PRIVATE_KEY` set. Each trade triggered auto-relink → server flipped back to external with the old (Polymarket-blocklisted) address. ~85 trades over 5 days, 83 failed at Polymarket. Same failure mode would reproduce for every `/v2-setup-wizard` external→managed migration without bot reconfiguration.
+
+  After this version, that misconfig produces a loud, actionable error in the bot's trade response: `"This account already has a managed wallet... remove WALLET_PRIVATE_KEY (and OWS_WALLET if set) from its environment and restart"`. No more silent oscillation.
+
+  Explicit `client.link_wallet()` calls default to `confirm_replace_managed=True` (the user signalled intent to take self-custody), so legitimate managed→external switches still work without changes. Pass `confirm_replace_managed=False` explicitly if you want the safe default.
+
+  SIM-1580 / paired with simmer/PR #559.
+
 ## [0.15.1] — 2026-05-06
 
 ### Fixed

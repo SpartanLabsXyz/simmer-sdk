@@ -791,9 +791,20 @@ class SimmerClient:
         # Wallet not linked - attempt to link automatically. link_wallet()
         # calls _ensure_clob_credentials() internally on success, so don't
         # call it again here.
+        #
+        # SIM-1580: pass confirm_replace_managed=False on this implicit
+        # auto-link path so a stale WALLET_PRIVATE_KEY (or OWS_WALLET) left
+        # in a bot env after a managed-mode migration cannot silently
+        # displace the managed wallet. The server-side guard (PR adding the
+        # `confirm_replace_managed` field on /wallet/link) returns a clear
+        # 4xx with WALLET_PRIVATE_KEY remediation guidance — surfaces the
+        # misconfig loud instead of silently oscillating production state.
+        # Explicit user calls to client.link_wallet() default to True (see
+        # method signature) since the user signalled intent to take
+        # self-custody.
         print(f"Auto-linking wallet {self._wallet_address[:10]}... to Simmer account...")
         try:
-            result = self.link_wallet(signature_type=0)
+            result = self.link_wallet(signature_type=0, confirm_replace_managed=False)
             if result.get("success"):
                 self._wallet_linked = True
                 print("Wallet linked successfully")
@@ -3383,7 +3394,11 @@ class SimmerClient:
                 self._held_markets_cache.pop(market_id, None)
         return result
 
-    def link_wallet(self, signature_type: int = 0) -> Dict[str, Any]:
+    def link_wallet(
+        self,
+        signature_type: int = 0,
+        confirm_replace_managed: bool = True,
+    ) -> Dict[str, Any]:
         """
         Link an external wallet to your Simmer account.
 
@@ -3396,6 +3411,16 @@ class SimmerClient:
                 - 0: EOA (standard wallet, default)
                 - 1: Polymarket proxy wallet
                 - 2: Gnosis Safe
+            confirm_replace_managed: When `True` (default), opt into replacing
+                an existing managed wallet on this account with the external
+                wallet you're linking. Defaulting `True` here matches the user
+                intent of an explicit `client.link_wallet()` call ("I want
+                self-custody"). The implicit auto-relink path inside the SDK
+                (`_ensure_wallet_linked`) overrides this to `False` so a stale
+                `WALLET_PRIVATE_KEY` left in a bot env after a managed-mode
+                migration cannot silently displace the managed wallet — the
+                relink fails loud with an actionable 4xx instead. Server-side
+                guard: SIM-1580.
 
         Returns:
             Dict with success status and wallet info. When `success` is True,
@@ -3469,7 +3494,8 @@ class SimmerClient:
                 "address": self._wallet_address,
                 "signature": signature,
                 "nonce": nonce,
-                "signature_type": signature_type
+                "signature_type": signature_type,
+                "confirm_replace_managed": confirm_replace_managed,
             }
         )
 
