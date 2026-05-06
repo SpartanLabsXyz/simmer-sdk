@@ -716,6 +716,23 @@ def get_wallet_address(private_key: str) -> str:
     return account.address
 
 
+# Solady ERC-7739 TypedDataSign wrap constants — used by deposit-wallet
+# (POLY_1271) signing. Mirrors the canonical implementation in
+# `simmer/simmer_v3/polymarket_v2_signing.py`. Verified against the working
+# on-chain trade
+# 0x05bd47c5248ee082d77e99288d95b1ed416c2dc8aca7ac6b11ec45e05cfe6d47
+# (decoded 2026-05-05): all deterministic parts match byte-for-byte.
+_ORDER_TYPE_STRING = (
+    b"Order(uint256 salt,address maker,address signer,uint256 tokenId,"
+    b"uint256 makerAmount,uint256 takerAmount,uint8 side,uint8 signatureType,"
+    b"uint256 timestamp,bytes32 metadata,bytes32 builder)"
+)
+_EIP712_DOMAIN_TYPE = (
+    b"EIP712Domain(string name,string version,uint256 chainId,"
+    b"address verifyingContract)"
+)
+
+
 def _build_and_sign_order_v2_dw(
     private_key: str,
     eoa_address: str,
@@ -733,132 +750,292 @@ def _build_and_sign_order_v2_dw(
 ) -> SignedOrder:
     """V2 sig-type-3 (POLY_1271) order signing for deposit-wallet users.
 
-    Delegates to polynode's `create_signed_order_v2` for ERC-7739 TypedDataSign
-    wrapping — we do not hand-roll the byte layout. The EOA stays the signer
-    (the address that actually produces the EIP-712 signature); the deposit
-    wallet is the maker/funder (the address whose ERC-1271 `isValidSignature`
-    the CLOB will call to validate). This matches how the Simmer server signs
-    sig-type-3 orders for managed users.
+    Hand-builds the 317-byte ERC-7739 wrapped signature that Polymarket's
+    deposit-wallet contract expects. Mirrors the canonical server-side
+    implementation in `simmer/simmer_v3/polymarket_v2_signing.py` (which is
+    proven to produce CLOB-accepted orders — canary fill
+    `0x67b00feb328a42cb5a98dc471429f2170eba64bc29b1e7131ad712345cdf6e05`).
 
-    `order_type` is accepted for parity with the sig-type-0 path. Polynode's
-    `create_signed_order_v2` does not surface the FAK/FOK/GTC/GTD distinction
-    in its top-level helper; the V2 CLOB validates expiration/timestamp from
-    the signed timestamp + the HTTP `expiration` field. For consistency with
-    our existing FAK BUY semantics, callers should still pass `amount_usdc`
-    when SIDE=BUY and order_type in (FAK, FOK), and we pre-multiply size×price
-    when amount_usdc is missing (lossy at sub-cent precision — same caveat
-    as the V2 EOA path).
+    Why hand-rolled — three workarounds, all empirically verified:
+
+    1. ``maker == signer == deposit_wallet`` (NOT signer=EOA). The on-chain
+       working trade has calldata word[8] (maker) == word[9] (signer) ==
+       deposit wallet. The CLOB's "the order signer address has to be the
+       address of the API KEY" error is misleading — the actual constraint
+       is that maker and signer match the funder for ERC-1271 paths.
+
+    2. ``v ∈ {27, 28}`` un-normalized. Solady's ECDSA ecrecover in the
+       deposit-wallet contract returns 0x0 for v ∈ {0, 1}, failing
+       isValidSignature. polynode 0.10.3's `create_signed_order_v2`
+       normalizes v down to 0/1, so we bypass it. eth_account's
+       `sign_typed_data` returns v=27/28 by default — we keep it.
+
+    3. FAK/FOK market-order maker rounding. CLOB enforces max 2 decimals
+       on the USD-side amount; for BUY that's maker (USDC). compute_amounts
+       gives full 6dp precision, so we Decimal-quantize amount_usd to cents
+       before computing maker, and floor the resulting taker (shares
+       received) at tick-derived precision so effective bid (maker/taker)
+       ≥ requested price. Mirrors py_clob_client_v2's get_market_order_amounts.
 
     Args:
-        private_key: User's external EOA private key (hex). Stays local; the
-          server never sees it.
-        eoa_address: The EOA address derived from `private_key`. Caller is
-          responsible for matching them — we don't re-derive to avoid an
-          extra import in the hot path.
-        deposit_wallet_address: User's Polymarket deposit wallet, deployed
-          via `/api/user/wallet/external-upgrade-to-deposit-wallet` (server
-          side) or the dashboard Upgrade flow.
+        private_key: User's external EOA private key (hex). Stays local.
+        eoa_address: The EOA address derived from `private_key`. Used to
+            verify-derive the signing account; not put on the order itself.
+        deposit_wallet_address: User's Polymarket deposit wallet. Goes on
+            the order as both `maker` and `signer`.
 
     Returns:
-        SignedOrder with `signatureType=3`, `maker=DW`, `signer=EOA`, and
-        a 317-byte ERC-7739-wrapped signature (636 hex chars including 0x).
+        SignedOrder with `signatureType=3`, `maker == signer ==
+        deposit_wallet`, and a 317-byte ERC-7739-wrapped signature
+        (636 hex chars including `0x`).
     """
     try:
-        from polynode.trading import SignatureType  # noqa: WPS433
-        from polynode.trading.eip712 import create_signed_order_v2  # noqa: WPS433
+        from polynode.trading.eip712 import (  # noqa: WPS433
+            compute_amounts,
+            build_order_payload_v2,
+        )
     except ImportError:
         raise ImportError(
             "polynode>=0.10.3 is required for POLY_1271 (sig type 3) order "
-            "signing. Install with: pip install 'polynode>=0.10.3'."
+            "signing (uses compute_amounts + build_order_payload_v2; we "
+            "hand-roll the ERC-7739 wrap to work around polynode's v-norm "
+            "and FAK/FOK rounding gaps). Install with: "
+            "pip install 'polynode>=0.10.3'."
         )
     try:
         from eth_account import Account  # noqa: WPS433
-        from eth_account.messages import encode_typed_data  # noqa: WPS433
+        from eth_abi import encode as abi_encode  # noqa: WPS433
+        from eth_utils import keccak  # noqa: WPS433
     except ImportError:
         raise ImportError(
-            "eth_account is required for POLY_1271 signing. "
-            "Install with: pip install eth-account."
+            "eth-account, eth-abi, eth-utils are required for POLY_1271 "
+            "signing. They ship with simmer-sdk's existing deps; if you're "
+            "seeing this error your install is incomplete — reinstall with "
+            "`pip install --upgrade simmer-sdk`."
         )
 
-    if side not in ("BUY", "SELL"):
-        raise ValueError(f"Invalid side '{side}'. Must be 'BUY' or 'SELL'.")
-    if price <= 0 or price >= 1:
-        raise ValueError(f"Invalid price {price}. Must be between 0 and 1.")
+    side_upper = side.upper()
+    if side_upper not in ("BUY", "SELL"):
+        raise ValueError(f"side must be 'BUY' or 'SELL', got {side!r}")
+    if not (0 < price < 1):
+        raise ValueError(
+            f"price {price!r} must be strictly in (0, 1) for prediction "
+            f"markets. Got {price}."
+        )
     if size <= 0:
-        raise ValueError(f"Invalid size {size}. Must be positive.")
+        raise ValueError(f"size {size} must be positive")
 
-    # Polynode's helpers are async (they await the user-supplied
-    # sign_typed_data callback). Wrap with asyncio.run so the public
-    # `build_and_sign_order` API remains synchronous — matches the V1/V2
-    # EOA paths so callers don't have to special-case sig type 3.
-    import asyncio  # noqa: WPS433 - local to keep module import cheap
-
-    async def _sign_typed_data(payload):
-        # Polynode passes an Eip712Payload (domain/types/primary_type/message
-        # attrs). Convert to eth_account's encode_typed_data shape.
-        msg = encode_typed_data(full_message={
-            "domain": payload.domain,
-            "types": payload.types,
-            "primaryType": payload.primary_type,
-            "message": payload.message,
-        })
-        sig = Account.sign_message(msg, private_key).signature.hex()
-        # eth_account 0.13+ returns the signature as a HexStr; ensure 0x prefix
-        # because polynode concatenates it directly with subsequent bytes.
-        if not sig.startswith("0x"):
-            sig = "0x" + sig
-        return sig
-
-    async def _do_sign():
-        return await create_signed_order_v2(
-            _sign_typed_data,
-            signer_address=eoa_address,
-            funder_address=deposit_wallet_address,
-            token_id=token_id,
-            price=float(price),
-            size=float(size),
-            side=side,
-            signature_type=SignatureType.POLY_1271,
-            tick_size=str(tick_size),
-            neg_risk=neg_risk,
-            metadata=metadata or ZERO_BYTES32,
-            builder=builder_code or os.getenv("POLY_BUILDER_CODE", "").strip() or ZERO_BYTES32,
+    account = Account.from_key(private_key)
+    if account.address.lower() != eoa_address.lower():
+        raise ValueError(
+            f"private_key address {account.address} does not match "
+            f"wallet_address {eoa_address}. Refusing to sign."
         )
 
-    # If we're already in an event loop (rare for SDK callers — most bots
-    # are sync), this raises and the caller has to call _do_sign() directly.
-    # Standard sync usage (Almaani-shaped bots) hits asyncio.run.
-    try:
-        signed_dict = asyncio.run(_do_sign())
-    except RuntimeError as exc:
-        if "already running" in str(exc).lower():
-            raise RuntimeError(
-                "build_and_sign_order with signature_type=3 cannot be called "
-                "from inside a running event loop. Use "
-                "`await polynode.trading.eip712.create_signed_order_v2(...)` "
-                "directly from async code."
-            ) from exc
-        raise
+    # Web3 import is heavyweight; only do address checksumming via eth_utils
+    # (already a dep) to avoid pulling web3 just for `to_checksum_address`.
+    from eth_utils import to_checksum_address  # noqa: WPS433
 
-    # Polynode's returned dict shape (verified empirically against
-    # polynode==0.10.3): salt, maker, signer, taker, tokenId, makerAmount,
-    # takerAmount, side, signatureType, timestamp, expiration, metadata,
-    # builder, signature. Map to our SignedOrder dataclass; coerce numerics
-    # to str for downstream JSON consistency with the V1/V2 EOA paths.
+    funder_checksum = to_checksum_address(deposit_wallet_address)
+    tick_str = str(tick_size)
+    is_market = order_type in ("FAK", "FOK")
+
+    if is_market and side_upper == "BUY":
+        # FAK/FOK BUY: cent-align maker (USDC), floor taker (shares) at tick
+        # precision so effective bid (maker/taker) ≥ requested price.
+        # See server's polymarket_v2_signing.py for full reasoning chain.
+        from decimal import Decimal, ROUND_DOWN  # noqa: WPS433
+
+        _MARKET_AMOUNT_DECIMALS = {
+            "0.1": 3, "0.01": 4, "0.001": 5, "0.0001": 6,
+        }
+        amount_decimals = _MARKET_AMOUNT_DECIMALS.get(tick_str)
+        if amount_decimals is None:
+            raise ValueError(
+                f"Unsupported tick_size for market order: {tick_str!r}. "
+                f"Expected one of {list(_MARKET_AMOUNT_DECIMALS)}."
+            )
+        if price < float(tick_str):
+            raise ValueError(
+                f"market order price {price} is below tick_size {tick_str}. "
+                f"After flooring to tick the effective price would be 0 "
+                f"(division-by-zero). Submit at price >= tick."
+            )
+        # Prefer caller-supplied amount_usdc when present (cleanest path).
+        # Otherwise derive from size × price (lossy under floats, fixed up
+        # by Decimal quantize below).
+        size_dec = Decimal(str(size))
+        tick_dec = Decimal(tick_str)
+        price_dec = Decimal(str(price)).quantize(tick_dec, rounding=ROUND_DOWN)
+        if amount_usdc is not None:
+            amount_usd_dec = Decimal(str(amount_usdc)).quantize(Decimal("0.01"))
+        else:
+            amount_usd_dec = (size_dec * price_dec).quantize(Decimal("0.01"))
+        maker_amount = int(amount_usd_dec * 1_000_000)
+        # Floor taker at tick-derived precision so we don't undershoot the
+        # ask (round-to-nearest can land effective bid below requested).
+        taker_quant = Decimal(10) ** -amount_decimals
+        size_floored = (amount_usd_dec / price_dec).quantize(
+            taker_quant, rounding=ROUND_DOWN
+        )
+        taker_amount = int(size_floored * 1_000_000)
+    elif is_market and side_upper == "SELL":
+        # FAK/FOK SELL: floor size to 2dp first (matches V2 SDK's
+        # round_down(amount, 2)), then compute_amounts. Decimal-via-str
+        # because `2.30 * 100` evaluates to 229.99...7 in IEEE-754.
+        from decimal import Decimal, ROUND_DOWN  # noqa: WPS433
+
+        size_floored_f = float(
+            Decimal(str(size)).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+        )
+        tick_dec = Decimal(tick_str)
+        price_floored = float(
+            Decimal(str(price)).quantize(tick_dec, rounding=ROUND_DOWN)
+        )
+        maker_amount, taker_amount = compute_amounts(
+            price=price_floored,
+            size=size_floored_f,
+            side=side_upper,
+            tick_size=tick_str,
+        )
+    else:
+        # GTC / GTD limit — full tick-size precision; compute_amounts
+        # rounds price to tick and size to 6dp.
+        maker_amount, taker_amount = compute_amounts(
+            price=float(price), size=float(size), side=side_upper, tick_size=tick_str
+        )
+
+    # POLY_1271 = 3. polynode's SignatureType enum exposes it; build the
+    # payload via build_order_payload_v2 with that enum value.
+    from polynode.trading import SignatureType  # noqa: WPS433
+
+    payload = build_order_payload_v2(
+        maker=funder_checksum,
+        signer=funder_checksum,  # CRITICAL: signer == maker == DW for POLY_1271
+        token_id=token_id,
+        maker_amount=maker_amount,
+        taker_amount=taker_amount,
+        side=side_upper,
+        signature_type=SignatureType.POLY_1271,
+        neg_risk=neg_risk,
+        metadata=metadata or ZERO_BYTES32,
+        builder=builder_code or os.getenv("POLY_BUILDER_CODE", "").strip() or ZERO_BYTES32,
+    )
+
+    # ── Step 1: sign the TypedDataSign envelope (NOT the raw Order). ──
+    # Solady ERC-7739 nests the user's typed data inside a TypedDataSign
+    # struct whose domain is the deposit wallet's contract domain.
+    zero_bytes32 = "0x" + "00" * 32
+    tds_typed_data = {
+        "domain": payload.domain,  # V2 exchange domain (Polymarket CTF Exchange v2)
+        "types": {
+            "EIP712Domain": [
+                {"name": "name", "type": "string"},
+                {"name": "version", "type": "string"},
+                {"name": "chainId", "type": "uint256"},
+                {"name": "verifyingContract", "type": "address"},
+            ],
+            "TypedDataSign": [
+                {"name": "contents", "type": "Order"},
+                {"name": "name", "type": "string"},
+                {"name": "version", "type": "string"},
+                {"name": "chainId", "type": "uint256"},
+                {"name": "verifyingContract", "type": "address"},
+                {"name": "salt", "type": "bytes32"},
+            ],
+            "Order": payload.types["Order"],
+        },
+        "primaryType": "TypedDataSign",
+        "message": {
+            "contents": payload.message,
+            "name": "DepositWallet",
+            "version": "1",
+            "chainId": 137,
+            "verifyingContract": funder_checksum,
+            "salt": zero_bytes32,
+        },
+    }
+    signed_msg = Account.sign_typed_data(account.key, full_message=tds_typed_data)
+    inner_sig_bytes = bytearray(signed_msg.signature)
+    if len(inner_sig_bytes) != 65:
+        raise RuntimeError(
+            f"Expected 65-byte ECDSA signature, got {len(inner_sig_bytes)}"
+        )
+    # Do NOT normalize v: Solady's ecrecover in the deposit-wallet contract
+    # returns 0x0 for v ∈ {0, 1}. Working on-chain trades have v=27/28.
+    # eth_account returns v=27/28 by default — keep it.
+
+    # ── Step 2: appDomainSeparator = keccak(EIP712Domain hash || ...) ──
+    domain_addr = to_checksum_address(payload.domain["verifyingContract"])
+    app_dom_sep = keccak(
+        abi_encode(
+            ["bytes32", "bytes32", "bytes32", "uint256", "address"],
+            [
+                keccak(_EIP712_DOMAIN_TYPE),
+                keccak(payload.domain["name"].encode()),
+                keccak(payload.domain["version"].encode()),
+                int(payload.domain["chainId"]),
+                domain_addr,
+            ],
+        )
+    )
+
+    # ── Step 3: contentsHash = keccak(Order type hash || encoded fields) ──
+    msg = payload.message
+    contents_hash = keccak(
+        abi_encode(
+            [
+                "bytes32", "uint256", "address", "address", "uint256",
+                "uint256", "uint256", "uint8", "uint8", "uint256",
+                "bytes32", "bytes32",
+            ],
+            [
+                keccak(_ORDER_TYPE_STRING),
+                int(msg["salt"]),
+                to_checksum_address(msg["maker"]),
+                to_checksum_address(msg["signer"]),
+                int(msg["tokenId"]),
+                int(msg["makerAmount"]),
+                int(msg["takerAmount"]),
+                int(msg["side"]),
+                int(msg["signatureType"]),
+                int(msg["timestamp"]),
+                bytes.fromhex(msg["metadata"][2:]),
+                bytes.fromhex(msg["builder"][2:]),
+            ],
+        )
+    )
+
+    # ── Step 4: assemble the 317-byte wrap. ──
+    # innerSig(65) || appDomSep(32) || contentsHash(32) || typeStr(186) || lenBytes(2)
+    type_len = len(_ORDER_TYPE_STRING)
+    wrapped = bytearray()
+    wrapped.extend(inner_sig_bytes)
+    wrapped.extend(app_dom_sep)
+    wrapped.extend(contents_hash)
+    wrapped.extend(_ORDER_TYPE_STRING)
+    wrapped.append((type_len >> 8) & 0xFF)
+    wrapped.append(type_len & 0xFF)
+    expected_len = 65 + 32 + 32 + type_len + 2
+    if len(wrapped) != expected_len:
+        raise RuntimeError(
+            f"ERC-7739 wrap length {len(wrapped)} != expected {expected_len}"
+        )
+    sig_hex = "0x" + bytes(wrapped).hex()
+
     return SignedOrder(
-        salt=str(signed_dict["salt"]),
-        maker=signed_dict["maker"],
-        signer=signed_dict["signer"],
-        taker=signed_dict.get("taker"),
-        tokenId=str(signed_dict["tokenId"]),
-        makerAmount=str(signed_dict["makerAmount"]),
-        takerAmount=str(signed_dict["takerAmount"]),
-        side=signed_dict["side"],
-        signatureType=int(signed_dict["signatureType"]),
-        signature=signed_dict["signature"],
-        timestamp=str(signed_dict["timestamp"]),
-        metadata=signed_dict.get("metadata") or ZERO_BYTES32,
-        builder=signed_dict.get("builder") or ZERO_BYTES32,
-        expiration=str(signed_dict.get("expiration", "0")),
+        salt=str(msg["salt"]),
+        maker=funder_checksum,
+        signer=funder_checksum,  # = maker for POLY_1271
+        tokenId=str(msg["tokenId"]),
+        makerAmount=str(maker_amount),
+        takerAmount=str(taker_amount),
+        side=side_upper,
+        signatureType=3,
+        signature=sig_hex,
+        timestamp=str(msg["timestamp"]),
+        metadata=msg["metadata"],
+        builder=msg["builder"],
+        expiration="0",
         exchange_version="v2",
     )

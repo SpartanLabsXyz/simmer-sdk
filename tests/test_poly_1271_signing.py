@@ -66,14 +66,21 @@ def test_dw_order_signature_type_is_3():
     )
 
 
-def test_dw_order_maker_is_dw_signer_is_eoa():
-    """Per server-side `polymarket_v2_signing.py`: 'EOA stays the signer
-    but deposit_wallet_address is the maker/funder.' Pin this via test —
-    the PolyNode docs say 'maker AND signer = DW' which contradicts the
-    actual SDK output. The CLOB validates ERC-1271 by calling
-    `isValidSignature` on the contract at `maker`; `signer` is for
-    physical-signature attribution. Both must be set as below or the CLOB
-    rejects with "invalid signature."
+def test_dw_order_maker_equals_signer_equals_dw():
+    """For POLY_1271, `maker == signer == deposit_wallet`. NOT signer=EOA.
+
+    Verified empirically against working on-chain trade
+    0x05bd47c5248ee082d77e99288d95b1ed416c2dc8aca7ac6b11ec45e05cfe6d47
+    (decoded 2026-05-05): calldata word[8] (maker) == word[9] (signer) ==
+    deposit wallet. The CLOB error "the order signer address has to be
+    the address of the API KEY" is misleading — the actual constraint is
+    that maker and signer match the funder for ERC-1271 paths.
+
+    The PolyNode docs spell this out correctly: "Set maker and signer to
+    the deposit wallet address (not the EOA)." A previous SDK iteration
+    used signer=EOA based on what polynode's helper returned when called
+    with signer=EOA — that was a self-inflicted bug that this test pins
+    against regression.
     """
     _ensure_v2_enabled()
     from simmer_sdk.signing import build_and_sign_order
@@ -95,9 +102,47 @@ def test_dw_order_maker_is_dw_signer_is_eoa():
     assert signed.maker.lower() == dw.lower(), (
         f"DW order maker must be the deposit wallet. Expected {dw}, got {signed.maker}"
     )
-    assert signed.signer.lower() == eoa.lower(), (
-        f"DW order signer must be the EOA (the address producing the actual "
-        f"EIP-712 signature). Expected {eoa}, got {signed.signer}"
+    assert signed.signer.lower() == dw.lower(), (
+        f"DW order signer must equal maker (deposit wallet) for POLY_1271. "
+        f"Expected {dw}, got {signed.signer}. If this test fails after a "
+        f"polynode upgrade, the EOA-as-signer regression is back — see "
+        f"docstring."
+    )
+
+
+def test_dw_order_inner_sig_v_is_27_or_28():
+    """Solady's ecrecover in the deposit-wallet contract returns 0x0 for
+    v ∈ {0, 1} and rejects the signature. polynode 0.10.3's
+    create_signed_order_v2 normalizes v=27/28 down to 0/1 internally —
+    we hand-roll the wrap to keep v un-normalized.
+
+    Inner sig is the first 65 bytes of the wrapped signature. v is the
+    last byte (byte 64 in 0-indexed). Pin v ∈ {27, 28} so any future
+    refactor that reintroduces normalization fails this canary rather
+    than the CLOB.
+    """
+    _ensure_v2_enabled()
+    from simmer_sdk.signing import build_and_sign_order
+
+    priv, eoa = _make_eoa()
+    dw = _derive_dw(eoa)
+    signed = build_and_sign_order(
+        private_key=priv,
+        wallet_address=eoa,
+        token_id="71321045679252212594626385532706912750332728571942532289631379312455583992563",
+        side="BUY",
+        price=0.5,
+        size=10.0,
+        signature_type=3,
+        deposit_wallet_address=dw,
+        order_type="GTC",
+    )
+    sig_bytes = bytes.fromhex(signed.signature[2:])  # strip 0x
+    inner_v = sig_bytes[64]  # innerSig is bytes 0..64; v is byte 64
+    assert inner_v in (27, 28), (
+        f"Inner ECDSA v must be 27 or 28 (Solady ecrecover requirement). "
+        f"Got v={inner_v}. If this is 0 or 1, polynode's v-normalization "
+        f"is back in our path — investigate _build_and_sign_order_v2_dw."
     )
 
 
@@ -172,6 +217,85 @@ def test_dw_order_dict_has_v2_shape():
 # ============================================================================
 # Error paths: missing kwargs, invalid sig types
 # ============================================================================
+
+
+def test_dw_fak_buy_maker_amount_is_cent_aligned():
+    """V2 CLOB rejects FAK/FOK orders whose maker (USDC for BUY) has more
+    than 2 decimals: e.g. $5.00 BUY at price 0.53 with raw compute_amounts
+    produces makerAmount=4_999_999 ($4.999999), which CLOB rejects with
+    'invalid amount for market BUY.'
+
+    The fix: Decimal-quantize amount_usd to cents BEFORE deriving maker.
+    For amount_usdc=$5 at price 0.53: maker should be exactly 5_000_000.
+
+    Codex P1 catch on the polynode-only path. Pinned here.
+    """
+    _ensure_v2_enabled()
+    from simmer_sdk.signing import build_and_sign_order
+
+    priv, eoa = _make_eoa()
+    dw = _derive_dw(eoa)
+    signed = build_and_sign_order(
+        private_key=priv,
+        wallet_address=eoa,
+        token_id="71321045679252212594626385532706912750332728571942532289631379312455583992563",
+        side="BUY",
+        price=0.53,
+        size=9.4339622,  # ≈ 5.00 / 0.53; size derived by caller is approximate
+        signature_type=3,
+        deposit_wallet_address=dw,
+        order_type="FAK",
+        amount_usdc=5.0,  # caller's intent — used over size×price drift
+    )
+    maker_micros = int(signed.makerAmount)
+    assert maker_micros == 5_000_000, (
+        f"FAK BUY makerAmount must round to cents: 5.00 USDC = 5_000_000 "
+        f"micros. Got {maker_micros}. CLOB will reject anything with sub-cent "
+        f"precision."
+    )
+    # Maker mod 10_000 == 0 is the cent-alignment invariant.
+    assert maker_micros % 10_000 == 0, (
+        f"FAK BUY makerAmount must be a multiple of 10_000 micros (cent-"
+        f"aligned). Got {maker_micros} which is {maker_micros % 10_000} "
+        f"micros over the nearest cent."
+    )
+
+
+def test_dw_fak_buy_taker_floored_at_tick_precision():
+    """For market BUY, effective bid = maker / taker. To ensure orders
+    can fill against asks at the requested price, taker (shares) must be
+    FLOORED at tick-derived precision (NOT rounded to nearest), so
+    effective bid >= requested price. Round-to-nearest can land taker
+    just above maker/p, putting effective bid below the ask and
+    zero-filling. Codex pass 2 [P1] from the server-side rationale.
+    """
+    _ensure_v2_enabled()
+    from simmer_sdk.signing import build_and_sign_order
+
+    priv, eoa = _make_eoa()
+    dw = _derive_dw(eoa)
+    signed = build_and_sign_order(
+        private_key=priv,
+        wallet_address=eoa,
+        token_id="71321045679252212594626385532706912750332728571942532289631379312455583992563",
+        side="BUY",
+        price=0.7,
+        size=1.4286,
+        signature_type=3,
+        deposit_wallet_address=dw,
+        order_type="FAK",
+        amount_usdc=1.0,
+    )
+    maker_micros = int(signed.makerAmount)
+    taker_micros = int(signed.takerAmount)
+    assert maker_micros == 1_000_000, f"maker should be $1.00 = 1_000_000 micros, got {maker_micros}"
+    # Effective bid = maker/taker should be >= 0.7 (the requested price).
+    effective_bid = maker_micros / taker_micros
+    assert effective_bid >= 0.7, (
+        f"Effective bid {effective_bid} < requested price 0.7. Taker was not "
+        f"floored properly — round-to-nearest can put effective bid below "
+        f"ask, zero-filling."
+    )
 
 
 def test_sig_type_3_without_dw_address_raises():
