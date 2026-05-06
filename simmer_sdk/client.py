@@ -3098,14 +3098,37 @@ class SimmerClient:
         if not token_id:
             raise ValueError(f"Market {market_id} does not have Polymarket token IDs")
 
-        # Get price - use custom price if provided, otherwise fetch from market data
+        # Get price — use caller-provided price first, otherwise query the live
+        # orderbook for the side+action being traded. SIM-1560: the prior fallback
+        # used the V1 binary identity `1 - external_price_yes` for NO-side trades,
+        # which is wrong on V2 neg-risk markets where YES and NO are independent
+        # CLOB tokens with independent orderbooks. /api/sdk/markets/{id}/executable-price
+        # wraps the server's orderbook helper and returns the actual best bid (SELL)
+        # or best ask (BUY) for the side's CLOB token, with a one-tick buffer applied
+        # so the order crosses the spread.
         if price is None:
-            # Fetch current market price for the side
-            if side.lower() == "yes":
-                price = market_data.get("external_price_yes") or 0.5
-            else:
-                external_yes = market_data.get("external_price_yes") or 0.5
-                price = 1.0 - external_yes
+            try:
+                exec_resp = self._request(
+                    "GET",
+                    f"/api/sdk/markets/{market_id}/executable-price",
+                    params={"side": side.lower(), "action": action.lower(), "apply_buffer": "true"},
+                )
+                if isinstance(exec_resp, dict) and exec_resp.get("success") and exec_resp.get("price") is not None:
+                    price = float(exec_resp["price"])
+            except Exception:
+                price = None  # Fall through to legacy fallback
+
+            if price is None:
+                # Legacy fallback: V1 binary identity. Correct for non-neg-risk
+                # binary markets where the CTF redemption keeps `NO = 1 - YES`
+                # tightly arbitraged. Wrong for neg-risk markets — the executable
+                # endpoint above is the canonical path; this fires only when the
+                # endpoint is unreachable (older server, network hiccup).
+                if side.lower() == "yes":
+                    price = market_data.get("external_price_yes") or 0.5
+                else:
+                    external_yes = market_data.get("external_price_yes") or 0.5
+                    price = 1.0 - external_yes
 
             # Clamp price to valid range to avoid division issues
             if price <= 0 or price >= 1:
