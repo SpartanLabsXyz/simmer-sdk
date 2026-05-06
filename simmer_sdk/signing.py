@@ -864,6 +864,21 @@ def _build_and_sign_order_v2_dw(
         # Prefer caller-supplied amount_usdc when present (cleanest path).
         # Otherwise derive from size × price (lossy under floats, fixed up
         # by Decimal quantize below).
+        #
+        # NOTE on rounding mode (NOT a bug — deliberately mirrors server):
+        # amount_usd uses banker's rounding (ROUND_HALF_EVEN, the default).
+        # A naive read says "this can round UP and overspend the budget;
+        # use ROUND_DOWN" — but that contradicts a documented design choice
+        # in the server's `_polymarket-rounding-precision/REQUIREMENTS.md`
+        # ("It took 6 attempts to figure this out"). Why nearest, not floor:
+        # amount_usd here is often DERIVED from a `size × price` product
+        # whose float artifacts produce e.g. `1.43 × 0.70 = 1.001` instead
+        # of exactly 1.00. Flooring 1.001 → 1.00 is fine; flooring 0.999 →
+        # 0.99 trips Polymarket V2's marketable-BUY $1 minimum. Banker's
+        # rounding preserves user intent at the cost of <1 cent overspend
+        # in the rare case where the caller passed e.g. `5.009` literally.
+        # If you're tempted to "fix" this to ROUND_DOWN, read the server's
+        # rationale first; the canary trade was tuned with HALF_EVEN.
         size_dec = Decimal(str(size))
         tick_dec = Decimal(tick_str)
         price_dec = Decimal(str(price)).quantize(tick_dec, rounding=ROUND_DOWN)
@@ -905,6 +920,34 @@ def _build_and_sign_order_v2_dw(
             price=float(price), size=float(size), side=side_upper, tick_size=tick_str
         )
 
+    # Enforce MIN_ORDER_SIZE_SHARES locally to fail fast (matches the V1
+    # path's behavior). Without this, sub-minimum orders signed cleanly
+    # here only fail later at the CLOB with a generic error. Effective
+    # shares = taker for BUY (taker is shares received), maker for SELL
+    # (maker is shares sold).
+    shares_raw = taker_amount if side_upper == "BUY" else maker_amount
+    effective_shares = shares_raw / POLYMARKET_DECIMAL_FACTOR
+    if effective_shares < MIN_ORDER_SIZE_SHARES:
+        raise ValueError(
+            f"Order too small: {effective_shares:.2f} shares after rounding "
+            f"is below minimum ({MIN_ORDER_SIZE_SHARES})"
+        )
+
+    # Normalize builder_code: caller-supplied or env-supplied bare hex
+    # (no 0x prefix) would corrupt the downstream `msg["builder"][2:]`
+    # slice (would chop the first hex char instead of the prefix).
+    # Mirrors the EOA V2 path's normalization.
+    _builder_code = (
+        builder_code
+        or os.getenv("POLY_BUILDER_CODE", "").strip()
+        or ZERO_BYTES32
+    )
+    if not _builder_code.startswith("0x"):
+        _builder_code = "0x" + _builder_code
+    _metadata = metadata or ZERO_BYTES32
+    if not _metadata.startswith("0x"):
+        _metadata = "0x" + _metadata
+
     # POLY_1271 = 3. polynode's SignatureType enum exposes it; build the
     # payload via build_order_payload_v2 with that enum value.
     from polynode.trading import SignatureType  # noqa: WPS433
@@ -918,8 +961,8 @@ def _build_and_sign_order_v2_dw(
         side=side_upper,
         signature_type=SignatureType.POLY_1271,
         neg_risk=neg_risk,
-        metadata=metadata or ZERO_BYTES32,
-        builder=builder_code or os.getenv("POLY_BUILDER_CODE", "").strip() or ZERO_BYTES32,
+        metadata=_metadata,
+        builder=_builder_code,
     )
 
     # ── Step 1: sign the TypedDataSign envelope (NOT the raw Order). ──

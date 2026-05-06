@@ -274,21 +274,22 @@ def test_dw_fak_buy_taker_floored_at_tick_precision():
 
     priv, eoa = _make_eoa()
     dw = _derive_dw(eoa)
+    # Use $10 at price 0.7 → ~14.28 shares (above MIN_ORDER_SIZE_SHARES).
     signed = build_and_sign_order(
         private_key=priv,
         wallet_address=eoa,
         token_id="71321045679252212594626385532706912750332728571942532289631379312455583992563",
         side="BUY",
         price=0.7,
-        size=1.4286,
+        size=14.286,
         signature_type=3,
         deposit_wallet_address=dw,
         order_type="FAK",
-        amount_usdc=1.0,
+        amount_usdc=10.0,
     )
     maker_micros = int(signed.makerAmount)
     taker_micros = int(signed.takerAmount)
-    assert maker_micros == 1_000_000, f"maker should be $1.00 = 1_000_000 micros, got {maker_micros}"
+    assert maker_micros == 10_000_000, f"maker should be $10.00 = 10_000_000 micros, got {maker_micros}"
     # Effective bid = maker/taker should be >= 0.7 (the requested price).
     effective_bid = maker_micros / taker_micros
     assert effective_bid >= 0.7, (
@@ -296,6 +297,72 @@ def test_dw_fak_buy_taker_floored_at_tick_precision():
         f"floored properly — round-to-nearest can put effective bid below "
         f"ask, zero-filling."
     )
+
+
+def test_dw_min_order_size_enforced():
+    """V1 path raises locally on sub-MIN_ORDER_SIZE orders. The DW path
+    must do the same — without this guard, sub-minimum orders sign cleanly
+    here only to fail later at the CLOB with a generic error. Codex P2.
+    """
+    _ensure_v2_enabled()
+    from simmer_sdk.signing import build_and_sign_order, MIN_ORDER_SIZE_SHARES
+
+    priv, eoa = _make_eoa()
+    dw = _derive_dw(eoa)
+    # Smallest possible sub-min: 1 share at any price
+    with pytest.raises(ValueError, match="below minimum"):
+        build_and_sign_order(
+            private_key=priv,
+            wallet_address=eoa,
+            token_id="71321045679252212594626385532706912750332728571942532289631379312455583992563",
+            side="BUY",
+            price=0.5,
+            size=1.0,  # below MIN_ORDER_SIZE_SHARES
+            signature_type=3,
+            deposit_wallet_address=dw,
+            order_type="GTC",
+        )
+
+
+def test_dw_builder_code_bare_hex_gets_0x_prefix():
+    """If POLY_BUILDER_CODE env (or caller-passed kwarg) is a 64-char bare
+    hex string (no 0x prefix), the DW path must normalize it before signing.
+    Otherwise downstream `msg["builder"][2:]` slices the first hex char
+    instead of the prefix — silently mishashing the builder attribution.
+    Codex P2. EOA V2 path already does this; DW path mirrors it now.
+    """
+    _ensure_v2_enabled()
+    import os
+    from simmer_sdk.signing import build_and_sign_order
+
+    priv, eoa = _make_eoa()
+    dw = _derive_dw(eoa)
+    # Bare hex builder code (no 0x prefix). The corruption from improper
+    # slicing would either fail Eip712Payload validation or produce a
+    # different signature; either way we shouldn't see a successful sign.
+    bare_hex = "ab" * 32  # 64 hex chars, no 0x
+    signed = build_and_sign_order(
+        private_key=priv,
+        wallet_address=eoa,
+        token_id="71321045679252212594626385532706912750332728571942532289631379312455583992563",
+        side="BUY",
+        price=0.5,
+        size=10.0,
+        signature_type=3,
+        deposit_wallet_address=dw,
+        order_type="GTC",
+        builder_code=bare_hex,
+    )
+    # SignedOrder.builder must be 0x-prefixed (66 chars total).
+    assert signed.builder.startswith("0x"), (
+        f"DW path must normalize bare-hex builder_code to 0x-prefix. "
+        f"Got builder={signed.builder!r}"
+    )
+    assert len(signed.builder) == 66, (
+        f"Normalized builder must be 0x + 64 hex = 66 chars, got "
+        f"{len(signed.builder)} chars: {signed.builder!r}"
+    )
+    assert signed.builder.lower() == "0x" + bare_hex.lower()
 
 
 def test_sig_type_3_without_dw_address_raises():
