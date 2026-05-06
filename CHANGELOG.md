@@ -3,6 +3,18 @@
 All notable changes to `simmer-sdk` are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.1] — 2026-05-06
+
+### Fixed
+
+- **NO-side sells silently failing on V2 neg-risk markets** when `client.trade(side='no', action='sell')` is called without an explicit `price`. The SDK previously derived the limit price from the V1 binary identity `1 - external_price_yes`, which is correct for V1 binary markets and non-neg-risk V2 binaries (CTF redemption keeps the two outcome tokens tightly arbitraged) but **wrong on V2 neg-risk markets** — there YES and NO are independent CLOB tokens with independent orderbooks, so the V1-derived price often sits far above the actual NO best bid. Result: GTC orders never matched and stoplosses sat pending until the market resolved. Reported by mt_1200 (weather-trader999) on 2026-05-02 ($5.54 NO position lost in Atlanta-64-65°F when stoploss tried to exit at price=0.999 ten+ times) and again on 2026-05-06 (multiple stuck stoploss exits).
+
+  The SDK now queries the live orderbook via the new `/api/sdk/markets/{id}/executable-price` server endpoint and uses the returned best bid (SELL) or best ask (BUY) — with a one-tick buffer applied — for any Polymarket trade where `price` was not explicitly provided. The V1 fallback remains for the case where the executable-price endpoint is unreachable (older server, network hiccup) but is no longer the primary path.
+
+  **Workaround on older versions**: pass an explicit `price=<actual_no_bid>` to `client.trade()` until you can upgrade.
+
+  SIM-1560.
+
 ## [0.15.0] — 2026-05-06
 
 ### Added
