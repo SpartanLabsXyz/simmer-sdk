@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "simmer-sdk"
-version = "0.14.2"
+version = "0.15.0"
 description = "Python SDK for trading prediction markets with AI agents - includes Clawbot trading skills"
 readme = "README.md"
 authors = [
@@ -34,6 +34,11 @@ dependencies = [
     # V2 CLOB client for Polymarket V2 (2026-04-28 cutover). V1 deps
     # retained for users who pin SIMMER_POLYMARKET_EXCHANGE_VERSION=v1.
     "py-clob-client-v2>=1.0.0",
+    # POLY_1271 (sig type 3) signing for Polymarket deposit-wallet users
+    # (SIM-1521). Provides ERC-7739 TypedDataSign wrapping via
+    # `polynode.trading.eip712.create_signed_order_v2`. Pinned to a known-
+    # working release; the helper API is stable.
+    "polynode>=0.10.3",
 ]
 
 [project.urls]
