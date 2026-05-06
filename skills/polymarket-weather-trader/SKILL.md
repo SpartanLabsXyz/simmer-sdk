@@ -3,7 +3,7 @@ name: polymarket-weather-trader
 description: Trade Polymarket weather markets using NOAA (US) and Open-Meteo (international) forecasts via Simmer API. Inspired by gopfan2's weather trading approach. Use when user wants to trade temperature markets, automate weather bets, check forecasts, or run weather-based strategies.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.21.0"
+  version: "1.22.0"
   displayName: Polymarket Weather Trader
   difficulty: beginner
   attribution: Strategy inspired by gopfan2 (public Polymarket trader — approach referenced, not endorsed).
@@ -97,6 +97,19 @@ Then `pip install --upgrade simmer-sdk` (>=0.13.0) and configure tunables below.
 | Vol min alloc | `SIMMER_WEATHER_VOL_MIN_ALLOC` | 0.2 | Min allocation floor in volatile markets (0.2 = 20%) |
 | Vol EWMA span | `SIMMER_WEATHER_VOL_SPAN` | 10 | EWMA span for vol calculation (lower = more responsive) |
 | Order type | `SIMMER_WEATHER_ORDER_TYPE` | GTC | GTC (limit, waits for fill) or FAK (cancel if not filled). GTC recommended. |
+| Portfolio cap | `SIMMER_PORTFOLIO_CAP_ENABLED` | false | Enable portfolio-level concurrent-exposure cap (cross-skill open notional ceiling). Off by default. |
+| Portfolio cap pct | `SIMMER_PORTFOLIO_CAP_PCT` | 0.15 | Total open notional cap as a fraction of bankroll. Only used when the cap is enabled. |
+
+### Portfolio-level concurrent-exposure cap (v1.22.0+)
+
+Multi-strategy users can layer a *cross-skill* exposure ceiling on top of the per-trade sizing. With `SIMMER_PORTFOLIO_CAP_ENABLED=true`, before every buy the skill:
+
+1. Computes the candidate size via the existing entry/sizing logic.
+2. Snapshots open positions across **all** skills (not just weather) for the same agent.
+3. Calls `simmer_sdk.risk.check_portfolio_cap` with a `SIMMER_PORTFOLIO_CAP_PCT` × bankroll ceiling.
+4. Either places the candidate (`allow`), trims it to fit (`trim_to`), or skips (`deny`).
+
+This is the SIM-1451 primitive — see [docs.simmer.markets/sdk/risk-management/portfolio-cap](https://docs.simmer.markets/sdk/risk-management/portfolio-cap) for details. It's *opt-in*: existing installs see no behavior change. The cap is forward-looking (gates new entries based on currently-open exposure) and is distinct from the SIM-1072 `DrawdownController` (peak-trough realized-PnL halt — separate primitive, separate ticket).
 
 **Legacy env var aliases** (still accepted for backwards compatibility): `SIMMER_WEATHER_ENTRY`, `SIMMER_WEATHER_EXIT`, `SIMMER_WEATHER_MAX_POSITION`, `SIMMER_WEATHER_MAX_TRADES`
 
