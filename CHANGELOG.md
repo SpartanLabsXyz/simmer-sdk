@@ -3,6 +3,33 @@
 All notable changes to `simmer-sdk` are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.0] — 2026-05-06
+
+### Added
+
+- **POLY_1271 (signature_type=3) order signing for Polymarket deposit-wallet
+  users.** Required for users who upgraded their EOA to a deposit wallet via
+  the dashboard or `POST /api/user/wallet/external-upgrade-to-deposit-wallet`.
+  The SDK auto-detects deposit-wallet users from the server settings response
+  and uses the right signature type without configuration changes — bots that
+  upgrade `simmer-sdk` keep working without code changes.
+
+  The wrapped signature is 317 bytes (ERC-7739 TypedDataSign envelope: inner
+  EIP-712 sig + appDomainSeparator + contentsHash + orderTypeString +
+  typeStringLength). Wrapping handled by `polynode>=0.10.3`; we delegate the
+  byte layout rather than hand-roll it.
+
+  Caller-facing surface: `build_and_sign_order(signature_type=3,
+  deposit_wallet_address=...)`. Existing sig type 0 (EOA) callers are
+  unchanged. Sig type 3 requires `deposit_wallet_address`; raises
+  `ValueError` if missing.
+
+  Refs SIM-1521 / parent SIM-1515.
+
+### Changed
+
+- New dependency: `polynode>=0.10.3`.
+
 ## [0.14.2] — 2026-05-04
 
 ### Fixed

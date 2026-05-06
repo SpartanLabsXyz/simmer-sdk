@@ -15,6 +15,7 @@ SECURITY NOTE: The private key should NEVER be logged, transmitted, or stored
 outside of memory. It is only used for signing operations.
 """
 
+import os
 from typing import Dict, Any, Optional
 from dataclasses import dataclass, field
 
@@ -114,13 +115,14 @@ def build_and_sign_order(
     price: float,
     size: float,
     neg_risk: bool = False,
-    signature_type: int = 0,  # 0=EOA, 1=POLY_PROXY, 2=GNOSIS_SAFE
+    signature_type: int = 0,  # 0=EOA, 1=POLY_PROXY, 2=GNOSIS_SAFE, 3=POLY_1271 (V2 only)
     tick_size: float = 0.01,
     fee_rate_bps: int = 0,
     order_type: str = "FAK",  # "FAK", "FOK", "GTC", "GTD"
     builder_code: Optional[str] = None,
     metadata: Optional[str] = None,
     amount_usdc: Optional[float] = None,
+    deposit_wallet_address: Optional[str] = None,
 ) -> SignedOrder:
     """
     Build and sign a Polymarket order.
@@ -174,6 +176,7 @@ def build_and_sign_order(
             builder_code=builder_code,
             metadata=metadata,
             amount_usdc=amount_usdc,
+            deposit_wallet_address=deposit_wallet_address,
         )
     return _build_and_sign_order_v1(
         private_key=private_key,
@@ -319,6 +322,7 @@ def _build_and_sign_order_v2(
     builder_code: Optional[str],
     metadata: Optional[str],
     amount_usdc: Optional[float] = None,
+    deposit_wallet_address: Optional[str] = None,
 ) -> SignedOrder:
     """V2 signing path. Uses `py_clob_client_v2.OrderBuilder` directly.
 
@@ -374,11 +378,38 @@ def _build_and_sign_order_v2(
         raise ValueError(f"Invalid price {price}. Must be between 0 and 1")
     if size <= 0:
         raise ValueError(f"Invalid size {size}. Must be positive")
-    if signature_type != 0:
+    if signature_type not in (0, 3):
         raise ValueError(
-            f"V2 signing only supports signature_type=0 (EOA). "
-            f"Got {signature_type}. For Safe/Proxy wallets, use the "
-            f"polynode SDK's relayer path or the Simmer dashboard Migrate flow."
+            f"V2 signing supports signature_type=0 (EOA) or 3 (POLY_1271 / "
+            f"deposit-wallet). Got {signature_type}. For Safe/Proxy wallets, "
+            f"use the Simmer dashboard Migrate flow to upgrade to a deposit "
+            f"wallet, then this SDK signs sig type 3 automatically."
+        )
+
+    # POLY_1271 path — deposit-wallet user. Delegates to polynode for the
+    # ERC-7739 TypedDataSign wrapping; we don't hand-roll it here.
+    if signature_type == 3:
+        if not deposit_wallet_address:
+            raise ValueError(
+                "signature_type=3 (POLY_1271) requires deposit_wallet_address. "
+                "The deposit wallet is the maker/funder; the EOA stays the "
+                "signer. Pass the address from your /api/sdk/settings response "
+                "(`deposit_wallet_address` field)."
+            )
+        return _build_and_sign_order_v2_dw(
+            private_key=private_key,
+            eoa_address=wallet_address,
+            deposit_wallet_address=deposit_wallet_address,
+            token_id=token_id,
+            side=side,
+            price=price,
+            size=size,
+            neg_risk=neg_risk,
+            tick_size=tick_size,
+            order_type=order_type,
+            builder_code=builder_code,
+            metadata=metadata,
+            amount_usdc=amount_usdc,
         )
     if order_type not in ("FAK", "FOK", "GTC", "GTD"):
         raise ValueError(
@@ -683,3 +714,151 @@ def get_wallet_address(private_key: str) -> str:
 
     account = Account.from_key(private_key)
     return account.address
+
+
+def _build_and_sign_order_v2_dw(
+    private_key: str,
+    eoa_address: str,
+    deposit_wallet_address: str,
+    token_id: str,
+    side: str,
+    price: float,
+    size: float,
+    neg_risk: bool,
+    tick_size: float,
+    order_type: str,
+    builder_code: Optional[str],
+    metadata: Optional[str],
+    amount_usdc: Optional[float] = None,
+) -> SignedOrder:
+    """V2 sig-type-3 (POLY_1271) order signing for deposit-wallet users.
+
+    Delegates to polynode's `create_signed_order_v2` for ERC-7739 TypedDataSign
+    wrapping — we do not hand-roll the byte layout. The EOA stays the signer
+    (the address that actually produces the EIP-712 signature); the deposit
+    wallet is the maker/funder (the address whose ERC-1271 `isValidSignature`
+    the CLOB will call to validate). This matches how the Simmer server signs
+    sig-type-3 orders for managed users.
+
+    `order_type` is accepted for parity with the sig-type-0 path. Polynode's
+    `create_signed_order_v2` does not surface the FAK/FOK/GTC/GTD distinction
+    in its top-level helper; the V2 CLOB validates expiration/timestamp from
+    the signed timestamp + the HTTP `expiration` field. For consistency with
+    our existing FAK BUY semantics, callers should still pass `amount_usdc`
+    when SIDE=BUY and order_type in (FAK, FOK), and we pre-multiply size×price
+    when amount_usdc is missing (lossy at sub-cent precision — same caveat
+    as the V2 EOA path).
+
+    Args:
+        private_key: User's external EOA private key (hex). Stays local; the
+          server never sees it.
+        eoa_address: The EOA address derived from `private_key`. Caller is
+          responsible for matching them — we don't re-derive to avoid an
+          extra import in the hot path.
+        deposit_wallet_address: User's Polymarket deposit wallet, deployed
+          via `/api/user/wallet/external-upgrade-to-deposit-wallet` (server
+          side) or the dashboard Upgrade flow.
+
+    Returns:
+        SignedOrder with `signatureType=3`, `maker=DW`, `signer=EOA`, and
+        a 317-byte ERC-7739-wrapped signature (636 hex chars including 0x).
+    """
+    try:
+        from polynode.trading import SignatureType  # noqa: WPS433
+        from polynode.trading.eip712 import create_signed_order_v2  # noqa: WPS433
+    except ImportError:
+        raise ImportError(
+            "polynode>=0.10.3 is required for POLY_1271 (sig type 3) order "
+            "signing. Install with: pip install 'polynode>=0.10.3'."
+        )
+    try:
+        from eth_account import Account  # noqa: WPS433
+        from eth_account.messages import encode_typed_data  # noqa: WPS433
+    except ImportError:
+        raise ImportError(
+            "eth_account is required for POLY_1271 signing. "
+            "Install with: pip install eth-account."
+        )
+
+    if side not in ("BUY", "SELL"):
+        raise ValueError(f"Invalid side '{side}'. Must be 'BUY' or 'SELL'.")
+    if price <= 0 or price >= 1:
+        raise ValueError(f"Invalid price {price}. Must be between 0 and 1.")
+    if size <= 0:
+        raise ValueError(f"Invalid size {size}. Must be positive.")
+
+    # Polynode's helpers are async (they await the user-supplied
+    # sign_typed_data callback). Wrap with asyncio.run so the public
+    # `build_and_sign_order` API remains synchronous — matches the V1/V2
+    # EOA paths so callers don't have to special-case sig type 3.
+    import asyncio  # noqa: WPS433 - local to keep module import cheap
+
+    async def _sign_typed_data(payload):
+        # Polynode passes an Eip712Payload (domain/types/primary_type/message
+        # attrs). Convert to eth_account's encode_typed_data shape.
+        msg = encode_typed_data(full_message={
+            "domain": payload.domain,
+            "types": payload.types,
+            "primaryType": payload.primary_type,
+            "message": payload.message,
+        })
+        sig = Account.sign_message(msg, private_key).signature.hex()
+        # eth_account 0.13+ returns the signature as a HexStr; ensure 0x prefix
+        # because polynode concatenates it directly with subsequent bytes.
+        if not sig.startswith("0x"):
+            sig = "0x" + sig
+        return sig
+
+    async def _do_sign():
+        return await create_signed_order_v2(
+            _sign_typed_data,
+            signer_address=eoa_address,
+            funder_address=deposit_wallet_address,
+            token_id=token_id,
+            price=float(price),
+            size=float(size),
+            side=side,
+            signature_type=SignatureType.POLY_1271,
+            tick_size=str(tick_size),
+            neg_risk=neg_risk,
+            metadata=metadata or ZERO_BYTES32,
+            builder=builder_code or os.getenv("POLY_BUILDER_CODE", "").strip() or ZERO_BYTES32,
+        )
+
+    # If we're already in an event loop (rare for SDK callers — most bots
+    # are sync), this raises and the caller has to call _do_sign() directly.
+    # Standard sync usage (Almaani-shaped bots) hits asyncio.run.
+    try:
+        signed_dict = asyncio.run(_do_sign())
+    except RuntimeError as exc:
+        if "already running" in str(exc).lower():
+            raise RuntimeError(
+                "build_and_sign_order with signature_type=3 cannot be called "
+                "from inside a running event loop. Use "
+                "`await polynode.trading.eip712.create_signed_order_v2(...)` "
+                "directly from async code."
+            ) from exc
+        raise
+
+    # Polynode's returned dict shape (verified empirically against
+    # polynode==0.10.3): salt, maker, signer, taker, tokenId, makerAmount,
+    # takerAmount, side, signatureType, timestamp, expiration, metadata,
+    # builder, signature. Map to our SignedOrder dataclass; coerce numerics
+    # to str for downstream JSON consistency with the V1/V2 EOA paths.
+    return SignedOrder(
+        salt=str(signed_dict["salt"]),
+        maker=signed_dict["maker"],
+        signer=signed_dict["signer"],
+        taker=signed_dict.get("taker"),
+        tokenId=str(signed_dict["tokenId"]),
+        makerAmount=str(signed_dict["makerAmount"]),
+        takerAmount=str(signed_dict["takerAmount"]),
+        side=signed_dict["side"],
+        signatureType=int(signed_dict["signatureType"]),
+        signature=signed_dict["signature"],
+        timestamp=str(signed_dict["timestamp"]),
+        metadata=signed_dict.get("metadata") or ZERO_BYTES32,
+        builder=signed_dict.get("builder") or ZERO_BYTES32,
+        expiration=str(signed_dict.get("expiration", "0")),
+        exchange_version="v2",
+    )

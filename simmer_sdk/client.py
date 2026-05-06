@@ -236,6 +236,11 @@ class SimmerClient:
         self._private_key: Optional[str] = None  # EVM private key (Polymarket)
         self._wallet_address: Optional[str] = None  # EVM wallet address
         self._wallet_linked: Optional[bool] = None  # Cached linking status
+        # SIM-1521: cached deposit-wallet routing flags. Populated by
+        # _ensure_wallet_linked() from /api/sdk/settings; defaults False / None
+        # so older SDKs and pre-upgrade users sign sig type 0 (EOA) by default.
+        self._uses_deposit_wallet: bool = False
+        self._deposit_wallet_address: Optional[str] = None
         self._approvals_checked: bool = False  # Track if we've warned about approvals
         self._solana_key_available: bool = False  # Solana key configured (Kalshi)
         self._solana_wallet_address: Optional[str] = None  # Solana wallet address
@@ -767,6 +772,13 @@ class SimmerClient:
             linked_address = settings.get("linked_wallet_address") or settings.get("wallet_address")
             if linked_address and linked_address.lower() == self._wallet_address.lower():
                 already_linked = True
+            # SIM-1521: cache deposit-wallet routing flags. Older servers
+            # don't return these — defaults stay False / None and the trade
+            # path falls through to sig type 0 (EOA) as before. Newer SDKs
+            # talking to older servers, or upgraded users on stale servers,
+            # both degrade gracefully without breaking trades.
+            self._uses_deposit_wallet = bool(settings.get("wallet_uses_deposit_wallet", False))
+            self._deposit_wallet_address = settings.get("deposit_wallet_address")
         except Exception as e:
             logger.debug("Could not check wallet link status: %s", e)
 
@@ -3117,7 +3129,30 @@ class SimmerClient:
         # market-order builder rounds maker to 2 decimals on a value the
         # caller asked for, not a derived size*price that may shave a cent.
         amount_usdc = float(amount) if (not is_sell and amount > 0) else None
+
+        # SIM-1521: pick sig type based on whether the user has been
+        # upgraded to a Polymarket deposit wallet. _ensure_wallet_linked()
+        # caches `self._uses_deposit_wallet` and `self._deposit_wallet_address`
+        # from /api/sdk/settings; defaults are False / None for users on
+        # older server versions or pre-upgrade external wallets, in which
+        # case we stay on sig type 0 (EOA) as before.
+        uses_dw = bool(getattr(self, "_uses_deposit_wallet", False))
+        dw_address = getattr(self, "_deposit_wallet_address", None) if uses_dw else None
+        order_signature_type = 3 if uses_dw and dw_address else 0
+
         if self._ows_wallet:
+            # OWS path is V1-only and predates deposit-wallet support; if a
+            # OWS user ever ends up on a DW (not currently possible per the
+            # custody migration design), the V1 builder will reject sig type 3.
+            # Hard-fail here with a clear message rather than silently signing
+            # the wrong type.
+            if uses_dw:
+                raise ValueError(
+                    "OWS BYOW trading does not support Polymarket deposit "
+                    "wallets. Either pin SIMMER_POLYMARKET_EXCHANGE_VERSION=v1 "
+                    "(no longer supported by Polymarket — V1 retired 2026-04-28) "
+                    "or trade via private-key external wallet."
+                )
             signed = build_and_sign_order_ows(
                 ows_wallet=self._ows_wallet,
                 token_id=token_id,
@@ -3139,11 +3174,12 @@ class SimmerClient:
                 price=price,
                 size=size,
                 neg_risk=neg_risk,
-                signature_type=0,  # EOA
+                signature_type=order_signature_type,
                 tick_size=tick_size,
                 fee_rate_bps=fee_rate_bps,
                 order_type=order_type,
                 amount_usdc=amount_usdc,
+                deposit_wallet_address=dw_address,
             )
 
         return signed.to_dict()
