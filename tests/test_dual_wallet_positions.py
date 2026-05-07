@@ -187,7 +187,7 @@ def test_get_holder_address_returns_from_fresh_cache():
 
 
 def test_get_holder_address_fetches_on_cache_miss():
-    """Cache miss (ts=0): _get_holder_address() makes an API call and rebuilds."""
+    """Cache miss (ts=0): _get_holder_address() fetches positions and rebuilds cache."""
     client = _make_client(uses_dw=True)
     # Cache is empty and stale (ts=0)
     client._position_holder_cache = {}
@@ -197,7 +197,10 @@ def test_get_holder_address_fetches_on_cache_miss():
     result = client._get_holder_address(MARKET_A, "yes")
 
     assert result == EOA
-    client._request.assert_called_once_with("GET", "/api/sdk/positions")
+    # get_positions(venue="polymarket") calls _request with venue param
+    assert client._request.called, "_request must be called to refresh holder cache"
+    call_args = client._request.call_args
+    assert call_args[0] == ("GET", "/api/sdk/positions")
 
 
 def test_get_holder_address_returns_none_for_non_dw_user():

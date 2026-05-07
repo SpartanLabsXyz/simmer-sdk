@@ -1754,22 +1754,12 @@ class SimmerClient:
         if self._position_holder_ts > 0 and (now - self._position_holder_ts) < self._HOLDER_CACHE_TTL:
             return self._position_holder_cache.get(cache_key)
 
-        # Cache miss / stale — refresh via get_positions()
-        self._position_holder_cache = {}
-        self._position_holder_ts = now
+        # Cache miss / stale — refresh by fetching live positions.
+        # get_positions() populates _position_holder_cache and stamps
+        # _position_holder_ts as a side-effect, so we just discard the
+        # return value and read from the now-fresh cache.
         try:
-            data = self._request("GET", "/api/sdk/positions")
-            for p in data.get("positions", []):
-                if p.get("venue") != "polymarket":
-                    continue
-                h = p.get("holder_address")
-                if not h:
-                    continue
-                mid = p.get("market_id")
-                if (p.get("shares_yes") or 0) > 0:
-                    self._position_holder_cache[f"{mid}:yes"] = h
-                if (p.get("shares_no") or 0) > 0:
-                    self._position_holder_cache[f"{mid}:no"] = h
+            self.get_positions(venue="polymarket")
         except Exception as _e:
             logger.debug("holder lookup failed (%s) — using DW default", _e)
             return None  # Fail open: caller falls back to DW sig-type-3
