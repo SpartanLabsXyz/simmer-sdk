@@ -548,7 +548,9 @@ def test_dw_gtc_sell_maker_divisible_by_tick_precision_tick_001():
     # tick=0.1 → amount_decimals=3, share_divisor=1000
     (0.1,  0.3,  2.47, 1000),
     # tick=0.01 → amount_decimals=4, share_divisor=100
-    (0.01, 0.33, 1.23, 100),
+    # amount=2.47 / price=0.33 = 7.4848... shares (raw 7484848, mod 100 = 48,
+    # not divisible — exercises the floor fix while clearing MIN_ORDER_SIZE=5)
+    (0.01, 0.33, 2.47, 100),
     # tick=0.001 → amount_decimals=5, share_divisor=10 (the reported case)
     (0.001, 0.557, 3.09, 10),
     # tick=0.0001 → amount_decimals=6, share_divisor=1 (trivially satisfied)
