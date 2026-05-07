@@ -1,0 +1,88 @@
+{
+  "emoji": "🪙",
+  "primaryEnv": "SIMMER_API_KEY",
+  "requires": {
+    "env": [
+      "SIMMER_API_KEY"
+    ],
+    "pip": [
+      "simmer-sdk>=0.16.0"
+    ]
+  },
+  "envVars": [
+    {
+      "name": "SIMMER_API_KEY",
+      "required": true,
+      "description": "Your Simmer SDK API key — get from simmer.markets/dashboard"
+    },
+    {
+      "name": "WALLET_PRIVATE_KEY",
+      "required": false,
+      "description": "Only needed for external-wallet self-custody trading. Not required when using managed wallets."
+    }
+  ],
+  "cron": null,
+  "autostart": false,
+  "automaton": {
+    "managed": true,
+    "entrypoint": "strategy.py"
+  },
+  "tunables": [
+    {
+      "env": "SIMMER_BTCUD_EXIT_BEFORE_RESOLUTION_HOURS",
+      "type": "number",
+      "default": 1.0,
+      "range": [0, 6],
+      "step": 0.5,
+      "label": "Exit before resolution (hours)"
+    },
+    {
+      "env": "SIMMER_BTCUD_VOLUME_SPIKE_MULTIPLIER",
+      "type": "number",
+      "default": 3.0,
+      "range": [0, 10],
+      "step": 0.5,
+      "label": "Volume spike exit multiplier (0 = disabled)"
+    },
+    {
+      "env": "SIMMER_BTCUD_TARGET_HIT_CAPTURE_PCT",
+      "type": "number",
+      "default": 0.85,
+      "range": [0, 1.0],
+      "step": 0.05,
+      "label": "Target capture % exit (0 = disabled)"
+    },
+    {
+      "env": "SIMMER_BTCUD_MAX_POSITION_USD",
+      "type": "number",
+      "default": 10,
+      "range": [1, 100],
+      "step": 5,
+      "label": "Max position size (USD)"
+    },
+    {
+      "env": "SIMMER_BTCUD_DAILY_BUDGET_USD",
+      "type": "number",
+      "default": 50,
+      "range": [10, 500],
+      "step": 10,
+      "label": "Daily budget (USD)"
+    },
+    {
+      "env": "SIMMER_BTCUD_ENTRY_THRESHOLD",
+      "type": "number",
+      "default": 0.05,
+      "range": [0.01, 0.3],
+      "step": 0.01,
+      "label": "Entry edge threshold (min divergence from 50¢)"
+    },
+    {
+      "env": "SIMMER_BTCUD_MOMENTUM_THRESHOLD",
+      "type": "number",
+      "default": 0.3,
+      "range": [0.1, 2.0],
+      "step": 0.1,
+      "label": "Minimum BTC momentum % to trigger entry"
+    }
+  ]
+}
