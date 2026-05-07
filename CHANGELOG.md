@@ -3,6 +3,12 @@
 All notable changes to `simmer-sdk` are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.2] — 2026-05-07
+
+### Fixed
+
+- **`set_approvals()` now detects deposit-wallet users and routes to the dashboard.** Previously the function silently set EOA approvals for POLY_1271 deposit-wallet users — approvals that had no effect because collateral lives in the deposit wallet, not the EOA. The function now short-circuits with a structured response (`deposit_wallet_user: True`, `set: 0`, `skipped: 0`, `failed: 0`) and a message directing users to the dashboard's "Activate Trading" EIP-712 flow. No transactions are submitted, no eth-account import attempted. Backward-compatible: existing callers that only check `set/skipped/failed` keys continue to work unchanged; callers wanting to branch on the DW case can check `result.get("deposit_wallet_user")`. SIM-1613.
+
 ## [0.16.1] — 2026-05-07
 
 ### Fixed
