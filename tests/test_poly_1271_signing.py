@@ -542,3 +542,50 @@ def test_dw_gtc_sell_maker_divisible_by_tick_precision_tick_001():
         f"divisible by {taker_divisor} — max 5 decimal precision for "
         f"tick=0.001. SIM-1620 regression."
     )
+
+
+@pytest.mark.parametrize("tick_size,price,amount,expected_divisor", [
+    # tick=0.1 → amount_decimals=3, share_divisor=1000
+    (0.1,  0.3,  2.47, 1000),
+    # tick=0.01 → amount_decimals=4, share_divisor=100
+    (0.01, 0.33, 1.23, 100),
+    # tick=0.001 → amount_decimals=5, share_divisor=10 (the reported case)
+    (0.001, 0.557, 3.09, 10),
+    # tick=0.0001 → amount_decimals=6, share_divisor=1 (trivially satisfied)
+    (0.0001, 0.5555, 3.09, 1),
+])
+def test_dw_gtc_buy_taker_precision_all_tick_sizes(tick_size, price, amount, expected_divisor):
+    """GTC BUY: takerAmount (shares) must be divisible by the tick-derived
+    share_divisor = 10^(6-amount_decimals) for every supported tick_size.
+
+    compute_amounts() does round(size * 1e6) with no tick rounding, which
+    can produce shares not divisible by share_divisor for any tick.
+    Trinity code review (SIM-1620) flagged tick=0.01 and tick=0.1 coverage
+    as missing in the initial regression test.
+    """
+    _ensure_v2_enabled()
+    from simmer_sdk.signing import build_and_sign_order
+
+    priv, eoa = _make_eoa()
+    dw = _derive_dw(eoa)
+
+    size = amount / price  # float division as in client.py
+
+    signed = build_and_sign_order(
+        private_key=priv,
+        wallet_address=eoa,
+        token_id="71321045679252212594626385532706912750332728571942532289631379312455583992563",
+        side="BUY",
+        price=price,
+        size=size,
+        signature_type=3,
+        deposit_wallet_address=dw,
+        tick_size=tick_size,
+        order_type="GTC",
+    )
+    taker_raw = int(signed.takerAmount)
+    assert taker_raw % expected_divisor == 0, (
+        f"GTC BUY takerAmount {taker_raw} ({taker_raw/1e6} shares) not "
+        f"divisible by {expected_divisor} for tick_size={tick_size}. "
+        f"SIM-1620 regression."
+    )
