@@ -3,6 +3,18 @@
 All notable changes to `simmer-sdk` are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.1] — 2026-05-07
+
+### Fixed
+
+- **GTC/GTD precision rejection on deposit-wallet (POLY_1271) signing path.** `_build_and_sign_order_v2_dw` GTC/GTD branch called `compute_amounts(size=raw_float)` which does `round(size * 1e6)` with no tick-aware rounding. For markets with `tick_size=0.001`, shares must be divisible by 10 (max 5 decimal places); a GTC BUY where `size = amount / price` (e.g. `5.547576...`) produced `taker_amount = 5547576` and Polymarket rejected with `takerAmount X.XXXXXX exceeds max 5 decimal precision`. The FAK/FOK BUY path (Decimal-based) was already correct as of 0.12.3 — this only affected GTC/GTD on deposit-wallet users on tick=0.001/0.01/0.1 markets.
+
+  After this version, `taker_amount` (BUY) and `maker_amount` (SELL) are floored to `10^(6-amount_decimals)` precision after `compute_amounts`, mirroring the round-down behavior `py_clob_client_v2.OrderBuilder.build_order` applies internally for the non-DW path. Effective price drift is well below 1 tick (~0.5ppm in the repro case) and conservative for the user (slight overpay on BUY, slightly fewer shares sold on SELL).
+
+  Reported by rjreyes 2026-05-07 and mt_1200 2026-05-07.
+
+  SIM-1620.
+
 ## [0.16.0] — 2026-05-06
 
 ### Changed

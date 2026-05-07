@@ -456,3 +456,138 @@ def test_sig_type_0_v2_eoa_still_works():
     assert signed.maker.lower() == eoa.lower()
     assert signed.signer.lower() == eoa.lower()
     assert signed.exchange_version == "v2"
+
+
+# ============================================================================
+# Regression: GTC/GTD BUY taker precision (SIM-1620)
+# ============================================================================
+
+
+def test_dw_gtc_buy_taker_divisible_by_tick_precision_tick_001():
+    """GTC BUY on tick=0.001: takerAmount (shares) must be divisible by 10.
+
+    compute_amounts does round(size * 1e6) which can produce 6dp amounts
+    (e.g. 5547576 for size=5.547576...) — CLOB and Simmer pre-submit
+    validation require shares divisible by taker_divisor=10 for tick=0.001.
+
+    Reported by rjreyes: 'takerAmount 5.553236 exceeds max 5 decimal
+    precision (tick_size=0.001)'. SIM-1620.
+    """
+    _ensure_v2_enabled()
+    from simmer_sdk.signing import build_and_sign_order
+
+    priv, eoa = _make_eoa()
+    dw = _derive_dw(eoa)
+
+    # amount / price = 3.09 / 0.557 = 5.547576... (6dp float) — the exact
+    # class of input that triggered the bug.
+    amount = 3.09
+    price = 0.557
+    size = amount / price  # float division, as client.py computes it
+
+    signed = build_and_sign_order(
+        private_key=priv,
+        wallet_address=eoa,
+        token_id="71321045679252212594626385532706912750332728571942532289631379312455583992563",
+        side="BUY",
+        price=price,
+        size=size,
+        signature_type=3,
+        deposit_wallet_address=dw,
+        tick_size=0.001,
+        order_type="GTC",
+    )
+    taker_raw = int(signed.takerAmount)
+    taker_divisor = 10  # 10^(6-5) for tick=0.001
+    assert taker_raw % taker_divisor == 0, (
+        f"GTC BUY takerAmount {taker_raw} ({taker_raw/1e6} shares) is not "
+        f"divisible by {taker_divisor} — max 5 decimal precision for "
+        f"tick=0.001. Simmer server validation and CLOB will reject this. "
+        f"SIM-1620 regression."
+    )
+
+
+def test_dw_gtc_sell_maker_divisible_by_tick_precision_tick_001():
+    """GTC SELL on tick=0.001: makerAmount (shares) must be divisible by 10.
+
+    Mirrors the BUY case: compute_amounts uses round(size * 1e6) for the
+    maker (shares sold), which can produce 6dp amounts.
+    """
+    _ensure_v2_enabled()
+    from simmer_sdk.signing import build_and_sign_order
+
+    priv, eoa = _make_eoa()
+    dw = _derive_dw(eoa)
+
+    # Use a position size that would be derived from a prior imprecise BUY,
+    # producing non-divisible-by-10 shares.
+    size = 5.547576  # 6dp shares — what the BUG path produced before fix
+
+    signed = build_and_sign_order(
+        private_key=priv,
+        wallet_address=eoa,
+        token_id="71321045679252212594626385532706912750332728571942532289631379312455583992563",
+        side="SELL",
+        price=0.557,
+        size=size,
+        signature_type=3,
+        deposit_wallet_address=dw,
+        tick_size=0.001,
+        order_type="GTC",
+    )
+    maker_raw = int(signed.makerAmount)
+    taker_divisor = 10  # same divisor applies to shares field
+    assert maker_raw % taker_divisor == 0, (
+        f"GTC SELL makerAmount {maker_raw} ({maker_raw/1e6} shares) is not "
+        f"divisible by {taker_divisor} — max 5 decimal precision for "
+        f"tick=0.001. SIM-1620 regression."
+    )
+
+
+@pytest.mark.parametrize("tick_size,price,amount,expected_divisor", [
+    # tick=0.1 → amount_decimals=3, share_divisor=1000
+    (0.1,  0.3,  2.47, 1000),
+    # tick=0.01 → amount_decimals=4, share_divisor=100
+    # amount=2.47 / price=0.33 = 7.4848... shares (raw 7484848, mod 100 = 48,
+    # not divisible — exercises the floor fix while clearing MIN_ORDER_SIZE=5)
+    (0.01, 0.33, 2.47, 100),
+    # tick=0.001 → amount_decimals=5, share_divisor=10 (the reported case)
+    (0.001, 0.557, 3.09, 10),
+    # tick=0.0001 → amount_decimals=6, share_divisor=1 (trivially satisfied)
+    (0.0001, 0.5555, 3.09, 1),
+])
+def test_dw_gtc_buy_taker_precision_all_tick_sizes(tick_size, price, amount, expected_divisor):
+    """GTC BUY: takerAmount (shares) must be divisible by the tick-derived
+    share_divisor = 10^(6-amount_decimals) for every supported tick_size.
+
+    compute_amounts() does round(size * 1e6) with no tick rounding, which
+    can produce shares not divisible by share_divisor for any tick.
+    Trinity code review (SIM-1620) flagged tick=0.01 and tick=0.1 coverage
+    as missing in the initial regression test.
+    """
+    _ensure_v2_enabled()
+    from simmer_sdk.signing import build_and_sign_order
+
+    priv, eoa = _make_eoa()
+    dw = _derive_dw(eoa)
+
+    size = amount / price  # float division as in client.py
+
+    signed = build_and_sign_order(
+        private_key=priv,
+        wallet_address=eoa,
+        token_id="71321045679252212594626385532706912750332728571942532289631379312455583992563",
+        side="BUY",
+        price=price,
+        size=size,
+        signature_type=3,
+        deposit_wallet_address=dw,
+        tick_size=tick_size,
+        order_type="GTC",
+    )
+    taker_raw = int(signed.takerAmount)
+    assert taker_raw % expected_divisor == 0, (
+        f"GTC BUY takerAmount {taker_raw} ({taker_raw/1e6} shares) not "
+        f"divisible by {expected_divisor} for tick_size={tick_size}. "
+        f"SIM-1620 regression."
+    )
