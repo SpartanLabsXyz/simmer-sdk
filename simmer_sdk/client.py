@@ -71,6 +71,12 @@ class Position:
     avg_cost: Optional[float] = None  # Average cost per share
     current_price: Optional[float] = None  # Current market price
     sources: Optional[List[str]] = None  # Trade sources (e.g., ["sdk:weather"])
+    # SIM-1646: on-chain address holding the CTF tokens (Polymarket only).
+    # For dual-wallet users with pre-migration positions: may be the owner EOA
+    # rather than the deposit_wallet. trade() uses this to route sells via
+    # sig-type-0 (EOA) or sig-type-3 (POLY_1271 / DW). None for sim venue
+    # or when connected to a server that predates SIM-1646.
+    holder_address: Optional[str] = None
 
 
 @dataclass
@@ -246,6 +252,11 @@ class SimmerClient:
         self._solana_wallet_address: Optional[str] = None  # Solana wallet address
         self._held_markets_cache: Optional[dict] = None  # {market_id: [source_tags]}
         self._held_markets_ts: float = 0  # Cache timestamp
+        # SIM-1646: holder-address cache for dual-wallet sell routing.
+        # Maps "market_id:side" -> holder_address. Populated by get_positions() and
+        # refreshed by _get_holder_address() on-demand for DW users doing sells.
+        self._position_holder_cache: dict = {}
+        self._position_holder_ts: float = 0
         self._clob_client = None  # Cached ClobClient for local CLOB operations
         self._market_data_cache: dict = {}  # market_id -> market data for signing
         self._ows_wallet: Optional[str] = None  # OWS wallet name
@@ -1291,10 +1302,17 @@ class SimmerClient:
             self._ensure_wallet_linked()
             # Warn about missing approvals (once per session)
             self._warn_approvals_once()
+            # SIM-1646: for DW users doing sells, look up the on-chain holder so
+            # _build_signed_order picks the correct sig type (EOA vs DW). Buys
+            # always land on the DW post-migration so no lookup needed for those.
+            _sell_holder = None
+            if is_sell and effective_venue == "polymarket":
+                _sell_holder = self._get_holder_address(market_id, side)
             # Sign order locally
             signed_order = self._build_signed_order(
                 market_id, side, amount if not is_sell else 0,
-                shares if is_sell else 0, action, order_type, price
+                shares if is_sell else 0, action, order_type, price,
+                holder_address=_sell_holder,
             )
             if signed_order:
                 payload["signed_order"] = signed_order
@@ -1681,7 +1699,7 @@ class SimmerClient:
         positions = []
         for p in data.get("positions", []):
             pos_venue = p.get("venue", "sim")
-            positions.append(Position(
+            pos = Position(
                 market_id=p["market_id"],
                 question=p.get("question", ""),
                 shares_yes=p.get("shares_yes", 0),
@@ -1695,10 +1713,68 @@ class SimmerClient:
                 avg_cost=p.get("avg_cost"),
                 current_price=p.get("current_price"),
                 sources=p.get("sources"),
-            ))
+                holder_address=p.get("holder_address"),  # SIM-1646: on-chain token holder
+            )
+            positions.append(pos)
+            # SIM-1646: update holder cache for trade() sell routing
+            if pos.holder_address and pos_venue == "polymarket":
+                if (pos.shares_yes or 0) > 0:
+                    self._position_holder_cache[f"{pos.market_id}:yes"] = pos.holder_address
+                if (pos.shares_no or 0) > 0:
+                    self._position_holder_cache[f"{pos.market_id}:no"] = pos.holder_address
+        # Stamp the cache so _get_holder_address() sees it as fresh
+        import time as _t
+        self._position_holder_ts = _t.time()
         return positions
 
     _HELD_MARKETS_TTL = 30  # seconds
+    _HOLDER_CACHE_TTL = 30  # seconds — same as held-markets TTL
+
+    def _get_holder_address(self, market_id: str, side: str) -> Optional[str]:
+        """SIM-1646: Return the on-chain address holding CTF tokens for a position.
+
+        For DW users with pre-migration EOA positions this will be the EOA, not
+        the deposit wallet. Returns None for non-DW users (no routing override).
+
+        Checks `_position_holder_cache` (populated by get_positions()). On cache
+        miss or staleness, re-fetches positions to rebuild the cache. This lookup
+        is triggered only on sell paths to avoid unnecessary GET /positions calls
+        during buy-only loops.
+        """
+        uses_dw = bool(getattr(self, "_uses_deposit_wallet", False))
+        dw_address = getattr(self, "_deposit_wallet_address", None)
+        if not uses_dw or not dw_address:
+            return None  # Non-DW user — no holder override needed
+
+        import time as _t
+        now = _t.time()
+        cache_key = f"{market_id}:{side}"
+
+        # Return from cache if fresh (cache is always a dict; ts=0 means never populated)
+        if self._position_holder_ts > 0 and (now - self._position_holder_ts) < self._HOLDER_CACHE_TTL:
+            return self._position_holder_cache.get(cache_key)
+
+        # Cache miss / stale — refresh via get_positions()
+        self._position_holder_cache = {}
+        self._position_holder_ts = now
+        try:
+            data = self._request("GET", "/api/sdk/positions")
+            for p in data.get("positions", []):
+                if p.get("venue") != "polymarket":
+                    continue
+                h = p.get("holder_address")
+                if not h:
+                    continue
+                mid = p.get("market_id")
+                if (p.get("shares_yes") or 0) > 0:
+                    self._position_holder_cache[f"{mid}:yes"] = h
+                if (p.get("shares_no") or 0) > 0:
+                    self._position_holder_cache[f"{mid}:no"] = h
+        except Exception as _e:
+            logger.debug("holder lookup failed (%s) — using DW default", _e)
+            return None  # Fail open: caller falls back to DW sig-type-3
+
+        return self._position_holder_cache.get(cache_key)
 
     def _get_held_markets(self) -> dict:
         """Get market_id -> [source_tags] for all held positions. Cached 30s."""
@@ -3060,6 +3136,7 @@ class SimmerClient:
         action: str = "buy",
         order_type: str = "FAK",
         price: Optional[float] = None,
+        holder_address: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         """
         Build and sign a Polymarket order locally.
@@ -3071,6 +3148,10 @@ class SimmerClient:
             side: 'yes' or 'no'
             amount: USDC amount (for buys)
             shares: Number of shares (for sells)
+            holder_address: SIM-1646. On-chain address holding the CTF tokens.
+                For DW users: if provided and equals the EOA (pre-migration position),
+                sign as sig-type-0 (EOA-direct). If it's the DW, sign as sig-type-3.
+                If None, falls back to the session-level DW detection.
             action: 'buy' or 'sell'
             order_type: Order type ('FAK', 'GTC', etc.)
             price: Optional limit price (0.001-0.999). If None, uses current market price.
@@ -3164,15 +3245,30 @@ class SimmerClient:
         # caller asked for, not a derived size*price that may shave a cent.
         amount_usdc = float(amount) if (not is_sell and amount > 0) else None
 
-        # SIM-1521: pick sig type based on whether the user has been
-        # upgraded to a Polymarket deposit wallet. _ensure_wallet_linked()
-        # caches `self._uses_deposit_wallet` and `self._deposit_wallet_address`
-        # from /api/sdk/settings; defaults are False / None for users on
-        # older server versions or pre-upgrade external wallets, in which
-        # case we stay on sig type 0 (EOA) as before.
+        # SIM-1521 / SIM-1646: pick sig type based on which address holds the tokens.
+        # _ensure_wallet_linked() caches `self._uses_deposit_wallet` and
+        # `self._deposit_wallet_address` from /api/sdk/settings; defaults are
+        # False / None for users on older server versions or pre-upgrade external
+        # wallets, in which case we stay on sig type 0 (EOA) as before.
+        #
+        # SIM-1646 dual-wallet routing: for DW users with pre-migration EOA
+        # positions, `holder_address` is the EOA → use sig-type-0.
+        # For DW positions (holder == DW), use sig-type-3 (POLY_1271).
         uses_dw = bool(getattr(self, "_uses_deposit_wallet", False))
         dw_address = getattr(self, "_deposit_wallet_address", None) if uses_dw else None
-        order_signature_type = 3 if uses_dw and dw_address else 0
+        if uses_dw and dw_address and holder_address:
+            _holder_lower = holder_address.lower()
+            _dw_lower = dw_address.lower()
+            _eoa_lower = (self._wallet_address or "").lower()
+            if _holder_lower == _eoa_lower and _holder_lower != _dw_lower:
+                # Pre-migration position on the EOA → sign as EOA (sig-type-0)
+                order_signature_type = 0
+                dw_address = None  # Don't pass DW address to the builder
+            else:
+                # DW-held position → standard POLY_1271 path (sig-type-3)
+                order_signature_type = 3
+        else:
+            order_signature_type = 3 if uses_dw and dw_address else 0
 
         if self._ows_wallet:
             # OWS path is V1-only and predates deposit-wallet support; if a
