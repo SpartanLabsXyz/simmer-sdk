@@ -3635,6 +3635,10 @@ class SimmerClient:
             - skipped: Number of approvals already in place
             - failed: Number of approvals that failed
             - details: List of per-approval results
+            - deposit_wallet_user: True if the account uses the deposit-wallet
+              pathway (approvals must be set via the dashboard instead).
+              When present and True, set/skipped/failed are all 0 and no
+              transactions are submitted.
 
         Raises:
             ValueError: If no wallet is configured
@@ -3656,6 +3660,24 @@ class SimmerClient:
                 "No signing key available. Set WALLET_PRIVATE_KEY env var, pass private_key to constructor, "
                 "or configure an OWS wallet (OWS_WALLET env var or ows_wallet constructor arg)."
             )
+
+        # SIM-1613: deposit-wallet users must set approvals via the dashboard's
+        # "Activate Trading" EIP-712 flow — EOA approvals have no effect because
+        # collateral lives in the deposit wallet, not the EOA.
+        if self._uses_deposit_wallet:
+            return {
+                "set": 0,
+                "skipped": 0,
+                "failed": 0,
+                "deposit_wallet_user": True,
+                "message": (
+                    "This account is on the Polymarket deposit-wallet pathway. "
+                    "Approvals must be set via the dashboard's 'Activate Trading' "
+                    "flow (one EIP-712 signature, no per-tx prompts). "
+                    "See https://docs.simmer.markets/wallets#deposit-wallet-approvals"
+                ),
+                "details": [],
+            }
 
         try:
             import eth_account  # noqa: F401 — early dep check; signing happens in _sign_eip1559_tx_for_broadcast
