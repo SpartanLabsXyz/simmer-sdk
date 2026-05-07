@@ -914,11 +914,28 @@ def _build_and_sign_order_v2_dw(
             tick_size=tick_str,
         )
     else:
-        # GTC / GTD limit — full tick-size precision; compute_amounts
-        # rounds price to tick and size to 6dp.
+        # GTC / GTD limit — compute_amounts does round(size * 1e6) which
+        # can produce arbitrary 6dp share amounts. For tick=0.001 the CLOB
+        # and Simmer's pre-submit validation require shares to be divisible
+        # by 10 (max 5dp = 10^(6-5)). Floor shares to tick precision after
+        # compute_amounts to match what py_clob_client_v2.build_order does
+        # internally via round_down(size, round_config.size=2).
         maker_amount, taker_amount = compute_amounts(
             price=float(price), size=float(size), side=side_upper, tick_size=tick_str
         )
+        # _MARKET_AMOUNT_DECIMALS defined above in the FAK/FOK BUY block.
+        # Re-lookup here to keep the else block self-contained.
+        _amt_dec_gtc = {
+            "0.1": 3, "0.01": 4, "0.001": 5, "0.0001": 6,
+        }.get(tick_str)
+        if _amt_dec_gtc is not None:
+            _share_divisor = 10 ** (6 - _amt_dec_gtc)
+            if side_upper == "BUY":
+                # taker = shares received; floor to tick precision
+                taker_amount = (taker_amount // _share_divisor) * _share_divisor
+            else:
+                # maker = shares sold; floor to tick precision
+                maker_amount = (maker_amount // _share_divisor) * _share_divisor
 
     # Enforce MIN_ORDER_SIZE_SHARES locally to fail fast (matches the V1
     # path's behavior). Without this, sub-minimum orders signed cleanly
