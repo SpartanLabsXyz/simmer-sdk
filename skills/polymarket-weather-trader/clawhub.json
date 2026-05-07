@@ -6,7 +6,7 @@
       "SIMMER_API_KEY"
     ],
     "pip": [
-      "simmer-sdk>=0.13.0"
+      "simmer-sdk>=0.16.1"
     ]
   },
   "envVars": [
@@ -99,6 +99,16 @@
       "name": "SIMMER_WEATHER_VOL_SPAN",
       "required": false,
       "description": "EWMA span for vol calculation; lower = more responsive (default 10)."
+    },
+    {
+      "name": "SIMMER_PORTFOLIO_CAP_ENABLED",
+      "required": false,
+      "description": "Enable portfolio-level concurrent-exposure cap (cross-skill open notional ceiling). Default false (off). When enabled, trims or skips trades that would push total open notional across all skills above SIMMER_PORTFOLIO_CAP_PCT of bankroll."
+    },
+    {
+      "name": "SIMMER_PORTFOLIO_CAP_PCT",
+      "required": false,
+      "description": "Total open notional cap as a fraction of bankroll (default 0.15 = 15%). Only used when SIMMER_PORTFOLIO_CAP_ENABLED is true. Layers on top of per-trade sizing."
     }
   ],
   "cron": null,
@@ -246,6 +256,23 @@
       ],
       "step": 1,
       "label": "EWMA span for vol calculation"
+    },
+    {
+      "env": "SIMMER_PORTFOLIO_CAP_ENABLED",
+      "type": "boolean",
+      "default": false,
+      "label": "Enable portfolio cap (cross-skill exposure ceiling)"
+    },
+    {
+      "env": "SIMMER_PORTFOLIO_CAP_PCT",
+      "type": "number",
+      "default": 0.15,
+      "range": [
+        0.01,
+        1.0
+      ],
+      "step": 0.01,
+      "label": "Total open notional cap (fraction of bankroll)"
     }
   ]
 }

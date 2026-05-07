@@ -3,6 +3,39 @@
 All notable changes to `simmer-sdk` are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.1] — 2026-05-07
+
+### Added
+
+- **Portfolio-level concurrent-exposure cap primitive** under
+  `simmer_sdk.risk.check_portfolio_cap`. A pre-trade gate that, given an
+  agent's current open positions across all skills/strategies, enforces a
+  hard ceiling on total open notional as a fraction of bankroll
+  (default 15%). Returns a structured `PortfolioCapDecision`
+  (`allow` / `deny` / `trim_to`) with an `allowed_size` field the caller
+  uses for the order. Layers on top of any per-trade Kelly cap from
+  `simmer_sdk.sizing` — per-trade Kelly says how big *this* trade may be,
+  the portfolio cap says how big *all open trades together* may be.
+
+  The primitive is opt-in (off by default). It is a forward-looking
+  *entry gate* based on currently-open exposure; the SIM-1072
+  `DrawdownController` (separate, not yet shipped) is a backward-looking
+  *halt* based on realized P&L. They are complementary and may be wired
+  together.
+
+  Skills can adopt the cap by merging `PORTFOLIO_CAP_CONFIG_SCHEMA` into
+  their own `CONFIG_SCHEMA`. Reference integration:
+  `examples/portfolio_cap_skill.py`. First-party adopter:
+  `polymarket-weather-trader` v1.22.0 — see its `SKILL.md` for the
+  end-to-end wiring (sizing → snapshot positions → cap check → place
+  trimmed size).
+
+  Re-exported at the top level: `from simmer_sdk import
+  check_portfolio_cap, PortfolioCapDecision, sum_open_notional,
+  DEFAULT_TOTAL_CAP_PCT, PORTFOLIO_CAP_CONFIG_SCHEMA`.
+
+  SIM-1451.
+
 ## [0.16.0] — 2026-05-06
 
 ### Changed

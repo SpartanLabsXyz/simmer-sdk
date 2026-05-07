@@ -47,6 +47,7 @@ except ImportError:
 # =============================================================================
 
 from simmer_sdk.skill import load_config, update_config, get_config_path
+from simmer_sdk.risk import PORTFOLIO_CAP_CONFIG_SCHEMA, check_portfolio_cap
 
 # Configuration schema
 # Note: env var names match autotune registry. Legacy aliases (SIMMER_WEATHER_ENTRY,
@@ -74,6 +75,9 @@ CONFIG_SCHEMA = {
                           "help": "Min allocation floor from vol targeting (stay in market during high vol)."},
     "vol_span":          {"env": "SIMMER_WEATHER_VOL_SPAN",          "default": 10,    "type": int,
                           "help": "EWMA span for volatility calculation (lower = more responsive)."},
+    # Portfolio-level concurrent-exposure cap (SIM-1451). Opt-in, default off.
+    # Layers a cross-skill total-open-notional ceiling on top of per-trade sizing.
+    **PORTFOLIO_CAP_CONFIG_SCHEMA,
 }
 
 # Backwards-compatible env var aliases (old name -> new name)
@@ -138,6 +142,13 @@ TARGET_VOL = _config["target_vol"]
 VOL_MAX_LEVERAGE = _config["vol_max_leverage"]
 VOL_MIN_ALLOCATION = _config["vol_min_allocation"]
 VOL_SPAN = _config["vol_span"]
+
+# Portfolio-level cap (SIM-1451). Opt-in cross-skill ceiling, default off.
+# When enabled, after per-trade sizing we sum open notional across ALL the
+# agent's positions (not just weather) and trim or skip if the candidate would
+# breach `portfolio_cap_pct` of bankroll. See simmer_sdk.risk.portfolio_cap.
+PORTFOLIO_CAP_ENABLED = _config["portfolio_cap_enabled"]
+PORTFOLIO_CAP_PCT = _config["portfolio_cap_pct"]
 
 # Context safeguard thresholds
 SLIPPAGE_MAX_PCT = _config["slippage_max"]  # Skip if slippage exceeds this (tunable)
@@ -1001,6 +1012,67 @@ def calculate_position_size(default_size: float, smart_sizing: bool) -> float:
     return smart_size
 
 
+def apply_portfolio_cap(candidate_size: float, market_id: str) -> float:
+    """Apply the portfolio-level concurrent-exposure cap (SIM-1451).
+
+    Cross-skill ceiling layered on top of per-trade sizing. Reads bankroll
+    and ALL open positions for the agent, then asks
+    ``simmer_sdk.risk.check_portfolio_cap`` whether the candidate fits
+    within ``PORTFOLIO_CAP_PCT`` of bankroll.
+
+    Returns the size the caller may safely place. ``0.0`` means skip
+    (denied or trimmed below the per-order minimum). Opt-in: returns
+    ``candidate_size`` unchanged when ``PORTFOLIO_CAP_ENABLED`` is False.
+    """
+    if not PORTFOLIO_CAP_ENABLED:
+        return candidate_size
+    if candidate_size <= 0.0:
+        return 0.0
+
+    try:
+        client = get_client()
+        portfolio = client.get_portfolio() or {}
+        # Polymarket trades → bankroll must be USDC only. Do NOT fall back to
+        # sim_balance: a user with zero USDC and a non-zero $SIM paper balance
+        # would silently size the cap against play money (CLAUDE.md: "disambiguate
+        # $SIM vs USDC"). Fail-open branch below handles the zero-bankroll case.
+        bankroll = float(portfolio.get("balance_usdc") or 0.0)
+        if bankroll <= 0:
+            print("  ⚠️  Portfolio cap: no bankroll available, skipping cap check")
+            return candidate_size
+        # Snapshot positions across ALL skills/strategies for this agent —
+        # the cap is a cross-skill ceiling, not a weather-only one.
+        open_positions = client.get_positions()
+    except Exception as e:
+        print(f"  ⚠️  Portfolio cap: position/bankroll fetch failed ({e}); proceeding without cap")
+        return candidate_size
+
+    decision = check_portfolio_cap(
+        candidate_size=candidate_size,
+        bankroll=bankroll,
+        open_positions=open_positions,
+        total_cap_pct=PORTFOLIO_CAP_PCT,
+        agent_id=SKILL_SLUG,
+    )
+
+    if decision.decision == "deny":
+        print(
+            f"  🚫 Portfolio cap: skip market={market_id} reason={decision.reason} "
+            f"open=${decision.current_open_notional:.2f} cap=${decision.cap_notional:.2f}"
+        )
+        return 0.0
+
+    if decision.decision == "trim_to":
+        print(
+            f"  ✂️  Portfolio cap: trim market={market_id} "
+            f"candidate=${decision.candidate_size:.2f} → ${decision.allowed_size:.2f} "
+            f"headroom=${decision.headroom:.2f} cap=${decision.cap_notional:.2f}"
+        )
+        return decision.allowed_size
+
+    return decision.allowed_size
+
+
 # =============================================================================
 # Exit Strategy
 # =============================================================================
@@ -1129,6 +1201,9 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
         log(f"    Max leverage:  {VOL_MAX_LEVERAGE:.1f}x")
         log(f"    Min alloc:     {VOL_MIN_ALLOCATION:.0%}")
         log(f"    EWMA span:     {VOL_SPAN}")
+    log(f"  Portfolio cap:   {'✓ Enabled' if PORTFOLIO_CAP_ENABLED else '✗ Disabled'}")
+    if PORTFOLIO_CAP_ENABLED:
+        log(f"    Total cap:     {PORTFOLIO_CAP_PCT:.0%} of bankroll (cross-skill)")
 
     if show_config:
         config_path = get_config_path(__file__)
@@ -1386,6 +1461,16 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
                 else:
                     log(f"  📊 Vol targeting: insufficient price data — using base size")
 
+            # Portfolio-level concurrent-exposure cap (SIM-1451). No-op when disabled.
+            # Layers a cross-skill ceiling on top of per-trade sizing — sums open
+            # notional across ALL skills and trims or skips if the candidate would
+            # breach `portfolio_cap_pct` of bankroll. Off by default; opt-in via
+            # SIMMER_PORTFOLIO_CAP_ENABLED=true (or the SDK config UI knob).
+            position_size = apply_portfolio_cap(position_size, market_id)
+            if position_size <= 0.0:
+                skip_reasons.append("portfolio cap")
+                continue
+
             min_cost_for_shares = MIN_SHARES_PER_ORDER * price
             if min_cost_for_shares > position_size:
                 log(f"  ⚠️  Position size ${position_size:.2f} too small for {MIN_SHARES_PER_ORDER} shares at ${price:.2f}")
@@ -1521,6 +1606,8 @@ if __name__ == "__main__":
             globals()["VOL_MAX_LEVERAGE"] = _config["vol_max_leverage"]
             globals()["VOL_MIN_ALLOCATION"] = _config["vol_min_allocation"]
             globals()["VOL_SPAN"] = _config["vol_span"]
+            globals()["PORTFOLIO_CAP_ENABLED"] = _config["portfolio_cap_enabled"]
+            globals()["PORTFOLIO_CAP_PCT"] = _config["portfolio_cap_pct"]
             _locations_str = _config["locations"]
             globals()["ACTIVE_LOCATIONS"] = [loc.strip().upper() for loc in _locations_str.split(",") if loc.strip()]
 
