@@ -364,5 +364,76 @@ class TestExitReasonCompleteness(unittest.TestCase):
         self.assertIn(reason, self.VALID_EXIT_REASONS)
 
 
+class TestEntryEdgeSemantics(unittest.TestCase):
+    """
+    Tests for entry edge calculation (option-b semantics):
+    Only enter when the market DISAGREES with momentum direction.
+    Edge is always measured toward the momentum-opposing side.
+    Mirrors the edge logic in strategy.py run_entry_scan.
+    """
+
+    def _edge_up(self, live_price):
+        """Edge for 'up' momentum direction: positive only when YES < 0.50."""
+        return 0.50 - live_price
+
+    def _edge_down(self, live_price):
+        """Edge for 'down' momentum direction: positive only when YES > 0.50."""
+        return live_price - 0.50
+
+    def test_up_momentum_yes_cheap_has_positive_edge(self):
+        """
+        BTC momentum up, YES at 0.35 (market bets down) → edge = 0.15 → would enter YES.
+        """
+        edge = self._edge_up(0.35)
+        self.assertAlmostEqual(edge, 0.15)
+        self.assertGreater(edge, 0)
+
+    def test_up_momentum_yes_expensive_has_negative_edge(self):
+        """
+        BTC momentum up, YES at 0.70 (market agrees) → edge = -0.20 → skip.
+        Market already prices in the bullish momentum — no value edge.
+        """
+        edge = self._edge_up(0.70)
+        self.assertAlmostEqual(edge, -0.20)
+        self.assertLess(edge, 0)
+
+    def test_up_momentum_yes_at_50_no_edge(self):
+        """BTC momentum up, YES at 0.50 → edge = 0 → skip (below any positive threshold)."""
+        edge = self._edge_up(0.50)
+        self.assertAlmostEqual(edge, 0.0)
+
+    def test_down_momentum_no_cheap_has_positive_edge(self):
+        """
+        BTC momentum down, YES at 0.65 (market bets up) → NO is cheap → edge = 0.15 → would enter NO.
+        """
+        edge = self._edge_down(0.65)
+        self.assertAlmostEqual(edge, 0.15)
+        self.assertGreater(edge, 0)
+
+    def test_down_momentum_no_expensive_has_negative_edge(self):
+        """
+        BTC momentum down, YES at 0.30 (market already bets down) → edge = -0.20 → skip.
+        """
+        edge = self._edge_down(0.30)
+        self.assertAlmostEqual(edge, -0.20)
+        self.assertLess(edge, 0)
+
+    def test_entry_threshold_gates_weak_edge(self):
+        """
+        Edge 0.03 < default threshold 0.05 → should not enter.
+        """
+        threshold = 0.05
+        self.assertLess(self._edge_up(0.47), threshold)    # YES at 0.47, up momentum
+        self.assertLess(self._edge_down(0.53), threshold)  # YES at 0.53, down momentum
+
+    def test_entry_threshold_allows_strong_edge(self):
+        """
+        Edge 0.10 > threshold 0.05 → should enter.
+        """
+        threshold = 0.05
+        self.assertGreater(self._edge_up(0.40), threshold)    # YES at 0.40, up momentum
+        self.assertGreater(self._edge_down(0.60), threshold)  # YES at 0.60, down momentum
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -23,7 +23,6 @@ Requires:
 import os
 import sys
 import json
-import math
 import argparse
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
@@ -237,17 +236,19 @@ def fetch_btc_updown_markets():
     Discover active BTC UP/DOWN markets from Gamma API.
     Filters out fast (5m/15m) markets — those are for polymarket-fast-loop.
     Returns list of market dicts.
+
+    Note: Gamma /markets does NOT support server-side tag or question filtering —
+    those params are silently ignored. We fetch by volume (BTC UP/DOWN markets are
+    typically high-volume) and filter client-side on "up or down" substring.
     """
+    # Fetch top 200 by 24h volume — BTC UP/DOWN markets surface near the top.
+    # Client-side "up or down" filter handles the rest.
     url = (
         f"{GAMMA_API}/markets"
-        "?active=true&closed=false&limit=50"
-        "&tag_slug=crypto&tag_slug=bitcoin"
+        "?active=true&closed=false&limit=200"
+        "&order=volume24hr&ascending=false"
     )
     data = _api_request(url)
-    if not data or isinstance(data, dict) and data.get("error"):
-        # Fallback: search with question text
-        url2 = f"{GAMMA_API}/markets?active=true&closed=false&limit=50&question=bitcoin+up+or+down"
-        data = _api_request(url2)
     if not isinstance(data, list):
         data = (data or {}).get("markets", [])
 
@@ -591,6 +592,9 @@ def run_exit_monitor(client, live=False, quiet=False):
         market_id = pos.get("marketId") or pos.get("market_id") or pos.get("conditionId")
         side = pos.get("side", "YES")
         quantity = float(pos.get("quantity", 0))
+        # NOTE: entry_price is always the YES-side price at entry (0–1 scale), regardless
+        # of whether this position is YES or NO. check_target_hit_exit() expects this:
+        # for NO positions, the YES price was high at entry and has since fallen.
         entry_price = pos.get("entry_price") or pos.get("avgPrice") or pos.get("avg_price")
 
         if not market_id or quantity <= 0:
@@ -741,15 +745,18 @@ def run_entry_scan(client, live=False, quiet=False):
         if live_price is None:
             continue
 
-        # Determine trade side based on momentum direction
+        # Determine trade side based on momentum direction.
+        # Entry requires the market to DISAGREE with momentum:
+        #   up momentum → buy YES, only when YES is cheap (live_price < 0.50)
+        #   down momentum → buy NO, only when NO is cheap (live_price > 0.50)
+        # edge = how far the cheap side is from 50¢ (the no-information price).
+        # If the market already agrees with momentum, edge is negative → skip.
         if direction == "up":
             side = "YES"
-            divergence = live_price - 0.50
-            edge = abs(live_price - 0.50) if live_price < 0.50 else live_price - 0.50
+            edge = 0.50 - live_price   # positive only when YES is below 50¢
         else:
             side = "NO"
-            divergence = 0.50 - live_price
-            edge = abs(live_price - 0.50) if live_price > 0.50 else 0.50 - live_price
+            edge = live_price - 0.50   # positive only when YES is above 50¢ (NO is cheap)
 
         if edge < ENTRY_THRESHOLD:
             if not quiet:
