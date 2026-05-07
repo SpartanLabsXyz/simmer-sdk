@@ -3,6 +3,26 @@
 All notable changes to `simmer-sdk` are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.0] — 2026-05-08
+
+### Added
+
+- **Dual-wallet position listing for deposit-wallet users (SIM-1646).** For users with `wallet_uses_deposit_wallet=True` who have pre-migration positions on their owner EOA, `client.get_positions()` now returns ALL positions — from both the EOA and the deposit wallet — each tagged with a `holder_address` field indicating which on-chain address holds the CTF tokens.
+
+  Previously these users only saw positions held by the deposit wallet, making any pre-migration position invisible to their agent. Confirmed root case: rjreyes had 53 open positions on his EOA that his agent could not see or manage stop-losses on, leading to 190/199 failed trade attempts.
+
+- **Per-trade sell routing by holder (SIM-1646).** `client.trade(action='sell', ...)` and stop-loss execution paths now select the signing method on a per-trade basis based on `holder_address`:
+
+  - **holder == EOA** (pre-migration position): signs as sig-type-0 (V2 EOA-direct). The existing pre-DW signing path.
+  - **holder == DW** (post-migration position): signs as sig-type-3 (POLY_1271 batch via deposit wallet). The existing post-migration path.
+  - **Non-DW users**: zero behavior change — always sig-type-0 as before.
+
+  The routing decision is per-trade, not per-session, so users with a mix of EOA and DW positions are handled correctly within the same agent run.
+
+- **`holder_address` field on `Position` dataclass.** New optional `str` field. `None` for sim-venue positions and server versions predating SIM-1646. Existing skill flows that don't read `holder_address` are unaffected.
+
+  SIM-1646.
+
 ## [0.16.1] — 2026-05-07
 
 ### Fixed
