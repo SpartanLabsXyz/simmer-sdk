@@ -103,7 +103,7 @@ python strategy.py --set target_hit_capture_pct=0.75
 
 | Setting | Default | Env Var | Description |
 |---------|---------|---------|-------------|
-| `entry_threshold` | `0.05` | `SIMMER_BTCUD_ENTRY_THRESHOLD` | Min price divergence from 50¢ to enter |
+| `entry_threshold` | `0.05` | `SIMMER_BTCUD_ENTRY_THRESHOLD` | Min discount from 50¢ toward the momentum-opposing side. Entry only fires when the market *disagrees* with momentum: UP signal requires YES < 0.50 (edge = `0.50 − YES`); DOWN signal requires YES > 0.50 (edge = `YES − 0.50`). Skips when market already agrees with momentum. |
 | `min_momentum_pct` | `0.3` | `SIMMER_BTCUD_MOMENTUM_THRESHOLD` | Min BTC % move (30-min lookback) to trigger |
 | `max_position` | `10.0` | `SIMMER_BTCUD_MAX_POSITION_USD` | Max $ per trade |
 | `daily_budget` | `50.0` | `SIMMER_BTCUD_DAILY_BUDGET_USD` | Max total entry spend per UTC day |
