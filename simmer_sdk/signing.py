@@ -16,6 +16,7 @@ outside of memory. It is only used for signing operations.
 """
 
 import os
+from decimal import Decimal, ROUND_HALF_UP
 from typing import Dict, Any, Optional
 from dataclasses import dataclass, field
 
@@ -26,6 +27,27 @@ from simmer_sdk.polymarket_contracts import (
 
 # Polymarket token/USDC decimals (1 share = 1e6 raw units, 1 USDC/pUSD = 1e6 raw units)
 POLYMARKET_DECIMAL_FACTOR = 1e6
+
+
+def round_price_to_tick(price: float, tick_size: float) -> float:
+    """Round *price* to the nearest multiple of *tick_size*.
+
+    Polymarket's CLOB rejects orders whose price is not on the market's tick
+    grid (e.g. 0.9690009744… when tick=0.001 → must be 0.969 or 0.970).
+    This helper quantises to the nearest tick using ROUND_HALF_UP so that
+    the rounded price always passes the CLOB's tick-grid check.
+
+    A price that is already exactly on-grid passes through unchanged.
+
+    Args:
+        price: Raw price in (0, 1).
+        tick_size: Market tick size (e.g. 0.01, 0.001, 0.0001).
+
+    Returns:
+        Price rounded to the nearest tick, as a Python float.
+    """
+    tick_dec = Decimal(str(tick_size))
+    return float(Decimal(str(price)).quantize(tick_dec, rounding=ROUND_HALF_UP))
 
 # Minimum order size (Polymarket requires >= 5 shares)
 MIN_ORDER_SIZE_SHARES = 5
@@ -161,6 +183,10 @@ def build_and_sign_order(
         ImportError: If required signing deps aren't installed
         ValueError: If order parameters are invalid
     """
+    # Round price to the market's tick grid before signing. The CLOB rejects
+    # orders whose price is not an exact multiple of tick_size (SIM-1666).
+    price = round_price_to_tick(price, tick_size)
+
     if is_v2_enabled():
         return _build_and_sign_order_v2(
             private_key=private_key,
@@ -570,6 +596,9 @@ def build_and_sign_order_ows(
         raise ValueError(f"Invalid size {size}. Must be positive")
     if signature_type not in (0, 1, 2):
         raise ValueError(f"Invalid signature_type {signature_type}. Must be 0, 1, or 2")
+
+    # Round price to the market's tick grid (SIM-1666)
+    price = round_price_to_tick(price, tick_size)
 
     # Get wallet address from OWS
     wallet_address = get_ows_wallet_address(ows_wallet)
