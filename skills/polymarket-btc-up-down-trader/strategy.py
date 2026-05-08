@@ -21,6 +21,7 @@ Requires:
 """
 
 import os
+import tempfile
 import sys
 import json
 import argparse
@@ -136,7 +137,6 @@ CONFIG_SCHEMA = {
 
 TRADE_SOURCE = "sdk:btcupdown"
 SKILL_SLUG = "polymarket-btc-up-down-trader"
-_automaton_reported = False
 
 # Polymarket CLOB endpoint
 CLOB_API = "https://clob.polymarket.com"
@@ -159,9 +159,6 @@ cfg = load_config(CONFIG_SCHEMA, __file__, slug=SKILL_SLUG)
 ENTRY_THRESHOLD = cfg["entry_threshold"]
 MIN_MOMENTUM_PCT = cfg["min_momentum_pct"]
 MAX_POSITION_USD = cfg["max_position"]
-_automaton_max = os.environ.get("AUTOMATON_MAX_BET")
-if _automaton_max:
-    MAX_POSITION_USD = min(MAX_POSITION_USD, float(_automaton_max))
 LOOKBACK_MINUTES = cfg["lookback_minutes"]
 DAILY_BUDGET = cfg["daily_budget"]
 MIN_HOURS_TO_RESOLUTION = cfg["min_hours_to_resolution"]
@@ -551,8 +548,15 @@ def _load_daily_spend():
 
 
 def _save_daily_spend(spend_data):
-    with open(_get_spend_path(), "w") as f:
-        json.dump(spend_data, f, indent=2)
+    spend_path = _get_spend_path()
+    tmp_fd, tmp_path = tempfile.mkstemp(dir=spend_path.parent, prefix=".daily_spend_")
+    try:
+        with os.fdopen(tmp_fd, "w") as f:
+            json.dump(spend_data, f, indent=2)
+        os.replace(tmp_path, spend_path)
+    except Exception:
+        os.unlink(tmp_path)
+        raise
 
 
 # =============================================================================
@@ -560,17 +564,29 @@ def _save_daily_spend(spend_data):
 # =============================================================================
 
 def get_open_positions(client):
-    """Fetch open BTC UP/DOWN positions tagged with our source."""
+    """
+    Fetch open BTC UP/DOWN positions tagged with our source.
+    Returns list of Position dataclass objects (simmer_sdk.client.Position).
+    """
     try:
         positions = client.get_positions() or []
     except Exception as e:
         print(f"  Warning: could not fetch positions: {e}")
         return []
-    return [
-        p for p in positions
-        if (p.get("source") == TRADE_SOURCE or "btcupdown" in str(p.get("source", "")))
-        and float(p.get("quantity", 0)) > 0
-    ]
+    result = []
+    for p in positions:
+        sources = p.sources or []
+        if not any(TRADE_SOURCE in s or "btcupdown" in s for s in sources):
+            continue
+        # Derive the held side and quantity from Position fields
+        if p.shares_yes > 0:
+            quantity = p.shares_yes
+        elif p.shares_no > 0:
+            quantity = p.shares_no
+        else:
+            continue
+        result.append(p)
+    return result
 
 
 def run_exit_monitor(client, live=False, quiet=False):
@@ -589,13 +605,23 @@ def run_exit_monitor(client, live=False, quiet=False):
 
     closed = 0
     for pos in positions:
-        market_id = pos.get("marketId") or pos.get("market_id") or pos.get("conditionId")
-        side = pos.get("side", "YES")
-        quantity = float(pos.get("quantity", 0))
+        market_id = pos.market_id
+        if pos.shares_yes > 0:
+            side = "YES"
+            quantity = pos.shares_yes
+        elif pos.shares_no > 0:
+            side = "NO"
+            quantity = pos.shares_no
+        else:
+            continue
         # NOTE: entry_price is always the YES-side price at entry (0–1 scale), regardless
         # of whether this position is YES or NO. check_target_hit_exit() expects this:
-        # for NO positions, the YES price was high at entry and has since fallen.
-        entry_price = pos.get("entry_price") or pos.get("avgPrice") or pos.get("avg_price")
+        # for NO positions, avg_cost is per-NO-share; convert to YES-side equivalent.
+        raw_avg_cost = pos.avg_cost
+        if raw_avg_cost is not None:
+            entry_price = float(raw_avg_cost) if side == "YES" else 1.0 - float(raw_avg_cost)
+        else:
+            entry_price = None
 
         if not market_id or quantity <= 0:
             continue
@@ -640,10 +666,10 @@ def run_exit_monitor(client, live=False, quiet=False):
         if not yes_token_id:
             continue
 
-        pos_with_entry = dict(pos)
-        if entry_price is not None:
-            pos_with_entry["entry_price"] = float(entry_price)
-            pos_with_entry["side"] = side
+        pos_with_entry = {
+            "entry_price": float(entry_price) if entry_price is not None else None,
+            "side": side,
+        }
 
         question = market_data.get("question", market_id)
 
@@ -814,36 +840,6 @@ def run_entry_scan(client, live=False, quiet=False):
 
 
 # =============================================================================
-# Automaton output (required for AUTOMATON_MANAGED=1 harness)
-# =============================================================================
-
-def _emit_automaton_output(positions, markets, config_snapshot):
-    """Emit the JSON automaton block on stdout when managed by harness."""
-    global _automaton_reported
-    if _automaton_reported:
-        return
-    _automaton_reported = True
-
-    block = {
-        "automaton": {
-            "skill": SKILL_SLUG,
-            "version": "1.0.0",
-            "status": "running",
-            "open_positions": len(positions),
-            "active_markets_found": len(markets),
-            "config": {
-                "exit_before_resolution_hours": EXIT_BEFORE_RESOLUTION_HOURS,
-                "volume_spike_exit_multiplier": VOLUME_SPIKE_EXIT_MULTIPLIER,
-                "target_hit_capture_pct": TARGET_HIT_CAPTURE_PCT,
-                "max_position_usd": MAX_POSITION_USD,
-                "daily_budget_usd": DAILY_BUDGET,
-            },
-        }
-    }
-    print(json.dumps(block))
-
-
-# =============================================================================
 # CLI
 # =============================================================================
 
@@ -912,15 +908,6 @@ def main():
 
     client = get_client(live=args.live)
 
-    # Emit automaton block if managed
-    if os.environ.get("AUTOMATON_MANAGED") == "1":
-        try:
-            positions = get_open_positions(client)
-            markets = fetch_btc_updown_markets()
-        except Exception:
-            positions, markets = [], []
-        _emit_automaton_output(positions, markets, cfg)
-
     # --positions mode
     if args.positions:
         positions = get_open_positions(client)
@@ -929,7 +916,13 @@ def main():
             return
         print(f"\n📊 Open BTC UP/DOWN positions ({len(positions)}):\n")
         for p in positions:
-            print(f"  {p.get('market_id', 'unknown')} | {p.get('side')} | qty: {p.get('quantity')}")
+            if p.shares_yes > 0:
+                side = "YES"
+                qty = p.shares_yes
+            else:
+                side = "NO"
+                qty = p.shares_no
+            print(f"  {p.market_id} | {side} | qty: {qty:.1f}")
         return
 
     # Run exit monitor first (always)

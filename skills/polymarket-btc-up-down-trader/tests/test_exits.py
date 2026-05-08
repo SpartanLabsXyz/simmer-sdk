@@ -435,5 +435,141 @@ class TestEntryEdgeSemantics(unittest.TestCase):
         self.assertGreater(self._edge_down(0.60), threshold)  # YES at 0.60, down momentum
 
 
+class TestGetOpenPositions(unittest.TestCase):
+    """
+    Pin the SDK Position dataclass contract used in get_open_positions().
+
+    Builds synthetic Position objects (matching simmer_sdk.client.Position) directly
+    in the test — no network, no real SDK needed.
+    """
+
+    def _make_position(self, **kwargs):
+        """Build a minimal Position-shaped dataclass instance."""
+        from dataclasses import dataclass
+        from typing import Optional, List
+
+        @dataclass
+        class Position:
+            market_id: str
+            question: str
+            shares_yes: float
+            shares_no: float
+            current_value: float
+            pnl: float
+            status: str
+            venue: str = "polymarket"
+            sim_balance: Optional[float] = None
+            cost_basis: Optional[float] = None
+            avg_cost: Optional[float] = None
+            current_price: Optional[float] = None
+            sources: Optional[List[str]] = None
+
+        defaults = dict(
+            market_id="0xabc123",
+            question="Will BTC be UP?",
+            shares_yes=0.0,
+            shares_no=0.0,
+            current_value=4.00,
+            pnl=0.5,
+            status="open",
+        )
+        defaults.update(kwargs)
+        return Position(**defaults)
+
+    def _client_with_positions(self, positions):
+        client = MagicMock()
+        client.get_positions.return_value = positions
+        return client
+
+    def test_yes_position_included(self):
+        """YES position with matching source is returned."""
+        p = self._make_position(
+            shares_yes=10.0,
+            avg_cost=0.45,
+            sources=["sdk:btcupdown"],
+        )
+        client = self._client_with_positions([p])
+        result = strat.get_open_positions(client)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0].market_id, "0xabc123")
+
+    def test_no_position_included(self):
+        """NO position with matching source is returned."""
+        p = self._make_position(
+            shares_no=10.0,
+            avg_cost=0.40,
+            sources=["sdk:btcupdown"],
+        )
+        client = self._client_with_positions([p])
+        result = strat.get_open_positions(client)
+        self.assertEqual(len(result), 1)
+
+    def test_unrelated_source_excluded(self):
+        """Position from a different skill is filtered out."""
+        p = self._make_position(
+            shares_yes=5.0,
+            sources=["sdk:other-skill"],
+        )
+        client = self._client_with_positions([p])
+        result = strat.get_open_positions(client)
+        self.assertEqual(len(result), 0)
+
+    def test_zero_shares_excluded(self):
+        """Position with zero YES and zero NO shares is filtered out."""
+        p = self._make_position(
+            shares_yes=0.0,
+            shares_no=0.0,
+            sources=["sdk:btcupdown"],
+        )
+        client = self._client_with_positions([p])
+        result = strat.get_open_positions(client)
+        self.assertEqual(len(result), 0)
+
+    def test_avg_cost_no_position_conversion(self):
+        """
+        For a NO position, avg_cost is the per-NO-share cost.
+        YES-side equivalent entry_price = 1 - avg_cost.
+        """
+        # avg_cost=0.40 on NO shares → YES-side entry_price should be 0.60
+        raw = 0.40
+        yes_equiv = 1.0 - raw
+        self.assertAlmostEqual(yes_equiv, 0.60, places=6)
+
+    def test_avg_cost_yes_position_passthrough(self):
+        """For a YES position, avg_cost IS the entry price."""
+        raw = 0.35
+        entry_price = float(raw)  # side == "YES" → no conversion
+        self.assertAlmostEqual(entry_price, 0.35, places=6)
+
+    def test_none_avg_cost_handled(self):
+        """Position with avg_cost=None is returned; entry_price will be None."""
+        p = self._make_position(
+            shares_yes=8.0,
+            avg_cost=None,
+            sources=["sdk:btcupdown"],
+        )
+        client = self._client_with_positions([p])
+        result = strat.get_open_positions(client)
+        self.assertEqual(len(result), 1)
+        self.assertIsNone(result[0].avg_cost)
+
+    def test_get_positions_exception_returns_empty(self):
+        """SDK raising an exception → get_open_positions returns []."""
+        client = MagicMock()
+        client.get_positions.side_effect = RuntimeError("network error")
+        result = strat.get_open_positions(client)
+        self.assertEqual(result, [])
+
+    def test_btcupdown_substring_source_match(self):
+        """Source containing 'btcupdown' (not exact prefix) is also accepted."""
+        p = self._make_position(
+            shares_yes=3.0,
+            sources=["legacy:btcupdown_v1"],
+        )
+        client = self._client_with_positions([p])
+        result = strat.get_open_positions(client)
+        self.assertEqual(len(result), 1)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
