@@ -3,6 +3,12 @@
 All notable changes to `simmer-sdk` are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`polymarket-btc-up-down-trader` skill** — exit-disciplined BTC UP/DOWN market trader for Polymarket. Enters YES on up-momentum markets where the YES price disagrees (< 0.50) and NO on down-momentum markets where the YES price disagrees (> 0.50). Three user-tunable exit triggers: `exit_before_resolution_hours` (default 1.0h, time-cap), `volume_spike_exit_multiplier` (default 3.0×, smart-money signal), and `target_hit_capture_pct` (default 85%, lock-in-gains). Each trigger is disableable via `=0`. Daily budget cap and per-trade position sizing via `max_position`. SIM-1557.
+
 ## [0.17.0] — 2026-05-08
 
 ### Added
