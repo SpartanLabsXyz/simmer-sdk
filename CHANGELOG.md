@@ -3,6 +3,28 @@
 All notable changes to `simmer-sdk` are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.2] — 2026-05-09
+
+### Fixed
+
+- **GTC/GTD off-tick rejection on deposit-wallet signing path (SIM-1666 follow-up).** `_build_and_sign_order_v2_dw` GTC/GTD branch now delegates to `py_clob_client_v2.OrderBuilder.get_order_amounts` — the canonical precision helper Polymarket V2's CLOB validates against. Previously, polynode's `compute_amounts` did `round(size * 1e6)` without first flooring `size` to `RoundConfig.size`, producing 6-decimal `maker`/`taker` integers whose derived effective price (`maker / taker`) drifted off the tick grid and triggered `Price (X) breaks minimum tick size rule: Y` upstream. 0.17.1's `round_price_to_tick()` quantised the input price but couldn't fix the maker/taker ratio Polymarket recomputes. Affected wallets that had already upgraded to 0.17.1 (rjreyes / mt_1200, 327 hits over 2026-05-07–09 even on the latest SDK).
+
+  The canonical helper does `raw_taker = round_down(size, size_dec=2)` → `raw_maker = raw_taker × raw_price` → `round_down(raw_maker, amount_dec)` if needed. With size pre-floored, the resulting integers are tick-aligned by construction, so both Polymarket's CLOB and Simmer's pre-submit precision gate (`local_dev_server.py:19443`) accept them without further work. Replaces the SIM-1620 post-hoc share-side floor (no longer needed; the canonical path produces clean amounts naturally).
+
+  The fix only touches the GTC/GTD branch of the POLY_1271 (deposit-wallet) path. FAK/FOK BUY (Decimal cents-aligned), FAK/FOK SELL (Decimal pre-floor + compute_amounts), and the non-DW V2 path (already canonical) are unchanged.
+
+  Worked example (price=0.97, size=5.6701030927835, tick=0.001):
+  - polynode (broken): `maker=5499999` (6dp ❌), `taker=5670103` (6dp ❌), effective price 0.9699998… off-tick
+  - canonical (fixed): `maker=5499900` (4dp ✓), `taker=5670000` (clean ✓), effective price 0.97 exact ✓
+
+  Reported by rjreyes / mt_1200 2026-05-09. SIM-1666.
+
+## [0.17.1] — 2026-05-08
+
+### Fixed
+
+- **Price not on tick grid (SIM-1666).** Added `round_price_to_tick(price, tick_size)` helper using `Decimal.quantize(ROUND_HALF_UP)`, applied at the entry of `build_and_sign_order()` and `build_and_sign_order_ows()` so all V1/V2/DW/OWS paths quantise the raw input price before reaching the CLOB. Fixes ~25+ buy rejections per cycle on rjreyes/weather-trader999 with errors like `Price (0.9690009744) breaks minimum tick size rule: 0.001`. Insufficient on its own for the deposit-wallet GTC path — see 0.17.2 for the maker/taker ratio drift fix.
+
 ## [0.17.0] — 2026-05-08
 
 ### Added

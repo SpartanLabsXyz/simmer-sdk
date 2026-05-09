@@ -591,3 +591,164 @@ def test_dw_gtc_buy_taker_precision_all_tick_sizes(tick_size, price, amount, exp
         f"divisible by {expected_divisor} for tick_size={tick_size}. "
         f"SIM-1620 regression."
     )
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Regression: GTC/GTD MAKER precision + derived effective price (SIM-1666
+# 0.17.2 follow-up). 0.17.1 round_price_to_tick fixed the input price but
+# couldn't fix the maker/taker ratio Polymarket recomputes server-side.
+# rjreyes/mt_1200 hit 327 tick-rule rejections on 0.17.1 because polynode
+# compute_amounts skips round_down(size, 2), letting both maker AND taker
+# drift to 6dp. The 0.17.2 swap to py_clob_client_v2.get_order_amounts
+# fixes both legs by construction.
+# ─────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize("tick_size,price,amount,expected_divisor", [
+    (0.1,    0.3,    2.47, 1000),
+    (0.01,   0.33,   2.47, 100),
+    (0.001,  0.557,  3.09, 10),
+    (0.0001, 0.5555, 3.09, 1),
+])
+def test_dw_gtc_buy_maker_precision_all_tick_sizes(tick_size, price, amount, expected_divisor):
+    """GTC BUY makerAmount must be divisible by 10^(6-amount_dec) for every
+    tick. polynode compute_amounts produced 6dp maker on tick=0.001 because
+    raw_size was un-floored; the canonical get_order_amounts pre-floors size
+    so maker = size_floored × price stays within RoundConfig.amount.
+
+    Sister to taker test above. Both legs must be tick-aligned for the
+    derived effective price (maker/taker) to land on the tick grid;
+    Polymarket's CLOB validates the ratio, not the input price.
+
+    SIM-1666 (0.17.2 follow-up).
+    """
+    _ensure_v2_enabled()
+    from simmer_sdk.signing import build_and_sign_order
+
+    priv, eoa = _make_eoa()
+    dw = _derive_dw(eoa)
+    size = amount / price
+
+    signed = build_and_sign_order(
+        private_key=priv,
+        wallet_address=eoa,
+        token_id="71321045679252212594626385532706912750332728571942532289631379312455583992563",
+        side="BUY",
+        price=price,
+        size=size,
+        signature_type=3,
+        deposit_wallet_address=dw,
+        tick_size=tick_size,
+        order_type="GTC",
+    )
+    maker_raw = int(signed.makerAmount)
+    assert maker_raw % expected_divisor == 0, (
+        f"GTC BUY makerAmount {maker_raw} ({maker_raw/1e6} USDC) not "
+        f"divisible by {expected_divisor} for tick_size={tick_size}. "
+        f"SIM-1666 regression — polynode 6dp drift returning."
+    )
+
+
+@pytest.mark.parametrize("tick_size,price,size,expected_divisor", [
+    (0.1,    0.3,    8.249,  1000),
+    (0.01,   0.33,   7.4848, 100),
+    (0.001,  0.557,  5.5476, 10),
+    (0.0001, 0.5555, 5.5631, 1),
+])
+def test_dw_gtc_sell_taker_precision_all_tick_sizes(tick_size, price, size, expected_divisor):
+    """GTC SELL takerAmount (USDC received) must be divisible by
+    10^(6-amount_dec) for every tick. Same root cause as the BUY-maker
+    case above; tested independently because the SELL branch swaps the
+    maker/taker semantics inside get_order_amounts.
+
+    SIM-1666 (0.17.2 follow-up).
+    """
+    _ensure_v2_enabled()
+    from simmer_sdk.signing import build_and_sign_order
+
+    priv, eoa = _make_eoa()
+    dw = _derive_dw(eoa)
+
+    signed = build_and_sign_order(
+        private_key=priv,
+        wallet_address=eoa,
+        token_id="71321045679252212594626385532706912750332728571942532289631379312455583992563",
+        side="SELL",
+        price=price,
+        size=size,
+        signature_type=3,
+        deposit_wallet_address=dw,
+        tick_size=tick_size,
+        order_type="GTC",
+    )
+    taker_raw = int(signed.takerAmount)
+    assert taker_raw % expected_divisor == 0, (
+        f"GTC SELL takerAmount {taker_raw} ({taker_raw/1e6} USDC) not "
+        f"divisible by {expected_divisor} for tick_size={tick_size}. "
+        f"SIM-1666 regression."
+    )
+
+
+@pytest.mark.parametrize("side,tick_size,price,size", [
+    # mt_1200 / rjreyes 2026-05-09: $5.5 BUY at 0.97 (tick=0.001) → size=5.6701030927835
+    # polynode produced effective price 0.96999982… off-tick → CLOB rejected
+    ("BUY",  0.001, 0.97,   5.6701030927835),
+    # rjreyes 2026-05-09 02:50: 0.962 case → effective price 0.962000962… off-tick
+    ("BUY",  0.001, 0.962,  5.7172557172557),
+    # tick=0.01 case: float-drift land
+    ("BUY",  0.01,  0.97,   5.5573453608247),
+    # SELL parity
+    ("SELL", 0.001, 0.97,   5.6701030927835),
+    ("SELL", 0.01,  0.33,   7.4848484848484),
+])
+def test_dw_gtc_effective_price_on_tick_grid(side, tick_size, price, size):
+    """Derived effective price (makerAmount / takerAmount) must equal a
+    tick-grid value. Polymarket's CLOB recomputes this server-side and
+    rejects with `Price (X) breaks minimum tick size rule: Y` when it
+    doesn't land on a multiple of tick_size — exactly what mt_1200/rjreyes
+    hit 327 times on 0.17.1.
+
+    The canonical get_order_amounts pre-floors size to RoundConfig.size,
+    so price = (size_floored × price) / size_floored = price exactly
+    (modulo the tick-grid rounding of price itself).
+
+    SIM-1666 (0.17.2 follow-up).
+    """
+    _ensure_v2_enabled()
+    from decimal import Decimal
+    from simmer_sdk.signing import build_and_sign_order
+
+    priv, eoa = _make_eoa()
+    dw = _derive_dw(eoa)
+
+    signed = build_and_sign_order(
+        private_key=priv,
+        wallet_address=eoa,
+        token_id="71321045679252212594626385532706912750332728571942532289631379312455583992563",
+        side=side,
+        price=price,
+        size=size,
+        signature_type=3,
+        deposit_wallet_address=dw,
+        tick_size=tick_size,
+        order_type="GTC",
+    )
+    maker = int(signed.makerAmount)
+    taker = int(signed.takerAmount)
+
+    # Effective price: BUY → maker(USDC)/taker(shares); SELL → taker(USDC)/maker(shares)
+    if side == "BUY":
+        eff_price = Decimal(maker) / Decimal(taker)
+    else:
+        eff_price = Decimal(taker) / Decimal(maker)
+
+    tick_dec = Decimal(str(tick_size))
+    # eff_price should be an exact multiple of tick. Use modulo on the
+    # quantized representation to avoid Decimal-vs-float comparison noise.
+    remainder = eff_price.quantize(Decimal("0.0000001")) % tick_dec
+    assert remainder == 0 or remainder == tick_dec, (
+        f"{side} GTC effective price {eff_price} (maker={maker}, taker={taker}) "
+        f"is not on tick grid (tick_size={tick_size}). "
+        f"Polymarket CLOB will reject with 'breaks minimum tick size rule'. "
+        f"SIM-1666 regression."
+    )

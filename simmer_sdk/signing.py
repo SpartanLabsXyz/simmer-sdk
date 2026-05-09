@@ -943,28 +943,41 @@ def _build_and_sign_order_v2_dw(
             tick_size=tick_str,
         )
     else:
-        # GTC / GTD limit — compute_amounts does round(size * 1e6) which
-        # can produce arbitrary 6dp share amounts. For tick=0.001 the CLOB
-        # and Simmer's pre-submit validation require shares to be divisible
-        # by 10 (max 5dp = 10^(6-5)). Floor shares to tick precision after
-        # compute_amounts to match what py_clob_client_v2.build_order does
-        # internally via round_down(size, round_config.size=2).
-        maker_amount, taker_amount = compute_amounts(
-            price=float(price), size=float(size), side=side_upper, tick_size=tick_str
+        # GTC / GTD limit — delegate to py_clob_client_v2's canonical
+        # get_order_amounts. This is the exact precision logic Polymarket
+        # V2's CLOB validates against: floor size to RoundConfig.size,
+        # round price to RoundConfig.price, compute maker = size × price,
+        # round_down maker to RoundConfig.amount if it overflows.
+        #
+        # Why not polynode.compute_amounts: it does round(size * 1e6) with
+        # NO size flooring, producing 6dp maker/taker that violate
+        # RoundConfig.amount on tick=0.001. Symptoms:
+        #   - takerAmount X exceeds max precision (caught by our pre-submit
+        #     gate) → SIM-1620, mt_1200 2026-05-07
+        #   - "Price (X) breaks minimum tick size rule" (caught by
+        #     Polymarket's CLOB on the derived maker/taker ratio) →
+        #     rjreyes/mt_1200 327 hits 2026-05-07–09 even on 0.17.1
+        # Both root-cause to the same missing round_down(size, size_dec).
+        # The canonical helper does it; matching what Polymarket itself
+        # uses is preferable to maintaining a parallel post-hoc floor.
+        from py_clob_client_v2.order_builder.builder import (  # noqa: WPS433
+            OrderBuilder as _V2OrderBuilder,
+            ROUNDING_CONFIG as _V2_ROUNDING_CONFIG,
         )
-        # _MARKET_AMOUNT_DECIMALS defined above in the FAK/FOK BUY block.
-        # Re-lookup here to keep the else block self-contained.
-        _amt_dec_gtc = {
-            "0.1": 3, "0.01": 4, "0.001": 5, "0.0001": 6,
-        }.get(tick_str)
-        if _amt_dec_gtc is not None:
-            _share_divisor = 10 ** (6 - _amt_dec_gtc)
-            if side_upper == "BUY":
-                # taker = shares received; floor to tick precision
-                taker_amount = (taker_amount // _share_divisor) * _share_divisor
-            else:
-                # maker = shares sold; floor to tick precision
-                maker_amount = (maker_amount // _share_divisor) * _share_divisor
+        if tick_str not in _V2_ROUNDING_CONFIG:
+            raise ValueError(
+                f"Unsupported tick_size for GTC/GTD: {tick_str!r}. "
+                f"Expected one of {list(_V2_ROUNDING_CONFIG)}."
+            )
+        # Bypass __init__ (avoids needing a Signer for this pure helper).
+        # Same pattern as the V1 path at line ~240.
+        _dummy = _V2OrderBuilder.__new__(_V2OrderBuilder)
+        _, maker_amount, taker_amount = _dummy.get_order_amounts(
+            side_upper,
+            float(size),
+            float(price),
+            _V2_ROUNDING_CONFIG[tick_str],
+        )
 
     # Enforce MIN_ORDER_SIZE_SHARES locally to fail fast (matches the V1
     # path's behavior). Without this, sub-minimum orders signed cleanly
