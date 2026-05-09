@@ -3,6 +3,18 @@
 All notable changes to `simmer-sdk` are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.3] — 2026-05-09
+
+### Fixed
+
+- **GTC/GTD float underflow on clean 2dp sizes (codex P2 follow-up to 0.17.2).** `py_clob_client_v2.get_order_amounts` uses float-based `round_down(size, size_dec)` internally, which does `floor(size * 10**size_dec) / 10**size_dec`. A clean 2-decimal size like `2.30` is stored in IEEE-754 as `2.299999999999999822…`, so `floor(2.30 * 100) = floor(229.999…) = 229` — the user's 2.30-share order silently signs as 2.29. Same class of bug as the FAK/FOK SELL branch already fixed via Decimal-via-str.
+
+  Replaces the `get_order_amounts` call in `_build_and_sign_order_v2_dw` GTC/GTD branch with a Decimal-pure mirror of its algorithm. `Decimal(str(size)).quantize(size_q, ROUND_DOWN)` preserves user intent (`str(2.30) == '2.3'` → quantized to 2dp = `2.30`, not `2.29`). The Decimal product `size × price` always has at most `price_dec + size_dec` decimals (= `amount_dec` for all standard ticks), so the overflow path of the canonical algorithm is unreachable and skipped.
+
+  Caught by codex review on the sibling simmer monorepo PR (`simmer/simmer_v3/polymarket_v2_signing.py:_build_and_sign_order_v2_dw`, PR #647) — same canonical-helper swap, same underflow, same fix.
+
+  SIM-1666.
+
 ## [0.17.2] — 2026-05-09
 
 ### Fixed

@@ -752,3 +752,55 @@ def test_dw_gtc_effective_price_on_tick_grid(side, tick_size, price, size):
         f"Polymarket CLOB will reject with 'breaks minimum tick size rule'. "
         f"SIM-1666 regression."
     )
+
+
+@pytest.mark.parametrize("side,tick_size,price,size,expected_share_units", [
+    # Codex P2 (sibling PR simmer#647) ported back to the SDK: clean 2dp size
+    # with IEEE-754 underflow. `5.30` is stored as 5.299999999999999822…, so
+    # py_clob_client_v2's float `round_down(5.30, 2) = floor(529.999…)/100 = 5.29`,
+    # silently shaving the user's 5.30-share order. Decimal-via-str preserves
+    # intent (str(5.30) == '5.3' → quantized 2dp = 5.30 → preserved).
+    # Sizes are >= MIN_ORDER_SIZE_SHARES (5) so the local guard doesn't fire.
+    # `expected_share_units` is the share-side raw (taker for BUY, maker for SELL).
+    ("BUY",  0.01,  0.50, 5.30, 5_300_000),
+    ("SELL", 0.01,  0.50, 5.30, 5_300_000),
+    ("BUY",  0.01,  0.40, 7.10, 7_100_000),
+    ("SELL", 0.01,  0.40, 7.10, 7_100_000),
+    ("BUY",  0.001, 0.500, 5.30, 5_300_000),
+    ("SELL", 0.001, 0.500, 5.30, 5_300_000),
+])
+def test_dw_gtc_clean_2dp_size_preserved(side, tick_size, price, size, expected_share_units):
+    """Clean 2dp sizes with IEEE-754 underflow (e.g. 2.30 stored as
+    2.2999999999…) must NOT be shaved by the GTC path. The canonical
+    py_clob_client_v2.get_order_amounts uses float-based round_down which
+    does floor(229.999…) = 229 → 2.30 signs as 2.29. Decimal-via-str
+    pre-floor preserves the user's intent.
+
+    Codex P2 finding from sibling simmer PR #647. SIM-1666 regression.
+    """
+    _ensure_v2_enabled()
+    from simmer_sdk.signing import build_and_sign_order
+
+    priv, eoa = _make_eoa()
+    dw = _derive_dw(eoa)
+
+    signed = build_and_sign_order(
+        private_key=priv,
+        wallet_address=eoa,
+        token_id="71321045679252212594626385532706912750332728571942532289631379312455583992563",
+        side=side,
+        price=price,
+        size=size,
+        signature_type=3,
+        deposit_wallet_address=dw,
+        tick_size=tick_size,
+        order_type="GTC",
+    )
+    share_side_raw = int(signed.takerAmount if side == "BUY" else signed.makerAmount)
+    assert share_side_raw == expected_share_units, (
+        f"{side} GTC size={size} on tick={tick_size}: expected share-side "
+        f"raw={expected_share_units} ({expected_share_units/1e6} sh, preserved), "
+        f"got {share_side_raw} ({share_side_raw/1e6} sh, shaved). "
+        f"IEEE-754 underflow regression — float round_down(size, 2) is "
+        f"silently flooring 2.30 → 2.29 when it shouldn't."
+    )
