@@ -943,25 +943,33 @@ def _build_and_sign_order_v2_dw(
             tick_size=tick_str,
         )
     else:
-        # GTC / GTD limit — delegate to py_clob_client_v2's canonical
-        # get_order_amounts. This is the exact precision logic Polymarket
-        # V2's CLOB validates against: floor size to RoundConfig.size,
-        # round price to RoundConfig.price, compute maker = size × price,
-        # round_down maker to RoundConfig.amount if it overflows.
+        # GTC / GTD limit — Decimal-pure mirror of py_clob_client_v2's
+        # canonical get_order_amounts. We can't call get_order_amounts
+        # directly because its internal round_down(size, size_dec) does
+        # `floor(size * 10**size_dec) / 10**size_dec` in float, and a
+        # clean 2dp size like `2.30` is stored in IEEE-754 as
+        # 2.299999999999999822…, so `floor(229.999…) = 229` and the user's
+        # 2.30-share order signs as 2.29. Codex caught this in the
+        # sibling simmer PR #647 review (same fix applied there).
+        # The nearby market-SELL branch already uses Decimal-via-str.
         #
-        # Why not polynode.compute_amounts: it does round(size * 1e6) with
-        # NO size flooring, producing 6dp maker/taker that violate
-        # RoundConfig.amount on tick=0.001. Symptoms:
-        #   - takerAmount X exceeds max precision (caught by our pre-submit
-        #     gate) → SIM-1620, mt_1200 2026-05-07
-        #   - "Price (X) breaks minimum tick size rule" (caught by
-        #     Polymarket's CLOB on the derived maker/taker ratio) →
-        #     rjreyes/mt_1200 327 hits 2026-05-07–09 even on 0.17.1
-        # Both root-cause to the same missing round_down(size, size_dec).
-        # The canonical helper does it; matching what Polymarket itself
-        # uses is preferable to maintaining a parallel post-hoc floor.
+        # Algorithm (mirrors py_clob_client_v2.OrderBuilder.get_order_amounts):
+        #   raw_price = round_normal(price, price_dec)   # nearest tick
+        #   raw_size  = round_down(size, size_dec)       # floor (preserves intent in Decimal)
+        #   BUY:  raw_taker = raw_size; raw_maker = raw_size × raw_price
+        #   SELL: raw_maker = raw_size; raw_taker = raw_size × raw_price
+        #   if dp(amount_side) > amount_dec: round_down to amount_dec
+        # With Decimal arithmetic on size/price quantized to size_dec/price_dec,
+        # the product has at most price_dec + size_dec decimals (= amount_dec
+        # for all standard ticks), so the overflow path is unreachable here.
+        #
+        # Why not polynode.compute_amounts: skips the size pre-floor entirely
+        # (does round(size * 1e6)), producing 6dp maker/taker whose derived
+        # effective price drifts off the tick grid → 327 CLOB rejections on
+        # rjreyes/mt_1200 across 2026-05-07–09 even on 0.17.1. Was the
+        # original SIM-1666 / 0.17.2 fix.
+        from decimal import Decimal, ROUND_DOWN, ROUND_HALF_EVEN  # noqa: WPS433
         from py_clob_client_v2.order_builder.builder import (  # noqa: WPS433
-            OrderBuilder as _V2OrderBuilder,
             ROUNDING_CONFIG as _V2_ROUNDING_CONFIG,
         )
         if tick_str not in _V2_ROUNDING_CONFIG:
@@ -969,15 +977,28 @@ def _build_and_sign_order_v2_dw(
                 f"Unsupported tick_size for GTC/GTD: {tick_str!r}. "
                 f"Expected one of {list(_V2_ROUNDING_CONFIG)}."
             )
-        # Bypass __init__ (avoids needing a Signer for this pure helper).
-        # Same pattern as the V1 path at line ~240.
-        _dummy = _V2OrderBuilder.__new__(_V2OrderBuilder)
-        _, maker_amount, taker_amount = _dummy.get_order_amounts(
-            side_upper,
-            float(size),
-            float(price),
-            _V2_ROUNDING_CONFIG[tick_str],
-        )
+        _rc = _V2_ROUNDING_CONFIG[tick_str]
+        _price_q = Decimal(10) ** -_rc.price
+        _size_q = Decimal(10) ** -_rc.size
+        _amt_q = Decimal(10) ** -_rc.amount
+
+        # Decimal-via-str preserves user intent (str(2.30) == '2.3',
+        # quantized to 2dp = '2.30', NOT the 2.299999… IEEE artifact).
+        _p_dec = Decimal(str(price)).quantize(_price_q, rounding=ROUND_HALF_EVEN)
+        _s_dec = Decimal(str(size)).quantize(_size_q, rounding=ROUND_DOWN)
+
+        if side_upper == "BUY":
+            _taker_dec = _s_dec
+            _maker_dec = (_s_dec * _p_dec).quantize(_amt_q, rounding=ROUND_DOWN)
+        else:
+            _maker_dec = _s_dec
+            _taker_dec = (_s_dec * _p_dec).quantize(_amt_q, rounding=ROUND_DOWN)
+
+        # Convert to 6-decimal raw integer (USDC/share token decimals).
+        # to_integral_value with ROUND_DOWN matches int() semantics for
+        # the non-negative values we deal with here.
+        maker_amount = int((_maker_dec * 1_000_000).to_integral_value(rounding=ROUND_DOWN))
+        taker_amount = int((_taker_dec * 1_000_000).to_integral_value(rounding=ROUND_DOWN))
 
     # Enforce MIN_ORDER_SIZE_SHARES locally to fail fast (matches the V1
     # path's behavior). Without this, sub-minimum orders signed cleanly
