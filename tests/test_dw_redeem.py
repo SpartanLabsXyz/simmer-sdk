@@ -432,6 +432,49 @@ def test_redeem_external_dw_falls_back_to_legacy_on_404():
     assert client._wallet_ownership == "external"
 
 
+def test_prepare_dw_redeem_raises_already_redeemed_when_server_signals():
+    """Codex P2 round-3 (2026-05-10): server returns
+    `{already_redeemed: True}` when it detects DW=0 + EOA=0 (position
+    already redeemed). Helper raises typed exception so the caller can
+    treat as success-no-op without parsing response shape."""
+    with patch("simmer_sdk.dw_redeem.requests.post") as post:
+        post.return_value = _mock_response(
+            200,
+            {"already_redeemed": True, "condition_id": "0x" + "ab" * 32, "outcome": "no"},
+        )
+        with pytest.raises(DwRedeemPrepareError) as exc_info:
+            prepare_dw_redeem(
+                api_url=API_BASE, headers=HEADERS,
+                market_id="m-123", side="no",
+            )
+    assert exc_info.value.already_redeemed is True
+    assert exc_info.value.eoa_fallback is False
+    assert exc_info.value.status_code == 200
+
+
+def test_redeem_external_dw_treats_already_redeemed_as_success_noop():
+    """SIM-1645 codex round-3 sibling: when prepare signals already_redeemed,
+    `_redeem_external_dw` must return success (no tx_hash) so auto_redeem
+    doesn't loop or surface a failure for nothing-to-do."""
+    client = _make_client()
+    client._wallet_ownership = "external"
+    client._wallet_uses_deposit_wallet = True
+    client._cohort_fetched_at = time.time()
+    client._private_key = "0x" + "11" * 32
+
+    with patch("simmer_sdk.dw_redeem.requests.post") as post:
+        post.return_value = _mock_response(
+            200,
+            {"already_redeemed": True, "condition_id": "0x" + "ab" * 32, "outcome": "no"},
+        )
+        result = client.redeem("m-123", "no")
+
+    post.assert_called_once()
+    assert result["success"] is True
+    assert result["tx_hash"] is None
+    assert result.get("already_redeemed") is True
+
+
 def test_redeem_external_dw_falls_back_to_legacy_on_eoa_fallback_signal():
     """SIM-1645 — server detects DW=0 + EOA>0 (position lives on EOA from
     sig-type-0 trade path) and returns `eoa_fallback=True`. SDK must

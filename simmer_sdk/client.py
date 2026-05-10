@@ -2743,6 +2743,20 @@ class SimmerClient:
                 "calls_executed": result.get("calls_executed"),
             }
         except DwRedeemPrepareError as exc:
+            if exc.already_redeemed:
+                # Server detected DW=0 + EOA=0 → position was already
+                # redeemed (or never held). Treat as a no-op success so
+                # the caller's auto_redeem doesn't loop or surface an
+                # error for nothing to do.
+                logger.info(
+                    "redeem ext+DW: server reports already_redeemed for %s — no-op success.",
+                    market_id,
+                )
+                return {
+                    "success": True,
+                    "tx_hash": None,
+                    "already_redeemed": True,
+                }
             if exc.eoa_fallback:
                 # SIM-1645 — server detected DW=0 + EOA>0, meaning the
                 # position tokens accumulated on the EOA (sig-type-0 trade

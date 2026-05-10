@@ -60,10 +60,15 @@ class DwRedeemError(Exception):
 
 
 class DwRedeemPrepareError(DwRedeemError):
-    """Raised when /api/sdk/dw-redeem/prepare returns a non-2xx response.
+    """Raised when /api/sdk/dw-redeem/prepare returns a non-2xx response or
+    a special routing signal.
 
-    Carries `status_code` and `eoa_fallback` (True if the server signalled
-    DW=0 / EOA>0 — caller should fall back to the unsigned-tx EOA path).
+    Carries:
+      - status_code: HTTP status from prepare (200 for routing signals).
+      - eoa_fallback: True when server signalled DW=0 + EOA>0 — caller
+        should fall back to the unsigned-tx EOA path.
+      - already_redeemed: True when both DW + EOA balances are 0 — the
+        position was already redeemed (or never held); nothing to do.
     """
 
     def __init__(
@@ -72,10 +77,12 @@ class DwRedeemPrepareError(DwRedeemError):
         *,
         status_code: int,
         eoa_fallback: bool = False,
+        already_redeemed: bool = False,
     ) -> None:
         super().__init__(message)
         self.status_code = status_code
         self.eoa_fallback = eoa_fallback
+        self.already_redeemed = already_redeemed
 
 
 class DwRedeemSubmitError(DwRedeemError):
@@ -154,6 +161,16 @@ def prepare_dw_redeem(
         )
 
     data = res.json()
+    if data.get("already_redeemed"):
+        # Both DW and EOA hold zero of the winning position — the redemption
+        # already happened (or the position was never held). The server
+        # short-circuits here to avoid relayer-sponsored zero-payout calls.
+        # Caller should treat as success-no-op.
+        raise DwRedeemPrepareError(
+            "Position already redeemed — nothing to do.",
+            status_code=200,
+            already_redeemed=True,
+        )
     if data.get("eoa_fallback"):
         # Not an error per se — the server is telling us to use the legacy
         # path. Surface as a typed exception so the caller can handle it
