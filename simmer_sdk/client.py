@@ -2744,47 +2744,29 @@ class SimmerClient:
             }
         except DwRedeemPrepareError as exc:
             if exc.eoa_fallback:
-                # Server says position is on EOA, not DW — re-route to the
-                # legacy unsigned-tx path. Recurses through `redeem()` minus
-                # the cohort dispatch (forced by clearing the cohort cache
-                # so the next call doesn't re-detect ext+DW… but actually
-                # we want the SAME ext+DW user to use the EOA path JUST for
-                # this market). Cleaner: call /api/sdk/redeem directly.
+                # SIM-1645 — server detected DW=0 + EOA>0, meaning the
+                # position tokens accumulated on the EOA (sig-type-0 trade
+                # path) instead of the DW. Fall through to the legacy
+                # /api/sdk/redeem flow which has the same SIM-1645 probe
+                # and routes through the unsigned-tx EOA broadcast path.
+                # The server-side /api/sdk/redeem gate that earlier blocked
+                # this was removed (codex P2 finding 2026-05-10), so the
+                # recursion lands cleanly.
                 logger.info(
                     "redeem ext+DW: server signalled eoa_fallback for %s — "
-                    "falling back to unsigned-tx EOA path.",
+                    "recursing to /api/sdk/redeem for unsigned-tx EOA path.",
                     market_id,
                 )
-                # Fall through by calling the legacy server path directly.
-                # The server's /api/sdk/redeem ext+DW gate would trip here;
-                # but eoa_fallback means the user's positions LIVE on the
-                # EOA, so we want the unsigned_tx response. The server's
-                # gate is keyed on `wallet_uses_deposit_wallet` not on
-                # actual on-chain location, so it'd reject. Workaround:
-                # surface the eoa_fallback to the caller as an actionable
-                # error pointing them to the dashboard direct-EOA flow.
-                # (Once SIM-1645 has a clean SDK fix, revisit.)
-                return {
-                    "success": False,
-                    "error": (
-                        "Position tokens are held in your EOA, not your "
-                        "deposit wallet (SIM-1645). Redeem this market via "
-                        "the dashboard at https://simmer.markets — the "
-                        "dashboard EOA flow handles this case. Future "
-                        "trades on this agent will accumulate on the DW "
-                        "(post-upgrade signing path)."
-                    ),
-                    "eoa_fallback": True,
-                }
+                # Use _redeem_via_legacy_path so we don't re-trigger the
+                # cohort dispatch (which would loop right back here).
+                return self._redeem_via_legacy_path(market_id, side)
             if exc.status_code == 404:
                 # Server predates 0.17.0 — fall back to legacy /api/sdk/redeem.
                 logger.warning(
                     "redeem ext+DW: server returned 404 on dw-redeem/prepare "
                     "(server < 0.17.0?) — falling back to legacy /api/sdk/redeem."
                 )
-                # Clear cohort cache + recurse to take the non-DW branch.
-                self._wallet_uses_deposit_wallet = False
-                return self.redeem(market_id, side)
+                return self._redeem_via_legacy_path(market_id, side)
             return {"success": False, "error": str(exc)}
         except DwRedeemSubmitError as exc:
             return {"success": False, "error": str(exc)}
@@ -2839,6 +2821,16 @@ class SimmerClient:
                 and self._wallet_uses_deposit_wallet):
             return self._redeem_external_dw(market_id, side)
 
+        return self._redeem_via_legacy_path(market_id, side)
+
+    def _redeem_via_legacy_path(self, market_id: str, side: str) -> Dict[str, Any]:
+        """Legacy /api/sdk/redeem flow — server-signs for managed, returns
+        unsigned_tx for external (caller signs + broadcasts).
+
+        Extracted from `redeem()` so `_redeem_external_dw` can dispatch
+        here on `eoa_fallback` (SIM-1645) without re-triggering the cohort
+        check that would loop right back into the ext+DW path.
+        """
         result = self._request("POST", "/api/sdk/redeem", json={
             "market_id": market_id,
             "side": side,

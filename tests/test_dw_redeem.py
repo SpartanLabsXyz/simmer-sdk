@@ -389,6 +389,12 @@ def test_redeem_external_dw_falls_back_to_legacy_on_404():
     so the call lands on the legacy /api/sdk/redeem path. There, the
     pre-0.17.0 server still has the old ctf_redemption.py (Phase 2) error.
     Acceptable — old SDK + old server == old behavior, no regression.
+
+    Refactor note (codex P2 follow-up): we now dispatch via
+    `_redeem_via_legacy_path` directly instead of recursing through
+    `redeem()`, so cohort state is NOT mutated. Same end-state for
+    callers, simpler control flow, no risk of an infinite loop if
+    cohort detection misfires later.
     """
     client = _make_client(api_key="k", )
     # Set up cohort as ext+DW so the helper actually fires.
@@ -403,8 +409,9 @@ def test_redeem_external_dw_falls_back_to_legacy_on_404():
          patch.object(client, "_request") as req:
         # First call: prepare → 404 (old server)
         post.return_value = _mock_response(404, {"detail": "Not Found"})
-        # After 404 + flag flip + recursion, the legacy /api/sdk/redeem path
-        # is taken. Mock its response.
+        # After 404, _redeem_via_legacy_path is called directly. Mock the
+        # /api/sdk/redeem response (managed-shape so the helper short-
+        # circuits without touching the unsigned-tx broadcast path).
         req.return_value = {
             "success": False, "error": "External-wallet redemption …"
         }
@@ -412,10 +419,59 @@ def test_redeem_external_dw_falls_back_to_legacy_on_404():
 
     # Exactly one prepare attempt (then 404 → fallback)
     post.assert_called_once()
-    # Legacy path was hit on recursion
+    # Legacy path was hit
     assert any(
         len(c.args) > 1 and "/api/sdk/redeem" in c.args[1]
         for c in req.call_args_list
     )
-    # Cohort was reset so the recursive call doesn't loop forever.
-    assert client._wallet_uses_deposit_wallet is False
+    # Cohort state must be PRESERVED — _redeem_via_legacy_path bypasses
+    # the cohort check, so we don't need to mutate _wallet_uses_deposit_wallet.
+    # If we mutated it, the next /redeem call would skip the new ext+DW
+    # path until the next cache refresh (5 min later).
+    assert client._wallet_uses_deposit_wallet is True
+    assert client._wallet_ownership == "external"
+
+
+def test_redeem_external_dw_falls_back_to_legacy_on_eoa_fallback_signal():
+    """SIM-1645 — server detects DW=0 + EOA>0 (position lives on EOA from
+    sig-type-0 trade path) and returns `eoa_fallback=True`. SDK must
+    recurse into the legacy /api/sdk/redeem flow which has the same
+    SIM-1645 probe and routes through the unsigned-tx EOA broadcast path.
+
+    Earlier draft (pre-codex P2) returned an error string telling the
+    user to use the dashboard. Codex flagged that the existing legacy
+    /api/sdk/redeem path already handles this case end-to-end — SDK
+    should just recurse there. Server-side gate that previously blocked
+    this recursion was removed in the same change."""
+    client = _make_client()
+    client._wallet_ownership = "external"
+    client._wallet_uses_deposit_wallet = True
+    client._cohort_fetched_at = time.time()
+    client._private_key = "0x" + "11" * 32
+
+    with patch("simmer_sdk.dw_redeem.requests.post") as post, \
+         patch.object(client, "_request") as req:
+        # Prepare returns the eoa_fallback signal (200 OK with the special
+        # response body — handler raises DwRedeemPrepareError(eoa_fallback=True)).
+        post.return_value = _mock_response(
+            200,
+            {"eoa_fallback": True, "condition_id": "0x" + "ab" * 32, "outcome": "no"},
+        )
+        # Legacy path mock — managed-success shape (no unsigned_tx) so the
+        # broadcast branch isn't exercised. We're testing the dispatch.
+        req.return_value = {"success": True, "tx_hash": "0xeoa-fallback"}
+        result = client.redeem("m-123", "no")
+
+    post.assert_called_once()
+    # Legacy /api/sdk/redeem was called via _redeem_via_legacy_path
+    assert any(
+        len(c.args) > 1 and c.args[1] == "/api/sdk/redeem"
+        for c in req.call_args_list
+    ), "Legacy /api/sdk/redeem must be called on eoa_fallback signal"
+    # Result is whatever the legacy path returned — NOT a "use dashboard" error
+    assert result.get("tx_hash") == "0xeoa-fallback"
+    assert "eoa_fallback" not in result, (
+        "Should not surface eoa_fallback to caller — legacy path handled it."
+    )
+    # Cohort preserved (so future redemptions on this client still try ext+DW first)
+    assert client._wallet_uses_deposit_wallet is True
