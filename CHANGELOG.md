@@ -3,6 +3,28 @@
 All notable changes to `simmer-sdk` are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.4] — 2026-05-10
+
+### Fixed
+
+- **Auto-redeem now works for external-wallet deposit-wallet users.** Closes the auto-redeem-gap that affected all 23 external+DW users / 57 agents on Polymarket. Previously, `client.redeem()` and `client.auto_redeem()` returned `failed` every cycle for these users with the cryptic message "External-wallet redemption for deposit-wallet users is not yet supported (Phase 2)" — funds were not at risk (the dashboard fallback worked), but the steady-state log noise was a real confidence hit.
+
+  The position lives on the deposit-wallet contract, so `msg.sender` of the redeem call must be the DW. The legacy unsigned-tx path (which broadcasts from the user EOA) would revert. The fix routes external+DW callers through a new prepare/sign/submit flow that mirrors the dashboard wagmi shape in Python:
+
+  1. `POST /api/sdk/dw-redeem/prepare` — server returns the EIP-712 WALLET batch typed data.
+  2. SDK signs locally with `WALLET_PRIVATE_KEY` (or OWS-managed key).
+  3. `POST /api/sdk/dw-redeem/submit` — server validates + relays via Polymarket with our builder HMAC + writes `real_trades`.
+
+  Cohort detection (which path to use) reads `wallet_ownership` + `wallet_uses_deposit_wallet` from the cached `/api/sdk/agents/me` response (5-min TTL — same fetch already used for `auto_redeem_enabled`). Older servers that don't return cohort fields fall through to the legacy flow.
+
+  - New module: `simmer_sdk.dw_redeem` (pure HTTP + signing helpers — `prepare_dw_redeem`, `sign_dw_redeem_typed_data`, `submit_dw_redeem`, `redeem_dw_external`).
+  - Modified: `client.SimmerClient.redeem()` dispatches to `_redeem_external_dw` for the external+DW cohort.
+  - Modified: `client.SimmerClient.auto_redeem()` shares the same cohort cache fetch.
+
+  Requires server-side `/api/sdk/dw-redeem/{prepare,submit}` endpoints (shipped in the simmer monorepo PR landing alongside this release). On a server that predates those endpoints (404 on prepare), the SDK falls back to the legacy `/api/sdk/redeem` path — same behavior as before this release.
+
+  Tracked in the simmer monorepo's `_dev/active/_polymarket-dw-phase-2/NEXT.md` (auto-redeem-gap row).
+
 ## [0.17.3] — 2026-05-09
 
 ### Fixed
