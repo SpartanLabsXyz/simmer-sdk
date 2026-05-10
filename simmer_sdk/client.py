@@ -377,6 +377,17 @@ class SimmerClient:
         self._auto_redeem_enabled: bool = True
         self._auto_redeem_enabled_fetched_at: float = 0.0
 
+        # Cache for redemption-routing cohort fields (TTL: 5 minutes; fetched
+        # in the same /agents/me call as auto_redeem_enabled). Used by
+        # `redeem()` to dispatch external+DW callers through
+        # /api/sdk/dw-redeem/{prepare,submit} (1271 batch path) instead of the
+        # legacy unsigned-tx EOA path. Defaults are conservative — `None` for
+        # ownership means "unknown, fall through to legacy" so older servers
+        # (which don't return these fields) continue to work.
+        self._wallet_ownership: Optional[str] = None
+        self._wallet_uses_deposit_wallet: bool = False
+        self._cohort_fetched_at: float = 0.0
+
         self.live = live
         self._paper_portfolio = None
         if not self.live:
@@ -2637,6 +2648,148 @@ class SimmerClient:
     # REDEMPTIONS
     # ==========================================
 
+    _AGENT_CACHE_TTL_SEC = 300  # 5 minutes — matches server-side L1 auth cache.
+
+    def _refresh_cohort_cache(self) -> None:
+        """Refresh the auto_redeem + cohort fields from /agents/me.
+
+        Cached with a 5-minute TTL — same fetch satisfies both
+        `auto_redeem()`'s setting check AND `redeem()`'s cohort dispatch.
+        Silently no-ops when the cache is fresh.
+
+        Server fields (added in 0.17.0):
+          - wallet_ownership: 'native' | 'external' | None
+          - wallet_uses_deposit_wallet: bool
+          - auto_redeem_enabled: bool
+
+        Older servers don't return the cohort fields; they default to
+        None / False which routes the SDK to the legacy redeem flow
+        (which now returns an actionable upgrade error from the server-side
+        gate added in the same release).
+        """
+        now = time.time()
+        if now - self._cohort_fetched_at <= self._AGENT_CACHE_TTL_SEC:
+            return
+        agent_info = self._request("GET", "/api/sdk/agents/me")
+        self._auto_redeem_enabled = agent_info.get("auto_redeem_enabled", True)
+        self._auto_redeem_enabled_fetched_at = now
+        self._wallet_ownership = agent_info.get("wallet_ownership")
+        self._wallet_uses_deposit_wallet = bool(
+            agent_info.get("wallet_uses_deposit_wallet")
+        )
+        self._cohort_fetched_at = now
+
+    def _redeem_external_dw(self, market_id: str, side: str) -> Dict[str, Any]:
+        """SDK ext+DW redemption via /api/sdk/dw-redeem/{prepare,submit}.
+
+        Pure dispatch — defers to `simmer_sdk.dw_redeem.redeem_dw_external`
+        which mirrors the dashboard wagmi flow (prepare → sign typed data →
+        submit). Caller must have either `_private_key` (raw EVM key) or
+        `_ows_wallet` (OWS-managed) for signing.
+
+        Returns the same shape as the legacy `redeem()` path on success
+        ({success, tx_hash}) so callers (including `auto_redeem()`) don't
+        need to branch.
+
+        Falls back to the legacy unsigned-tx EOA path if the server signals
+        `eoa_fallback=True` from the prepare endpoint (SIM-1645: positions
+        accumulated on the EOA via sig-type-0 trades). Falls back the same
+        way on a 404 from prepare (server predates 0.17.0 and doesn't have
+        the SDK dw-redeem endpoints).
+        """
+        from simmer_sdk.dw_redeem import (
+            DwRedeemError,
+            DwRedeemPrepareError,
+            DwRedeemSubmitError,
+            redeem_dw_external,
+        )
+
+        if not self._private_key and not self._ows_wallet:
+            return {
+                "success": False,
+                "error": (
+                    "External-wallet DW redemption requires a local signing "
+                    "key. Set WALLET_PRIVATE_KEY env var, pass private_key "
+                    "to the constructor, or configure an OWS wallet."
+                ),
+            }
+
+        # `self.base_url` is the host root (no /api suffix per __init__);
+        # the dw_redeem helper appends `/sdk/dw-redeem/...` to whatever we
+        # pass, so add the `/api` segment here. Auth headers come from the
+        # session (Authorization Bearer + Content-Type + User-Agent).
+        api_url = f"{self.base_url}/api"
+        headers = dict(self._session.headers)
+
+        try:
+            print(f"  Auto-redeem (ext+DW): {market_id} ({side})…")
+            result = redeem_dw_external(
+                api_url=api_url,
+                headers=headers,
+                market_id=market_id,
+                side=side,
+                private_key=self._private_key,
+                ows_wallet=self._ows_wallet,
+                on_progress=lambda stage: logger.debug(
+                    "redeem ext+DW: %s", stage
+                ),
+            )
+            tx_hash = result.get("tx_hash")
+            print(f"  Auto-redeem OK: {market_id} ({side}) tx={tx_hash}")
+            return {
+                "success": bool(result.get("success")),
+                "tx_hash": tx_hash,
+                "payout_pusd": result.get("payout_pusd"),
+                "calls_executed": result.get("calls_executed"),
+            }
+        except DwRedeemPrepareError as exc:
+            if exc.already_redeemed:
+                # Server detected DW=0 + EOA=0 → position was already
+                # redeemed (or never held). Treat as a no-op success so
+                # the caller's auto_redeem doesn't loop or surface an
+                # error for nothing to do.
+                logger.info(
+                    "redeem ext+DW: server reports already_redeemed for %s — no-op success.",
+                    market_id,
+                )
+                return {
+                    "success": True,
+                    "tx_hash": None,
+                    "already_redeemed": True,
+                }
+            if exc.eoa_fallback:
+                # SIM-1645 — server detected DW=0 + EOA>0, meaning the
+                # position tokens accumulated on the EOA (sig-type-0 trade
+                # path) instead of the DW. Fall through to the legacy
+                # /api/sdk/redeem flow which has the same SIM-1645 probe
+                # and routes through the unsigned-tx EOA broadcast path.
+                # The server-side /api/sdk/redeem gate that earlier blocked
+                # this was removed (codex P2 finding 2026-05-10), so the
+                # recursion lands cleanly.
+                logger.info(
+                    "redeem ext+DW: server signalled eoa_fallback for %s — "
+                    "recursing to /api/sdk/redeem for unsigned-tx EOA path.",
+                    market_id,
+                )
+                # Use _redeem_via_legacy_path so we don't re-trigger the
+                # cohort dispatch (which would loop right back here).
+                return self._redeem_via_legacy_path(market_id, side)
+            if exc.status_code == 404:
+                # Server predates 0.17.0 — fall back to legacy /api/sdk/redeem.
+                logger.warning(
+                    "redeem ext+DW: server returned 404 on dw-redeem/prepare "
+                    "(server < 0.17.0?) — falling back to legacy /api/sdk/redeem."
+                )
+                return self._redeem_via_legacy_path(market_id, side)
+            return {"success": False, "error": str(exc)}
+        except DwRedeemSubmitError as exc:
+            return {"success": False, "error": str(exc)}
+        except DwRedeemError as exc:
+            return {"success": False, "error": str(exc)}
+        except Exception as exc:
+            logger.exception("redeem ext+DW: unexpected error")
+            return {"success": False, "error": f"{type(exc).__name__}: {exc}"}
+
     def redeem(self, market_id: str, side: str) -> Dict[str, Any]:
         """
         Redeem a winning Polymarket position for USDC.e.
@@ -2661,6 +2814,36 @@ class SimmerClient:
                 if p.get('redeemable'):
                     result = client.redeem(p['market_id'], p['redeemable_side'])
                     print(f"Redeemed: {result['tx_hash']}")
+        """
+        # External + DW dispatch (added 0.17.0). Position lives on the deposit
+        # wallet contract, so msg.sender of the redeem call must be the DW.
+        # The legacy unsigned-tx path (returned for non-DW external wallets)
+        # would broadcast from the user EOA and revert. Route through the
+        # 1271 batch path instead — same shape the dashboard uses via wagmi.
+        #
+        # Cohort detection comes from the cached /agents/me response (5-min
+        # TTL — same fetch used by auto_redeem). Conservative fallback: if
+        # the server is older and doesn't return cohort fields, _wallet_ownership
+        # stays None and we fall through to the legacy flow (which now returns
+        # an actionable upgrade error from the server-side gate).
+        try:
+            self._refresh_cohort_cache()
+        except Exception as exc:
+            logger.debug("redeem: cohort refresh failed (%s) — falling through to legacy", exc)
+
+        if (self._wallet_ownership == "external"
+                and self._wallet_uses_deposit_wallet):
+            return self._redeem_external_dw(market_id, side)
+
+        return self._redeem_via_legacy_path(market_id, side)
+
+    def _redeem_via_legacy_path(self, market_id: str, side: str) -> Dict[str, Any]:
+        """Legacy /api/sdk/redeem flow — server-signs for managed, returns
+        unsigned_tx for external (caller signs + broadcasts).
+
+        Extracted from `redeem()` so `_redeem_external_dw` can dispatch
+        here on `eoa_fallback` (SIM-1645) without re-triggering the cohort
+        check that would loop right back into the ext+DW path.
         """
         result = self._request("POST", "/api/sdk/redeem", json={
             "market_id": market_id,
@@ -2851,17 +3034,12 @@ class SimmerClient:
         """
         results = []
 
-        # Check auto_redeem_enabled setting (from agents/me), cached with a 5-minute TTL.
-        # Default True if field is absent (backward compat with older backend versions).
-        _AUTO_REDEEM_TTL = 300  # 5 minutes
-        now = time.time()
-        if now - self._auto_redeem_enabled_fetched_at > _AUTO_REDEEM_TTL:
-            try:
-                agent_info = self._request("GET", "/api/sdk/agents/me")
-                self._auto_redeem_enabled = agent_info.get("auto_redeem_enabled", True)
-                self._auto_redeem_enabled_fetched_at = now
-            except Exception as e:
-                logger.warning("auto_redeem: could not read agent settings, using cached value (%s)", e)
+        # Refresh auto_redeem + cohort cache from /agents/me (5-min TTL, shared
+        # with the per-call cohort lookup in `redeem()`).
+        try:
+            self._refresh_cohort_cache()
+        except Exception as e:
+            logger.warning("auto_redeem: could not read agent settings, using cached value (%s)", e)
 
         if not self._auto_redeem_enabled:
             logger.debug("auto_redeem: disabled by agent settings, skipping")
