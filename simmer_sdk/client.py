@@ -4216,8 +4216,8 @@ class SimmerClient:
         from simmer_sdk.ows_utils import get_ows_wallet_address
         wallet_address = get_ows_wallet_address(ows_wallet_name)
 
+        # agent_id is derived server-side from the API key — no need to pass it.
         resp = self._request("POST", "/api/sdk/agent-wallet/register", json={
-            "agent_id": self._agent_id,
             "ows_wallet_name": ows_wallet_name,
             "wallet_address": wallet_address,
         })
@@ -4273,8 +4273,9 @@ class SimmerClient:
                 future version.  Use ``total_pnl`` from ``/v1/trader``
                 instead.
         """
-        aid = agent_id or self._agent_id
-        resp = self._request("GET", f"/api/sdk/agent-wallet/{aid}/pnl")
+        if not agent_id:
+            raise ValueError("agent_id is required — pass the UUID from your agent dashboard")
+        resp = self._request("GET", f"/api/sdk/agent-wallet/{agent_id}/pnl")
         # Defensive: coerce None → 0 so callers doing arithmetic don't crash.
         # Deprecated — will be removed in a future version. Use total_pnl from /v1/trader instead.
         if resp.get("unrealized_pnl") is None:
