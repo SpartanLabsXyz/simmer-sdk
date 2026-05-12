@@ -44,7 +44,8 @@ def get_ows_wallet_address(wallet_name: str) -> str:
     except ImportError:
         raise ImportError(
             "open-wallet-standard is required for OWS wallet mode. "
-            "Install with: pip install open-wallet-standard"
+            "Install with: pip install 'simmer-sdk[ows]' "
+            "(or directly: pip install open-wallet-standard)"
         )
 
     try:

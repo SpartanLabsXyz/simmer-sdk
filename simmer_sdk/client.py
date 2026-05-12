@@ -205,7 +205,7 @@ class SimmerClient:
                 - Ensure your bot runs in a secure environment
             ows_wallet: Optional OWS wallet name for Polymarket trading.
                 When provided, orders are signed via OWS — your private key
-                never leaves the OWS vault. Install with: pip install open-wallet-standard
+                never leaves the OWS vault. Install with: pip install 'simmer-sdk[ows]'
                 Create a wallet: ows wallet create --name my-agent
 
                 If not provided, the SDK will auto-detect from the OWS_WALLET
@@ -281,7 +281,8 @@ class SimmerClient:
             except ImportError:
                 logger.warning(
                     "OWS wallet '%s' specified but open-wallet-standard not installed. "
-                    "Install with: pip install open-wallet-standard",
+                    "Install with: pip install 'simmer-sdk[ows]' "
+                    "(or directly: pip install open-wallet-standard)",
                     effective_ows
                 )
                 self._ows_wallet = None

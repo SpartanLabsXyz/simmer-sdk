@@ -39,9 +39,11 @@ OWS = [Open Wallet Standard](https://openwallet.sh). Local-first encrypted vault
 ### One-time setup
 
 ```bash
-# Install OWS CLI
+# Install OWS CLI (creates ~/.ows vault, runs `ows wallet create`)
 curl -fsSL https://docs.openwallet.sh/install.sh | bash
-pip install open-wallet-standard
+
+# Install the SDK with OWS Python bindings (one command — note the [ows] extra)
+pip install 'simmer-sdk[ows]'
 
 # Create a wallet for this agent
 ows wallet create --name "my-agent-wallet"
