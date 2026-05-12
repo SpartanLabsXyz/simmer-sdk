@@ -4200,6 +4200,107 @@ class SimmerClient:
         print()
         return {"set": set_count, "skipped": skipped, "failed": failed, "details": details}
 
+    def activate_polymarket_dw(self) -> Dict[str, Any]:
+        """Activate Polymarket Deposit Wallet trading headlessly.
+
+        Calls /dw-approvals/prepare to get the EIP-712 batch, signs it
+        locally with WALLET_PRIVATE_KEY (key never leaves the process),
+        then submits via /dw-approvals/submit. No browser required.
+
+        Requires:
+        - WALLET_PRIVATE_KEY env var (or private_key constructor arg)
+        - Account upgraded to a Deposit Wallet (wallet_uses_deposit_wallet=True)
+        - eth-account: pip install eth-account
+
+        Returns:
+            Dict with keys:
+            - already_set (bool): True if all approvals were already in place
+            - calls_count (int): number of approval calls submitted (0 if already_set)
+            - success (bool): True on completion
+
+        Raises:
+            ValueError: if no private key is configured
+            ImportError: if eth-account is not installed
+
+        Example:
+            client = SimmerClient(api_key="sk_live_...")  # WALLET_PRIVATE_KEY in env
+            result = client.activate_polymarket_dw()
+            print(f"Done — already_set={result['already_set']}, calls={result['calls_count']}")
+        """
+        if not self._private_key and not self._ows_wallet:
+            raise ValueError(
+                "activate_polymarket_dw() requires a signing key. "
+                "Set WALLET_PRIVATE_KEY env var, pass private_key to the constructor, "
+                "or configure an OWS wallet (OWS_WALLET env var or ows_wallet arg)."
+            )
+
+        if self._private_key:
+            try:
+                from eth_account import Account  # noqa: F401 — early dep check
+            except ImportError:
+                raise ImportError(
+                    "eth-account is required for activate_polymarket_dw(). "
+                    "Install with: pip install eth-account"
+                )
+
+        # Step 1 — prepare: server scans on-chain allowances and returns the
+        # EIP-712 typed data batch. Idempotent — returns already_set=True if
+        # nothing to do.
+        print("[DW-Activate] Preparing approval batch…")
+        prepare = self._request(
+            "POST",
+            "/api/user/wallet/external/dw-approvals/prepare",
+        )
+
+        if prepare.get("already_set"):
+            print("[DW-Activate] All approvals already set — nothing to do.")
+            return {"already_set": True, "calls_count": 0, "success": True}
+
+        typed_data = prepare.get("typed_data")
+        nonce = prepare.get("nonce")
+        deadline = prepare.get("deadline")
+        calls = prepare.get("calls", [])
+
+        if not typed_data or not nonce or deadline is None or not calls:
+            raise RuntimeError(
+                f"Unexpected prepare response — missing required fields. "
+                f"Got keys: {list(prepare.keys())}"
+            )
+
+        # Step 2 — sign locally. Mirrors dw_redeem.sign_dw_redeem_typed_data:
+        # pass the full typed_data dict via full_message so primaryType is
+        # honoured. Key never leaves this process.
+        print("[DW-Activate] Signing batch locally…")
+        if self._private_key:
+            from eth_account import Account
+            signed = Account.sign_typed_data(self._private_key, full_message=typed_data)
+            signature = signed.signature.hex()
+            if not signature.startswith("0x"):
+                signature = "0x" + signature
+        else:
+            from simmer_sdk.ows_utils import ows_sign_typed_data
+            import json as _json
+            sig = ows_sign_typed_data(self._ows_wallet, _json.dumps(typed_data))
+            signature = sig if sig.startswith("0x") else "0x" + sig
+
+        # Step 3 — submit: server re-builds the DepositWalletBatchRequest,
+        # posts to Polymarket's relayer with its builder HMAC, polls until
+        # STATE_MINED, then flips polymarket_allowances_set=TRUE.
+        print("[DW-Activate] Submitting to relayer…")
+        self._request(
+            "POST",
+            "/api/user/wallet/external/dw-approvals/submit",
+            json={
+                "signature": signature,
+                "nonce": nonce,
+                "deadline": deadline,
+                "calls": calls,
+            },
+        )
+
+        print(f"[DW-Activate] Done — {len(calls)} approval(s) set.")
+        return {"already_set": False, "calls_count": len(calls), "success": True}
+
     def register_agent_wallet(self, ows_wallet_name: str) -> dict:
         """Register an OWS wallet for this agent. Elite-only (beta).
 
