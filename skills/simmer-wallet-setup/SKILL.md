@@ -120,6 +120,9 @@ client = SimmerClient(api_key="sk_live_...")
 # private_key is auto-detected from WALLET_PRIVATE_KEY env var
 client.link_wallet()    # signs a challenge message locally — fully headless
 client.set_approvals()  # signs approval txs locally — fully headless, key never leaves agent
+
+# If your account uses a Polymarket Deposit Wallet (Elite / upgraded accounts):
+client.activate_polymarket_dw()  # one-time — signs EIP-712 batch locally, no browser needed
 ```
 
 Both calls work without a browser session. `link_wallet()` signs a challenge with your local key. `set_approvals()` builds, signs, and broadcasts each approval transaction via Simmer's RPC proxy — your `WALLET_PRIVATE_KEY` never leaves the agent process.
