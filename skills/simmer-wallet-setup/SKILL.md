@@ -1,9 +1,11 @@
 ---
 name: simmer-wallet-setup
+version: "0.2.0"
+published: true
 description: Self-custody wallet setup for Simmer agents. Choose OWS (recommended — encrypted local vault, multi-chain, policy controls) or external raw key (existing setups). Skip this skill if you use a managed wallet — managed setup is a one-time dashboard flow, not an agent task.
 metadata:
   author: "Simmer (@simmer_markets)"
-  version: "0.1.0"
+  version: "0.2.0"
   displayName: Simmer Wallet Setup
   difficulty: beginner
   primaryEnv: SIMMER_API_KEY
