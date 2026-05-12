@@ -1,11 +1,11 @@
 ---
 name: simmer-wallet-setup
-version: "0.2.0"
+version: "0.2.1"
 published: true
 description: Self-custody wallet setup for Simmer agents. Choose OWS (recommended — encrypted local vault, multi-chain, policy controls) or external raw key (existing setups). Skip this skill if you use a managed wallet — managed setup is a one-time dashboard flow, not an agent task.
 metadata:
   author: "Simmer (@simmer_markets)"
-  version: "0.2.0"
+  version: "0.2.1"
   displayName: Simmer Wallet Setup
   difficulty: beginner
   primaryEnv: SIMMER_API_KEY
@@ -62,11 +62,13 @@ client = SimmerClient(
     ows_wallet="my-agent-wallet",   # name from `ows wallet create`
 )
 
-client.register_agent_wallet()  # one-time, Elite-tier gated (requires dashboard session)
+client.register_agent_wallet()  # one-time, Elite-tier gated, fully headless
 client.set_approvals()          # one-time per chain — signs locally via OWS, fully headless
 ```
 
-> **`register_agent_wallet()`** requires a dashboard session (one-time Elite activation). **`set_approvals()`** is fully headless — signs approval transactions locally via OWS, no browser needed. After both run once, all trading is API-only.
+> Both calls are fully headless — they authenticate with your SDK API key, no dashboard session or browser required. `register_agent_wallet()` requires Elite tier. After both run once, all trading is API-only.
+>
+> Elite users can alternatively register a per-agent wallet through the dashboard's agent-creation wizard (My Agents → Create agent → optional "Link dedicated wallet" step) or retrofit an existing agent via its Wallet tab. The SDK path and the dashboard path produce the same `user_agent_wallets` row — pick whichever fits your workflow.
 
 (Alternative: set `OWS_WALLET=my-agent-wallet` in the environment and pass only `api_key` — the SDK auto-detects.)
 
