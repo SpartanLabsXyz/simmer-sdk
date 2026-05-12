@@ -58,11 +58,11 @@ client = SimmerClient(
     ows_wallet="my-agent-wallet",   # name from `ows wallet create`
 )
 
-client.register_agent_wallet()  # one-time, Elite-tier gated
-client.set_approvals()          # one-time per chain (signed via OWS)
+client.register_agent_wallet()  # one-time, Elite-tier gated (requires dashboard session)
+client.set_approvals()          # one-time per chain — signs locally via OWS, fully headless
 ```
 
-> ⚠️ **Setup requires a dashboard session.** `register_agent_wallet()` and `set_approvals()` use the browser auth from [simmer.markets/dashboard](https://simmer.markets/dashboard) in addition to the API key — they don't work from a fully headless cron. Run them once after logging in. Trading is API-only after that.
+> **`register_agent_wallet()`** requires a dashboard session (one-time Elite activation). **`set_approvals()`** is fully headless — signs approval transactions locally via OWS, no browser needed. After both run once, all trading is API-only.
 
 (Alternative: set `OWS_WALLET=my-agent-wallet` in the environment and pass only `api_key` — the SDK auto-detects.)
 
@@ -118,11 +118,13 @@ export WALLET_PRIVATE_KEY="0x..."  # Polymarket Polygon wallet
 ```python
 client = SimmerClient(api_key="sk_live_...")
 # private_key is auto-detected from WALLET_PRIVATE_KEY env var
-client.link_wallet()
-client.set_approvals()
+client.link_wallet()    # signs a challenge message locally — fully headless
+client.set_approvals()  # signs approval txs locally — fully headless, key never leaves agent
 ```
 
-> ⚠️ **`link_wallet()` and `set_approvals()` need a dashboard session** — they use the browser auth from [simmer.markets/dashboard](https://simmer.markets/dashboard), not the SDK API key. Run them once from a logged-in dashboard, not a headless script. After that, the rest of the agent runs API-only.
+Both calls work without a browser session. `link_wallet()` signs a challenge with your local key. `set_approvals()` builds, signs, and broadcasts each approval transaction via Simmer's RPC proxy — your `WALLET_PRIVATE_KEY` never leaves the agent process.
+
+> **Using a Deposit Wallet?** If your account has been upgraded to a Polymarket Deposit Wallet (DW), the one-time activation batch must be signed via the dashboard browser flow — go to [simmer.markets/dashboard](https://simmer.markets/dashboard) → Wallets → Activate Trading. Headless DW activation is on the roadmap.
 
 ### Migrating to OWS when ready
 
