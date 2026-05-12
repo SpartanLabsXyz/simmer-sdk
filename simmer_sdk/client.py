@@ -4301,6 +4301,115 @@ class SimmerClient:
         print(f"[DW-Activate] Done — {len(calls)} approval(s) set.")
         return {"already_set": False, "calls_count": len(calls), "success": True}
 
+    def wrap_on_dw(self) -> Dict[str, Any]:
+        """Wrap stranded USDC.e on the Deposit Wallet to pUSD headlessly.
+
+        Calls /wrap-on-dw/external/prepare to get the EIP-712 batch, signs
+        it locally with WALLET_PRIVATE_KEY (key never leaves the process),
+        then submits via /wrap-on-dw/external/submit. No browser required.
+
+        Idempotent: if there is no stranded USDC.e on the deposit wallet
+        (amount_units == 0), returns immediately with wrapped=False.
+
+        Requires:
+        - WALLET_PRIVATE_KEY env var (or private_key constructor arg),
+          OR OWS_WALLET env var (or ows_wallet constructor arg)
+        - Account upgraded to a Deposit Wallet (wallet_uses_deposit_wallet=True)
+        - eth-account: pip install eth-account
+
+        Returns:
+            Dict with keys:
+            - wrapped (bool): True if a wrap transaction was submitted
+            - amount_units (int): USDC.e units wrapped (0 if nothing to wrap)
+            - calls_count (int): number of batch calls submitted (0 if no-op)
+            - success (bool): True on completion
+
+        Raises:
+            ValueError: if no private key is configured
+            ImportError: if eth-account is not installed
+
+        Example:
+            client = SimmerClient(api_key="sk_live_...")  # WALLET_PRIVATE_KEY in env
+            result = client.wrap_on_dw()
+            if result["wrapped"]:
+                print(f"Wrapped {result['amount_units']} USDC.e units to pUSD")
+            else:
+                print("Nothing to wrap — deposit wallet already clean")
+        """
+        if not self._private_key and not self._ows_wallet:
+            raise ValueError(
+                "wrap_on_dw() requires a signing key. "
+                "Set WALLET_PRIVATE_KEY env var, pass private_key to the constructor, "
+                "or configure an OWS wallet (OWS_WALLET env var or ows_wallet arg)."
+            )
+
+        if self._private_key:
+            try:
+                from eth_account import Account  # noqa: F401 — early dep check
+            except ImportError:
+                raise ImportError(
+                    "eth-account is required for wrap_on_dw(). "
+                    "Install with: pip install eth-account"
+                )
+
+        # Step 1 — prepare: server checks on-chain USDC.e balance and returns
+        # the EIP-712 batch. Returns amount_units=0 when nothing to wrap.
+        print("[WrapOnDW] Preparing wrap batch…")
+        prepare = self._request(
+            "POST",
+            "/api/user/wallet/wrap-on-dw/external/prepare",
+        )
+
+        amount_units = prepare.get("amount_units", 0)
+        if not amount_units:
+            print("[WrapOnDW] No stranded USDC.e found — nothing to wrap.")
+            return {"wrapped": False, "amount_units": 0, "calls_count": 0, "success": True}
+
+        typed_data = prepare.get("typed_data")
+        nonce = prepare.get("nonce")
+        deadline = prepare.get("deadline")
+        calls = prepare.get("calls", [])
+
+        if not typed_data or not nonce or deadline is None or not calls:
+            raise RuntimeError(
+                f"Unexpected prepare response — missing required fields. "
+                f"Got keys: {list(prepare.keys())}"
+            )
+
+        # Step 2 — sign locally. Same pattern as activate_polymarket_dw:
+        # pass the full typed_data dict via full_message so primaryType is
+        # honoured. Key never leaves this process.
+        print(f"[WrapOnDW] Signing batch for {amount_units / 1_000_000:.2f} USDC.e…")
+        if self._private_key:
+            from eth_account import Account
+            signed = Account.sign_typed_data(self._private_key, full_message=typed_data)
+            signature = signed.signature.hex()
+            if not signature.startswith("0x"):
+                signature = "0x" + signature
+        else:
+            from simmer_sdk.ows_utils import ows_sign_typed_data
+            import json as _json
+            sig = ows_sign_typed_data(self._ows_wallet, _json.dumps(typed_data))
+            signature = sig if sig.startswith("0x") else "0x" + sig
+
+        # Step 3 — submit: server validates the batch shape, relays via
+        # Polymarket's builder with our HMAC, polls until STATE_MINED.
+        print("[WrapOnDW] Submitting to relayer…")
+        self._request(
+            "POST",
+            "/api/user/wallet/wrap-on-dw/external/submit",
+            json={
+                "signature": signature,
+                "calls": calls,
+                "nonce": nonce,
+                "deadline": deadline,
+                "amount_units": amount_units,
+            },
+        )
+
+        print(f"[WrapOnDW] Done — {len(calls)} call(s), {amount_units / 1_000_000:.2f} USDC.e wrapped.")
+        return {"wrapped": True, "amount_units": amount_units, "calls_count": len(calls), "success": True}
+
     def register_agent_wallet(self, ows_wallet_name: str) -> dict:
         """Register an OWS wallet for this agent. Elite-only (beta).
 
