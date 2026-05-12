@@ -41,10 +41,11 @@ class TestRegisterAgentWallet:
         result = client.register_agent_wallet("agent-test")
 
         mock_addr.assert_called_once_with("agent-test")
+        # PR #73 (0.17.5): agent_id is now derived server-side from the API
+        # key; the SDK only sends ows_wallet_name + wallet_address.
         client._request.assert_called_once_with(
             "POST", "/api/sdk/agent-wallet/register",
             json={
-                "agent_id": "test-agent-uuid",
                 "ows_wallet_name": "agent-test",
                 "wallet_address": "0x1234567890abcdef1234567890abcdef12345678",
             }
@@ -87,20 +88,13 @@ class TestGetAgentWallets:
 
 class TestGetAgentWalletPnl:
 
-    def test_uses_default_agent_id(self):
+    def test_raises_when_agent_id_missing(self):
+        """PR #73 (0.17.5): agent_id is now a required arg — no default-to-
+        self._agent_id fallback. Multi-agent clients must specify which agent
+        they want P&L for explicitly."""
         client = _make_client(agent_id="my-agent")
-        client._request.return_value = {
-            "agent_id": "my-agent",
-            "realized_pnl": 10.0,
-            "unrealized_pnl": -2.0,
-            "total_cost": 50.0,
-            "positions": [],
-        }
-
-        pnl = client.get_agent_wallet_pnl()
-
-        client._request.assert_called_once_with("GET", "/api/sdk/agent-wallet/my-agent/pnl")
-        assert pnl["realized_pnl"] == 10.0
+        with pytest.raises(ValueError, match="agent_id is required"):
+            client.get_agent_wallet_pnl()
 
     def test_accepts_custom_agent_id(self):
         client = _make_client(agent_id="default-agent")
@@ -122,7 +116,7 @@ class TestGetAgentWalletPnl:
             "positions": [],
         }
 
-        pnl = client.get_agent_wallet_pnl()
+        pnl = client.get_agent_wallet_pnl("my-agent")
 
         assert pnl["unrealized_pnl"] == 0.0
         assert isinstance(pnl["unrealized_pnl"], float)
@@ -137,7 +131,7 @@ class TestGetAgentWalletPnl:
             "positions": [],
         }
 
-        pnl = client.get_agent_wallet_pnl()
+        pnl = client.get_agent_wallet_pnl("my-agent")
 
         assert pnl["unrealized_pnl"] == 0.0
 
