@@ -3,6 +3,16 @@
 All notable changes to `simmer-sdk` are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.7] — 2026-05-12
+
+### Added
+
+- **`client.wrap_on_dw()` — headless USDC.e wrap for external-wallet DW users (SIM-1730).** External-wallet operators with stranded USDC.e on their Polymarket Deposit Wallet can now wrap to pUSD directly from the SDK without a browser session. Mirrors the `activate_polymarket_dw()` shape exactly (EIP-712 prepare → sign → submit). Supports both `WALLET_PRIVATE_KEY` (local signing) and OWS wallet. Idempotent: returns `wrapped=False, amount_units=0` immediately when the deposit wallet has no stranded balance.
+
+  Return shape: `{"wrapped": bool, "amount_units": int, "calls_count": int, "success": bool}`.
+
+  Surfaced by Track 5 of the external-wallet signer-picker workstream.
+
 ## [0.17.4] — 2026-05-10
 
 ### Fixed

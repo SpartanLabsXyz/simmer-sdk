@@ -125,11 +125,16 @@ client.set_approvals()  # signs approval txs locally — fully headless, key nev
 
 # If your account uses a Polymarket Deposit Wallet (Elite / upgraded accounts):
 client.activate_polymarket_dw()  # one-time — signs EIP-712 batch locally, no browser needed
+
+# If you have stranded USDC.e on your Deposit Wallet, wrap it to pUSD:
+result = client.wrap_on_dw()  # idempotent — no-op when nothing stranded
 ```
 
 Both calls work without a browser session. `link_wallet()` signs a challenge with your local key. `set_approvals()` builds, signs, and broadcasts each approval transaction via Simmer's RPC proxy — your `WALLET_PRIVATE_KEY` never leaves the agent process.
 
 > **Using a Deposit Wallet?** If your account has been upgraded to a Polymarket Deposit Wallet (DW), run `client.activate_polymarket_dw()` after `set_approvals()` — it signs the EIP-712 activation batch headlessly with your local key. Alternatively, use the dashboard browser flow at [simmer.markets/dashboard](https://simmer.markets/dashboard) → Wallets → Activate Trading.
+
+> **Stranded USDC.e on your DW?** Run `client.wrap_on_dw()` to convert it to pUSD headlessly. Idempotent — safe to call on every startup; returns immediately if nothing is stranded. Returns `{"wrapped": bool, "amount_units": int, "calls_count": int, "success": bool}`. Requires the same key as `activate_polymarket_dw()` (WALLET_PRIVATE_KEY or OWS wallet). Added in SDK 0.17.7.
 
 ### Migrating to OWS when ready
 
