@@ -95,7 +95,17 @@ rm -rf "$TMP_DIR/__pycache__" "$TMP_DIR"/.* 2>/dev/null || true
 
 FILE_COUNT=$(find "$TMP_DIR" -type f | wc -l)
 echo "   Files: $FILE_COUNT"
-find "$TMP_DIR" -type f -printf "   - %P (%s bytes)\n"
+# Portable file listing (BSD find on macOS doesn't support `-printf`).
+# Was: find "$TMP_DIR" -type f -printf "   - %P (%s bytes)\n"
+# `find -exec` + `stat` works on both BSD (macOS) and GNU (Linux). The
+# `set -euo pipefail` at the top of the script halted the publish on
+# the previous `find -printf` failure (2026-05-12), leaving the
+# subsequent `clawhub publish` step unreached — so callers had to do
+# the publish step manually.
+( cd "$TMP_DIR" && find . -type f | while read -r f; do
+    size=$(wc -c < "$f" | tr -d ' ')
+    echo "   - ${f#./} ($size bytes)"
+  done )
 
 # Publish
 echo "   Publishing..."
