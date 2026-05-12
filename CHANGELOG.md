@@ -3,6 +3,16 @@
 All notable changes to `simmer-sdk` are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.8] — 2026-05-12
+
+### Added
+
+- **`[ows]` optional extra — one-command OWS install (SIM-1735).** New `pip install 'simmer-sdk[ows]'` pulls in `open-wallet-standard` (the Python bindings for the Open Wallet Standard) alongside the SDK. Eliminates the package-name vs import-name confusion (pip package is `open-wallet-standard`; import is `ows`) that bit our first OWS canary on 2026-05-12. Existing users on `pip install open-wallet-standard` directly still work — the extra is additive, not a breaking change.
+
+### Changed
+
+- Install hints in `ows_utils.py`, `client.py`, and `simmer-wallet-setup/SKILL.md` now recommend `pip install 'simmer-sdk[ows]'` as the primary install path, with `pip install open-wallet-standard` shown as the direct alternative.
+
 ## [0.17.7] — 2026-05-12
 
 ### Added

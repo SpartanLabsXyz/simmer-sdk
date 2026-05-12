@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "simmer-sdk"
-version = "0.17.7"
+version = "0.17.8"
 description = "Python SDK for trading prediction markets with AI agents - includes Clawbot trading skills"
 readme = "README.md"
 authors = [
@@ -40,6 +40,22 @@ dependencies = [
     # working release; the helper API is stable.
     "polynode>=0.10.3",
 ]
+
+[project.optional-dependencies]
+# Open Wallet Standard — local-first encrypted wallet vault with policy
+# engine. Required for OWS-mode signing (per-agent isolation, recommended
+# for new agents). Not a hard dep because most SDK users today use
+# private-key mode (`WALLET_PRIVATE_KEY` env var) which is the default;
+# OWS is opt-in.
+#
+# Install with: pip install 'simmer-sdk[ows]'
+#
+# Note: the import name `ows` differs from the pip package name
+# `open-wallet-standard`. Surfaced 2026-05-12 via johng@iexecutellc —
+# users searching PyPI for `ows` find nothing. The `[ows]` extra
+# eliminates the asymmetry: one install command, no package-name lookup
+# required.
+ows = ["open-wallet-standard>=1.3.0"]
 
 [project.urls]
 Homepage = "https://simmer.markets"
