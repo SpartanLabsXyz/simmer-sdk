@@ -29,7 +29,7 @@ def check_server_version_compatibility(
 ) -> None:
     """Hit the server's version-check endpoint and emit a warning if needed.
 
-    Emits ``DeprecationWarning`` (stacklevel=4 so the warning points at the
+    Emits ``DeprecationWarning`` (stacklevel=3 so the warning points at the
     caller's ``SimmerClient(...)`` line) when status is ``deprecated`` or
     ``blocked``.
 
@@ -55,5 +55,5 @@ def check_server_version_compatibility(
     message = data.get("message", "")
 
     if status in ("deprecated", "blocked"):
-        warnings.warn(message, DeprecationWarning, stacklevel=4)
+        warnings.warn(message, DeprecationWarning, stacklevel=3)
         logger.debug("SDK version check result: %s — %s", status, message)
