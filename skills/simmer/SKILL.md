@@ -3,7 +3,7 @@ name: simmer
 description: The prediction market interface for AI agents. Trade Polymarket and Kalshi through one API with self-custody wallets, safety rails, and smart context. Start here.
 metadata:
   author: "Simmer (@simmer_markets)"
-  version: "1.23.2"
+  version: "1.24.0"
   displayName: Simmer
   difficulty: beginner
   homepage: "https://simmer.markets"
@@ -89,7 +89,7 @@ Documentation references — open when the situation matches.
 
 | When | Where |
 |---|---|
-| Setting up a real-money wallet (Polymarket or Kalshi) | [docs.simmer.markets/wallets](https://docs.simmer.markets/wallets) |
+| Setting up a real-money wallet (Polymarket or Kalshi) | Install [`simmer-wallet-setup`](https://clawhub.ai/skills/simmer-wallet-setup) — covers OWS (recommended), external raw key, and managed paths |
 | Periodic portfolio check-in (heartbeat / cron loop) | [docs.simmer.markets](https://docs.simmer.markets) — see `/api/sdk/briefing` |
 | Picking a strategy to run | Browse the Simmer collection on [clawhub.ai/skills?q=simmer](https://clawhub.ai/skills?q=simmer) |
 | Building your own strategy skill | [docs.simmer.markets/skills/building](https://docs.simmer.markets/skills/building) |
