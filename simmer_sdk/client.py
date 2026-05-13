@@ -407,6 +407,15 @@ class SimmerClient:
             except Exception as e:
                 logger.warning("Risk alert check failed: %s", e)
 
+        # Server-side SDK version compatibility check (fail-quiet).
+        # Emits DeprecationWarning if the server says this SDK version is
+        # deprecated or blocked.  One call per client instance, no re-check.
+        try:
+            from .version_check import check_server_version_compatibility
+            check_server_version_compatibility(self.base_url, _sdk_version, self._session)
+        except Exception as e:
+            logger.debug("SDK version check setup error — ignoring: %s", e)
+
     def __repr__(self):
         return f"SimmerClient(venue={self.venue!r}, base_url={self.base_url!r})"
 
