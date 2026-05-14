@@ -74,7 +74,7 @@ Simmer skills follow the [AgentSkills](https://agentskills.io) open standard, ma
 ```yaml
 ---
 name: <skill-slug>
-description: <What it does + when to trigger. Max 1024 chars.>
+description: <What it does + when to trigger. Keep ≤160 chars (see rules below).>
 metadata:
   author: "<author>"
   version: "1.0.0"
@@ -85,7 +85,7 @@ metadata:
 
 Rules:
 - `name` must be lowercase, hyphens only, match folder name
-- `description` is required, max 1024 chars
+- `description` is required. AgentSkills spec allows up to 1024 chars, **but keep it ≤160 chars** — ClawHub truncates longer descriptions when generating the skill's `summary`, and that truncated value is what renders as the one-line description on `simmer.markets/skills/<owner>/<slug>` and in social-share cards. Write a complete sentence that fits.
 - `metadata` values must be flat strings (AgentSkills spec)
 - NO `clawdbot`, `requires`, `tunables`, or `automaton` in SKILL.md — those go in `clawhub.json`
 - Body must include: "This is a template" callout, setup flow, configuration table, quick commands, example output, troubleshooting section
