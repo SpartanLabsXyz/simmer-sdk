@@ -279,12 +279,12 @@ When a whale trade matches your watchlist:
 When Reactor signals arrive sized above Simmer's 500 $SIM per-trade cap, the skill automatically routes them to Polymarket instead of failing silently. This lets you follow whale sizing without hitting the LMSR hard cap:
 
 ```
-[reactor] 0xbaa2bc... amount 800.00 > $500 $SIM cap → routing to polymarket
+[reactor] 0xbaa2bc... amount 800.00 $SIM > 500 $SIM cap → routing to polymarket
 [reactor] ✅ 0xbaa2bc... mirrored 800.00 USD trade_id=a23dc52a
 ```
 
 **Edge cases:**
-- **No Polymarket wallet configured**: skill falls back to a $500-capped $SIM trade and logs the routing decision. You won't miss the signal entirely.
+- **No Polymarket wallet configured**: skill falls back to a 500 $SIM-capped trade and logs the routing decision. You won't miss the signal entirely.
 - **`COPYTRADING_FORCE_SIMMER_VENUE=true`**: disables auto-routing. Signals above 500 $SIM are capped at 500 and traded on Simmer venue.
 - **Signal already targets Polymarket**: no change — auto-routing only fires on `sim` venue signals.
 

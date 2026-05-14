@@ -693,7 +693,7 @@ def _process_reactor_signal(client, signal: dict) -> bool:
         _rerouted_to_polymarket = True
         effective_venue = "polymarket"
         print(
-            f"[reactor] {tx_short}... amount {amount:.2f} > ${SIMMER_VENUE_TRADE_CAP_USD:.0f} $SIM cap "
+            f"[reactor] {tx_short}... amount {amount:.2f} $SIM > {SIMMER_VENUE_TRADE_CAP_USD:.0f} $SIM cap "
             f"→ routing to polymarket"
         )
 
@@ -757,7 +757,7 @@ def _process_reactor_signal(client, signal: dict) -> bool:
             cap = SIMMER_VENUE_TRADE_CAP_USD
             print(
                 f"[reactor] {tx_short}... polymarket wallet not configured, "
-                f"falling back to ${cap:.0f} $SIM cap on {venue or 'sim'}"
+                f"falling back to {cap:.0f} $SIM cap on {venue or 'sim'}"
             )
             try:
                 result = _attempt_trade(venue, cap, None)
@@ -782,7 +782,7 @@ def _process_reactor_signal(client, signal: dict) -> bool:
             cap = SIMMER_VENUE_TRADE_CAP_USD
             print(
                 f"[reactor] {tx_short}... polymarket wallet not configured (rejected), "
-                f"falling back to ${cap:.0f} $SIM cap on {venue or 'sim'}"
+                f"falling back to {cap:.0f} $SIM cap on {venue or 'sim'}"
             )
             try:
                 result = _attempt_trade(venue, cap, None)
