@@ -3,7 +3,7 @@ name: simmer-skill-builder
 description: Generate complete, installable OpenClaw trading skills from natural language strategy descriptions. Use when your human wants to create a new trading strategy, build a bot, generate a skill, automate a trade idea, turn a tweet into a strategy, or asks "build me a skill that...". Produces a full skill folder (SKILL.md + Python script + config) ready to install and run.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.2.3"
+  version: "1.2.4"
   displayName: Simmer Skill Builder
   difficulty: beginner
 ---
@@ -89,6 +89,25 @@ Rules:
 - `metadata` values must be flat strings (AgentSkills spec)
 - NO `clawdbot`, `requires`, `tunables`, or `automaton` in SKILL.md — those go in `clawhub.json`
 - Body must include: "This is a template" callout, setup flow, configuration table, quick commands, example output, troubleshooting section
+
+#### `metadata.simmer.links` (optional — link back to your own content)
+
+If you've discussed this skill in a tweet, blog post, or YouTube video, list the URLs so visitors can find that context from the skill page on `simmer.markets`:
+
+```yaml
+metadata:
+  simmer:
+    links:
+      - https://x.com/your_handle/status/123456789
+      - https://your-blog.com/why-i-built-this
+      - https://youtube.com/watch?v=abc123
+```
+
+Rendered as a row of icon-pills (Twitter/X / YouTube / generic) near the top of the skill detail page. Up to 10 URLs per skill. URLs must start with `https://` or `http://`.
+
+#### Your SKILL.md body renders publicly
+
+The markdown body of the SKILL.md you generate (everything after the closing `---`) is rendered as the primary content on `simmer.markets/skills/<owner>/<slug>`. Write the opening paragraphs so they read for a human visitor deciding whether to install, not only for an agent following instructions. Setup steps, config table, and troubleshooting can stay agent-flavored further down.
 
 #### clawhub.json (ClawHub + Automaton config)
 
