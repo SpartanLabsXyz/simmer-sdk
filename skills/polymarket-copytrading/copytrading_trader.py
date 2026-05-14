@@ -72,13 +72,16 @@ CONFIG_SCHEMA = {
     "cadence_mode": {"env": "COPYTRADING_CADENCE_MODE", "default": "polling", "type": str},
 }
 
-# Cadence presets — control per-day trade budget and max position per market.
+# Cadence presets — control max trades per polling run.
 # "polling" preserves existing behaviour (backwards-compatible default).
-# "balanced" / "aggressive" are sized for Reactor's higher signal cadence.
+# "balanced" / "aggressive" are sized for higher polling cadence.
+# NOTE: these presets apply to polling mode only. In Reactor mode the per-signal
+# flow is governed by the server-side daily trade limit (PATCH /api/sdk/user/settings
+# max_trades_per_day=N to raise it beyond the default 10/day).
 CADENCE_PRESETS: dict = {
-    "polling":    {"max_trades": 10,  "max_position_usd": 2000},
-    "balanced":   {"max_trades": 50,  "max_position_usd": 5000},
-    "aggressive": {"max_trades": 200, "max_position_usd": 10000},
+    "polling":    {"max_trades": 10},
+    "balanced":   {"max_trades": 50},
+    "aggressive": {"max_trades": 200},
 }
 
 # Simmer venue (LMSR) hard cap per individual trade.
@@ -144,9 +147,6 @@ if _cadence_mode == "polling":
     MAX_TRADES_PER_RUN = _config["max_trades_per_run"]
 else:
     MAX_TRADES_PER_RUN = _cadence_preset["max_trades"]
-
-# Max position per market (passed to API alongside per-trade max_usd).
-CADENCE_MAX_POSITION_USD: float = float(_cadence_preset["max_position_usd"])
 
 # Reactor settings — used only by --reactor mode.
 # The relay writes signals with TTL=60s (tunable server-side via
@@ -290,7 +290,7 @@ def execute_trade(market_id: str, side: str, action: str, amount_usd: float = No
 
 
 
-def execute_copytrading(wallets: list, top_n: int = None, max_usd: float = 50.0, dry_run: bool = True, buy_only: bool = True, detect_whale_exits: bool = True, max_trades: int = None, venue: str = None, max_position_usd: float = None) -> dict:
+def execute_copytrading(wallets: list, top_n: int = None, max_usd: float = 50.0, dry_run: bool = True, buy_only: bool = True, detect_whale_exits: bool = True, max_trades: int = None, venue: str = None) -> dict:
     """
     Execute copytrading via Simmer SDK.
 
@@ -306,8 +306,6 @@ def execute_copytrading(wallets: list, top_n: int = None, max_usd: float = 50.0,
     - 'sim': Execute on Simmer LMSR with $SIM (paper trading)
     - 'polymarket': Execute on Polymarket with real USDC
     - None: Fall back to TRADING_VENUE env var, then server auto-detect
-
-    max_position_usd: cadence-preset ceiling on total position per market.
     """
     # Default to TRADING_VENUE env var so automaton/cron venue choice propagates
     if venue is None:
@@ -329,11 +327,6 @@ def execute_copytrading(wallets: list, top_n: int = None, max_usd: float = 50.0,
 
     if venue is not None:
         data["venue"] = venue
-
-    # Cadence preset: pass max position ceiling so server can respect it.
-    # Ignored by older server versions (extra fields are benign).
-    if max_position_usd is not None:
-        data["max_position_usd"] = max_position_usd
 
     result = get_client()._request("POST", "/api/sdk/copytrading/execute", json=data, timeout=60)
 
@@ -422,7 +415,6 @@ def run_copytrading(wallets: list, top_n: int = None, max_usd: float = 50.0, dry
     print(f"  Top N: {top_n if top_n else 'auto (based on balance)'}")
     print(f"  Max per position: ${max_usd:.2f}")
     print(f"  Max trades/run:  {MAX_TRADES_PER_RUN}  (cadence: {_cadence_mode})")
-    print(f"  Max position/market: {CADENCE_MAX_POSITION_USD:.0f} $SIM")
     venue_label = venue or "auto-detect"
     print(f"  Venue: {venue_label}")
     print(f"  Mode: {'Buy only (accumulate)' if buy_only else 'Full rebalance (buy + sell)'}")
@@ -465,7 +457,7 @@ def run_copytrading(wallets: list, top_n: int = None, max_usd: float = 50.0, dry
     # Execute copytrading via SDK
     print("\n📡 Calling Simmer API...")
     try:
-        result = execute_copytrading(wallets, top_n, max_usd, dry_run, buy_only, detect_whale_exits, MAX_TRADES_PER_RUN, venue=venue, max_position_usd=CADENCE_MAX_POSITION_USD)
+        result = execute_copytrading(wallets, top_n, max_usd, dry_run, buy_only, detect_whale_exits, MAX_TRADES_PER_RUN, venue=venue)
     except Exception as e:
         print(f"\n❌ Error: {e}")
         return

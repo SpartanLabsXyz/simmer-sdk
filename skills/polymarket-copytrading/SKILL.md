@@ -111,23 +111,29 @@ For automated recurring scans, wallets can be saved in environment:
 
 ### Cadence mode (v1.11+)
 
-`COPYTRADING_CADENCE_MODE` controls the trade budget and max position ceiling. Choose based on how frequently your setup runs trades:
+`COPYTRADING_CADENCE_MODE` controls how many trades the skill attempts per polling run. Choose based on how frequently your setup runs:
 
-| Preset | Max trades/day | Max position/market | When to use |
-|--------|---------------|---------------------|-------------|
-| `polling` | 10 | 2,000 $SIM | **Default.** Original polling-mode behavior — unchanged for existing installs |
-| `balanced` | 50 | 5,000 $SIM | Reactor enabled, want a governor on trade frequency |
-| `aggressive` | 200 | 10,000 $SIM | Power users following high-volume whales with Reactor |
+| Preset | Max trades/run | When to use |
+|--------|---------------|-------------|
+| `polling` | 10 | **Default.** Original polling-mode behavior — unchanged for existing installs |
+| `balanced` | 50 | More active polling, want a higher per-run budget |
+| `aggressive` | 200 | High-frequency polling setups |
 
 ```bash
-# For Reactor users who want to follow whales at full cadence
 export COPYTRADING_CADENCE_MODE=balanced
-
-# For high-volume whale followers
-export COPYTRADING_CADENCE_MODE=aggressive
 ```
 
 Existing installs default to `polling` — **no behavior change** unless you explicitly set this variable.
+
+> **Reactor mode note:** `cadence_mode` controls polling-mode trade budget only. In Reactor mode, each whale signal is handled individually by `_process_reactor_signal` — the per-run cap doesn't apply. If you hit `Daily trade limit reached (10/day)` in Reactor mode, raise the server-side limit via:
+> ```bash
+> curl -X PATCH "https://api.simmer.markets/api/sdk/user/settings" \
+>   -H "Authorization: Bearer $SIMMER_API_KEY" \
+>   -H "Content-Type: application/json" \
+>   -d '{"max_trades_per_day": 200}'
+> ```
+
+> **Position cap:** The per-market position cap is controlled by `SIMMER_COPYTRADING_MAX_USD` (default 50). Raise it to allow larger positions per market.
 
 **Top N auto-calculation (when not specified):**
 - Balance < $50: Top 5 positions
