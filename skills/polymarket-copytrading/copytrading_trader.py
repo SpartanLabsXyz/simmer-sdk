@@ -769,6 +769,7 @@ def _process_reactor_signal(client, signal: dict) -> bool:
             )
             try:
                 result = _attempt_trade(venue, cap, None)
+                effective_amount = cap  # log reflects what was actually traded
             except Exception as e2:
                 reason = f"trade_error (fallback): {type(e2).__name__}: {e2}"
                 print(f"[reactor] ❌ {tx_short}... {reason}")
@@ -793,6 +794,7 @@ def _process_reactor_signal(client, signal: dict) -> bool:
             )
             try:
                 result = _attempt_trade(venue, cap, None)
+                effective_amount = cap  # log reflects what was actually traded
             except Exception as e3:
                 reason = f"trade_error (fallback): {type(e3).__name__}: {e3}"
                 print(f"[reactor] ❌ {tx_short}... {reason}")
