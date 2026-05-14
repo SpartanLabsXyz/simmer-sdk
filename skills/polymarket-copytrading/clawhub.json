@@ -72,7 +72,7 @@
       "type": "string",
       "default": "polling",
       "enum": ["polling", "balanced", "aggressive"],
-      "label": "Cadence mode — set higher for Reactor-driven copytrading (polling=10 trades/day, balanced=50, aggressive=200)"
+      "label": "Cadence mode — set higher for more active polling (polling=10 trades/run, balanced=50, aggressive=200)"
     },
     {
       "env": "COPYTRADING_FORCE_SIMMER_VENUE",
