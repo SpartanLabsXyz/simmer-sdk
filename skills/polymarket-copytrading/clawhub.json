@@ -66,6 +66,19 @@
       ],
       "step": 1,
       "label": "Max trades per run"
+    },
+    {
+      "env": "COPYTRADING_CADENCE_MODE",
+      "type": "string",
+      "default": "polling",
+      "enum": ["polling", "balanced", "aggressive"],
+      "label": "Cadence mode — set higher for Reactor-driven copytrading (polling=10 trades/day, balanced=50, aggressive=200)"
+    },
+    {
+      "env": "COPYTRADING_FORCE_SIMMER_VENUE",
+      "type": "string",
+      "default": "",
+      "label": "Force Simmer ($SIM) venue — set to 'true' to disable auto-routing above-cap trades to Polymarket"
     }
   ]
 }
