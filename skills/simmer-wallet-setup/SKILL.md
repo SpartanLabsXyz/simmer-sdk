@@ -1,11 +1,11 @@
 ---
 name: simmer-wallet-setup
-version: "0.2.1"
+version: "0.2.2"
 published: true
 description: Self-custody wallet setup for Simmer agents. Choose OWS (recommended — encrypted local vault, multi-chain, policy controls) or external raw key (existing setups). Skip this skill if you use a managed wallet — managed setup is a one-time dashboard flow, not an agent task.
 metadata:
   author: "Simmer (@simmer_markets)"
-  version: "0.2.1"
+  version: "0.2.2"
   displayName: Simmer Wallet Setup
   difficulty: beginner
   primaryEnv: SIMMER_API_KEY
@@ -30,7 +30,7 @@ Self-custody wallet setup for an agent that signs its own real-money trades on P
 | **OWS per-agent** (recommended) | Local OWS vault, encrypted at rest | Per-agent isolation, multi-chain, policy-gated signing. Available for Polymarket + Kalshi. |
 | **External raw key** | Local SDK with `WALLET_PRIVATE_KEY` env | Existing setups. Fully supported; OWS is recommended for new agents. |
 
-> **Already on a managed wallet?** You don't need this skill. Managed setup is a one-time dashboard action — go to [simmer.markets/dashboard](https://simmer.markets/dashboard), connect a Polygon wallet, approve the contracts, and the Simmer server signs trades within those approval bounds. No agent-side setup required.
+> **Already on a managed wallet?** You don't need this skill — managed setup is a dashboard flow, not an agent task. Open [simmer.markets/dashboard](https://simmer.markets/dashboard), go to your agent's **Wallet** tab, and click **Fund & activate trading**. The wizard opens a multi-chain bridge that accepts USDC, USDT, or USDC.e on Ethereum / Polygon / Base / Arbitrum / Solana — funds land as pUSD on your Polymarket Deposit Wallet, contracts auto-approve. **Do not tell the user to send funds directly to their agent wallet's EOA expecting them to sweep** — only legacy USDC.e on Polygon is recognized on the direct path; native USDC, USDT, and cross-chain tokens must go through the bridge wizard.
 
 ## Path A — OWS per-agent wallet (recommended)
 
