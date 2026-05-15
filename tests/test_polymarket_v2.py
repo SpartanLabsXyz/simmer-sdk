@@ -165,11 +165,23 @@ def test_v1_approvals_count_and_tokens():
 def test_v2_approvals_count_and_tokens():
     _set_version("v2")  # explicit V2 (default is time-gated as of 0.12.2)
     from simmer_sdk.approvals import get_approval_transactions
+    from simmer_sdk.polymarket_contracts import (
+        V2_FEE_ESCROW,
+        CTF_COLLATERAL_ADAPTER,
+        NEG_RISK_CTF_COLLATERAL_ADAPTER,
+    )
     txs = get_approval_transactions()
-    # 4 spenders × (pUSD + CTF) = 8 txs
-    assert len(txs) == 8
+    # 4 trading spenders × (pUSD + CTF) = 8, plus 4 V2 extras:
+    #   pUSD → V2_FEE_ESCROW, CTF → CTF_COLLATERAL_ADAPTER,
+    #   CTF → NEG_RISK_CTF_COLLATERAL_ADAPTER, pUSD → CTF_COLLATERAL_ADAPTER
+    assert len(txs) == 12
     tokens = {tx["token"] for tx in txs}
     assert tokens == {"pUSD", "CTF"}
+    spender_addrs = {tx["spender_address"] for tx in txs}
+    # Verify the 4 new extras are present (regression guard for SIM-1881)
+    assert V2_FEE_ESCROW in spender_addrs
+    assert CTF_COLLATERAL_ADAPTER in spender_addrs
+    assert NEG_RISK_CTF_COLLATERAL_ADAPTER in spender_addrs
 
 
 def test_v2_get_required_approvals_tokens():

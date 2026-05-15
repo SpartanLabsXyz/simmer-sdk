@@ -125,11 +125,6 @@ ERC1155_SET_APPROVAL_SELECTOR = "0xa22cb465"
 # Boolean true encoded as 32-byte hex (for setApprovalForAll)
 BOOL_TRUE_ENCODED = "0000000000000000000000000000000000000000000000000000000000000001"
 
-# Allowance key suffix is the full lowercased spender address (matches backend).
-# Previously used an 8-char prefix but V2_NEG_RISK_EXCHANGE_A/B share "0xe2222d",
-# so the server switched to full-address keys (SIM-1881).
-ADDRESS_PREFIX_LENGTH = 8  # retained for back-compat; no longer used for key lookup
-
 # EVM word size in hex characters (32 bytes = 64 hex chars)
 EVM_WORD_SIZE_HEX = 64
 
@@ -391,12 +386,12 @@ def format_approval_guide(approval_status: Dict[str, Any]) -> str:
     v2 = is_v2_enabled()
 
     for spender_info in _spenders().values():
-        spender_prefix = spender_info["address"][:ADDRESS_PREFIX_LENGTH]
+        spender_key = spender_info["address"].lower()
         spender_name = spender_info["name"]
 
         if v2:
-            pusd_key = f"pusd_{spender_prefix}"
-            ctf_key = f"ctf_{spender_prefix}"
+            pusd_key = f"pusd_{spender_key}"
+            ctf_key = f"ctf_{spender_key}"
             pusd_ok = allowances.get(pusd_key, False)
             ctf_ok = allowances.get(ctf_key, False)
             if not pusd_ok or not ctf_ok:
@@ -406,9 +401,9 @@ def format_approval_guide(approval_status: Dict[str, Any]) -> str:
                 if not ctf_ok:
                     lines.append(f"    ❌ CTF approval missing")
         else:
-            usdc_native_key = f"usdc_native_{spender_prefix}"
-            usdc_bridged_key = f"usdc_bridged_{spender_prefix}"
-            ctf_key = f"ctf_{spender_prefix}"
+            usdc_native_key = f"usdc_native_{spender_key}"
+            usdc_bridged_key = f"usdc_bridged_{spender_key}"
+            ctf_key = f"ctf_{spender_key}"
 
             usdc_native_ok = allowances.get(usdc_native_key, False)
             usdc_bridged_ok = allowances.get(usdc_bridged_key, False)
