@@ -15,7 +15,7 @@ Trade Polymarket's 5-minute crypto fast markets using real-time price signals. D
 
 > **This is a template.** The default signal (Binance momentum) gets you started — remix it with your own signals, data sources, or strategy. The skill handles all the plumbing (market discovery, import, trade execution). Your agent provides the alpha.
 
-> ⚠️ Fast markets carry Polymarket's 10% fee (`is_paid: true`). Factor this into your edge calculations.
+> ⚠️ Fast markets carry Polymarket's crypto taker fee (`is_paid: true`). Effective rate is 3.5% at 50¢, up to ~6.6% on cheap shares (e.g. 5¢ NO). Makers pay 0%; takers get a 20% rebate. Factor this into your edge calculations.
 
 > ⚠️ **Risk monitoring does not apply to sub-15-minute markets.** Simmer's stop-loss and take-profit monitors check positions every 15 minutes — which means they will never fire on 5m or 15m markets before resolution. Any risk settings you configure in the Simmer dashboard have no effect on these positions. Size accordingly and do not rely on automated stop-losses for fast market trades.
 
