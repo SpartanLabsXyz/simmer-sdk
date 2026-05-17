@@ -187,12 +187,25 @@ def test_v2_approvals_count_and_tokens():
 def test_v2_get_required_approvals_tokens():
     _set_version("v2")
     from simmer_sdk.approvals import get_required_approvals
+    from simmer_sdk.polymarket_contracts import (
+        V2_FEE_ESCROW,
+        CTF_COLLATERAL_ADAPTER,
+        NEG_RISK_CTF_COLLATERAL_ADAPTER,
+    )
     approvals = get_required_approvals()
     tokens = {a["token"] for a in approvals}
     # V2 should never surface USDC or USDC.e as required
     assert "USDC" not in tokens
     assert "USDC.e" not in tokens
     assert tokens == {"pUSD", "CTF"}
+    # 4 trading spenders × (pUSD + CTF) = 8, plus 4 V2 extras = 12
+    # (regression guard for SIM-1881 codex P2 — keeps metadata API in lockstep
+    #  with get_approval_transactions() + get_missing_approval_transactions().)
+    assert len(approvals) == 12
+    spender_addrs = {a["spender_address"] for a in approvals}
+    assert V2_FEE_ESCROW in spender_addrs
+    assert CTF_COLLATERAL_ADAPTER in spender_addrs
+    assert NEG_RISK_CTF_COLLATERAL_ADAPTER in spender_addrs
 
 
 # ==================== SignedOrder ====================

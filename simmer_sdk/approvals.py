@@ -168,7 +168,8 @@ def get_required_approvals() -> List[Dict[str, Any]]:
     """Get list of all required approvals for the active exchange version.
 
     V1 (flag off): USDC + USDC.e + CTF per 3 spenders = 9 approvals.
-    V2 (flag on, default on 0.10.0+): pUSD + CTF per 4 spenders = 8 approvals.
+    V2 (flag on, default on 0.10.0+): pUSD + CTF per 4 trading spenders (8)
+    plus 4 V2 extras (fee escrow + 2 CTF redemption adapters + pUSD adapter) = 12 approvals.
     """
     approvals: List[Dict[str, Any]] = []
     v2 = is_v2_enabled()
@@ -179,6 +180,24 @@ def get_required_approvals() -> List[Dict[str, Any]]:
             approvals.append(_build_approval_info(spender_info, "USDC"))
             approvals.append(_build_approval_info(spender_info, "USDC.e"))
         approvals.append(_build_approval_info(spender_info, "CTF"))
+
+    # V2-only extras: fee escrow + redemption adapters (2026-05-01 upgrade).
+    # Mirror get_approval_transactions() so callers reading this metadata API
+    # see the same set the transaction + missing-approval paths require.
+    if v2:
+        approvals.append(_build_approval_info(
+            {"name": "V2 Fee Escrow", "address": V2_FEE_ESCROW}, "pUSD"
+        ))
+        approvals.append(_build_approval_info(
+            {"name": "CTF Collateral Adapter", "address": CTF_COLLATERAL_ADAPTER}, "CTF"
+        ))
+        approvals.append(_build_approval_info(
+            {"name": "Neg Risk CTF Collateral Adapter", "address": NEG_RISK_CTF_COLLATERAL_ADAPTER}, "CTF"
+        ))
+        approvals.append(_build_approval_info(
+            {"name": "CTF Collateral Adapter", "address": CTF_COLLATERAL_ADAPTER}, "pUSD"
+        ))
+
     return approvals
 
 
