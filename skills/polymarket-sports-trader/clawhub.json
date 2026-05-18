@@ -1,0 +1,115 @@
+{
+  "emoji": "🏀",
+  "primaryEnv": "SIMMER_API_KEY",
+  "requires": {
+    "env": [
+      "SIMMER_API_KEY"
+    ],
+    "pip": [
+      "simmer-sdk>=0.11.1"
+    ]
+  },
+  "envVars": [
+    {
+      "name": "SIMMER_API_KEY",
+      "required": true,
+      "description": "Your Simmer SDK API key — get from simmer.markets/dashboard"
+    },
+    {
+      "name": "WALLET_PRIVATE_KEY",
+      "required": false,
+      "description": "Only needed for external-wallet self-custody trading. Not required for managed wallets."
+    },
+    {
+      "name": "LLM_API_KEY",
+      "required": true,
+      "description": "OpenAI-compatible LLM key — OpenRouter / Anthropic / OpenAI. Provider URL configured via SIMMER_SPORTS_LLM_BASE_URL (defaults to OpenRouter)."
+    }
+  ],
+  "cron": null,
+  "autostart": false,
+  "automaton": {
+    "managed": true,
+    "entrypoint": "sports_trader.py"
+  },
+  "tunables": [
+    {
+      "env": "SIMMER_SPORTS_MAX_POSITION",
+      "type": "number",
+      "default": 5,
+      "range": [
+        1,
+        100
+      ],
+      "step": 1,
+      "label": "Max position size (USD)"
+    },
+    {
+      "env": "SIMMER_SPORTS_DIVERGENCE_MIN",
+      "type": "number",
+      "default": 0.08,
+      "range": [
+        0.02,
+        0.30
+      ],
+      "step": 0.01,
+      "label": "Divergence threshold"
+    },
+    {
+      "env": "SIMMER_SPORTS_MAX_TRADES",
+      "type": "number",
+      "default": 4,
+      "range": [
+        1,
+        20
+      ],
+      "step": 1,
+      "label": "Max trades per run"
+    },
+    {
+      "env": "SIMMER_SPORTS_MAX_MARKETS",
+      "type": "number",
+      "default": 8,
+      "range": [
+        1,
+        25
+      ],
+      "step": 1,
+      "label": "Max markets scanned per run"
+    },
+    {
+      "env": "SIMMER_SPORTS_MIN_VOLUME",
+      "type": "number",
+      "default": 25000,
+      "range": [
+        1000,
+        500000
+      ],
+      "step": 1000,
+      "label": "Minimum 24h market volume (USD)"
+    },
+    {
+      "env": "SIMMER_SPORTS_SIZING_PCT",
+      "type": "number",
+      "default": 0.05,
+      "range": [
+        0.01,
+        0.5
+      ],
+      "step": 0.01,
+      "label": "Position size as % of balance (smart-sizing)"
+    },
+    {
+      "env": "SIMMER_SPORTS_AUTO_IMPORT",
+      "type": "boolean",
+      "default": false,
+      "label": "Auto-import sports markets not yet on Simmer"
+    },
+    {
+      "env": "SIMMER_SPORTS_LLM_MODEL",
+      "type": "string",
+      "default": "anthropic/claude-haiku-4.5",
+      "label": "LLM model id (OpenAI-compatible)"
+    }
+  ]
+}
