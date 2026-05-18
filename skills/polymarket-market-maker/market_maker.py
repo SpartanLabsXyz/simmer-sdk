@@ -293,19 +293,10 @@ def run_market(
     cancel_bid = _should_cancel(existing_bid_id, existing_bid_price, bid_yes)
     cancel_ask = _should_cancel(existing_ask_id, existing_ask_price, bid_no_synth)
 
-    # Determine if we need to (re)place
-    bid_needs_place = post_bid and (
-        not existing_bid_id
-        or existing_bid_id not in open_order_ids
-        or cancel_bid
-    )
-    ask_needs_place = post_ask and (
-        not existing_ask_id
-        or existing_ask_id not in open_order_ids
-        or cancel_ask
-    )
-
-    # 5. Cancellations
+    # 5. Cancellations — must happen before bid_needs_place/ask_needs_place is evaluated.
+    # If cancel_order() raises, market_state["bid_order_id"] stays set → bid_needs_place
+    # must read the post-cancel state, not a pre-computed flag, to avoid placing a second
+    # GTC order while the stale one is still live on CLOB.
     if cancel_bid and existing_bid_id:
         print(f"  → Cancel stale BID {existing_bid_id[:8]}... "
               f"(was {existing_bid_price:.3f}, new {bid_yes:.3f})")
@@ -329,6 +320,17 @@ def run_market(
                 market_state["ask_price"] = None
             except Exception as e:
                 print(f"  [warn] Cancel ASK failed: {e}")
+
+    # Determine if we need to (re)place — evaluated AFTER cancel attempts so that
+    # market_state["bid/ask_order_id"] reflects the cancel outcome (None = gone, set = still live).
+    bid_needs_place = post_bid and (
+        not market_state.get("bid_order_id")
+        or market_state.get("bid_order_id") not in open_order_ids
+    )
+    ask_needs_place = post_ask and (
+        not market_state.get("ask_order_id")
+        or market_state.get("ask_order_id") not in open_order_ids
+    )
 
     # 6. Place orders
     min_amount = round(MIN_SHARES * bid_yes, 2)
