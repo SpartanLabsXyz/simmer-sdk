@@ -216,8 +216,10 @@ def _load_daily_spend():
 
 def _save_daily_spend(spend_data):
     spend_path = _get_spend_path()
-    with open(spend_path, "w") as f:
+    tmp = spend_path.with_suffix(".tmp")
+    with open(tmp, "w") as f:
         json.dump(spend_data, f, indent=2)
+    tmp.replace(spend_path)
 
 
 # =============================================================================
@@ -467,6 +469,7 @@ def get_binance_1m_momentum(asset="BTC"):
         return {
             "momentum_pct": momentum_pct,
             "abs_momentum_pct": abs(momentum_pct),
+            # momentum_pct == 0 → "down" is unreachable; magnitude gate filters |mom| > 0
             "direction": "up" if momentum_pct > 0 else "down",
             "price_now": price_close,
             "price_open": price_open,
@@ -649,7 +652,7 @@ def run_fast_scaler(dry_run=True, positions_only=False, show_config=False, quiet
 
     if not markets:
         log("  No active fast markets — may be outside market hours or wrong asset/window")
-        _emit_automaton(signals=0, attempted=0, executed=0, skip_reason="no_markets")
+        _emit_automaton(signals=0, attempted=0, executed=0, skip_reason="no_markets", markets_found=0)
         return
 
     # --- Step 2: Select best market ---
@@ -734,7 +737,7 @@ def run_fast_scaler(dry_run=True, positions_only=False, show_config=False, quiet
         log(f"  ⏸️  Momentum {momentum_pct:.4f}% < gate {MAGNITUDE_GATE_PCT:.2f}% — below threshold")
         if not quiet:
             print(f"📊 Summary: No trade (momentum {momentum_pct:.4f}% < gate {MAGNITUDE_GATE_PCT:.2f}%)")
-        _emit_automaton(signals=1, attempted=0, executed=0, skip_reason="below_magnitude_gate")
+        _emit_automaton(signals=1, attempted=0, executed=0, skip_reason="below_magnitude_gate", momentum_pct=signal["momentum_pct"])
         return
 
     # Gate passed — compute conviction tier and position size
@@ -822,7 +825,7 @@ def run_fast_scaler(dry_run=True, positions_only=False, show_config=False, quiet
                 momentum_pct=round(signal["momentum_pct"], 4),
                 volume_ratio=round(signal["volume_ratio"], 2),
             )
-        _emit_automaton(signals=1, attempted=1, executed=1, amount_usd=position_size)
+        _emit_automaton(signals=1, attempted=1, executed=1, amount_usd=position_size, momentum_pct=signal["momentum_pct"], tier=tier)
     else:
         error = (trade_result.get("error") or "Unknown error")[:120]
         log(f"  ❌ Trade failed: {error}", force=True)
@@ -837,7 +840,8 @@ def run_fast_scaler(dry_run=True, positions_only=False, show_config=False, quiet
 
 
 def _emit_automaton(signals=0, attempted=0, executed=0, skip_reason=None,
-                    amount_usd=0, execution_errors=None):
+                    amount_usd=0, execution_errors=None, momentum_pct=None,
+                    markets_found=None, tier=None):
     """Emit structured automaton JSON for the OpenClaw harness."""
     global _automaton_reported
     if not os.environ.get("AUTOMATON_MANAGED"):
@@ -853,6 +857,12 @@ def _emit_automaton(signals=0, attempted=0, executed=0, skip_reason=None,
         report["skip_reason"] = skip_reason
     if execution_errors:
         report["execution_errors"] = execution_errors
+    if momentum_pct is not None:
+        report["momentum_pct"] = round(momentum_pct, 4)
+    if markets_found is not None:
+        report["markets_found"] = markets_found
+    if tier is not None:
+        report["tier"] = tier
     print(json.dumps({"automaton": report}))
     _automaton_reported = True
 
