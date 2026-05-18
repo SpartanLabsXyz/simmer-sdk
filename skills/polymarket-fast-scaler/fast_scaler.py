@@ -430,7 +430,7 @@ def find_best_fast_market(markets):
     if not candidates:
         return None
     candidates.sort(key=lambda x: x[0])
-    return candidates[0][1]
+    return candidates[-1][1]  # last = most time remaining (ascending sort)
 
 
 # =============================================================================
