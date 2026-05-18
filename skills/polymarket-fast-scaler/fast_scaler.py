@@ -447,10 +447,15 @@ def get_binance_1m_momentum(asset="BTC"):
     Do not increase lookback without re-running the backtest.
     """
     symbol = ASSET_SYMBOLS.get(asset, "BTCUSDT")
-    # Fetch 2 candles: previous complete + current; use previous (complete) for clean signal
-    url = f"https://api.binance.com/api/v3/klines?symbol={symbol}&interval=1m&limit=3"
-    result = _api_request(url)
-    if not result or isinstance(result, dict):
+    # Try global endpoint first; fall back to US endpoint for geo-restricted deployments (HTTP 451)
+    result = None
+    for base in ("https://api.binance.com", "https://api.binance.us"):
+        url = f"{base}/api/v3/klines?symbol={symbol}&interval=1m&limit=3"
+        result = _api_request(url)
+        if result and not isinstance(result, dict):
+            break
+        result = None
+    if result is None:
         return None
     try:
         # Use the last complete candle (index -2) for a settled signal.
