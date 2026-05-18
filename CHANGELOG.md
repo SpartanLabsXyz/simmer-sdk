@@ -3,6 +3,25 @@
 All notable changes to `simmer-sdk` are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.11] — 2026-05-18
+
+### Fixed
+
+- **`set_approvals()` / `ensure_approvals()` return a friendly no-op for managed-wallet users (SIM-1976).** Previously both methods raised `ValueError: No wallet configured. Initialize client with private_key.` whenever the SDK had no local signing key — but managed-wallet users (Simmer custodies the key) have no private key to provide. The error told them to do something they can't do. The methods now probe `/api/sdk/settings`; when `wallet_ownership == "native"`, they return a structured `{managed: True, ...}` response with a message pointing at the server-side activation cascade (which auto-fires on the next Polymarket trade — see PR simmer#887). External-wallet users with no key configured still get the existing `ValueError` — no behavior change for them. Reported via Hannes Altberg's case (support thread 6ef49e7a).
+
+## [0.17.10] — 2026-05-17
+
+### Fixed
+
+- **`set_approvals()` now generates the full 12-tx V2 set (was 8) — SIM-1881.** The server's `check_approvals()` adds 4 allowance checks introduced in the 2026-05-01 Polymarket upgrade (FeeEscrow + CTF redemption adapters); the SDK was never updated, so EOA users running `set_approvals()` got `ensure_approvals().ready == False` even after every transaction succeeded. Reported via SIM-1870 (Hannes Altberg). New txs: pUSD→V2_FEE_ESCROW, CTF→CTF_COLLATERAL_ADAPTER, CTF→NEG_RISK_CTF_COLLATERAL_ADAPTER, pUSD→CTF_COLLATERAL_ADAPTER.
+- **Allowance lookup keys now use the full lowercased address (was 8-char prefix) — SIM-1881.** `V2_NEG_RISK_EXCHANGE_A` and `_B` both start with `0xe2222d`, so the prefix-based key in `get_missing_approval_transactions()` and `format_approval_guide()` was collision-prone. The server switched to full-address keys earlier in May; the SDK now mirrors that format. Result: previously-set allowances that were incorrectly reported as missing in the SDK's view are now correctly recognized.
+- **`get_required_approvals()` mirrors `get_approval_transactions()` (8 → 12 V2 entries).** Metadata API was returning 8 entries while the transaction/missing-check paths required 12. Callers using the exported discovery API would have seen incomplete V2 approval requirements. Codex P2 follow-up to the primary fix.
+
+### Added
+
+- **`redemption_spenders()` helper in `polymarket_contracts`.** Returns the 2 CTF adapter contracts (`CTF_COLLATERAL_ADAPTER`, `NEG_RISK_CTF_COLLATERAL_ADAPTER`) that need ERC1155 `setApprovalForAll` for adapter-routed `redeemPositions`.
+- **3 new contract constants in `polymarket_contracts`:** `V2_FEE_ESCROW`, `CTF_COLLATERAL_ADAPTER`, `NEG_RISK_CTF_COLLATERAL_ADAPTER`. Addresses match the server-side canonical constants.
+
 ## [0.17.9] — 2026-05-13
 
 ### Fixed

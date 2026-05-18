@@ -12,6 +12,10 @@ External wallets need to approve several spender contracts before trading.
 1. pUSD → 4 V2 spenders (CTF V2, NegRisk A, NegRisk B, NegRisk Adapter)
 2. CTF Token (ERC1155) → same 4 spenders
 3. pUSD → CollateralOfframp (for withdrawals that unwrap back to USDC.e)
+4. pUSD → V2_FEE_ESCROW (PolyNode fee collection; 2026-05-01 upgrade)
+5. CTF → CTF_COLLATERAL_ADAPTER (ERC1155; redemption adapter; 2026-05-01 upgrade)
+6. CTF → NEG_RISK_CTF_COLLATERAL_ADAPTER (ERC1155; neg-risk redemption; 2026-05-01 upgrade)
+7. pUSD → CTF_COLLATERAL_ADAPTER (split-then-redeem path; 2026-05-01 upgrade)
 
 Flag: `SIMMER_POLYMARKET_EXCHANGE_VERSION` env (default `v2` on 0.10.0+).
 
@@ -41,8 +45,12 @@ from simmer_sdk.polymarket_contracts import (
     V2_CTF_EXCHANGE,
     V2_NEG_RISK_EXCHANGE_A,
     V2_NEG_RISK_EXCHANGE_B,
+    V2_FEE_ESCROW,
+    CTF_COLLATERAL_ADAPTER,
+    NEG_RISK_CTF_COLLATERAL_ADAPTER,
     is_v2_enabled,
     active_spenders,
+    redemption_spenders,
 )
 
 # Back-compat re-exports for existing 0.9.x integrators
@@ -117,9 +125,6 @@ ERC1155_SET_APPROVAL_SELECTOR = "0xa22cb465"
 # Boolean true encoded as 32-byte hex (for setApprovalForAll)
 BOOL_TRUE_ENCODED = "0000000000000000000000000000000000000000000000000000000000000001"
 
-# Length of address prefix used in allowance keys (0x + 6 hex chars, matches backend)
-ADDRESS_PREFIX_LENGTH = 8
-
 # EVM word size in hex characters (32 bytes = 64 hex chars)
 EVM_WORD_SIZE_HEX = 64
 
@@ -163,7 +168,8 @@ def get_required_approvals() -> List[Dict[str, Any]]:
     """Get list of all required approvals for the active exchange version.
 
     V1 (flag off): USDC + USDC.e + CTF per 3 spenders = 9 approvals.
-    V2 (flag on, default on 0.10.0+): pUSD + CTF per 4 spenders = 8 approvals.
+    V2 (flag on, default on 0.10.0+): pUSD + CTF per 4 trading spenders (8)
+    plus 4 V2 extras (fee escrow + 2 CTF redemption adapters + pUSD adapter) = 12 approvals.
     """
     approvals: List[Dict[str, Any]] = []
     v2 = is_v2_enabled()
@@ -174,6 +180,24 @@ def get_required_approvals() -> List[Dict[str, Any]]:
             approvals.append(_build_approval_info(spender_info, "USDC"))
             approvals.append(_build_approval_info(spender_info, "USDC.e"))
         approvals.append(_build_approval_info(spender_info, "CTF"))
+
+    # V2-only extras: fee escrow + redemption adapters (2026-05-01 upgrade).
+    # Mirror get_approval_transactions() so callers reading this metadata API
+    # see the same set the transaction + missing-approval paths require.
+    if v2:
+        approvals.append(_build_approval_info(
+            {"name": "V2 Fee Escrow", "address": V2_FEE_ESCROW}, "pUSD"
+        ))
+        approvals.append(_build_approval_info(
+            {"name": "CTF Collateral Adapter", "address": CTF_COLLATERAL_ADAPTER}, "CTF"
+        ))
+        approvals.append(_build_approval_info(
+            {"name": "Neg Risk CTF Collateral Adapter", "address": NEG_RISK_CTF_COLLATERAL_ADAPTER}, "CTF"
+        ))
+        approvals.append(_build_approval_info(
+            {"name": "CTF Collateral Adapter", "address": CTF_COLLATERAL_ADAPTER}, "pUSD"
+        ))
+
     return approvals
 
 
@@ -266,6 +290,63 @@ def get_approval_transactions() -> List[Dict[str, Any]]:
             "spender_address": spender_addr,
         })
 
+    # V2-only extras: redemption adapters + fee escrow (2026-05-01 upgrade)
+    if v2:
+        # pUSD → V2_FEE_ESCROW — ERC20 approve for PolyNode fee collection
+        fee_escrow_data = (
+            ERC20_APPROVE_SELECTOR +
+            V2_FEE_ESCROW[2:].lower().zfill(EVM_WORD_SIZE_HEX) +
+            MAX_UINT256[2:]
+        )
+        transactions.append({
+            "to": PUSD,
+            "data": fee_escrow_data,
+            "value": "0x0",
+            "chainId": POLYGON_CHAIN_ID,
+            "description": "Approve V2 Fee Escrow to spend pUSD",
+            "token": "pUSD",
+            "spender": "V2 Fee Escrow",
+            "spender_address": V2_FEE_ESCROW,
+        })
+
+        # CTF → redemption adapters — ERC1155 setApprovalForAll
+        for adapter_addr, adapter_name in [
+            (CTF_COLLATERAL_ADAPTER, "CTF Collateral Adapter"),
+            (NEG_RISK_CTF_COLLATERAL_ADAPTER, "Neg Risk CTF Collateral Adapter"),
+        ]:
+            ctf_adapter_data = (
+                ERC1155_SET_APPROVAL_SELECTOR +
+                adapter_addr[2:].lower().zfill(EVM_WORD_SIZE_HEX) +
+                BOOL_TRUE_ENCODED
+            )
+            transactions.append({
+                "to": CTF_TOKEN,
+                "data": ctf_adapter_data,
+                "value": "0x0",
+                "chainId": POLYGON_CHAIN_ID,
+                "description": f"Approve {adapter_name} to transfer CTF tokens",
+                "token": "CTF",
+                "spender": adapter_name,
+                "spender_address": adapter_addr,
+            })
+
+        # pUSD → CTF_COLLATERAL_ADAPTER — ERC20 approve for split-then-redeem path
+        pusd_adapter_data = (
+            ERC20_APPROVE_SELECTOR +
+            CTF_COLLATERAL_ADAPTER[2:].lower().zfill(EVM_WORD_SIZE_HEX) +
+            MAX_UINT256[2:]
+        )
+        transactions.append({
+            "to": PUSD,
+            "data": pusd_adapter_data,
+            "value": "0x0",
+            "chainId": POLYGON_CHAIN_ID,
+            "description": "Approve CTF Collateral Adapter to spend pUSD",
+            "token": "pUSD",
+            "spender": "CTF Collateral Adapter",
+            "spender_address": CTF_COLLATERAL_ADAPTER,
+        })
+
     return transactions
 
 
@@ -289,17 +370,20 @@ def get_missing_approval_transactions(
 
     missing_txs = []
     for tx in all_txs:
-        spender_prefix = tx["spender_address"][:ADDRESS_PREFIX_LENGTH]
+        # Server uses full lowercased address as key suffix (not 8-char prefix).
+        # V2_NEG_RISK_EXCHANGE_A/B share the same 8-char prefix so the server
+        # switched to full-address keys (SIM-1881). Mirror that here.
+        spender_key = tx["spender_address"].lower()
 
         token = tx["token"]
         if token == "USDC":
-            key = f"usdc_native_{spender_prefix}"
+            key = f"usdc_native_{spender_key}"
         elif token == "USDC.e":
-            key = f"usdc_bridged_{spender_prefix}"
+            key = f"usdc_bridged_{spender_key}"
         elif token == "pUSD":
-            key = f"pusd_{spender_prefix}"
+            key = f"pusd_{spender_key}"
         else:
-            key = f"ctf_{spender_prefix}"
+            key = f"ctf_{spender_key}"
 
         if not allowances.get(key, False):
             missing_txs.append(tx)
@@ -321,12 +405,12 @@ def format_approval_guide(approval_status: Dict[str, Any]) -> str:
     v2 = is_v2_enabled()
 
     for spender_info in _spenders().values():
-        spender_prefix = spender_info["address"][:ADDRESS_PREFIX_LENGTH]
+        spender_key = spender_info["address"].lower()
         spender_name = spender_info["name"]
 
         if v2:
-            pusd_key = f"pusd_{spender_prefix}"
-            ctf_key = f"ctf_{spender_prefix}"
+            pusd_key = f"pusd_{spender_key}"
+            ctf_key = f"ctf_{spender_key}"
             pusd_ok = allowances.get(pusd_key, False)
             ctf_ok = allowances.get(ctf_key, False)
             if not pusd_ok or not ctf_ok:
@@ -336,9 +420,9 @@ def format_approval_guide(approval_status: Dict[str, Any]) -> str:
                 if not ctf_ok:
                     lines.append(f"    ❌ CTF approval missing")
         else:
-            usdc_native_key = f"usdc_native_{spender_prefix}"
-            usdc_bridged_key = f"usdc_bridged_{spender_prefix}"
-            ctf_key = f"ctf_{spender_prefix}"
+            usdc_native_key = f"usdc_native_{spender_key}"
+            usdc_bridged_key = f"usdc_bridged_{spender_key}"
+            ctf_key = f"ctf_{spender_key}"
 
             usdc_native_ok = allowances.get(usdc_native_key, False)
             usdc_bridged_ok = allowances.get(usdc_bridged_key, False)
@@ -352,6 +436,20 @@ def format_approval_guide(approval_status: Dict[str, Any]) -> str:
                     lines.append(f"    ❌ USDC.e approval missing")
                 if not ctf_ok:
                     lines.append(f"    ❌ CTF approval missing")
+
+    if v2:
+        # Show any missing V2 extras (fee escrow + redemption adapters)
+        extras = [
+            (f"pusd_{V2_FEE_ESCROW.lower()}", "V2 Fee Escrow", "pUSD"),
+            (f"ctf_{CTF_COLLATERAL_ADAPTER.lower()}", "CTF Collateral Adapter", "CTF"),
+            (f"ctf_{NEG_RISK_CTF_COLLATERAL_ADAPTER.lower()}", "Neg Risk CTF Collateral Adapter", "CTF"),
+            (f"pusd_{CTF_COLLATERAL_ADAPTER.lower()}", "CTF Collateral Adapter", "pUSD"),
+        ]
+        extra_missing = [(name, token) for key, name, token in extras if not allowances.get(key, False)]
+        if extra_missing:
+            lines.append("  V2 extras (fee escrow + redemption adapters):")
+            for name, token in extra_missing:
+                lines.append(f"    ❌ {token} → {name} missing")
 
     lines.append("\nTo set approvals:")
     lines.append("  1. Use get_approval_transactions() to get tx data")

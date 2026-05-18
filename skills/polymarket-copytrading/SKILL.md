@@ -3,7 +3,7 @@ name: polymarket-copytrading
 description: Mirror positions from top Polymarket traders. Polling mode (free) for portfolio-style copying, Reactor mode (Pro) for event-driven real-time mirroring via Simmer's on-chain signal infrastructure.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.10.2"
+  version: "1.11.0"
   displayName: Polymarket Copytrading
   difficulty: beginner
 ---
@@ -106,6 +106,34 @@ For automated recurring scans, wallets can be saved in environment:
 | Max per position | `SIMMER_COPYTRADING_MAX_USD` | 50 |
 | Max trades/run | `SIMMER_COPYTRADING_MAX_TRADES` | 10 |
 | Order type | `SIMMER_COPYTRADING_ORDER_TYPE` | GTC |
+| Cadence mode | `COPYTRADING_CADENCE_MODE` | `polling` |
+| Force Simmer venue | `COPYTRADING_FORCE_SIMMER_VENUE` | (unset) |
+
+### Cadence mode (v1.11+)
+
+`COPYTRADING_CADENCE_MODE` controls how many trades the skill attempts per polling run. Choose based on how frequently your setup runs:
+
+| Preset | Max trades/run | When to use |
+|--------|---------------|-------------|
+| `polling` | 10 | **Default.** Original polling-mode behavior — unchanged for existing installs |
+| `balanced` | 50 | More active polling, want a higher per-run budget |
+| `aggressive` | 200 | High-frequency polling setups |
+
+```bash
+export COPYTRADING_CADENCE_MODE=balanced
+```
+
+Existing installs default to `polling` — **no behavior change** unless you explicitly set this variable.
+
+> **Reactor mode note:** `cadence_mode` controls polling-mode trade budget only. In Reactor mode, each whale signal is handled individually by `_process_reactor_signal` — the per-run cap doesn't apply. If you hit `Daily trade limit reached (10/day)` in Reactor mode, raise the server-side limit via:
+> ```bash
+> curl -X PATCH "https://api.simmer.markets/api/sdk/user/settings" \
+>   -H "Authorization: Bearer $SIMMER_API_KEY" \
+>   -H "Content-Type: application/json" \
+>   -d '{"max_trades_per_day": 200}'
+> ```
+
+> **Position cap:** The per-market position cap is controlled by `SIMMER_COPYTRADING_MAX_USD` (default 50). Raise it to allow larger positions per market.
 
 **Top N auto-calculation (when not specified):**
 - Balance < $50: Top 5 positions
@@ -245,6 +273,20 @@ When a whale trade matches your watchlist:
 [reactor] mirror: 70.67 shares @ $0.673 (buffer +2.0%) → GTC order placed
 [reactor] ✅ mirrored — trade_id=a23dc52a, signal deleted
 ```
+
+### Reactor venue auto-routing (v1.11+)
+
+When Reactor signals arrive sized above Simmer's 500 $SIM per-trade cap, the skill automatically routes them to Polymarket instead of failing silently. This lets you follow whale sizing without hitting the LMSR hard cap:
+
+```
+[reactor] 0xbaa2bc... amount 800.00 $SIM > 500 $SIM cap → routing to polymarket
+[reactor] ✅ 0xbaa2bc... mirrored 800.00 USD trade_id=a23dc52a
+```
+
+**Edge cases:**
+- **No Polymarket wallet configured**: skill falls back to a 500 $SIM-capped trade and logs the routing decision. You won't miss the signal entirely.
+- **`COPYTRADING_FORCE_SIMMER_VENUE=true`**: disables auto-routing. Signals above 500 $SIM are capped at 500 and traded on Simmer venue.
+- **Signal already targets Polymarket**: no change — auto-routing only fires on `sim` venue signals.
 
 ### External wallets just work
 

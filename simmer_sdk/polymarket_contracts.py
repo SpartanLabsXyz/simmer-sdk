@@ -68,6 +68,11 @@ V2_EIP712_ORDER_DOMAIN_VERSION = "2"
 COLLATERAL_ONRAMP = "0x93070a847efEf7F70739046A929D47a521F5B8ee"       # USDC.e → pUSD
 COLLATERAL_OFFRAMP = "0x2957922Eb93258b93368531d39fAcCA3B4dC5854"      # pUSD → USDC.e
 
+# V2 fee + redemption infrastructure (2026-05-01 upgrade)
+V2_FEE_ESCROW = "0x3A43D88ef8Aae4dF5a50B3abf67122CAAeEF7c9F"                     # pUSD fee collection (PolyNode)
+CTF_COLLATERAL_ADAPTER = "0xAdA100Db00Ca00073811820692005400218FcE1f"             # redemption adapter
+NEG_RISK_CTF_COLLATERAL_ADAPTER = "0xadA2005600Dec949baf300f4C6120000bDB6eAab"   # neg-risk redemption adapter
+
 
 # ============================================================
 # Convenience aliases
@@ -156,3 +161,13 @@ def collateral_token() -> str:
 def exchange_version_str() -> str:
     """'v1' or 'v2' — matches server-side `real_trades.exchange_version`."""
     return get_active_addresses().version
+
+
+def redemption_spenders() -> list[str]:
+    """Adapter contracts that need ERC1155 setApprovalForAll on the CTF token.
+
+    These are not trading-path spenders; they are redemption-path adapters
+    added in the 2026-05-01 upgrade. Required for `redeemPositions` calls
+    routed through the adapter contracts. Both V1 and V2 wallets need these.
+    """
+    return [CTF_COLLATERAL_ADAPTER, NEG_RISK_CTF_COLLATERAL_ADAPTER]

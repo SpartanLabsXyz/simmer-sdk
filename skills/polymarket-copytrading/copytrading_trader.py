@@ -69,7 +69,31 @@ CONFIG_SCHEMA = {
     "max_trades_per_run": {"env": "SIMMER_COPYTRADING_MAX_TRADES", "default": 10, "type": int},
     "venue": {"env": "TRADING_VENUE", "default": "", "type": str},  # sim or polymarket
     "order_type": {"env": "SIMMER_COPYTRADING_ORDER_TYPE", "default": "GTC", "type": str},
+    "cadence_mode": {"env": "COPYTRADING_CADENCE_MODE", "default": "polling", "type": str},
 }
+
+# Cadence presets — control max trades per polling run.
+# "polling" preserves existing behaviour (backwards-compatible default).
+# "balanced" / "aggressive" are sized for higher polling cadence.
+# NOTE: these presets apply to polling mode only. In Reactor mode the per-signal
+# flow is governed by the server-side daily trade limit (PATCH /api/sdk/user/settings
+# max_trades_per_day=N to raise it beyond the default 10/day).
+CADENCE_PRESETS: dict = {
+    "polling":    {"max_trades": 10},
+    "balanced":   {"max_trades": 50},
+    "aggressive": {"max_trades": 200},
+}
+
+# Simmer venue (LMSR) hard cap per individual trade.
+# Reactor signals above this size are auto-routed to Polymarket when the user
+# has not set COPYTRADING_FORCE_SIMMER_VENUE=true.
+SIMMER_VENUE_TRADE_CAP_USD = 500.0
+
+# Set COPYTRADING_FORCE_SIMMER_VENUE=true to disable the auto-route and always
+# cap at SIMMER_VENUE_TRADE_CAP_USD instead of switching to Polymarket.
+FORCE_SIMMER_VENUE: bool = os.environ.get(
+    "COPYTRADING_FORCE_SIMMER_VENUE", ""
+).lower() in ("1", "true", "yes")
 
 # Load configuration
 _config = load_config(CONFIG_SCHEMA, __file__, slug="polymarket-copytrading")
@@ -106,8 +130,23 @@ COPYTRADING_MAX_USD = _config["max_usd"]
 _automaton_max = os.environ.get("AUTOMATON_MAX_BET")
 if _automaton_max:
     COPYTRADING_MAX_USD = min(COPYTRADING_MAX_USD, float(_automaton_max))
-MAX_TRADES_PER_RUN = _config["max_trades_per_run"]
 ORDER_TYPE = (_config.get("order_type") or "GTC").upper()
+
+# Cadence mode: apply preset overrides.
+# "polling" keeps the per-run max from SIMMER_COPYTRADING_MAX_TRADES (default 10).
+# Other presets expand the trade budget; user's explicit SIMMER_COPYTRADING_MAX_TRADES
+# is used for "polling" to preserve backwards compat.
+_cadence_mode: str = (_config.get("cadence_mode") or "polling").strip().lower()
+if _cadence_mode not in CADENCE_PRESETS:
+    print(f"[config] unknown cadence_mode={_cadence_mode!r}, falling back to 'polling'")
+    _cadence_mode = "polling"
+_cadence_preset: dict = CADENCE_PRESETS[_cadence_mode]
+
+# MAX_TRADES_PER_RUN: polling uses user-configured value; other presets use preset value.
+if _cadence_mode == "polling":
+    MAX_TRADES_PER_RUN = _config["max_trades_per_run"]
+else:
+    MAX_TRADES_PER_RUN = _cadence_preset["max_trades"]
 
 # Reactor settings — used only by --reactor mode.
 # The relay writes signals with TTL=60s (tunable server-side via
@@ -375,7 +414,7 @@ def run_copytrading(wallets: list, top_n: int = None, max_usd: float = 50.0, dry
         print(f"    • {w[:10]}...{w[-6:]}")
     print(f"  Top N: {top_n if top_n else 'auto (based on balance)'}")
     print(f"  Max per position: ${max_usd:.2f}")
-    print(f"  Max trades/run:  {MAX_TRADES_PER_RUN}")
+    print(f"  Max trades/run:  {MAX_TRADES_PER_RUN}  (cadence: {_cadence_mode})")
     venue_label = venue or "auto-detect"
     print(f"  Venue: {venue_label}")
     print(f"  Mode: {'Buy only (accumulate)' if buy_only else 'Full rebalance (buy + sell)'}")
@@ -640,6 +679,24 @@ def _process_reactor_signal(client, signal: dict) -> bool:
         _post_reactor_reaction(client, signal, decision="failed", reason=reason)
         return False
 
+    # Venue auto-routing: when the signal targets Simmer (LMSR) but the size
+    # exceeds the venue's per-trade hard cap, try Polymarket instead so the user
+    # follows the whale's actual size rather than getting silently capped.
+    # Respects COPYTRADING_FORCE_SIMMER_VENUE=true and user's explicit polymarket venue.
+    effective_venue = venue
+    effective_amount = amount
+    _rerouted_to_polymarket = False
+
+    if (not FORCE_SIMMER_VENUE
+            and venue in ("sim", None)
+            and amount > SIMMER_VENUE_TRADE_CAP_USD):
+        _rerouted_to_polymarket = True
+        effective_venue = "polymarket"
+        print(
+            f"[reactor] {tx_short}... amount {amount:.2f} $SIM > {SIMMER_VENUE_TRADE_CAP_USD:.0f} $SIM cap "
+            f"→ routing to polymarket"
+        )
+
     reasoning = (
         f"reactor mirror: whale {str(whale.get('wallet') or '')[:10]}... "
         f"{whale.get('side') or '?'} {float(whale.get('size') or 0):.0f} shares @ "
@@ -659,23 +716,24 @@ def _process_reactor_signal(client, signal: dict) -> bool:
     # FAK orders fail on thin books because the whale already cleared liquidity
     # at their fill level. The buffer (default 2%) bids slightly above for buys,
     # slightly below for sells — still FAK (no hanging orders), but tolerates
-    # post-whale spread.
+    # post-whale spread. Apply to polymarket (both original and rerouted).
     whale_price = float(whale.get("price") or 0)
     trade_price = None
-    if whale_price > 0 and venue == "polymarket":
+    if whale_price > 0 and effective_venue == "polymarket":
         buf = _reactor_price_buffer
         if action == "buy":
             trade_price = min(round(whale_price * (1 + buf), 4), 0.999)
         else:
             trade_price = max(round(whale_price * (1 - buf), 4), 0.001)
 
-    try:
-        trade_kwargs = dict(
+    def _attempt_trade(attempt_venue: str, attempt_amount: float, attempt_price) -> "TradeResult":
+        """Inner helper — attempt one trade, returns SDK result or raises."""
+        kwargs = dict(
             market_id=market_id,
             side=side,
             action=action,
-            amount=amount,
-            venue=venue,
+            amount=attempt_amount,
+            venue=attempt_venue,
             order_type=ORDER_TYPE,
             allow_rebuy=True,  # reactor signals are discrete events; allow re-entry
             source=REACTOR_TRADE_SOURCE,
@@ -683,25 +741,72 @@ def _process_reactor_signal(client, signal: dict) -> bool:
             reasoning=reasoning,
             signal_data=signal_data,
         )
-        if trade_price is not None:
-            trade_kwargs["price"] = trade_price
-        result = client.trade(**trade_kwargs)
+        if attempt_price is not None:
+            kwargs["price"] = attempt_price
+        return client.trade(**kwargs)
+
+    try:
+        result = _attempt_trade(effective_venue, effective_amount, trade_price)
     except Exception as e:
-        reason = f"trade_error: {type(e).__name__}: {e}"
-        print(f"[reactor] ❌ {tx_short}... {reason}")
-        _post_reactor_reaction(client, signal, decision="failed", reason=reason)
-        return False
+        err_lower = str(e).lower()
+        # If we rerouted to polymarket and it failed due to missing wallet, fall back
+        # to the original venue with the trade capped at the SIM venue hard cap.
+        if _rerouted_to_polymarket and any(
+            kw in err_lower for kw in ("wallet", "not configured", "no polymarket", "polymarket wallet")
+        ):
+            cap = SIMMER_VENUE_TRADE_CAP_USD
+            print(
+                f"[reactor] {tx_short}... polymarket wallet not configured, "
+                f"falling back to {cap:.0f} $SIM cap on {venue or 'sim'}"
+            )
+            try:
+                result = _attempt_trade(venue, cap, None)
+                effective_amount = cap  # log reflects what was actually traded
+            except Exception as e2:
+                reason = f"trade_error (fallback): {type(e2).__name__}: {e2}"
+                print(f"[reactor] ❌ {tx_short}... {reason}")
+                _post_reactor_reaction(client, signal, decision="failed", reason=reason)
+                return False
+        else:
+            reason = f"trade_error: {type(e).__name__}: {e}"
+            print(f"[reactor] ❌ {tx_short}... {reason}")
+            _post_reactor_reaction(client, signal, decision="failed", reason=reason)
+            return False
 
     if not getattr(result, "success", False):
         err = getattr(result, "error", None) or getattr(result, "skip_reason", None) or "unknown"
-        reason = f"trade_rejected: {err}"
-        print(f"[reactor] ❌ {tx_short}... {reason}")
-        _post_reactor_reaction(client, signal, decision="failed", reason=reason)
-        return False
+        # Polymarket wallet not configured surfaces as a rejected trade rather than exception
+        if _rerouted_to_polymarket and any(
+            kw in str(err).lower() for kw in ("wallet", "not configured", "no polymarket")
+        ):
+            cap = SIMMER_VENUE_TRADE_CAP_USD
+            print(
+                f"[reactor] {tx_short}... polymarket wallet not configured (rejected), "
+                f"falling back to {cap:.0f} $SIM cap on {venue or 'sim'}"
+            )
+            try:
+                result = _attempt_trade(venue, cap, None)
+                effective_amount = cap  # log reflects what was actually traded
+            except Exception as e3:
+                reason = f"trade_error (fallback): {type(e3).__name__}: {e3}"
+                print(f"[reactor] ❌ {tx_short}... {reason}")
+                _post_reactor_reaction(client, signal, decision="failed", reason=reason)
+                return False
+            if not getattr(result, "success", False):
+                err2 = getattr(result, "error", None) or getattr(result, "skip_reason", None) or "unknown"
+                reason = f"trade_rejected (fallback): {err2}"
+                print(f"[reactor] ❌ {tx_short}... {reason}")
+                _post_reactor_reaction(client, signal, decision="failed", reason=reason)
+                return False
+        else:
+            reason = f"trade_rejected: {err}"
+            print(f"[reactor] ❌ {tx_short}... {reason}")
+            _post_reactor_reaction(client, signal, decision="failed", reason=reason)
+            return False
 
     trade_id = getattr(result, "trade_id", None)
     shares = getattr(result, "shares_bought", None)
-    print(f"[reactor] ✅ {tx_short}... mirrored {amount:.2f} USD"
+    print(f"[reactor] ✅ {tx_short}... mirrored {effective_amount:.2f} USD"
           f"{f' ({shares:.1f} shares)' if shares else ''} trade_id={trade_id}")
 
     # Record the success before the DELETE so the circuit-breaker counter
