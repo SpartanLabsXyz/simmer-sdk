@@ -97,6 +97,8 @@ class TradeResult:
     simulated: bool = False  # True for paper trades (dry-run with real prices)
     skip_reason: Optional[str] = None  # Why trade was skipped (e.g. "conflicts skipped")
     fill_status: str = "unknown"  # Server fill status: "filled", "submitted", "unconfirmed", "failed"
+    order_id: Optional[str] = None  # CLOB order ID for GTC/GTD orders — use with cancel_order()
+    retryable: bool = True  # False when server knows retrying is futile (position cleared on-chain)
 
     @property
     def fully_filled(self) -> bool:
@@ -1378,6 +1380,8 @@ class SimmerClient:
                 balance=_bal,
                 error=d.get("error"),
                 fill_status=d.get("fill_status", "unknown"),
+                order_id=d.get("order_id"),
+                retryable=d.get("retryable", True),
             )
 
         result = _build_result(data)
