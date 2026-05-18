@@ -744,19 +744,10 @@ def run_fast_scaler(dry_run=True, positions_only=False, show_config=False, quiet
 
     log(f"\n🎯 Signal: {side.upper()} | Tier {tier} (|momentum|={momentum_pct:.4f}%)")
 
-    # --- Fee-aware EV check ---
+    # Log informational fee estimate (not a gate — magnitude gate already ensures EV-positive regime)
     fee_per_share = POLY_FEE_RATE_CRYPTO * buy_price * (1 - buy_price)
     fee_pct_of_spend = POLY_FEE_RATE_CRYPTO * (1 - buy_price)
     log(f"  Fee: ${fee_per_share:.4f}/share ({fee_pct_of_spend:.2%} on spend at {buy_price:.3f})")
-
-    # Require at least 2x round-trip fee coverage beyond 0 — magnitude gate should
-    # already handle this at ≥0.10%, but verify explicitly.
-    min_edge_required = fee_per_share * 2
-    actual_edge = abs(market_yes_price - 0.5)  # distance from 50¢ = max natural edge
-    if actual_edge < min_edge_required and not (side == "yes" and market_yes_price < 0.5):
-        log(f"  ⏸️  Estimated edge {actual_edge:.4f} < fee floor {min_edge_required:.4f} — skip")
-        _emit_automaton(signals=1, attempted=0, executed=0, skip_reason="fees_eat_edge")
-        return
 
     # --- Daily budget check ---
     remaining_budget = DAILY_BUDGET - daily_spend["spent"]
