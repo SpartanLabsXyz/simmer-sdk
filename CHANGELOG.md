@@ -3,6 +3,12 @@
 All notable changes to `simmer-sdk` are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.11] — 2026-05-18
+
+### Fixed
+
+- **`set_approvals()` / `ensure_approvals()` return a friendly no-op for managed-wallet users (SIM-1976).** Previously both methods raised `ValueError: No wallet configured. Initialize client with private_key.` whenever the SDK had no local signing key — but managed-wallet users (Simmer custodies the key) have no private key to provide. The error told them to do something they can't do. The methods now probe `/api/sdk/settings`; when `wallet_ownership == "native"`, they return a structured `{managed: True, ...}` response with a message pointing at the server-side activation cascade (which auto-fires on the next Polymarket trade — see PR simmer#887). External-wallet users with no key configured still get the existing `ValueError` — no behavior change for them. Reported via Hannes Altberg's case (support thread 6ef49e7a).
+
 ## [0.17.10] — 2026-05-17
 
 ### Fixed
