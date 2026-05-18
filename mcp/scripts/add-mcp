@@ -1,4 +1,0 @@
-#!/usr/bin/env bash
-# Thin wrapper so users can run: ./add-mcp from the simmer-sdk root.
-# Delegates to mcp/scripts/add-mcp.sh
-exec "$(dirname "$0")/../mcp/scripts/add-mcp.sh" "$@"
