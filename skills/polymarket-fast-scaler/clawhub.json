@@ -1,0 +1,96 @@
+{
+  "emoji": "⚡",
+  "primaryEnv": "SIMMER_API_KEY",
+  "requires": {
+    "env": [
+      "SIMMER_API_KEY"
+    ],
+    "pip": [
+      "simmer-sdk>=0.17.0"
+    ]
+  },
+  "envVars": [
+    {
+      "name": "SIMMER_API_KEY",
+      "required": true,
+      "description": "Your Simmer SDK API key — get from simmer.markets/dashboard"
+    },
+    {
+      "name": "WALLET_PRIVATE_KEY",
+      "required": false,
+      "description": "Only needed for external-wallet self-custody trading. Not required when using managed wallets."
+    }
+  ],
+  "cron": null,
+  "autostart": false,
+  "automaton": {
+    "managed": true,
+    "entrypoint": "fast_scaler.py"
+  },
+  "tunables": [
+    {
+      "env": "SIMMER_FASTSCALER_MAGNITUDE_GATE",
+      "type": "number",
+      "default": 0.10,
+      "range": [0.10, 0.50],
+      "step": 0.01,
+      "label": "Magnitude gate (%)"
+    },
+    {
+      "env": "SIMMER_FASTSCALER_POS_T1",
+      "type": "number",
+      "default": 3.0,
+      "range": [1, 25],
+      "step": 1,
+      "label": "Tier 1 position size ($)"
+    },
+    {
+      "env": "SIMMER_FASTSCALER_POS_T2",
+      "type": "number",
+      "default": 5.0,
+      "range": [1, 50],
+      "step": 1,
+      "label": "Tier 2 position size ($)"
+    },
+    {
+      "env": "SIMMER_FASTSCALER_POS_T3",
+      "type": "number",
+      "default": 10.0,
+      "range": [1, 100],
+      "step": 5,
+      "label": "Tier 3 position size ($)"
+    },
+    {
+      "env": "SIMMER_FASTSCALER_DAILY_BUDGET",
+      "type": "number",
+      "default": 30.0,
+      "range": [10, 200],
+      "step": 10,
+      "label": "Daily budget ($)"
+    },
+    {
+      "env": "SIMMER_FASTSCALER_PER_MARKET_CAP",
+      "type": "number",
+      "default": 10.0,
+      "range": [1, 50],
+      "step": 1,
+      "label": "Per-market cap ($)"
+    },
+    {
+      "env": "SIMMER_FASTSCALER_LADDER_T2",
+      "type": "number",
+      "default": 0.20,
+      "range": [0.10, 1.0],
+      "step": 0.05,
+      "label": "Tier 2 momentum threshold (%)"
+    },
+    {
+      "env": "SIMMER_FASTSCALER_LADDER_T3",
+      "type": "number",
+      "default": 0.35,
+      "range": [0.20, 1.0],
+      "step": 0.05,
+      "label": "Tier 3 momentum threshold (%)"
+    }
+  ]
+}
