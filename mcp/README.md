@@ -6,23 +6,23 @@ Any Claude Code or Claude Desktop user can install with a single command and run
 
 ## Quick start
 
-```bash
-# From the simmer-sdk repo (builds locally)
-./add-mcp
-
-# Or via npx (npm published package)
-./add-mcp --npx
-```
-
-Set your API key first:
+**From the `simmer-sdk` repo** (builds locally, auto-discovers skills):
 
 ```bash
 export SIMMER_API_KEY=sk_live_...   # https://simmer.markets/dashboard
+./add-mcp
+```
+
+**Via npx** (no repo clone needed):
+
+```bash
+export SIMMER_API_KEY=sk_live_...
+claude mcp add simmer -- npx -y @simmer/mcp
 ```
 
 ## What gets registered
 
-After install, Claude gets 18 tools:
+After install, Claude gets two built-in meta-tools plus one tool per discovered skill:
 
 | Tool | Description |
 |------|-------------|
@@ -32,7 +32,7 @@ After install, Claude gets 18 tools:
 
 In Claude, type: `list all simmer skills` to get started.
 
-## Options
+## Options (repo install only)
 
 ```
 ./add-mcp [--global] [--npx]
