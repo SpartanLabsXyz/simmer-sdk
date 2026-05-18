@@ -956,6 +956,7 @@ def execute_sell(market_id: str, shares: float) -> dict:
             "success": result.success, "trade_id": result.trade_id,
             "error": result.error, "simulated": result.simulated,
             "order_status": result.order_status,
+            "retryable": result.retryable,
         }
         if result.order_status == "live":
             print(f"  [GTC] Sell order placed on book — waiting for fill (trade {result.trade_id})")
@@ -1083,7 +1084,10 @@ def check_exit_opportunities(dry_run: bool = False, use_safeguards: bool = True)
                     )
             else:
                 error = result.get("error", "Unknown error")
-                print(f"     ❌ Sell failed: {error}")
+                if not result.get("retryable", True):
+                    print(f"     ⛔ Sell aborted (position cleared on-chain — no retry): {error}")
+                else:
+                    print(f"     ❌ Sell failed: {error}")
         else:
             print(f"  📊 {question}...")
             print(f"     Price ${current_price:.2f} < exit threshold ${EXIT_THRESHOLD:.2f} - hold")
