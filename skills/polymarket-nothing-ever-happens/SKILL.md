@@ -3,7 +3,7 @@ name: polymarket-nothing-ever-happens
 description: Buy NO on standalone non-sports yes/no Polymarket markets priced below a configurable cap. Based on the "nothing-ever-happens" thesis — binary markets often resolve NO, and cheap NO shares offer asymmetric value. Scans for candidates via Gamma API, filters out sports and grouped markets, checks fees, and executes.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.0.2"
+  version: "1.0.3"
   displayName: Polymarket Nothing-Ever-Happens
   difficulty: beginner
 ---
@@ -137,7 +137,7 @@ For each candidate, the skill:
 → The market may have already resolved, or the slug is incorrect. The skill skips and continues.
 
 **All candidates have fees**
-→ The fee filter is intentional — 10% fee on a 5¢ NO position eliminates most of the edge. By design.
+→ The fee filter is intentional — on a 5¢ NO position (p=0.05) the crypto taker fee runs ~6.6% of cost, eliminating most of the edge on cheap NO. By design. Zero-fee categories (e.g. Geopolitics) bypass this filter.
 
 **"gamma_api.py not found"**
 → Copy `gamma_api.py` from the `polymarket-ai-divergence` skill into this skill's directory, or install both skills together.
