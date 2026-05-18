@@ -16,6 +16,8 @@ Near-expiry conviction trading on Polymarket. Snipe markets about to resolve whe
 
 > **This is a template.** The default logic (expiry + split filter) gets you started — remix it with your own filters, timing rules, or market selection criteria. The skill handles all the plumbing (market discovery, trade execution, safeguards). Your agent provides the alpha.
 
+> 🚨 **Framework, not a production trading system.** Read [DISCLAIMER.md](./DISCLAIMER.md) before connecting to a wallet with real funds.
+
 ## When to Use This Skill
 
 > **Polymarket only.** All trades execute on Polymarket with real USDC. Use `--live` for real trades, dry-run is the default.

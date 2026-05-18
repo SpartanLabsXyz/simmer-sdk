@@ -28,6 +28,8 @@ Trade Polymarket's 5-minute crypto fast markets using real-time price signals. D
 
 **You don't need to wait for markets to show up in Simmer.** FastLoop finds them in real-time on Polymarket, then imports and trades them through Simmer.
 
+> 🚨 **Framework, not a production trading system.** Read [DISCLAIMER.md](./DISCLAIMER.md) before connecting to a wallet with real funds.
+
 ## When to Use This Skill
 
 Use this skill when the user wants to:

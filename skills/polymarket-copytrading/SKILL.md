@@ -47,6 +47,8 @@ When user asks to install or configure this skill:
    - Top N positions: How many positions to track (auto-calculated from balance)
    - Max trades per run: Safety cap (default 10)
 
+> 🚨 **Framework, not a production trading system.** Read [DISCLAIMER.md](./DISCLAIMER.md) before connecting to a wallet with real funds.
+
 ## When to Use This Skill
 
 Use this skill when the user wants to:
