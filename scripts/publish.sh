@@ -6,7 +6,8 @@
 # Example: ./scripts/publish.sh skills/fastloop
 #
 # Safety:
-#   - Only publishes if SKILL.md has `published: true`
+#   - Skills publish by default. Add `published: false` to SKILL.md frontmatter
+#     to opt OUT (mirrors npm's `private: true` convention).
 #   - Refuses if clawhub.json has `"publish": false`
 #   - Slug comes from `name:` field (no folder name guessing)
 #   - Version comes from `version:` field (matches --version flag)
@@ -77,9 +78,13 @@ if [ -z "$VERSION" ]; then
   exit 1
 fi
 
-if [ "$PUBLISHED" != "true" ]; then
-  echo "❌ Skill '$NAME' is not marked for publishing (published: $PUBLISHED)"
-  echo "   Add 'published: true' to $SKILL_MD frontmatter to enable"
+# Publishing defaults to true. Only refuse if explicitly opted out.
+# (Of 18 skills in skills/ at 2026-05-18, only 1 had an explicit `published:`
+#  field — the prior opt-in guard was performative and forced every other
+#  publish to bypass this script entirely.)
+if [ "$PUBLISHED" = "false" ]; then
+  echo "❌ Skill '$NAME' is marked 'published: false' in $SKILL_MD"
+  echo "   Remove or flip the flag if you intend to publish."
   exit 1
 fi
 
