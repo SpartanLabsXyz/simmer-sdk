@@ -8,7 +8,18 @@
 
 set -euo pipefail
 
-MCP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+# Resolve the real path of this script even when invoked through a symlink.
+# Plain `dirname "$0"` returns `.` when $0 is a symlink like `./add-mcp`,
+# which would make MCP_DIR point one level ABOVE the repo root.
+SOURCE="${BASH_SOURCE[0]}"
+while [ -L "$SOURCE" ]; do
+  LINK_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+  SOURCE="$(readlink "$SOURCE")"
+  [[ $SOURCE != /* ]] && SOURCE="$LINK_DIR/$SOURCE"
+done
+SCRIPT_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+
+MCP_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 REPO_ROOT="$(cd "$MCP_DIR/.." && pwd)"
 SKILLS_DIR="$REPO_ROOT/skills"
 

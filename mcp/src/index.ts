@@ -79,13 +79,9 @@ function findSkillsDir(): string | null {
     );
   }
 
-  // 2. Adjacent ../skills/ (repo usage — dist/index.js → mcp/dist/index.js → mcp/ → simmer-sdk/)
-  const repoSkills = path.resolve(__dirname, "../../..", "skills");
+  // 2. Adjacent skills/ (repo usage — mcp/dist/index.js → mcp/ → simmer-sdk/skills/)
+  const repoSkills = path.resolve(__dirname, "..", "..", "skills");
   if (fs.existsSync(repoSkills)) return repoSkills;
-
-  // Also try one level up in case of flat layout
-  const repoSkills2 = path.resolve(__dirname, "..", "..", "skills");
-  if (fs.existsSync(repoSkills2)) return repoSkills2;
 
   // 3. ~/.simmer/skills/ (ClawHub install path)
   const clawHubSkills = path.join(os.homedir(), ".simmer", "skills");
