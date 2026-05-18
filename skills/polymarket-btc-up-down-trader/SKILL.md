@@ -17,6 +17,21 @@ Trade Polymarket's BTC daily and weekly UP/DOWN markets with built-in exit disci
 
 > ⚠️ **BTC UP/DOWN markets carry Polymarket's crypto taker fee.** Effective rate is 3.5% at 50¢, up to ~6.6% on cheap shares. Makers pay 0% and earn a 20% rebate from collected taker fees. Factor this into your minimum edge threshold.
 
+## Oracle-Engineering Halt Gate
+
+This skill includes a built-in **oracle-engineering risk detector** (`simmer_sdk.risk.OracleEngineeringDetector`). It is **enabled by default** for all short-dated markets (≤ 5 minutes to resolution).
+
+The gate fires a `RESOLUTION_TAMPER_RISK` halt when **both** signals diverge within the final 5 minutes of the resolution window:
+- **PM concentration** ≥ 60% of one side's open interest held by the top wallet(s)
+- **Spot flow imbalance** ≥ 2σ on the underlying (Binance BTC/USDC) in the *same* direction that benefits the concentrated PM position
+
+When the gate fires:
+- **Market-maker mode**: spreads widened ≥ 3×; no new fills accepted
+- **Copytrade mode**: trade skipped for this cycle
+- **All modes**: decision logged with `risk_flag=oracle_engineering`
+
+This is a **defensive halt only**. Do not use it as a buy signal or to copy the attacker's position. See `simmer_sdk/risk/oracle_engineering.py` for the full detector implementation and `shared-knowledge/entities/concepts/oracle-engineering.md` for threat-model background.
+
 ## When to Use This Skill
 
 Use this skill when the user wants to:

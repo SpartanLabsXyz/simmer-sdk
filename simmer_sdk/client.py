@@ -3849,6 +3849,78 @@ class SimmerClient:
             path += "?" + "&".join(f"{k}={v}" for k, v in params.items())
         return self._request("GET", path)
 
+    def _probe_managed_wallet(self) -> Optional[Dict[str, Any]]:
+        """Probe the server for a managed-wallet account on this API key.
+
+        Called when the SDK has no local wallet configured but we want to
+        distinguish "managed user — server custodies the key" from "external
+        user who forgot to set WALLET_PRIVATE_KEY". The former should get a
+        friendly no-op response from set_approvals/ensure_approvals; the
+        latter should get the existing "configure your key" error.
+
+        Returns a dict with `wallet_ownership` + `wallet_address` if the
+        probe succeeds, else None. Best-effort — a transient settings-
+        endpoint failure falls back to the conservative legacy raise path.
+        """
+        try:
+            settings = self._request("GET", "/api/sdk/settings")
+        except Exception as e:
+            logger.debug("Managed-wallet probe failed: %s", e)
+            return None
+        ownership = settings.get("wallet_ownership")
+        wallet_addr = settings.get("wallet_address")
+        if ownership and wallet_addr:
+            return {
+                "wallet_ownership": ownership,
+                "wallet_address": wallet_addr,
+                "wallet_uses_deposit_wallet": bool(
+                    settings.get("wallet_uses_deposit_wallet", False)
+                ),
+            }
+        return None
+
+    def _managed_approvals_response(
+        self, probe: Dict[str, Any], method: str
+    ) -> Dict[str, Any]:
+        """Friendly no-op response for managed-wallet users calling
+        set_approvals/ensure_approvals.
+
+        Managed-wallet approvals are signed server-side — by the activation
+        cascade at sign-up + by the SDK trade-endpoint JIT trigger when
+        spender drift is detected. The user has no local signing path and
+        shouldn't be asked to provide a private key they don't have.
+        """
+        uses_dw = bool(probe.get("wallet_uses_deposit_wallet"))
+        if method == "ensure_approvals":
+            return {
+                "ready": True,
+                "missing_transactions": [],
+                "managed": True,
+                "wallet_uses_deposit_wallet": uses_dw,
+                "guide": (
+                    "This account uses a Simmer-managed wallet. Approvals are "
+                    "handled server-side — your next Polymarket trade fires "
+                    "the activation cascade automatically. No SDK action "
+                    "needed."
+                ),
+                "raw_status": None,
+            }
+        return {
+            "set": 0,
+            "skipped": 0,
+            "failed": 0,
+            "managed": True,
+            "wallet_uses_deposit_wallet": uses_dw,
+            "message": (
+                "This account uses a Simmer-managed wallet. Approvals are "
+                "signed server-side by Simmer's activation cascade; your next "
+                "Polymarket trade re-fires it automatically if any spender is "
+                "missing. To grant approvals manually, visit "
+                "simmer.markets/wallets."
+            ),
+            "details": [],
+        }
+
     def ensure_approvals(self) -> Dict[str, Any]:
         """
         Check approvals and return transaction data for any missing ones.
@@ -3861,9 +3933,16 @@ class SimmerClient:
             - ready: True if all approvals are set
             - missing_transactions: List of tx data for missing approvals
             - guide: Human-readable status message
+            - managed: True when the account is a Simmer-managed wallet
+              (server custodies the key). When present and True, the SDK
+              has no work to do — the server handles approvals via the
+              activation cascade. `ready` is True, `missing_transactions`
+              is empty, `raw_status` is None.
 
         Raises:
-            ValueError: If no wallet is configured
+            ValueError: If no wallet is configured AND the account is not
+                managed by Simmer (i.e., an external-wallet user who hasn't
+                set WALLET_PRIVATE_KEY).
 
         Example:
             result = client.ensure_approvals()
@@ -3874,6 +3953,13 @@ class SimmerClient:
                     print(f"Send tx to {tx['to']}: {tx['description']}")
         """
         if not self._wallet_address:
+            # SIM-1976: distinguish managed (server-side approvals) from
+            # external-with-no-key (real misconfiguration). Probe the server
+            # before raising so managed users get a friendly result instead
+            # of a misleading "configure private_key" error.
+            probe = self._probe_managed_wallet()
+            if probe and probe.get("wallet_ownership") == "native":
+                return self._managed_approvals_response(probe, "ensure_approvals")
             raise ValueError(
                 "No wallet configured. Initialize client with private_key."
             )
@@ -3913,10 +3999,18 @@ class SimmerClient:
               pathway (approvals must be set via the dashboard instead).
               When present and True, set/skipped/failed are all 0 and no
               transactions are submitted.
+            - managed: True if the account is a Simmer-managed wallet
+              (server custodies the key). When present and True, no SDK
+              transactions are submitted — approvals are signed server-
+              side by the activation cascade. set/skipped/failed are all
+              0; check `result.get("managed")` to branch.
 
         Raises:
-            ValueError: If no wallet is configured
-            ImportError: If eth-account is not installed
+            ValueError: If no wallet is configured AND the account is not
+                managed by Simmer (i.e., an external-wallet user who hasn't
+                set WALLET_PRIVATE_KEY).
+            ImportError: If eth-account is not installed (external-wallet
+                path only).
 
         Example:
             client = SimmerClient(api_key="...")  # WALLET_PRIVATE_KEY auto-detected
@@ -3925,6 +4019,12 @@ class SimmerClient:
             print(f"Set {result['set']} approvals, skipped {result['skipped']}")
         """
         if not self._wallet_address:
+            # SIM-1976: managed-wallet users (no local key) get a friendly
+            # no-op instead of a misleading "configure private_key" error.
+            # The server-side activation cascade handles their approvals.
+            probe = self._probe_managed_wallet()
+            if probe and probe.get("wallet_ownership") == "native":
+                return self._managed_approvals_response(probe, "set_approvals")
             raise ValueError(
                 "No wallet configured. Set WALLET_PRIVATE_KEY env var or pass private_key to constructor "
                 "(or set OWS_WALLET / pass ows_wallet for OWS-managed signing)."
