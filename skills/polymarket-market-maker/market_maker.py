@@ -25,7 +25,6 @@ import os
 import sys
 import json
 import argparse
-import time
 from datetime import datetime
 from typing import Optional
 
@@ -137,6 +136,12 @@ def compute_quotes(mid: float, spread_pct: float):
     half = spread_pct / 2
     bid_yes = clamp_price(round_to_tick(mid - half))
     ask_yes = clamp_price(round_to_tick(mid + half))
+
+    # Guard: post-rounding collapse onto the same tick creates a crossed/locked
+    # self-quote pair → wash trades + fee bleed. Widen is not safe; skip instead.
+    if ask_yes < bid_yes + TICK_SIZE:
+        return None, None, None  # caller: skip_reason='spread_too_narrow'
+
     # Synthetic ask: BUY NO at the complementary price
     bid_no_synthetic = clamp_price(round_to_tick(1.0 - ask_yes))
     return bid_yes, ask_yes, bid_no_synthetic
@@ -252,13 +257,16 @@ def run_market(
 
     # 2. Quotes
     bid_yes, ask_yes, bid_no_synth = compute_quotes(mid, spread_pct)
+    if bid_yes is None:
+        stats["skip_reason"] = f"spread_too_narrow (spread_pct={spread_pct:.3f} collapsed post-rounding)"
+        return stats
     stats["bid_price"] = bid_yes
     stats["ask_price"] = ask_yes
 
     # 3. Inventory check
     shares_yes, shares_no = get_inventory(market_id)
     skew = net_skew(shares_yes, shares_no)
-    max_skew_shares = (quote_usdc / mid) * max_skew_pct * (1 / TICK_SIZE)
+    max_skew_shares = (quote_usdc / mid) * max_skew_pct
     post_bid = True
     post_ask = True
 
@@ -408,13 +416,13 @@ def cmd_status(state: dict) -> None:
         ask_price = ms.get("ask_price")
         bid_live = bid_id in open_ids if bid_id else False
         ask_live = ask_id in open_ids if ask_id else False
+        bid_str = f"{bid_price:.3f}" if bid_price is not None else "n/a"
+        ask_str = f"{ask_price:.3f}" if ask_price is not None else "n/a"  # NO-buy price
+        bid_order = f"{bid_id[:8]}..." if bid_id else "—"
+        ask_order = f"{ask_id[:8]}..." if ask_id else "—"
         print(f"\n  {market_id[:16]}...")
-        print(f"    BID: {bid_price:.3f if bid_price else 'n/a'} — "
-              f"order {bid_id[:8] if bid_id else '—'}{'...' if bid_id else ''} "
-              f"{'[live]' if bid_live else '[filled/expired]'}")
-        print(f"    ASK: 1-{ask_price:.3f if ask_price else 'n/a'} — "
-              f"order {ask_id[:8] if ask_id else '—'}{'...' if ask_id else ''} "
-              f"{'[live]' if ask_live else '[filled/expired]'}")
+        print(f"    BID YES @ {bid_str} — order {bid_order} {'[live]' if bid_live else '[filled/expired]'}")
+        print(f"    ASK (NO buy @ {ask_str}) — order {ask_order} {'[live]' if ask_live else '[filled/expired]'}")
 
         rebate = state.get("rebate_log", {}).get(market_id, {})
         if rebate:

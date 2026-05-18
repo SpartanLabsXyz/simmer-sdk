@@ -1,5 +1,5 @@
 {
-  "emoji": "🏦",
+  "emoji": "\ud83c\udfe6",
   "primaryEnv": "SIMMER_API_KEY",
   "requires": {
     "env": [
@@ -13,7 +13,7 @@
     {
       "name": "SIMMER_API_KEY",
       "required": true,
-      "description": "Your Simmer SDK API key — get from simmer.markets/dashboard"
+      "description": "Your Simmer SDK API key \u2014 get from simmer.markets/dashboard"
     },
     {
       "name": "WALLET_PRIVATE_KEY",
@@ -43,23 +43,32 @@
       "env": "MM_SPREAD_PCT",
       "type": "number",
       "default": 0.04,
-      "range": [0.01, 0.20],
+      "range": [
+        0.03,
+        0.2
+      ],
       "step": 0.01,
-      "label": "Spread (fraction of price, e.g. 0.04 = 4 cent spread at 50¢)"
+      "label": "Spread (fraction of price, e.g. 0.04 = 4 cent spread at 50\u00a2; minimum 0.03)"
     },
     {
       "env": "MM_QUOTE_USDC",
       "type": "number",
       "default": 10,
-      "range": [1, 500],
+      "range": [
+        1,
+        500
+      ],
       "step": 5,
       "label": "USDC per side per market"
     },
     {
       "env": "MM_MAX_SKEW_PCT",
       "type": "number",
-      "default": 0.30,
-      "range": [0.10, 1.00],
+      "default": 0.3,
+      "range": [
+        0.1,
+        1.0
+      ],
       "step": 0.05,
       "label": "Max inventory skew (fraction of quote size before pausing one side)"
     },
@@ -67,7 +76,10 @@
       "env": "MM_DRIFT_THRESHOLD",
       "type": "number",
       "default": 0.02,
-      "range": [0.005, 0.10],
+      "range": [
+        0.005,
+        0.1
+      ],
       "step": 0.005,
       "label": "Price drift to trigger cancel/replace (fraction)"
     },
@@ -75,7 +87,10 @@
       "env": "MM_TAKER_FEE_RATE",
       "type": "number",
       "default": 0.02,
-      "range": [0.005, 0.05],
+      "range": [
+        0.005,
+        0.05
+      ],
       "step": 0.005,
       "label": "Taker fee rate for rebate estimation (default 2%, sports 3%)"
     },
@@ -83,7 +98,10 @@
       "env": "MM_MAX_MARKETS",
       "type": "number",
       "default": 5,
-      "range": [1, 20],
+      "range": [
+        1,
+        20
+      ],
       "step": 1,
       "label": "Max markets to quote per run"
     }

@@ -96,7 +96,7 @@ The `--status` and `--cancel-all` commands show cumulative fee-equivalent estima
 | Env Var | Default | Description |
 |---------|---------|-------------|
 | `MM_MARKETS` | — | **Required.** Comma-separated Simmer market IDs |
-| `MM_SPREAD_PCT` | `0.04` | Spread as fraction of price (0.04 = 4 cents at 50¢) |
+| `MM_SPREAD_PCT` | `0.04` | Spread as fraction of price (0.04 = 4 cents at 50¢); **minimum 0.03** to avoid post-rounding quote collapse |
 | `MM_QUOTE_USDC` | `10.0` | USDC per side per market |
 | `MM_MAX_SKEW_PCT` | `0.30` | Pause one side when inventory skew exceeds this fraction |
 | `MM_DRIFT_THRESHOLD` | `0.02` | Cancel/replace when quote drifts >2¢ from current mid |
@@ -150,7 +150,7 @@ The skill tracks net inventory per market:
 net_skew = shares_YES - shares_NO
 ```
 
-When `|net_skew| > max_skew_pct × (quote_usdc / price) × 100`, the over-exposed side stops posting new quotes. This limits directional exposure but does not eliminate it — monitor inventory via `--status`.
+When `|net_skew| > max_skew_pct × (quote_usdc / price)`, the over-exposed side stops posting new quotes. This limits directional exposure but does not eliminate it — monitor inventory via `--status`.
 
 ## Limitations (v1)
 
