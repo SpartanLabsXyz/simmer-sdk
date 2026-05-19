@@ -569,7 +569,7 @@ def run_mert_strategy(dry_run=True, positions_only=False, show_config=False,
         min_divergence = fee_per_share * 2 + FEE_BUFFER  # round-trip fee + buffer
         fee_note = "" if fee_rate_bps else " [fee_rate unavailable]"
         print(f"     Fee:   ${fee_per_share:.4f}/share ({POLY_FEE_RATE_CRYPTO * (1 - side_price):.2%} on spend) | edge {divergence:.3f} vs min {min_divergence:.3f}{fee_note}")
-        if fee_rate_bps > 0 and divergence < min_divergence:
+        if divergence < min_divergence:
             print(f"     Skip: edge {divergence:.3f} < fee-adjusted min {min_divergence:.3f} (fees eat the edge)")
             skip_reasons.append("fees eat the edge")
             continue
