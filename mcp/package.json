@@ -10,6 +10,7 @@
     "dist/",
     "skills/",
     "bundled-skills/",
+    "bundled-snapshots/",
     "LICENSE"
   ],
   "scripts": {

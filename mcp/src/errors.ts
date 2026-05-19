@@ -1,4 +1,5 @@
 export interface McpErrorResponse {
+  [key: string]: unknown;
   content: Array<{ type: "text"; text: string }>;
   isError: true;
   _meta?: { status_code?: number; upgrade_url?: string };

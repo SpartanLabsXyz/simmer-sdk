@@ -30,6 +30,7 @@ export function listSkills(skills: Skill[]): SkillListEntry[] {
 }
 
 export interface ToolResponse {
+  [key: string]: unknown;
   content: Array<{ type: "text"; text: string }>;
   isError: boolean;
 }
