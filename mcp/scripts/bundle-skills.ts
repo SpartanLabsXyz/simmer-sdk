@@ -43,6 +43,7 @@ let count = 0;
 for (const entry of fs.readdirSync(skillsDir, { withFileTypes: true })) {
   if (!entry.isDirectory()) continue;
   if (SKIP.has(entry.name)) continue;
+  if (!fs.existsSync(path.join(skillsDir, entry.name, 'clawhub.json'))) continue;
   copyDir(path.join(skillsDir, entry.name), path.join(outDir, entry.name));
   count++;
 }

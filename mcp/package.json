@@ -28,6 +28,9 @@
     "experiment-loop"
   ],
   "license": "MIT",
+  "engines": {
+    "node": ">=22.6.0"
+  },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
     "zod": "^4.4.3"
