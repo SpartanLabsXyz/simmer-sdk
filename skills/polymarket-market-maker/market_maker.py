@@ -259,8 +259,17 @@ def run_market(
     # `1 - ask_yes` is only valid for binary markets where YES + NO = 1.
     # For neg_risk markets the token prices are non-complementary, so the
     # ask leg would misprice and bleed via adverse selection. Skip them.
+    # Field name on Simmer SDK /api/sdk/markets/{id}: `polymarket_neg_risk`.
+    # Defensively check `negativeRisk` (Polymarket Data API shape) and the
+    # legacy variants in case any upstream surfaces them.
     market_info = get_market_info(market_id)
-    if market_info.get("is_neg_risk") or market_info.get("neg_risk"):
+    is_neg_risk = (
+        market_info.get("polymarket_neg_risk")
+        or market_info.get("negativeRisk")
+        or market_info.get("neg_risk")
+        or market_info.get("is_neg_risk")
+    )
+    if is_neg_risk:
         stats["skip_reason"] = "neg_risk_unsupported (multi-outcome market — synthetic-ask math invalid)"
         return stats
 
