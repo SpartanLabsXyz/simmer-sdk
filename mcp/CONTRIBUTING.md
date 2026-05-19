@@ -1,4 +1,4 @@
-# Contributing to simmer-autoresearch (MCP)
+# Contributing to simmer-mcp (MCP)
 
 ## Development setup
 
@@ -89,5 +89,5 @@ src/
 2. Update `BUNDLED_VERSION` constant in `mcp-server.ts`
 3. Run smoke checklist above
 4. `npm pack --dry-run` to verify manifest
-5. `npm publish` (requires npm login with access to the `simmer-autoresearch` package)
+5. `npm publish` (requires npm login with access to the `simmer-mcp` package)
 6. Post announcement to `#releases`

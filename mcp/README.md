@@ -1,13 +1,15 @@
-# simmer-autoresearch
+# simmer-mcp
 
 MCP server that gives your AI agent access to Simmer trading skill management, experiment tracking, and AI-powered market research.
 
-[![npm version](https://badge.fury.io/js/simmer-autoresearch.svg)](https://www.npmjs.com/package/simmer-autoresearch)
+[![npm version](https://badge.fury.io/js/simmer-mcp.svg)](https://www.npmjs.com/package/simmer-mcp)
+
+> **Migrating from `simmer-autoresearch`?** Run `npm install -g simmer-mcp` and update your agent config to use `simmer-mcp` as the command. Everything else is the same.
 
 ## Install
 
 ```bash
-npx simmer-autoresearch install-skill
+npx simmer-mcp install-skill
 ```
 
 This installs the `SKILL.md` for your agent runtime (OpenClaw / Hermes). For Claude Code, paste the content into your project's `CLAUDE.md`.
@@ -19,7 +21,7 @@ This installs the `SKILL.md` for your agent runtime (OpenClaw / Hermes). For Cla
   "mcpServers": {
     "simmer": {
       "command": "npx",
-      "args": ["-y", "simmer-autoresearch"],
+      "args": ["-y", "simmer-mcp"],
       "env": {
         "SIMMER_API_KEY": "sk_live_..."
       }

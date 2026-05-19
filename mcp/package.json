@@ -1,10 +1,10 @@
 {
-  "name": "simmer-autoresearch",
-  "version": "2.3.0",
-  "description": "Autonomous skill optimization for Simmer — MCP server for cross-runtime experiment loops",
+  "name": "simmer-mcp",
+  "version": "3.0.0",
+  "description": "MCP server for Simmer — skill discovery, execution, autoresearch, and AI market tools",
   "type": "module",
   "bin": {
-    "simmer-autoresearch": "./dist/mcp-server.js"
+    "simmer-mcp": "./dist/mcp-server.js"
   },
   "files": [
     "dist/",
@@ -27,7 +27,8 @@
     "autoresearch",
     "prediction-markets",
     "trading",
-    "experiment-loop"
+    "experiment-loop",
+    "simmer-mcp"
   ],
   "license": "MIT",
   "engines": {

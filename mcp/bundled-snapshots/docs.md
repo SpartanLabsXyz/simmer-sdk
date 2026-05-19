@@ -2133,7 +2133,7 @@ Plugins are OpenClaw extensions that add persistent services, new commands, and 
 | **How they run**  | On a schedule (cron) or on-demand                                    | Persistent background services                                                |
 | **Published to**  | [ClawHub](https://clawhub.ai)                                        | npm                                                                           |
 | **Installed via** | `clawhub install <slug>`                                             | `openclaw plugins install <name>`                                             |
-| **Example**       | `polymarket-weather-trader` — runs every 15 min, checks NOAA, trades | `simmer-autoresearch` — continuously optimizes skill config in the background |
+| **Example**       | `polymarket-weather-trader` — runs every 15 min, checks NOAA, trades | `simmer-mcp` — continuously optimizes skill config in the background |
 
 Skills are stateless — they run, trade, exit. Plugins are stateful — they maintain connections, track state across cycles, and can inject context into your agent's decision-making.
 
@@ -2141,13 +2141,13 @@ Skills are stateless — they run, trade, exit. Plugins are stateful — they ma
 
 | Plugin                                     | Description                                                                        | Status |
 | ------------------------------------------ | ---------------------------------------------------------------------------------- | ------ |
-| [`simmer-autoresearch`](/pro/autoresearch) | Autonomous skill optimization — mutates config, measures results, keeps what works | Pro    |
+| [`simmer-mcp`](/pro/autoresearch) | Autonomous skill optimization — mutates config, measures results, keeps what works | Pro    |
 | [`simmer-reactor`](/pro/reactor)           | Real-time on-chain signal infrastructure — whale copytrading, more streams coming  | Pro    |
 
 ## Install a plugin
 
 ```bash theme={null}
-openclaw plugins install simmer-autoresearch
+openclaw plugins install simmer-mcp
 ```
 
 ## Configure a plugin
@@ -2156,7 +2156,7 @@ Plugin config lives in your OpenClaw `plugins.json`. Each plugin defines its own
 
 ```json theme={null}
 {
-  "simmer-autoresearch": {
+  "simmer-mcp": {
     "maxExperiments": 50
   }
 }
@@ -2199,7 +2199,7 @@ Your agent drives the loop — autoresearch provides the tools, your agent provi
 ## Install
 
 ```bash theme={null}
-npm install -g simmer-autoresearch
+npm install -g simmer-mcp
 ```
 
 Then add the MCP server to your agent's config:
@@ -2208,8 +2208,8 @@ Then add the MCP server to your agent's config:
   ```json OpenClaw theme={null}
   {
     "mcpServers": {
-      "simmer-autoresearch": {
-        "command": "simmer-autoresearch",
+      "simmer-mcp": {
+        "command": "simmer-mcp",
         "env": {
           "SIMMER_API_KEY": "your-api-key"
         }
@@ -2221,8 +2221,8 @@ Then add the MCP server to your agent's config:
   ```json Hermes theme={null}
   {
     "mcpServers": {
-      "simmer-autoresearch": {
-        "command": "simmer-autoresearch",
+      "simmer-mcp": {
+        "command": "simmer-mcp",
         "env": {
           "SIMMER_API_KEY": "your-api-key"
         }
@@ -2234,8 +2234,8 @@ Then add the MCP server to your agent's config:
   ```json Claude Code theme={null}
   {
     "mcpServers": {
-      "simmer-autoresearch": {
-        "command": "simmer-autoresearch",
+      "simmer-mcp": {
+        "command": "simmer-mcp",
         "env": {
           "SIMMER_API_KEY": "your-api-key"
         }
@@ -2417,7 +2417,7 @@ These endpoints power the server's sync. You don't call them directly — the MC
   | `/autoresearch status`  | Current skill, experiment count, keep rate, budget remaining, pause state |
   | `/autoresearch reset`   | Clear state and start fresh (clears pause if paused)                      |
 
-  **Upgrade to v2** — Install `simmer-autoresearch` via npm and switch to the MCP config above. v2 works with OpenClaw, Hermes, and Claude Code.
+  **Upgrade to v2** — Install `simmer-mcp` via npm and switch to the MCP config above. v2 works with OpenClaw, Hermes, and Claude Code.
 </Accordion>
 
 

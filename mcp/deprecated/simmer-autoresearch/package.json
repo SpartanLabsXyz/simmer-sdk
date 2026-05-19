@@ -1,0 +1,17 @@
+{
+  "name": "simmer-autoresearch",
+  "version": "2.99.0",
+  "description": "DEPRECATED — moved to simmer-mcp. Run: npm install -g simmer-mcp",
+  "deprecated": "This package has been renamed to simmer-mcp. Run: npm install -g simmer-mcp",
+  "type": "module",
+  "bin": {
+    "simmer-autoresearch": "./bin/stub.js"
+  },
+  "files": [
+    "bin/"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  }
+}
