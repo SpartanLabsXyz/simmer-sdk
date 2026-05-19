@@ -9,12 +9,15 @@
   "files": [
     "dist/",
     "skills/",
+    "bundled-skills/",
     "LICENSE"
   ],
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "test": "npm run build && node --test 'tests/*.test.ts'"
+    "test": "npm run build && node --test 'tests/*.test.ts'",
+    "bundle-skills": "node scripts/bundle-skills.ts",
+    "prepack": "npm run bundle-skills"
   },
   "keywords": [
     "mcp",
