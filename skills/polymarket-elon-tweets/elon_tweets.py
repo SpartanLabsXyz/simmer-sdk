@@ -564,6 +564,9 @@ def check_exit_opportunities(dry_run=True, use_safeguards=True):
         if shares < MIN_SHARES_PER_ORDER:
             continue
 
+        if pos.status == "resolved":
+            continue  # auto_redeem at top of next cycle handles this
+
         if current_price >= EXIT_THRESHOLD:
             exits_found += 1
             print(f"  📤 {question}...")
@@ -627,8 +630,8 @@ def run_strategy(dry_run=True, positions_only=False, show_config=False,
         for r in redeemed:
             if r.get("success"):
                 log(f"  💰 Redeemed {r['market_id'][:8]}... ({r.get('side', '?')})")
-    except Exception:
-        pass  # Non-critical — don't block trading
+    except Exception as e:
+        log(f"  ⚠️  auto_redeem failed: {e}", force=True)
 
     # Balance pre-flight: skip cleanly when wallet is underfunded instead of
     # looping on rejected trades. Helper is collateral-agnostic — checks pUSD
