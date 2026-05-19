@@ -44,6 +44,7 @@ CONFIG_SCHEMA = {
     "sizing_pct": {"env": "SIMMER_MERT_SIZING_PCT", "default": 0.05, "type": float},
     "order_type": {"env": "SIMMER_MERT_ORDER_TYPE", "default": "GTC", "type": str},
     "fee_buffer": {"env": "SIMMER_MERT_FEE_BUFFER", "default": 0.02, "type": float},
+    "min_edge": {"env": "SIMMER_MERT_MIN_EDGE", "default": 0.0, "type": float},
 }
 
 _config = load_config(CONFIG_SCHEMA, __file__, slug="polymarket-mert-sniper")
@@ -77,7 +78,8 @@ MIN_BOOK_DEPTH_USD = 50.0  # Skip if less than $50 available on the side we want
 # fee = num_shares × POLY_FEE_RATE_CRYPTO × p × (1-p)
 # Effective rate on dollars spent = POLY_FEE_RATE_CRYPTO × (1-p)
 POLY_FEE_RATE_CRYPTO = 0.07   # Crypto markets taker fee coefficient
-FEE_BUFFER = _config["fee_buffer"]  # Extra edge required beyond round-trip fee
+FEE_BUFFER = _config["fee_buffer"]  # Extra alpha required above entry fee cost
+MIN_EDGE = _config["min_edge"]      # Declared alpha above market price (0 = fee-logging only)
 
 # Polymarket CLOB API
 CLOB_API = "https://clob.polymarket.com"
@@ -561,16 +563,19 @@ def run_mert_strategy(dry_run=True, positions_only=False, show_config=False,
             else:
                 print(f"     Book:  unavailable (proceeding with caution)")
 
-        # Fee-aware EV check: require edge to cover round-trip fee + buffer
-        # divergence = how far side_price is above neutral (conviction strength)
+        # Fee-aware EV check (entry fee only — Polymarket binary redemption is free).
+        # mert-sniper has no external price signal, so "divergence from neutral" is not a
+        # meaningful edge metric here. Instead, gate on MIN_EDGE: the alpha the user declares
+        # above the market price. At default MIN_EDGE=0 the gate is advisory (logs fee cost
+        # only); set SIMMER_MERT_MIN_EDGE to your signal's claimed edge to activate blocking.
         fee_rate_bps = _lookup_fee_rate(yes_token_id) if yes_token_id else 0
-        divergence = side_price - 0.5
         fee_per_share = POLY_FEE_RATE_CRYPTO * side_price * (1 - side_price)
-        min_divergence = fee_per_share * 2 + FEE_BUFFER  # round-trip fee + buffer
+        min_edge_required = fee_per_share + FEE_BUFFER  # entry fee + buffer (no × 2 — redemption is free)
         fee_note = "" if fee_rate_bps else " [fee_rate unavailable]"
-        print(f"     Fee:   ${fee_per_share:.4f}/share ({POLY_FEE_RATE_CRYPTO * (1 - side_price):.2%} on spend) | edge {divergence:.3f} vs min {min_divergence:.3f}{fee_note}")
-        if divergence < min_divergence:
-            print(f"     Skip: edge {divergence:.3f} < fee-adjusted min {min_divergence:.3f} (fees eat the edge)")
+        gate_str = f"declared edge {MIN_EDGE:.3f} vs required {min_edge_required:.3f}"
+        print(f"     Fee:   ${fee_per_share:.4f}/share ({POLY_FEE_RATE_CRYPTO * (1 - side_price):.2%} on spend) | {gate_str}{fee_note}")
+        if MIN_EDGE > 0 and MIN_EDGE < min_edge_required:
+            print(f"     Skip: declared edge {MIN_EDGE:.3f} < fee cost {min_edge_required:.3f} (fees eat the edge)")
             skip_reasons.append("fees eat the edge")
             continue
 

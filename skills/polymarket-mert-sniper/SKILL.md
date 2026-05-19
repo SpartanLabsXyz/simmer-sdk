@@ -63,7 +63,8 @@ Use this skill when the user wants to:
 | Min split | `SIMMER_MERT_MIN_SPLIT` | 0.60 | Only trade when YES or NO >= this (e.g. 0.60 = 60/40) |
 | Max trades/run | `SIMMER_MERT_MAX_TRADES` | 5 | Maximum trades per scan cycle |
 | Smart sizing % | `SIMMER_MERT_SIZING_PCT` | 0.05 | % of balance per trade |
-| Fee buffer | `SIMMER_MERT_FEE_BUFFER` | 0.02 | Extra edge (above round-trip fee) required before trading; raise to require wider margin |
+| Fee buffer | `SIMMER_MERT_FEE_BUFFER` | 0.02 | Extra alpha required above entry fee; only applies when `SIMMER_MERT_MIN_EDGE` is set |
+| Declared edge | `SIMMER_MERT_MIN_EDGE` | 0.00 | Your signal's claimed edge above market price (probability units). At 0 (default): fee is logged but gate is advisory only. Set to X to block trades where entry fee > X — e.g. `0.05` requires your signal to clear at least 5¢ above market after fees |
 
 ## Quick Commands
 
@@ -116,7 +117,7 @@ Each cycle the script:
 2. Filters to markets resolving within the expiry window (default 2 minutes)
 3. Checks the price split -- only trades when one side >= min_split (default 60%)
 4. Determines direction: backs the favored side (higher probability)
-5. **Fee-aware EV check**: verifies the price edge covers round-trip Polymarket fees + buffer (skips if fees eat the edge)
+5. **Fee logging**: prints entry-fee cost per market (`POLY_FEE_RATE_CRYPTO × p × (1-p)`, entry only — redemption is free). If `SIMMER_MERT_MIN_EDGE > 0`, gates out markets where declared edge < entry fee + buffer
 6. **Safeguards**: Checks context for flip-flop warnings, slippage, market status
 7. **Execution**: Places trade on the favored side, capped at max bet
 8. Reports summary of scanned, filtered, and traded markets
