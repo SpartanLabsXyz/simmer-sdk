@@ -61,7 +61,9 @@ fi
 
 if [ "$USE_NPX" = true ]; then
   echo "📦 Registering via npx @simmer/mcp ..."
-  claude mcp add $SCOPE simmer -- npx -y @simmer/mcp
+  claude mcp add $SCOPE simmer \
+    -e SIMMER_API_KEY="${SIMMER_API_KEY:-}" \
+    -- npx -y @simmer/mcp
 else
   # Build if dist/ doesn't exist or src is newer
   if [ ! -f "$MCP_DIR/dist/index.js" ] || \

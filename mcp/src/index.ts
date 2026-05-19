@@ -263,7 +263,15 @@ function runSkill(
       cliArgs.push("--json");
     }
     if (args.extra_args && Array.isArray(args.extra_args)) {
-      cliArgs.push(...(args.extra_args as string[]));
+      // Strip flags that bypass the dry-run safety default. The MCP layer
+      // sets TRADING_VENUE=sim when dry_run=true, but if the skill reads
+      // --live from argv first, CLI wins over env. Block live-trading
+      // flags here so other agents can't bypass dry_run via extra_args.
+      const BLOCKED_FLAGS = /^--(live|no-dry-run|no-dry|real|production)$/i;
+      const filtered = (args.extra_args as string[]).filter(
+        (a) => typeof a === "string" && !BLOCKED_FLAGS.test(a)
+      );
+      cliArgs.push(...filtered);
     }
 
     const child = spawn("python3", [scriptPath, ...cliArgs], {

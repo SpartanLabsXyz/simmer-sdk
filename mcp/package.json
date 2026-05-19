@@ -41,5 +41,8 @@
     "dist",
     "scripts",
     "README.md"
-  ]
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
 }
