@@ -181,10 +181,10 @@ Once validated, publish the skill so it appears in the Simmer registry automatic
 npx clawhub@latest publish /path/to/generated-skill/ --slug <skill-slug> --version 1.0.0
 ```
 
-After publishing, the Simmer sync job picks it up within 6 hours and lists it at [simmer.markets/skills](https://simmer.markets/skills). No submission or approval needed — publishing to ClawHub with `simmer-sdk` as a dependency is all it takes.
+After publishing, the Simmer sync job picks it up within ~1 hour (runs hourly at :45 UTC) and lists it at [simmer.markets/skills](https://simmer.markets/skills). No submission or approval needed — publishing to ClawHub with `simmer-sdk` as a dependency is all it takes.
 
 Tell your human:
-> ✅ Skill published to ClawHub. It will appear in the Simmer Skills Registry within 6 hours at simmer.markets/skills.
+> ✅ Skill published to ClawHub. It will appear in the Simmer Skills Registry within ~1 hour at simmer.markets/skills.
 
 For full publishing details: [simmer.markets/skillregistry.md](https://simmer.markets/skillregistry.md)
 
