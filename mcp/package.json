@@ -15,6 +15,7 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
+    "pretest": "npm run bundle-skills",
     "test": "npm run build && node --test 'tests/*.test.ts'",
     "bundle-skills": "node scripts/bundle-skills.ts",
     "prepack": "npm run bundle-skills"
