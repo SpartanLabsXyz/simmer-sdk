@@ -223,6 +223,41 @@ def _save_daily_spend(spend_data):
 
 
 # =============================================================================
+# Auto-redeem cooldown
+# =============================================================================
+
+_REDEEM_COOLDOWN_S = 600  # 10 minutes between auto-redeem attempts
+
+
+def _should_run_auto_redeem() -> bool:
+    """Rate-limit auto_redeem to at most once per 10 minutes.
+
+    auto_redeem() makes 2+ sequential API calls (each up to 30s timeout) and,
+    for managed wallets with many redeemable positions, can chain many POST
+    /api/sdk/redeem calls. On a degraded backend the cumulative timeout can
+    consume the entire 1-minute cron window, leaving no time for market
+    discovery.  The cooldown file ensures that at worst one cycle per 10
+    minutes is spent on redemption, keeping the other cycles < 30s.
+    """
+    from pathlib import Path
+    import time as _time
+    cooldown_file = Path(__file__).parent / ".last_auto_redeem"
+    now = _time.time()
+    if cooldown_file.exists():
+        try:
+            last = float(cooldown_file.read_text().strip())
+            if now - last < _REDEEM_COOLDOWN_S:
+                return False
+        except (ValueError, IOError):
+            pass
+    try:
+        cooldown_file.write_text(str(now))
+    except IOError:
+        pass
+    return True
+
+
+# =============================================================================
 # API Helpers
 # =============================================================================
 
@@ -589,13 +624,16 @@ def run_fast_scaler(dry_run=True, positions_only=False, show_config=False, quiet
     client = get_client(live=not dry_run)
 
     # --- Auto-redeem: collect any winning positions from resolved markets ---
-    try:
-        redeemed = client.auto_redeem()
-        for r in redeemed or []:
-            if r.get("success"):
-                log(f"  💰 Redeemed {r.get('market_id', '')[:12]}... ({r.get('side', '?')})")
-    except Exception:
-        pass  # Non-critical
+    # Throttled to once per 10 minutes — each call makes 2+ sequential SDK
+    # requests; on a slow backend this can consume the full 1-min cron window.
+    if _should_run_auto_redeem():
+        try:
+            redeemed = client.auto_redeem()
+            for r in redeemed or []:
+                if r.get("success"):
+                    log(f"  💰 Redeemed {r.get('market_id', '')[:12]}... ({r.get('side', '?')})")
+        except Exception:
+            pass  # Non-critical
 
     # --- Balance pre-flight ---
     if not dry_run:

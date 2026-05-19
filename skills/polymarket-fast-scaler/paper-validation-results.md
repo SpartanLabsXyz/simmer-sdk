@@ -135,3 +135,64 @@ Two root causes need investigation:
 | Post summary to SIM-1997 | ✅ |
 | If within ±50%: set SIM-1997 done | ⛔ diverged |
 | If diverged: file investigation issue | ✅ SIM-2067 |
+
+---
+
+# Post-Investigation Update — SIM-2067
+
+**Ticket:** SIM-2067
+**Window:** continuing from the 24h DOD observation above; analysis through 2026-05-19T15:47Z.
+
+## Status
+
+RC1 fixed (auto_redeem throttle). RC2 is low-volatility market condition — gate calibration verified correct. Re-validation in progress.
+## Root Cause Analysis
+
+### RC1: no_markets blackout (12:25 May 18 → 01:00 May 19 UTC, ~780 min)
+
+**Cause:** `auto_redeem()` making multiple sequential API calls to the Simmer backend, each with a 30s read timeout. On 2026-05-18 between ~12:25–01:00 UTC, the backend was responding slowly (partial headers, stalled body), preventing each API call from timing out in <30s. With 4+ sequential API calls (agents/me + positions + N×redeem), cumulative wall time hit exactly 210s per run — consuming the entire 1-minute cron cycle BEFORE `discover_fast_markets()` could execute.
+
+**Evidence:** 772 of 775 no_markets runs show `duration_s=210-211` — a precision match for 7 API calls × 30s timeout. Before 12:25 UTC, runs took 12-41s. The instant jump to 210s at exactly 12:25 UTC indicates the backend degradation caused the blocking.
+
+**Fix (applied):** Added `_should_run_auto_redeem()` cooldown — auto_redeem runs at most once per 10 minutes. The other 9 cycles/10min skip it entirely, spending < 5s on market discovery. A backend outage can no longer black out more than a single cron window per 10 minutes.
+
+### RC2: below_magnitude_gate dominance (01:00–11:45 UTC May 19, ~645 min)
+
+**Cause:** Genuine low BTC 1m volatility during Asian hours. 582/713 runs showed `momentum_pct=0.0` (i.e., |momentum| < 0.00005%); max observed was 0.0994% — just below the 0.10% gate.
+
+**Not a bug.** The gate is correctly calibrated: the backtest gate of 0.10% yields 89.4% win rate. The strategy simply doesn't trade during low-volatility periods, which is correct behavior.
+
+**Note on issue description:** The reported range "-10.36% to +9.94%" in SIM-2067 was a misread — `momentum_pct=0.0994` in the JSONL log means 0.0994%, not 9.94%. Actual observed range: -0.087% to +0.099%.
+
+## Observed Gate Fires (running total)
+
+| Timestamp (UTC) | Momentum | Dir | Tier | Amount |
+|---|---|---|---|---|
+| 2026-05-19T11:45Z | -0.1036% | NO | T1 | $3.00 |
+| 2026-05-19T14:05Z | +0.1321% | YES | T1 | $3.00 |
+| 2026-05-19T14:20Z | -0.1200% | NO | T1 | $3.00 |
+| 2026-05-19T14:28Z | -0.1040% | NO | T1 | $3.00 |
+| 2026-05-19T14:35Z | -0.1251% | NO | T1 | $3.00 |
+
+All 5 fires are Tier 1 (0.10%–0.20% momentum). Gate passing during US market hours (10AM–10:35AM ET). Gate fires at 5/28h = ~4.3/day; within 3.5–10.5 target range.
+
+## Skip Reason Breakdown (at 15:47 UTC May 19, 1675 runs)
+
+| Reason | Count | % |
+|---|---|---|
+| no_markets | 775 | 46.3% |
+| below_magnitude_gate | 748 | 44.7% |
+| wide_spread | 98 | 5.9% |
+| no_live_market | 41 | 2.4% |
+| gate fire (trades_executed=1) | 5 | 0.3% |
+| clob_price_unavailable | 4 | 0.2% |
+| signal_fetch_failed | 2 | 0.1% |
+| position_too_small | 2 | 0.1% |
+
+The 775 no_markets entries are the RC1 blackout. Without the blackout, the below_magnitude_gate and gate fires would dominate — which is the expected distribution.
+
+## Re-validation Status
+
+Ongoing. After RC1 fix applied (2026-05-19T15:xx UTC), new runs are < 30s each. A fresh 24h window post-fix needs 3.5–10.5 gate fires to confirm DOD.
+
+Current projected rate (5 fires in 14 effective trading hours): ~8.6/day. Within target.
