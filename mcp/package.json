@@ -1,48 +1,35 @@
 {
-  "name": "@simmer/mcp",
-  "version": "0.1.0",
-  "description": "MCP server that exposes all Simmer SDK skills as Claude tools",
+  "name": "simmer-autoresearch",
+  "version": "2.3.0",
+  "description": "Autonomous skill optimization for Simmer — MCP server for cross-runtime experiment loops",
   "type": "module",
   "bin": {
-    "simmer-mcp": "./dist/index.js"
+    "simmer-autoresearch": "./dist/mcp-server.js"
   },
-  "main": "./dist/index.js",
+  "files": [
+    "dist/",
+    "skills/",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "tsc",
-    "start": "node dist/index.js",
-    "dev": "tsc --watch"
+    "dev": "tsc --watch",
+    "test": "npm run build && node --test 'tests/*.test.ts'"
   },
   "keywords": [
     "mcp",
     "simmer",
+    "autoresearch",
     "prediction-markets",
-    "claude",
-    "skills"
+    "trading",
+    "experiment-loop"
   ],
-  "author": "Simmer <hello@simmer.markets>",
   "license": "MIT",
-  "homepage": "https://simmer.markets",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/SpartanLabsXyz/simmer-sdk",
-    "directory": "mcp"
-  },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.12.0"
+    "@modelcontextprotocol/sdk": "^1.29.0"
   },
   "devDependencies": {
-    "typescript": "^5.0.0",
-    "@types/node": "^20.0.0"
-  },
-  "engines": {
-    "node": ">=18.0.0"
-  },
-  "files": [
-    "dist",
-    "scripts",
-    "README.md"
-  ],
-  "publishConfig": {
-    "access": "public"
+    "@types/node": "^25.5.0",
+    "typescript": "^5.4.0"
   }
 }

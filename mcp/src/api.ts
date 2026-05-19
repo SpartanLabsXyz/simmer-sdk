@@ -1,0 +1,138 @@
+// Simmer-specific — not tracked against upstream
+
+export interface SkillOutcome {
+  trades: number;
+  pnl: number;
+  wins: number;
+  losses: number;
+}
+
+export interface BacktestResult {
+  trades_total: number;
+  trades_included: number;
+  trades_excluded: number;
+  simulated_pnl: number;
+  original_pnl: number;
+  win_rate: number;
+  improvement_pct: number | null;
+}
+
+export interface ResumeState {
+  last_experiment_number: number;
+  current_segment: number;
+  best_metric: number | null;
+  best_direction: "lower" | "higher" | null;
+  metric_name: string | null;
+  metric_unit: string | null;
+  skill_slug: string;
+}
+
+export interface PostExperimentResult {
+  id: string;
+  experiment_number: number;
+  is_new_best: boolean;
+  status_mismatch?: boolean;
+  zero_metric_keep?: boolean;
+  prior_best_value?: number | null;
+  latest_version?: string;
+}
+
+export class SimmerApi {
+  private apiKey: string;
+  private apiUrl: string;
+  private mcpVersion: string;
+
+  constructor(apiKey: string, apiUrl: string, mcpVersion: string) {
+    this.apiKey = apiKey;
+    this.apiUrl = apiUrl;
+    this.mcpVersion = mcpVersion;
+  }
+
+  private headers(): Record<string, string> {
+    return {
+      Authorization: `Bearer ${this.apiKey}`,
+      "Content-Type": "application/json",
+      "x-mcp-version": this.mcpVersion,
+    };
+  }
+
+  async getOutcomes(skillSlug: string, since: string): Promise<SkillOutcome | null> {
+    try {
+      const url = `${this.apiUrl}/api/sdk/outcomes?skill=${encodeURIComponent(skillSlug)}&since=${encodeURIComponent(since)}`;
+      const resp = await fetch(url, { headers: this.headers() });
+      if (!resp.ok) return null;
+      const data = (await resp.json()) as Record<string, unknown>;
+      return {
+        trades: (data.trades as number) ?? 0,
+        pnl: (data.pnl as number) ?? 0,
+        wins: (data.wins as number) ?? 0,
+        losses: (data.losses as number) ?? 0,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  async postExperiment(data: {
+    skill_slug: string;
+    experiment_number: number;
+    segment: number;
+    status: "keep" | "discard" | "crash" | "checks_failed";
+    metric_name: string;
+    metric_value: number | null;
+    metric_unit: string;
+    best_direction: "lower" | "higher";
+    secondary_metrics?: Record<string, number>;
+    description?: string;
+    commit_hash?: string;
+  }): Promise<PostExperimentResult | null> {
+    try {
+      const resp = await fetch(`${this.apiUrl}/api/sdk/autoresearch/experiments`, {
+        method: "POST",
+        headers: this.headers(),
+        body: JSON.stringify(data),
+      });
+      if (!resp.ok) return null;
+      return (await resp.json()) as PostExperimentResult;
+    } catch {
+      return null;
+    }
+  }
+
+  async getResumeState(skillSlug: string): Promise<ResumeState | null> {
+    try {
+      const resp = await fetch(
+        `${this.apiUrl}/api/sdk/autoresearch/state?skill_slug=${encodeURIComponent(skillSlug)}`,
+        { headers: this.headers() },
+      );
+      if (!resp.ok) return null;
+      return (await resp.json()) as ResumeState;
+    } catch {
+      return null;
+    }
+  }
+
+  async backtest(params: {
+    skill_slug: string;
+    config: Record<string, number>;
+    days?: number;
+    venue?: string;
+  }): Promise<BacktestResult | null> {
+    try {
+      const resp = await fetch(`${this.apiUrl}/api/sdk/autoresearch/backtest`, {
+        method: "POST",
+        headers: this.headers(),
+        body: JSON.stringify({
+          skill_slug: params.skill_slug,
+          config: params.config,
+          days: params.days ?? 7,
+          venue: params.venue ?? "sim",
+        }),
+      });
+      if (!resp.ok) return null;
+      return await resp.json();
+    } catch {
+      return null;
+    }
+  }
+}
