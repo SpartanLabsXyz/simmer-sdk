@@ -3,6 +3,17 @@
 All notable changes to `simmer-sdk` are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## simmer-mcp v3.0.0 — 2026-05-19 (SIM-2072)
+
+### Breaking
+
+- **Package renamed `simmer-autoresearch` → `simmer-mcp` on npm.** Update your agent config: replace `"command": "simmer-autoresearch"` with `"command": "simmer-mcp"`, and update any `npx simmer-autoresearch` invocations to `npx simmer-mcp`. All tool names, env vars, and behavior are unchanged. The old package publishes a `simmer-autoresearch@2.99.0` deprecation stub pointing here.
+
+### Changed
+
+- MCP server `name` field updated from `"simmer-autoresearch"` to `"simmer-mcp"`.
+- Version-check fetches from `registry.npmjs.org/simmer-mcp/latest` (was `simmer-autoresearch`).
+
 ## Skills — 2026-05-19
 
 ### Fixed

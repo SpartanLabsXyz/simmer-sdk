@@ -117,7 +117,7 @@ import { probeRuntime } from "./runtime-probe.js";
 // Bundled version
 // ---------------------------------------------------------------------------
 
-const BUNDLED_VERSION = "2.3.0";
+const BUNDLED_VERSION = "3.0.0";
 
 // ---------------------------------------------------------------------------
 // Config from environment
@@ -159,7 +159,7 @@ async function checkLatestVersion(): Promise<void> {
   try {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 3000);
-    const resp = await fetch("https://registry.npmjs.org/simmer-autoresearch/latest", {
+    const resp = await fetch("https://registry.npmjs.org/simmer-mcp/latest", {
       signal: ctrl.signal,
     });
     clearTimeout(timer);
@@ -169,7 +169,7 @@ async function checkLatestVersion(): Promise<void> {
     if (!latest) return;
     if (compareSemver(BUNDLED_VERSION, latest) >= 0) return;
     console.error(
-      `[simmer-mcp] ⚠ Update available: simmer-autoresearch ${BUNDLED_VERSION} → ${latest}. ` +
+      `[simmer-mcp] ⚠ Update available: simmer-mcp ${BUNDLED_VERSION} → ${latest}. ` +
       `Restart your agent session to pick up the latest.`,
     );
   } catch {
@@ -207,7 +207,7 @@ async function assertProForRunExperiment(api: SimmerApi): Promise<void> {
 // ---------------------------------------------------------------------------
 
 const server = new McpServer({
-  name: "simmer-autoresearch",
+  name: "simmer-mcp",
   version: BUNDLED_VERSION,
 });
 
