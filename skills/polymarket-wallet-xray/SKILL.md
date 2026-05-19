@@ -15,6 +15,8 @@ Analyze **any** Polymarket wallet's trading patterns, skill level, and edge dete
 
 **Inspired by:** [The Autopsy: How to Read the Mind of a Polymarket Whale](https://x.com/thejayden/status/2020891572389224878) by [@thejayden](https://x.com/thejayden)
 
+> 🚨 **Framework, not a production trading system.** Read [DISCLAIMER.md](./DISCLAIMER.md) before connecting to a wallet with real funds.
+
 > This skill implements the forensic trading analysis framework developed by @thejayden. Read the original post to understand the philosophy behind Time Profitable, hedge checks, bot detection, and accumulation signals.
 
 > **This is an analysis tool, not a trading signal.** The skill returns forensic metrics for ANY Polymarket wallet — your agent uses them to UNDERSTAND traders, learn patterns, and make informed decisions. This is for education and research, not for blindly copying positions.

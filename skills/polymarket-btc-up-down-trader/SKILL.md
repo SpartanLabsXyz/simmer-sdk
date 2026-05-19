@@ -11,6 +11,8 @@ metadata:
 
 Trade Polymarket's BTC daily and weekly UP/DOWN markets with built-in exit discipline. Enters on Binance momentum signals, exits automatically before resolution tail risk bites.
 
+> 🚨 **Framework, not a production trading system.** Read [DISCLAIMER.md](./DISCLAIMER.md) before connecting to a wallet with real funds.
+
 > **Polymarket only.** All trades execute on Polymarket with real USDC. Use `--live` for real trades; default is dry run.
 
 > **Not for fast (5m/15m) markets.** Use `polymarket-fast-loop` for those. This skill targets daily and weekly BTC direction markets with hours-to-days of duration.

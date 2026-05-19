@@ -11,6 +11,8 @@ metadata:
 
 Buy NO on standalone yes/no Polymarket markets priced below a configurable cap.
 
+> 🚨 **Framework, not a production trading system.** Read [DISCLAIMER.md](./DISCLAIMER.md) before connecting to a wallet with real funds.
+
 > **This is a template.** The default logic buys NO on any non-sports standalone market where NO costs ≤5¢. Remix it with custom filters (minimum volume thresholds, specific categories, date ranges) or pair it with a signal to skip markets where YES might actually happen. The skill handles plumbing (discovery, import, fee checks, execution). You define which markets to trade.
 
 > **Based on:** [sterlingcrispin/nothing-ever-happens](https://github.com/sterlingcrispin/nothing-ever-happens)

@@ -12,6 +12,8 @@ metadata:
 
 Trade temperature markets on Polymarket using NOAA forecast data.
 
+> 🚨 **Framework, not a production trading system.** Read [DISCLAIMER.md](./DISCLAIMER.md) before connecting to a wallet with real funds.
+
 > **Template skill.** Defaults to dry-run mode (no real money). The `--live` flag is a deliberate single-command opt-in for real-money execution. Configure tunables (entry/exit thresholds, locations, etc.) via env vars listed below.
 
 ## Safety rails (read first)
