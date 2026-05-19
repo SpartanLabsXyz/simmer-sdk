@@ -174,6 +174,8 @@ print(f"Balance: ${summary['balance']:.2f}, P&L: ${summary['total_pnl']:.2f}")
 | `set_approvals()` | Set Polymarket token approvals |
 | `troubleshoot()` | Look up any error and get a fix (no auth required) |
 
+**Tip — don't pre-round prices.** simmer-sdk ≥ 0.17.1 automatically rounds the price to each Polymarket market's tick grid. Pass your raw computed price to `client.trade(..., price=p)` and the SDK handles the rest. Pre-rounding with a hardcoded tick (e.g. `round(price, 3)`) will silently produce wrong values for markets at different tick sizes.
+
 **Error handling:** All SDK 4xx responses include a `fix` field with actionable instructions when the error matches a known pattern. You can also call `POST /api/sdk/troubleshoot` with `{"error_text": "..."}` to look up any error.
 
 Full API reference with parameters, examples, and error codes: **[simmer.markets/docs.md](https://simmer.markets/docs.md)**

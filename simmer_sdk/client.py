@@ -1169,6 +1169,15 @@ class SimmerClient:
         Returns:
             TradeResult with execution details
 
+        Note:
+            **Tick rounding (Polymarket):** As of simmer-sdk 0.17.1, prices are
+            automatically rounded to the market's tick grid before signing. Pass
+            raw computed prices; do NOT pre-round in your client code.
+            Pre-rounding with a hardcoded tick (e.g. ``round(price, 3)``) produces
+            incorrect results for markets with different tick sizes (Polymarket
+            markets have tick_size in {0.0001, 0.001, 0.01, 0.1}; the SDK fetches
+            each market's tick from ``/api/sdk/markets/{id}`` and applies it).
+
         Example:
             # Use client default venue
             result = client.trade(market_id, "yes", 10.0)
