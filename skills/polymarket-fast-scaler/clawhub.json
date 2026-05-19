@@ -1,5 +1,7 @@
 {
   "emoji": "⚡",
+  "status": "scaffold",
+  "published": false,
   "primaryEnv": "SIMMER_API_KEY",
   "requires": {
     "env": [
@@ -48,25 +50,25 @@
       "env": "SIMMER_FASTSCALER_POS_T2",
       "type": "number",
       "default": 5.0,
-      "range": [1, 50],
+      "range": [1, 15],
       "step": 1,
-      "label": "Tier 2 position size ($)"
+      "label": "Tier 2 position size ($) — backtested at $5; raising past $15 invalidates the +5.04% backtest"
     },
     {
       "env": "SIMMER_FASTSCALER_POS_T3",
       "type": "number",
       "default": 10.0,
-      "range": [1, 100],
-      "step": 5,
-      "label": "Tier 3 position size ($)"
+      "range": [1, 20],
+      "step": 1,
+      "label": "Tier 3 position size ($) — backtested at $10; raising past $20 invalidates the +5.04% backtest"
     },
     {
       "env": "SIMMER_FASTSCALER_DAILY_BUDGET",
       "type": "number",
       "default": 30.0,
-      "range": [10, 200],
-      "step": 10,
-      "label": "Daily budget ($)"
+      "range": [10, 50],
+      "step": 5,
+      "label": "Daily budget ($) — backtested at $30; raising past $50 admits parameter combos the backtest didn't cover"
     },
     {
       "env": "SIMMER_FASTSCALER_PER_MARKET_CAP",

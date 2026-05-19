@@ -623,11 +623,13 @@ def run_fast_scaler(dry_run=True, positions_only=False, show_config=False, quiet
                 source = (order.get("source") or "").lower()
                 slug = (order.get("skill_slug") or "").lower()
                 question = (order.get("question") or "").lower()
-                is_ours = (
-                    source == TRADE_SOURCE
-                    or slug == SKILL_SLUG
-                    or "up or down" in question
-                )
+                # Match only on source/slug attribution. Earlier versions
+                # also matched on `"up or down" in question` as a fallback,
+                # but that pattern cross-contaminates with mert-sniper and
+                # other Crypto-fast-market skills running on the same wallet
+                # under the same API key — fast-scaler would cancel their
+                # GTC orders at cycle start.
+                is_ours = source == TRADE_SOURCE or slug == SKILL_SLUG
                 if not is_ours:
                     continue
                 oid = order.get("order_id") or order.get("id")

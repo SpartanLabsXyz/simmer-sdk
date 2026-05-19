@@ -118,6 +118,26 @@ python fast_scaler.py --set position_tier3_usd=15
 - **Per-market cap** (default $10) prevents stacking multiple bets on the same slot. Leave it at or below `position_tier3_usd`.
 - **Daily budget** (default $30) is the safety cap. At 7 trades/day × avg $5 = $35, the default may cut the last ~1 trade. Increase if you want full daily exposure.
 
+## Invariants — don't raise without re-backtesting
+
+The +5.04% / 89.4% backtest result is conditional on the parameter values it was run against. Three values are **invariants** — changing them invalidates the backtest and the skill becomes an unvalidated experiment:
+
+- **`magnitude_gate_pct ≥ 0.10`** — lowering admits noise; backtest win rate degrades fast below 0.10%.
+- **`position_tier3_usd ≤ 10`** — the conviction ladder ($3/$5/$10) is sized for the observed win-rate distribution. Raising T3 without re-running the backtest scales bet size beyond what the empirical edge supports.
+- **`daily_budget_usd ≤ 50`** — the daily budget caps total daily exposure. Raising it past ~$50 admits parameter combinations the backtest didn't cover.
+
+Lowering any of these is always safe. Raising them is your call but invalidates the empirical evidence cited above.
+
+## Geo-fallback (Binance.us)
+
+The skill fetches BTC 1m klines from `api.binance.com`. In geo-restricted regions (e.g. US-hosted Railway deployments) Binance returns HTTP 451. The skill auto-falls-back to `api.binance.us` in that case. If both endpoints are unreachable, market discovery returns nothing for that cycle — the skill exits cleanly with no orders placed.
+
+If you're running this on a host that can reach neither endpoint, you'll need to proxy/VPN the request or run the skill from a host that can reach Binance.
+
+## Gamma fallback liveness gap
+
+When the Simmer SDK's primary market-discovery path is unavailable, the skill falls back to Polymarket's Gamma API. Gamma-sourced markets come through without `is_live_now` precision — the skill uses a time-window heuristic instead. This can occasionally admit a market that has time remaining on the clock but isn't yet in the live trading window. Known gap; tracked for future fix.
+
 ## Advanced: Extending the Strategy
 
 The conviction ladder and magnitude gate are the two load-bearing components. All other parameters are tunable without invalidating the backtest. If you want to:

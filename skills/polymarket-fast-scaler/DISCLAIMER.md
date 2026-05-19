@@ -1,27 +1,48 @@
 # Disclaimer
 
-**This skill is a framework, not a production trading system.**
+This skill is a **framework**, not a production trading system. Read this
+in full before connecting it to a wallet with real funds.
 
-It is provided for educational and research purposes only. Nothing in this skill constitutes financial advice, investment advice, or a recommendation to buy or sell any financial instrument.
+## No financial advice
 
-## Trading Real Funds
+Nothing in this skill constitutes financial, investment, or trading
+advice. The default strategy implemented here is a starting point, not a
+tested edge. Suitability for any account size or risk tolerance is your
+responsibility to assess.
 
-- **You may lose money.** Prediction market trading involves significant risk. Past performance of any strategy does not guarantee future results.
-- **Default parameters are not optimized.** The configuration values shipped with this skill are illustrative starting points, not backtested recommendations. Running defaults with real funds is not advised without independent validation.
-- **Fees reduce returns.** Polymarket charges fees on trades. Fast markets carry additional fees (up to 10%). These costs compound over many trades and can turn a marginally profitable strategy into a losing one.
-- **Slippage and liquidity.** Automated execution may receive worse prices than the displayed odds, especially in thin markets or during fast-moving events.
+## Default parameters are not validated
 
-## No Guarantees
+Default parameters are calibrated for testing the plumbing, not for live
+profit. They have not been validated to produce positive returns under
+current market conditions. Run paper mode for an extended period before
+scaling beyond default position sizes.
 
-The authors and distributors of this skill make no representations or warranties about the accuracy, completeness, or fitness for a particular purpose of this code. The strategy logic has not been independently audited.
+## Automated trading carries irreversible risk
 
-## Your Responsibility
+When this skill runs with `--live`, it places real on-chain orders.
+On-chain trades cannot be recalled. Strategy errors, signal lag, market
+regime shifts, and operator misconfiguration can produce losses
+exceeding any specific position size.
 
-By connecting this skill to a wallet with real funds, you accept full responsibility for any losses incurred. You should:
+## Risk monitoring may not apply to all market types
 
-1. Run in paper-trading mode first (`--dry-run` is the default).
-2. Start with amounts you can afford to lose entirely.
-3. Monitor positions regularly — automated systems can malfunction.
-4. Comply with the laws and regulations applicable to your jurisdiction.
+Stop-loss and take-profit monitors run on a fixed schedule. Markets that
+resolve faster than the monitor cycle cannot be exited automatically.
+Position sizing is the only risk control on these markets — set it
+conservatively.
 
-**Use at your own risk.**
+## Use of this skill is at your own risk
+
+By installing and running this skill you agree that the authors are not
+liable for any losses, direct or indirect, that arise from its use. This
+applies regardless of skill provenance — official Simmer skills,
+community skills, and skills imported from external repositories all
+carry this same disclaimer.
+
+## Where to learn more before going live
+
+- The skill's own `SKILL.md` documents the strategy and parameters
+- Your trading venue's documentation covers fee structure, order types,
+  and resolution rules
+- Simmer SDK documentation covers paper mode, dry-run flags, and
+  position monitoring
