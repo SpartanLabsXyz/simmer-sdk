@@ -36,3 +36,31 @@ jobs:
           else
             echo "No tests directory — skipping"
           fi
+
+  mcp-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Set up Python (for per-skill execution + py_compile tests)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python SDK (for runtime-probe test)
+        run: pip install -e .
+
+      - name: Install MCP dependencies
+        working-directory: mcp
+        run: npm ci
+
+      - name: Build + test MCP package
+        working-directory: mcp
+        run: npm test

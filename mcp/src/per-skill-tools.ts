@@ -30,7 +30,7 @@ function tunableToZod(t: Tunable): ZodType<unknown> {
 // Defense-in-depth: tunables must not shadow gate-relevant schema fields.
 const RESERVED_ARG_NAMES = new Set(["dry_run", "trading_venue", "extra_args", "timeout_s"]);
 
-export function buildToolSchema(skill: Skill): z.ZodObject<z.ZodRawShape> {
+export function buildToolSchema(skill: Skill): z.ZodRawShape {
   const tunableShape: Record<string, ZodType<unknown>> = {};
   for (const t of skill.tunables) {
     const argName = envToArgName(t.env);
@@ -38,7 +38,7 @@ export function buildToolSchema(skill: Skill): z.ZodObject<z.ZodRawShape> {
     tunableShape[argName] = tunableToZod(t).optional();
   }
 
-  return z.object({
+  return {
     dry_run: z.boolean().default(true).describe(
       "If false, may place real orders (requires SIMMER_MCP_ALLOW_LIVE=true env). Default: paper mode."
     ),
@@ -49,7 +49,7 @@ export function buildToolSchema(skill: Skill): z.ZodObject<z.ZodRawShape> {
       "Pass-through CLI flags. Live-trading flags (--live, --no-dry-run, --mode=live, etc.) are filtered."
     ),
     ...tunableShape,
-  });
+  };
 }
 
 export function buildToolDescription(skill: Skill): string {
@@ -75,6 +75,7 @@ const DEFAULT_TIMEOUT_MS = 60_000;
 const MAX_TIMEOUT_MS = 300_000;
 
 export interface InvokeSkillResponse {
+  [key: string]: unknown;
   content: Array<{ type: "text"; text: string }>;
   isError: boolean;
   _meta?: Record<string, unknown>;
