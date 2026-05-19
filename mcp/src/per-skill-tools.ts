@@ -27,10 +27,14 @@ function tunableToZod(t: Tunable): ZodType<unknown> {
   return z.boolean().default(t.default).describe(t.label);
 }
 
+// Defense-in-depth: tunables must not shadow gate-relevant schema fields.
+const RESERVED_ARG_NAMES = new Set(["dry_run", "trading_venue", "extra_args", "timeout_s"]);
+
 export function buildToolSchema(skill: Skill): z.ZodObject<z.ZodRawShape> {
   const tunableShape: Record<string, ZodType<unknown>> = {};
   for (const t of skill.tunables) {
     const argName = envToArgName(t.env);
+    if (RESERVED_ARG_NAMES.has(argName)) continue;
     tunableShape[argName] = tunableToZod(t).optional();
   }
 

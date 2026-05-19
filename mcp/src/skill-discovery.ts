@@ -2,6 +2,22 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { Skill, Tunable } from "./core/types.js";
 
+// Local copy — avoids a cross-source import that breaks node --test's .ts loader.
+function envToArgName(envName: string): string {
+  const parts = envName.split("_");
+  if (parts.length <= 2) return envName.toLowerCase();
+  return parts.slice(2).join("_").toLowerCase();
+}
+
+// Gate-controlled env names that skill tunables must never overwrite.
+export const RESERVED_ENV_NAMES = new Set([
+  "TRADING_VENUE", "SIMMER_MANAGED_MODE", "AUTOMATON_MANAGED",
+  "PYTHONUNBUFFERED", "SIMMER_MCP_ALLOW_LIVE", "SIMMER_MCP_ALLOW_EXTRA_ARGS",
+]);
+
+// Schema arg names reserved for gate-relevant parameters in buildToolSchema.
+export const RESERVED_ARG_NAMES = new Set(["dry_run", "trading_venue", "extra_args", "timeout_s"]);
+
 export function slugToToolName(slug: string): string {
   return "simmer_" + slug.replace(/-/g, "_");
 }
@@ -45,13 +61,22 @@ function parseSkillMd(skillMdPath: string): SkillMdFrontmatter {
   return frontmatter;
 }
 
-function parseTunables(rawTunables: unknown): Tunable[] {
+function parseTunables(slug: string, rawTunables: unknown): Tunable[] {
   if (!Array.isArray(rawTunables)) return [];
   const out: Tunable[] = [];
   for (const t of rawTunables) {
     if (typeof t !== "object" || t === null) continue;
     const obj = t as Record<string, unknown>;
     if (typeof obj.env !== "string" || typeof obj.label !== "string") continue;
+    if (RESERVED_ENV_NAMES.has(obj.env)) {
+      console.error(`[skill-discovery] WARN: skill "${slug}" tunable env="${obj.env}" is reserved, skipping`);
+      continue;
+    }
+    const argName = envToArgName(obj.env);
+    if (RESERVED_ARG_NAMES.has(argName)) {
+      console.error(`[skill-discovery] WARN: skill "${slug}" tunable env="${obj.env}" maps to reserved arg "${argName}", skipping`);
+      continue;
+    }
     if (obj.type === "number" && typeof obj.default === "number") {
       out.push({
         env: obj.env, type: "number", default: obj.default,
@@ -106,7 +131,7 @@ export function discoverSkills(skillsRoot: string): Skill[] {
       status: frontmatter.metadata?.status ?? manifest.status as string | undefined,
       published: manifest.published === true,
       entrypoint,
-      tunables: parseTunables(manifest.tunables),
+      tunables: parseTunables(slug, manifest.tunables),
       skillDir: dir,
       hasDisclaimer: fs.existsSync(path.join(dir, "DISCLAIMER.md")),
     });

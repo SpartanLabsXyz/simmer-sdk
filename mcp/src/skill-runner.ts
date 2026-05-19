@@ -34,6 +34,8 @@ export function runSkillProcess(opts: SkillRunOptions): Promise<SkillRunResult> 
     let timedOut = false;
     let stdoutBytes = 0;
     let stderrBytes = 0;
+    let stdoutTruncated = false;
+    let stderrTruncated = false;
 
     const child = spawn(opts.file, opts.args, {
       env: opts.env,
@@ -48,11 +50,21 @@ export function runSkillProcess(opts: SkillRunOptions): Promise<SkillRunResult> 
 
     child.stdout.on("data", (chunk: Buffer) => {
       stdoutBytes += chunk.length;
-      if (stdoutBytes <= maxBytes) stdout += chunk.toString();
+      if (stdoutBytes <= maxBytes) {
+        stdout += chunk.toString();
+      } else if (!stdoutTruncated) {
+        stdoutTruncated = true;
+        stdout += "\n[truncated at 1MB]";
+      }
     });
     child.stderr.on("data", (chunk: Buffer) => {
       stderrBytes += chunk.length;
-      if (stderrBytes <= maxBytes) stderr += chunk.toString();
+      if (stderrBytes <= maxBytes) {
+        stderr += chunk.toString();
+      } else if (!stderrTruncated) {
+        stderrTruncated = true;
+        stderr += "\n[truncated at 1MB]";
+      }
     });
 
     child.on("close", (code, signal) => {

@@ -24,7 +24,7 @@ export function listSkills(skills: Skill[]): SkillListEntry[] {
     tier: s.tier,
     status: s.status,
     requires_api_key: s.tier === "trading",
-    requires_pro: false,
+    requires_pro: s.tier === "trading",
     has_disclaimer: s.hasDisclaimer,
   }));
 }

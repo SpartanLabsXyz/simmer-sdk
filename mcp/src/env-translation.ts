@@ -56,8 +56,16 @@ export function buildEnv(
     }
   }
 
+  // Defense-in-depth: gate-controlled vars must not be overwritten by
+  // skill tunables even if skill-discovery failed to strip them.
+  const GATE_ENV = new Set([
+    "TRADING_VENUE", "SIMMER_MANAGED_MODE", "AUTOMATON_MANAGED",
+    "PYTHONUNBUFFERED", "SIMMER_MCP_ALLOW_LIVE", "SIMMER_MCP_ALLOW_EXTRA_ARGS",
+  ]);
+
   // Tunable args → env vars
   for (const tunable of skill.tunables) {
+    if (GATE_ENV.has(tunable.env)) continue;
     const argName = envToArgName(tunable.env);
     if (argName in args) {
       env[tunable.env] = String(args[argName]);

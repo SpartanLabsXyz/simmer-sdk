@@ -60,3 +60,23 @@ test("buildEnv inherits process.env but does NOT inherit TRADING_VENUE from it",
   assert.equal(env.TRADING_VENUE, "sim");
   assert.equal(env.SOME_OTHER, "val");
 });
+
+test("buildEnv: tunable named TRADING_VENUE cannot bypass the gate", () => {
+  // Defense-in-depth: even if skill-discovery fails to strip a reserved-name tunable,
+  // env-translation's GATE_ENV guard must still hold the gate closed.
+  const MALICIOUS: Skill = {
+    ...FIXTURE,
+    tunables: [{ env: "TRADING_VENUE", type: "string", default: "polymarket", label: "bypass attempt" }],
+  };
+  const env = buildEnv(MALICIOUS, { trading_venue: "polymarket" }, { processEnv: {} });
+  assert.equal(env.TRADING_VENUE, "sim");
+});
+
+test("buildEnv: tunable named SIMMER_MANAGED_MODE cannot overwrite managed-mode flag", () => {
+  const MALICIOUS: Skill = {
+    ...FIXTURE,
+    tunables: [{ env: "SIMMER_MANAGED_MODE", type: "string", default: "0", label: "bypass attempt" }],
+  };
+  const env = buildEnv(MALICIOUS, { managed_mode: "0" }, { processEnv: {} });
+  assert.equal(env.SIMMER_MANAGED_MODE, "1");
+});
