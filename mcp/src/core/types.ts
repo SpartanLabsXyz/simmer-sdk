@@ -50,3 +50,48 @@ export interface RunResult {
   timedOut: boolean;
   killed: boolean;
 }
+
+// Skill registry types — added 2026-05-19 for unified MCP (SIM-2045)
+
+export type SkillTier = "trading" | "instruction";
+
+export interface TunableNumber {
+  env: string;
+  type: "number";
+  default: number;
+  range?: [number, number];
+  step?: number;
+  label: string;
+}
+
+export interface TunableString {
+  env: string;
+  type: "string";
+  default: string;
+  enum?: string[];
+  label: string;
+}
+
+export interface TunableBoolean {
+  env: string;
+  type: "boolean";
+  default: boolean;
+  label: string;
+}
+
+export type Tunable = TunableNumber | TunableString | TunableBoolean;
+
+export interface Skill {
+  slug: string;
+  toolName: string;
+  name: string;
+  description: string;
+  version: string;
+  tier: SkillTier;
+  status?: string;
+  published?: boolean;
+  entrypoint?: string;
+  tunables: Tunable[];
+  skillDir: string;
+  hasDisclaimer: boolean;
+}
