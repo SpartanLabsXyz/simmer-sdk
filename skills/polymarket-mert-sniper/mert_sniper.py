@@ -43,6 +43,7 @@ CONFIG_SCHEMA = {
     "max_trades_per_run": {"env": "SIMMER_MERT_MAX_TRADES", "default": 5, "type": int},
     "sizing_pct": {"env": "SIMMER_MERT_SIZING_PCT", "default": 0.05, "type": float},
     "order_type": {"env": "SIMMER_MERT_ORDER_TYPE", "default": "GTC", "type": str},
+    "fee_buffer": {"env": "SIMMER_MERT_FEE_BUFFER", "default": 0.02, "type": float},
 }
 
 _config = load_config(CONFIG_SCHEMA, __file__, slug="polymarket-mert-sniper")
@@ -71,6 +72,12 @@ ORDER_TYPE = _config["order_type"]
 # Safeguard thresholds
 SLIPPAGE_MAX_PCT = 0.15
 MIN_BOOK_DEPTH_USD = 50.0  # Skip if less than $50 available on the side we want
+
+# Polymarket crypto taker fee formula (docs.polymarket.com/trading/fees)
+# fee = num_shares × POLY_FEE_RATE_CRYPTO × p × (1-p)
+# Effective rate on dollars spent = POLY_FEE_RATE_CRYPTO × (1-p)
+POLY_FEE_RATE_CRYPTO = 0.07   # Crypto markets taker fee coefficient
+FEE_BUFFER = _config["fee_buffer"]  # Extra edge required beyond round-trip fee
 
 # Polymarket CLOB API
 CLOB_API = "https://clob.polymarket.com"
@@ -215,6 +222,17 @@ def _clob_request(url, timeout=5):
             return json.loads(resp.read())
     except Exception:
         return None
+
+
+def _lookup_fee_rate(token_id):
+    """Fetch taker fee rate (bps) from Polymarket CLOB for a token. Returns 0 on failure."""
+    result = _clob_request(f"{CLOB_API}/fee-rate?token_id={quote(str(token_id))}")
+    if not result or not isinstance(result, dict):
+        return 0
+    try:
+        return int(float(result.get("base_fee") or 0))
+    except (ValueError, TypeError):
+        return 0
 
 
 def fetch_live_midpoint(token_id):
@@ -542,6 +560,19 @@ def run_mert_strategy(dry_run=True, positions_only=False, show_config=False,
                     continue
             else:
                 print(f"     Book:  unavailable (proceeding with caution)")
+
+        # Fee-aware EV check: require edge to cover round-trip fee + buffer
+        # divergence = how far side_price is above neutral (conviction strength)
+        fee_rate_bps = _lookup_fee_rate(yes_token_id) if yes_token_id else 0
+        divergence = side_price - 0.5
+        fee_per_share = POLY_FEE_RATE_CRYPTO * side_price * (1 - side_price)
+        min_divergence = fee_per_share * 2 + FEE_BUFFER  # round-trip fee + buffer
+        fee_note = "" if fee_rate_bps else " [fee_rate unavailable]"
+        print(f"     Fee:   ${fee_per_share:.4f}/share ({POLY_FEE_RATE_CRYPTO * (1 - side_price):.2%} on spend) | edge {divergence:.3f} vs min {min_divergence:.3f}{fee_note}")
+        if fee_rate_bps > 0 and divergence < min_divergence:
+            print(f"     Skip: edge {divergence:.3f} < fee-adjusted min {min_divergence:.3f} (fees eat the edge)")
+            skip_reasons.append("fees eat the edge")
+            continue
 
         # Safeguards
         if use_safeguards:

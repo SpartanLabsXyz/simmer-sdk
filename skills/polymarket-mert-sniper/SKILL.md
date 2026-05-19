@@ -3,7 +3,7 @@ name: polymarket-mert-sniper
 description: Near-expiry conviction trading on Polymarket. Snipe markets about to resolve when the odds are heavily skewed. Filter by topic, cap your bets, and only trade strong splits close to deadline.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.2.2"
+  version: "1.3.0"
   displayName: Mert Sniper
   difficulty: advanced
   attribution: Strategy inspired by @mert — https://x.com/mert/status/2020216613279060433
@@ -63,6 +63,7 @@ Use this skill when the user wants to:
 | Min split | `SIMMER_MERT_MIN_SPLIT` | 0.60 | Only trade when YES or NO >= this (e.g. 0.60 = 60/40) |
 | Max trades/run | `SIMMER_MERT_MAX_TRADES` | 5 | Maximum trades per scan cycle |
 | Smart sizing % | `SIMMER_MERT_SIZING_PCT` | 0.05 | % of balance per trade |
+| Fee buffer | `SIMMER_MERT_FEE_BUFFER` | 0.02 | Extra edge (above round-trip fee) required before trading; raise to require wider margin |
 
 ## Quick Commands
 
@@ -115,9 +116,10 @@ Each cycle the script:
 2. Filters to markets resolving within the expiry window (default 2 minutes)
 3. Checks the price split -- only trades when one side >= min_split (default 60%)
 4. Determines direction: backs the favored side (higher probability)
-5. **Safeguards**: Checks context for flip-flop warnings, slippage, market status
-6. **Execution**: Places trade on the favored side, capped at max bet
-7. Reports summary of scanned, filtered, and traded markets
+5. **Fee-aware EV check**: verifies the price edge covers round-trip Polymarket fees + buffer (skips if fees eat the edge)
+6. **Safeguards**: Checks context for flip-flop warnings, slippage, market status
+7. **Execution**: Places trade on the favored side, capped at max bet
+8. Reports summary of scanned, filtered, and traded markets
 
 ## Example Output
 

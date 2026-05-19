@@ -82,6 +82,17 @@
       ],
       "step": 0.01,
       "label": "Position sizing percentage"
+    },
+    {
+      "env": "SIMMER_MERT_FEE_BUFFER",
+      "type": "number",
+      "default": 0.02,
+      "range": [
+        0.0,
+        0.10
+      ],
+      "step": 0.005,
+      "label": "Fee buffer (extra edge above round-trip fee)"
     }
   ]
 }
