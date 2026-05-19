@@ -255,6 +255,15 @@ def run_market(
         return stats
     stats["mid"] = mid
 
+    # Multi-outcome (neg_risk) market guard. The synthetic-ask formula
+    # `1 - ask_yes` is only valid for binary markets where YES + NO = 1.
+    # For neg_risk markets the token prices are non-complementary, so the
+    # ask leg would misprice and bleed via adverse selection. Skip them.
+    market_info = get_market_info(market_id)
+    if market_info.get("is_neg_risk") or market_info.get("neg_risk"):
+        stats["skip_reason"] = "neg_risk_unsupported (multi-outcome market — synthetic-ask math invalid)"
+        return stats
+
     # 2. Quotes
     bid_yes, ask_yes, bid_no_synth = compute_quotes(mid, spread_pct)
     if bid_yes is None:
