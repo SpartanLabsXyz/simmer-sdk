@@ -1,5 +1,6 @@
 # Runtime state
 daily_spend.json
+.last_auto_redeem
 
 # Python
 __pycache__/
