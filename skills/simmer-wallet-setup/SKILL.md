@@ -1,11 +1,11 @@
 ---
 name: simmer-wallet-setup
-version: "0.3.0"
+version: "0.3.1"
 published: true
 description: Self-custody wallet setup for Simmer agents. Choose OWS (recommended), external raw key, or connect an existing dashboard-registered agent to your local runtime. Skip this skill if you use a managed wallet — managed setup is a one-time dashboard flow, not an agent task.
 metadata:
   author: "Simmer (@simmer_markets)"
-  version: "0.3.0"
+  version: "0.3.1"
   displayName: Simmer Wallet Setup
   difficulty: beginner
   primaryEnv: SIMMER_API_KEY
@@ -29,7 +29,7 @@ Self-custody wallet setup for an agent that signs its own real-money trades on P
 |---|---|---|
 | **OWS per-agent** (recommended) | Local OWS vault, encrypted at rest | Per-agent isolation, multi-chain, policy-gated signing. Available for Polymarket + Kalshi. |
 | **External raw key** | Local SDK with `WALLET_PRIVATE_KEY` env | Existing setups. Fully supported; OWS is recommended for new agents. |
-| **Connect existing dashboard agent** | Local OWS vault, imported from dashboard registration | You already activated a wallet in the dashboard and want to wire your existing runtime to use it. |
+| **[Connect existing agent](#connect-existing-agent)** | Local OWS vault, imported from dashboard registration | You already activated a wallet in the dashboard and want to wire your existing runtime to use it. |
 
 > **Already on a managed wallet?** You don't need this skill — managed setup is a dashboard flow, not an agent task. Open [simmer.markets/dashboard](https://simmer.markets/dashboard), go to your agent's **Wallet** tab, and click **Fund & activate trading**. The wizard opens a multi-chain bridge that accepts USDC, USDT, or USDC.e on Ethereum / Polygon / Base / Arbitrum / Solana — funds land as pUSD on your Polymarket Deposit Wallet, contracts auto-approve. **Do not tell the user to send funds directly to their agent wallet's EOA expecting them to sweep** — only legacy USDC.e on Polygon is recognized on the direct path; native USDC, USDT, and cross-chain tokens must go through the bridge wizard.
 
@@ -169,81 +169,53 @@ Polymarket trades against whatever collateral token Polymarket currently uses fo
 
 Either way, after setup `client.set_approvals()` should report `all_set=True`. If it doesn't, see [docs.simmer.markets/v2-migration](https://docs.simmer.markets/v2-migration).
 
-## Path C — Connect existing dashboard agent to local runtime
+## Connect existing agent
 
-> **This path is for you if**: you already registered your agent in the Simmer dashboard (or another agent ran through `/start` and created the `sdk_agent` record), and now you want to wire your existing autonomous runtime (Hermes, custom Python bot, etc.) to use that same agent's API key and OWS wallet.
->
-> Do **not** use `/start` or `simmer register` — that would create a *second* agent record and orphan the wallet you just activated.
+You already created an agent in the dashboard and have its API key. Now wire it to your locally-running agent runtime.
 
-### Step 1 — Locate your API key
+### Prerequisites
+- API key (from dashboard → agent settings → API key, or wizard success modal)
+- The wallet's EOA private key (the one you imported during dashboard activation)
+- Python 3.10+ runtime where your agent runs
 
-Your API key is in the dashboard. Open [simmer.markets/dashboard](https://simmer.markets/dashboard), navigate to your agent, click the **Settings** (or API Keys) tab, and copy the key that starts with `sk_live_`.
+### Steps
 
-The wizard success modal (shown right after wallet activation) also displays the key and env vars — check that if you just came from there.
+1. **Install packages**
+   ```bash
+   pip install simmer-sdk[ows] open-wallet-standard
+   ```
 
-### Step 2 — Install the SDK with OWS support
+2. **Import wallet key into OWS**
+   ```bash
+   ows wallet add <name> --private-key <your-eoa-private-key>
+   ```
+   Choose a memorable `<name>` (e.g. `my-agent-trading`). This becomes your `OWS_WALLET` env var.
 
-```bash
-pip install 'simmer-sdk[ows]'
-```
+3. **Set env vars in your agent runtime**
+   Use `read -s` to avoid clipboard contamination (per SIM-2118):
+   ```bash
+   read -s -p 'SIMMER_API_KEY: ' KEY && export SIMMER_API_KEY=$KEY
+   export OWS_WALLET=<name>
+   ```
 
-### Step 3 — Set environment variables
+4. **Cache CLOB credentials (one-time)**
+   ```bash
+   python -c "from simmer_sdk import SimmerClient; \
+     c = SimmerClient.from_env(venue='polymarket'); \
+     c.update_agent_wallet_creds(ows_wallet_name='<name>')"
+   ```
+   This signs an EIP-712 message via OWS, derives CLOB creds, persists server-side. Required before any Polymarket trades.
 
-```bash
-export SIMMER_API_KEY="sk_live_..."   # from the dashboard API Keys tab
-export OWS_WALLET="my-agent-wallet"  # the OWS wallet name you registered
-```
+5. **Verify**
+   ```bash
+   python -c "from simmer_sdk import SimmerClient; \
+     c = SimmerClient.from_env(); \
+     print(c.get_briefing())"
+   ```
 
-Verify the key format (catches clipboard contamination):
-```bash
-[[ "$SIMMER_API_KEY" == sk_live_* ]] || echo "WARNING: key should start with sk_live_"
-```
-
-### Step 4 — Import your EOA key into OWS (one-time)
-
-If the wallet was registered from the dashboard, you need the matching private key in your local OWS vault:
-
-**Option A — you have the raw private key:**
-```bash
-ows wallet import --name "my-agent-wallet" --private-key "$WALLET_PRIVATE_KEY"
-```
-
-**Option B — you have the mnemonic (seed phrase):**
-```bash
-ows wallet import --name "my-agent-wallet" --mnemonic
-# OWS prompts for the mnemonic securely (no paste to shell history)
-```
-
-Verify the import produced the correct address:
-```bash
-ows wallet show my-agent-wallet
-# Check that the EVM address matches what you see in the dashboard wallet panel
-```
-
-### Step 5 — Cache CLOB credentials
-
-One-time step that caches your Polymarket CLOB credentials (derived from the wallet) on the Simmer backend:
-
-```python
-from simmer_sdk import SimmerClient
-client = SimmerClient.from_env()  # reads SIMMER_API_KEY + OWS_WALLET from env
-
-# Cache CLOB creds — one-time per wallet. Required for Polymarket trading.
-client.update_agent_wallet_creds(ows_wallet_name="my-agent-wallet")
-```
-
-### Step 6 — Verify connectivity
-
-```python
-from simmer_sdk import SimmerClient
-client = SimmerClient.from_env()
-
-briefing = client.get_briefing()
-print(briefing)
-# Should show your portfolio + venue balances — if balance is $0 check funding
-```
-
-Your existing agent runtime is now wired. From here, use the same `client.trade()` API documented above.
+### Anti-patterns
+- Don't paste your private key from clipboard into a pipe — use `read -s` (per SIM-2118).
+- Don't use `client.activate_polymarket_dw()` — that's user-primary only. Use `update_agent_wallet_creds(ows_wallet_name)` for per-agent.
 
 ## Risk monitor
 
