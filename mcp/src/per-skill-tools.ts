@@ -10,6 +10,7 @@ import { filterBlockedFlags } from "./blocked-flags.js";
 import { buildEnv, envToArgName } from "./env-translation.js";
 import { parseSkillOutput } from "./output-parsing.js";
 import { runSkillProcess } from "./skill-runner.js";
+import { resolvePythonBin } from "./runtime-probe.js";
 
 function tunableToZod(t: Tunable): ZodType<unknown> {
   if (t.type === "number") {
@@ -110,7 +111,7 @@ export async function invokeSkillTool(
   const timeoutMs = Math.min(Math.max(timeoutS * 1000, 1000), MAX_TIMEOUT_MS);
 
   const result = await runSkillProcess({
-    file: "python3",
+    file: await resolvePythonBin(options.processEnv),
     args: argv,
     env,
     timeoutMs,
