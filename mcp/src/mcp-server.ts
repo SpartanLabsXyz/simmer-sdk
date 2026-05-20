@@ -664,7 +664,7 @@ async function main() {
   // Runtime probe (startup diagnostic)
   const probe = await probeRuntime();
   const probeLines = [
-    `python3: ${probe.python3.detected ? `v${probe.python3.version}` : `not found (${probe.python3.installHint})`}`,
+    `python3: ${probe.python3.detected ? `v${probe.python3.version} (${probe.python3.path})` : `not found at ${probe.python3.path} (${probe.python3.installHint})`}`,
     `simmer-sdk: ${probe.simmerSdk.detected ? `v${probe.simmerSdk.version}` : `not installed (${probe.simmerSdk.installHint})`}`,
     `git: ${probe.git.detected ? `v${probe.git.version}` : `not found`}`,
   ].join(" | ");
