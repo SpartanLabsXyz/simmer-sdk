@@ -62,9 +62,48 @@ None as of v3.1.0. The previous `simmer://docs/api-reference` and `simmer://docs
 |---|---|---|
 | `SIMMER_API_KEY` | For Pro tools | API key from simmer.markets/dashboard |
 | `SIMMER_API_URL` | No | Override API base URL (default: `https://api.simmer.markets`) |
+| `SIMMER_MCP_PYTHON` | No | Absolute path to the Python binary to use for skill execution (see [Pinning a Python interpreter](#pinning-a-python-interpreter)) |
 | `AUTORESEARCH_MAX_EXPERIMENTS` | No | Cap experiments per session (default: 50) |
 | `SIMMER_MCP_ALLOW_LIVE` | No | Set `true` to allow live trading via per-skill tools |
 | `SIMMER_MCP_ALLOW_EXTRA_ARGS` | No | Set `true` to pass `extra_args` through to skill CLI |
+
+## Pinning a Python interpreter
+
+By default, `simmer-mcp` resolves the Python binary in this order:
+
+1. `SIMMER_MCP_PYTHON` env var (if set, used verbatim — no PATH lookup)
+2. `python` on your PATH
+3. `python3` on your PATH
+4. Literal `python3` as a last resort
+
+**Set `SIMMER_MCP_PYTHON` when:**
+
+- You run skills inside a dedicated venv (e.g. the Hermes venv or a custom environment):
+  ```
+  SIMMER_MCP_PYTHON=/path/to/venv/bin/python
+  ```
+- Your system `python` is Python 2 (RHEL 7, Ubuntu 18.04, and other legacy Linux distros ship `python` → Python 2.x). In that case the fallback to `python` silently picks up Py2, `simmer-sdk` import fails, and skills report `simmer-sdk: not installed`. Pinning to `python3` or your venv's interpreter avoids this.
+
+> **Legacy Linux warning:** On systems where `python` resolves to Python 2, all per-skill tools will fail with a silent import error unless `SIMMER_MCP_PYTHON` is set to a Python 3.9+ binary.
+
+### Example: Claude Desktop config with a pinned interpreter
+
+```json
+{
+  "mcpServers": {
+    "simmer": {
+      "command": "npx",
+      "args": ["-y", "simmer-mcp"],
+      "env": {
+        "SIMMER_API_KEY": "sk_live_...",
+        "SIMMER_MCP_PYTHON": "/home/user/.venvs/simmer/bin/python"
+      }
+    }
+  }
+}
+```
+
+Replace the path with the output of `which python3` (or your venv's `bin/python`) on your system.
 
 ## Bundled skills (19)
 
