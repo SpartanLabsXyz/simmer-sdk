@@ -11,6 +11,8 @@ metadata:
 
 Your signals, Simmer's trading intelligence.
 
+> 🚨 **Framework, not a production trading system.** Read [DISCLAIMER.md](./DISCLAIMER.md) before connecting to a wallet with real funds.
+
 > **This is a template.** The default signal source is RSS feeds — remix it with any data source (APIs, webhooks, social media, custom scrapers). The skill handles all the plumbing (market matching, safeguards, trade execution). Your agent provides the alpha.
 
 ## When to Use This Skill

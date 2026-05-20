@@ -11,6 +11,8 @@ metadata:
 
 Find markets where Simmer's AI consensus diverges from the real market price, then trade the edge.
 
+> 🚨 **Framework, not a production trading system.** Read [DISCLAIMER.md](./DISCLAIMER.md) before connecting to a wallet with real funds.
+
 > **This is a template.** The default logic trades when AI divergence exceeds 2% on zero-fee markets, using Kelly sizing capped at 25%. Remix it with different edge thresholds, sizing strategies, or additional filters (e.g., only trade markets resolving within 7 days). The skill handles plumbing (divergence scanning, fee checks, safeguards, execution). Your agent provides the alpha.
 
 ## What It Does

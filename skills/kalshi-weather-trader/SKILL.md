@@ -20,6 +20,8 @@ metadata:
 
 Trade temperature markets on Kalshi using NOAA forecast data, via DFlow on Solana.
 
+> 🚨 **Framework, not a production trading system.** Read [DISCLAIMER.md](./DISCLAIMER.md) before connecting to a wallet with real funds.
+
 > **This is a template.** The default signal is NOAA temperature forecasts — remix it with other weather APIs, different forecast models, or additional market types (precipitation, wind, etc.). The skill handles all the plumbing (market discovery, NOAA parsing, trade execution, safeguards). Your agent provides the alpha.
 
 > **Powered by DFlow.** Kalshi trades execute via DFlow's Solana-based prediction market infrastructure. KYC verification through Proof is required for buys.

@@ -12,6 +12,8 @@ metadata:
 
 Trade "Elon Musk # tweets" markets on Polymarket using XTracker post count data.
 
+> 🚨 **Framework, not a production trading system.** Read [DISCLAIMER.md](./DISCLAIMER.md) before connecting to a wallet with real funds.
+
 ## When to Use This Skill
 
 Use this skill when the user wants to:
