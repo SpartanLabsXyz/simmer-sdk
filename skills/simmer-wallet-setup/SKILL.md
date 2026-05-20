@@ -177,6 +177,7 @@ The auto risk monitor (stop-loss, take-profit) is configured at simmer.markets/d
 - **"External wallet requires a pre-signed order"** → key not configured. For OWS: `ows wallet list` to verify the wallet exists. For external: confirm `WALLET_PRIVATE_KEY` is set.
 - **"insufficient allowance"** → run `client.set_approvals()` once per wallet.
 - **Balance shows $0 but funds visible elsewhere** → check chain (Polygon vs Solana) and token (pUSD vs USDC.e). See dashboard migration tool for V2 conversion.
+- **API key format wrong / 401 with a key that "looks set"** → inspect the raw value: `printenv SIMMER_API_KEY | cut -c1-20`. Must start with `sk_live_`. A common silent failure: install commands that use `pbpaste` or similar clipboard-read primitives write the *install command text itself* as the key value when the user copies the command after copying the key. Fix: get a fresh key from simmer.markets/dashboard, then `export SIMMER_API_KEY="sk_live_..."` (type/paste the key directly, never pipe from clipboard into the variable assignment).
 
 ## Links
 
