@@ -1,6 +1,6 @@
 {
   "name": "simmer-mcp",
-  "version": "3.0.0",
+  "version": "3.0.1",
   "description": "MCP server for Simmer — skill discovery, execution, autoresearch, and AI market tools",
   "type": "module",
   "bin": {
@@ -14,7 +14,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && chmod +x dist/mcp-server.js",
     "dev": "tsc --watch",
     "pretest": "npm run bundle-skills",
     "test": "npm run build && node --test 'tests/*.test.ts'",
