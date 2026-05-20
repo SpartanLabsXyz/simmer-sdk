@@ -16,6 +16,20 @@
 
 set -euo pipefail
 
+# Resolve clawhub CLI — prefer PATH install, fall back to npx.
+if command -v clawhub &>/dev/null; then
+  CLAWHUB_CMD="clawhub"
+else
+  CLAWHUB_CMD="npx --yes clawhub@latest"
+fi
+
+# Load CLAWHUB_TOKEN from .openclaw/.env if not already in environment.
+OPENCLAW_ENV="$HOME/.openclaw/.env"
+if [ -z "${CLAWHUB_TOKEN:-}" ] && [ -f "$OPENCLAW_ENV" ]; then
+  export CLAWHUB_TOKEN
+  CLAWHUB_TOKEN=$(grep -E "^CLAWHUB_TOKEN=" "$OPENCLAW_ENV" | head -1 | cut -d= -f2-)
+fi
+
 if [ $# -lt 1 ]; then
   echo "Usage: $0 <skill-folder>"
   echo "Example: $0 skills/fastloop"
@@ -106,7 +120,7 @@ echo "   Source: $SKILL_DIR"
 
 # Check if version already exists
 echo "   Checking ClawHub for existing version..."
-if clawhub inspect "$NAME" 2>&1 | grep -q "Latest: $VERSION"; then
+if $CLAWHUB_CMD inspect "$NAME" 2>&1 | grep -q "Latest: $VERSION"; then
   echo "❌ Version $VERSION already exists on ClawHub"
   echo "   Bump the version in $SKILL_MD and try again"
   exit 1
@@ -136,7 +150,7 @@ echo "   Files: $FILE_COUNT"
 
 # Publish
 echo "   Publishing..."
-OUTPUT=$(clawhub publish "$TMP_DIR" --version "$VERSION" 2>&1)
+OUTPUT=$($CLAWHUB_CMD publish "$TMP_DIR" --version "$VERSION" 2>&1)
 EXIT_CODE=$?
 
 if [ $EXIT_CODE -eq 0 ]; then
