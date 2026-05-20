@@ -4339,6 +4339,10 @@ class SimmerClient:
         locally with WALLET_PRIVATE_KEY (key never leaves the process),
         then submits via /dw-approvals/submit. No browser required.
 
+        NOTE: This method handles user-primary wallets only and will 401 on a
+        per-agent SDK API key. For per-agent wallets (Elite tier dedicated
+        wallets), use ``update_agent_wallet_creds(ows_wallet_name)`` instead.
+
         Requires:
         - WALLET_PRIVATE_KEY env var (or private_key constructor arg)
         - Account upgraded to a Deposit Wallet (wallet_uses_deposit_wallet=True)

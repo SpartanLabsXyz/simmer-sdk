@@ -172,7 +172,10 @@ print(f"Balance: ${summary['balance']:.2f}, P&L: ${summary['total_pnl']:.2f}")
 | `get_settings()` / `update_settings()` | Configure trade limits and notifications |
 | `link_wallet()` | Link external EVM wallet for Polymarket |
 | `set_approvals()` | Set Polymarket token approvals |
+| `activate_polymarket_dw()` | Activate Polymarket Deposit Wallet signing (user-primary only — see note) |
 | `troubleshoot()` | Look up any error and get a fix (no auth required) |
+
+> **Per-agent wallets (Elite tier):** `activate_polymarket_dw()` is user-primary only. For per-agent wallets (Elite tier dedicated wallets), use `update_agent_wallet_creds(ows_wallet_name)` instead. The per-agent path requires OWS-Python (`pip install simmer-sdk[ows] open-wallet-standard`).
 
 **Error handling:** All SDK 4xx responses include a `fix` field with actionable instructions when the error matches a known pattern. You can also call `POST /api/sdk/troubleshoot` with `{"error_text": "..."}` to look up any error.
 
