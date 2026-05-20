@@ -84,7 +84,7 @@ By default, `simmer-mcp` resolves the Python binary in this order:
   ```
 - Your system `python` is Python 2 (RHEL 7, Ubuntu 18.04, and other legacy Linux distros ship `python` → Python 2.x). In that case the fallback to `python` silently picks up Py2, `simmer-sdk` import fails, and skills report `simmer-sdk: not installed`. Pinning to `python3` or your venv's interpreter avoids this.
 
-> **Legacy Linux warning:** On systems where `python` resolves to Python 2, all per-skill tools will fail with a silent import error unless `SIMMER_MCP_PYTHON` is set to a Python 3.9+ binary.
+> **Legacy Linux warning:** On systems where `python` resolves to Python 2, all per-skill tools will fail with a silent import error unless `SIMMER_MCP_PYTHON` is set to a Python 3.8+ binary (the simmer-sdk minimum, per `pyproject.toml`).
 
 ### Example: Claude Desktop config with a pinned interpreter
 
