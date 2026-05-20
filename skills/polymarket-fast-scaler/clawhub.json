@@ -1,7 +1,6 @@
 {
   "emoji": "⚡",
-  "status": "scaffold",
-  "published": false,
+  "published": true,
   "primaryEnv": "SIMMER_API_KEY",
   "requires": {
     "env": [
