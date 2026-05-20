@@ -3,6 +3,24 @@
 All notable changes to `simmer-sdk` are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## simmer-mcp v3.1.0 — 2026-05-20
+
+### Removed
+
+- **MCP resources `simmer://docs/api-reference` and `simmer://docs/skill-reference` are gone.** These shipped 250 KB of static markdown snapshots that drifted from the canonical source on every doc update. The MCP server is now leaner (package size cut ~70%) and there's no refresh policy to forget. Agents that need the full Simmer API reference should fetch `https://docs.simmer.markets/llms-full.txt` directly — it's always current. The `list_skills`, `get_skill_docs`, `troubleshoot_error` tools are unchanged.
+
+## simmer-mcp v3.0.2 — 2026-05-20 (SIM-2104)
+
+### Fixed
+
+- **`BUNDLED_VERSION` literal drifted from `package.json`.** The 3.0.0 → 3.0.1 hotfix bumped `package.json` but not the hardcoded version in `mcp-server.ts`, so 3.0.1 installs reported themselves as 3.0.0 over the MCP handshake AND printed a spurious "Update available: 3.0.0 → 3.0.1" warning at every boot. Extracted version to `src/version.ts` reading `package.json` at module load. Single source of truth. Added regression tests asserting consistency.
+
+## simmer-mcp v3.0.1 — 2026-05-20 (SIM-2099)
+
+### Fixed
+
+- **`dist/mcp-server.js` shipped without the executable bit.** The Phase 4 rename inadvertently dropped the +x permission on the bin file. `npm install -g simmer-mcp` would create the symlink but PATH-based exec rejected it. Build script now runs `chmod +x dist/mcp-server.js` after `tsc`.
+
 ## simmer-mcp v3.0.0 — 2026-05-19 (SIM-2072)
 
 ### Breaking
