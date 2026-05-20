@@ -1,6 +1,5 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { fileURLToPath } from "node:url";
 import type { Skill } from "./core/types.js";
 
 export interface SkillListEntry {
@@ -53,65 +52,4 @@ export function getSkillDocs(skills: Skill[], slug: string): ToolResponse {
   }
   const body = fs.readFileSync(skillMd, "utf-8");
   return { content: [{ type: "text", text: body }], isError: false };
-}
-
-export interface DocResource {
-  uri: string;
-  name: string;
-  description: string;
-  mimeType: "text/markdown";
-}
-
-export interface DocOptions {
-  snapshotsDir?: string;
-}
-
-const RESOURCE_FILES: Record<string, string> = {
-  "simmer://docs/api-reference": "docs.md",
-  "simmer://docs/skill-reference": "skill.md",
-};
-
-const RESOURCE_NAMES: Record<string, string> = {
-  "simmer://docs/api-reference": "Simmer API Reference",
-  "simmer://docs/skill-reference": "Simmer Agent Reference",
-};
-
-const RESOURCE_DESCRIPTIONS: Record<string, string> = {
-  "simmer://docs/api-reference": "Full Simmer API reference (~2400 lines)",
-  "simmer://docs/skill-reference": "Condensed agent-facing reference (~600 lines)",
-};
-
-export function listDocResources(opts: DocOptions = {}): DocResource[] {
-  void opts;
-  return Object.keys(RESOURCE_FILES).map((uri) => ({
-    uri,
-    name: RESOURCE_NAMES[uri],
-    description: RESOURCE_DESCRIPTIONS[uri],
-    mimeType: "text/markdown" as const,
-  }));
-}
-
-export interface DocReadResult {
-  contents: Array<{ uri: string; mimeType: "text/markdown"; text: string }>;
-  isError: boolean;
-}
-
-export async function readDocResource(uri: string, opts: DocOptions = {}): Promise<DocReadResult> {
-  const file = RESOURCE_FILES[uri];
-  if (!file) {
-    return { contents: [], isError: true };
-  }
-  const snapshotsDir = opts.snapshotsDir ?? path.join(
-    path.dirname(fileURLToPath(import.meta.url)),
-    "..",
-    "bundled-snapshots"
-  );
-  const filePath = path.join(snapshotsDir, file);
-  if (!fs.existsSync(filePath)) {
-    return { contents: [], isError: true };
-  }
-  return {
-    contents: [{ uri, mimeType: "text/markdown", text: fs.readFileSync(filePath, "utf-8") }],
-    isError: false,
-  };
 }

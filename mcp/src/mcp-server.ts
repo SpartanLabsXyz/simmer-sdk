@@ -109,7 +109,7 @@ import { SimmerApi } from "./api.js";
 import { BackendError } from "./errors.js";
 import { discoverSkills } from "./skill-discovery.js";
 import { buildToolSchema, buildToolDescription, invokeSkillTool } from "./per-skill-tools.js";
-import { listSkills, getSkillDocs, listDocResources, readDocResource } from "./docs-tools.js";
+import { listSkills, getSkillDocs } from "./docs-tools.js";
 import { troubleshootError } from "./troubleshoot.js";
 import { probeRuntime } from "./runtime-probe.js";
 import { BUNDLED_VERSION } from "./version.js";
@@ -251,25 +251,6 @@ server.tool(
     return { content: [{ type: "text" as const, text: parts.join("\n\n") }] };
   },
 );
-
-// ===========================================================================
-// MCP RESOURCES — doc snapshots (always available)
-// ===========================================================================
-
-for (const docResource of listDocResources()) {
-  server.resource(
-    docResource.name,
-    docResource.uri,
-    { description: docResource.description, mimeType: docResource.mimeType },
-    async (uri) => {
-      const r = await readDocResource(uri.href);
-      if (r.isError) {
-        return { contents: [{ uri: uri.href, mimeType: "text/markdown" as const, text: `⚠️ Resource unavailable: ${uri.href}` }] };
-      }
-      return { contents: r.contents };
-    },
-  );
-}
 
 // ===========================================================================
 // PRO TOOLS — requires SIMMER_API_KEY

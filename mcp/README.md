@@ -52,12 +52,9 @@ Get your API key from [simmer.markets/dashboard](https://simmer.markets/dashboar
 | `backtest_experiment` | Replay historical trades against new config (server-side) |
 | `simmer_<slug>` × 19 | Execute a specific trading skill in paper or live mode |
 
-### MCP Resources (always available)
+### MCP Resources
 
-| URI | Description |
-|---|---|
-| `simmer://docs/api-reference` | Full Simmer API reference |
-| `simmer://docs/skill-reference` | Agent-facing skill reference |
+None as of v3.1.0. The previous `simmer://docs/api-reference` and `simmer://docs/skill-reference` resources shipped static markdown snapshots that drifted from the canonical source. Fetch [`docs.simmer.markets/llms-full.txt`](https://docs.simmer.markets/llms-full.txt) directly for the full Simmer API reference — it's always current.
 
 ## Environment variables
 

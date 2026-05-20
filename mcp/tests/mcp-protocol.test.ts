@@ -105,13 +105,14 @@ test("tools/list with SIMMER_API_KEY returns 19+ tools (free + autoresearch + pe
 
 // --- resources/list ---
 
-test("resources/list returns at least 2 doc resources", async () => {
+test("server does not register a resources capability (removed in v3.1.0)", async () => {
+  // v3.1.0 removed the static simmer://docs/* resources — they shipped frozen
+  // markdown snapshots that drifted from docs.simmer.markets. The MCP SDK only
+  // registers the resources capability when at least one resource is added, so
+  // resources/list correctly returns -32601 method-not-found.
+  // Agents should fetch docs.simmer.markets/llms-full.txt directly for the API
+  // reference; per-skill docs are still available via the get_skill_docs tool.
   const resp = await mcpCall("resources/list", {}, { SIMMER_API_KEY: "" });
-  assert.ok(!resp.error, `Expected no error, got: ${JSON.stringify(resp.error)}`);
-  const resources = (resp.result?.resources ?? []) as Array<{ uri: string; mimeType: string }>;
-  assert.ok(resources.length >= 2, `Expected >= 2 resources, got ${resources.length}`);
-  for (const r of resources) {
-    assert.ok(r.uri.startsWith("simmer://"), `unexpected URI: ${r.uri}`);
-    assert.equal(r.mimeType, "text/markdown");
-  }
+  assert.ok(resp.error, "Expected resources/list to error since no resources are registered");
+  assert.equal(resp.error?.code, -32601, "Expected -32601 method-not-found");
 });
