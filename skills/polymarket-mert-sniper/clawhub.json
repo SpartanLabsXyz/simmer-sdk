@@ -82,6 +82,28 @@
       ],
       "step": 0.01,
       "label": "Position sizing percentage"
+    },
+    {
+      "env": "SIMMER_MERT_FEE_BUFFER",
+      "type": "number",
+      "default": 0.02,
+      "range": [
+        0.0,
+        0.10
+      ],
+      "step": 0.005,
+      "label": "Fee buffer (extra alpha required above entry fee)"
+    },
+    {
+      "env": "SIMMER_MERT_MIN_EDGE",
+      "type": "number",
+      "default": 0.0,
+      "range": [
+        0.0,
+        0.20
+      ],
+      "step": 0.01,
+      "label": "Declared edge above market price (0 = fee-logging only, no gate)"
     }
   ]
 }

@@ -34,6 +34,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## Skills — 2026-05-19
 
+### Added
+
+- **Fee-aware EV gate — polymarket-mert-sniper v1.3.0 (SIM-2039).** mert-sniper now logs the Polymarket Crypto-category entry fee (`POLY_FEE_RATE_CRYPTO × p × (1-p)`, entry-only — binary redemption at expiry is free) for every candidate market and supports an opt-in `SIMMER_MERT_MIN_EDGE` gate that blocks trades whose declared edge does not clear `fee_per_share + SIMMER_MERT_FEE_BUFFER`. The gate is advisory at default `MIN_EDGE=0` (fee logged, no behavior change), matching the skill's "bring your own alpha" framing; users computing their own EV set `MIN_EDGE` to their signal's claimed alpha to activate blocking. Fee math uses the hardcoded `POLY_FEE_RATE_CRYPTO = 0.07` constant — CLOB `/fee-rate` lookup failures degrade to a log annotation rather than fail-open.
+
 ### Fixed
 
 - **Skip sell loop on resolved markets — polymarket-weather-trader v1.21.1, kalshi-weather-trader v1.0.7, polymarket-elon-tweets v1.3.3 (SIM-2046).** All three skills could retry sells indefinitely on resolved markets while waiting for `auto_redeem()` to claim the winning shares. Root cause: the exit loop didn't check `position.status` before attempting a sell; Polymarket/Kalshi reject sells on resolved markets with "Insufficient shares to sell", and the skill retried every cycle. Fix: added `status == "resolved"` guard immediately after the minimum-shares check. `auto_redeem()` at the top of each cycle handles the actual payout. Also changed silent `except: pass` on `auto_redeem()` to log the exception at `force=True` so future failures surface in skill logs.
