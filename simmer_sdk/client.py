@@ -4333,7 +4333,13 @@ class SimmerClient:
         return {"set": set_count, "skipped": skipped, "failed": failed, "details": details}
 
     def activate_polymarket_dw(self) -> Dict[str, Any]:
-        """Activate Polymarket Deposit Wallet trading headlessly.
+        """Activate Polymarket Deposit Wallet trading headlessly (user-primary only).
+
+        **Per-agent wallets:** use ``update_agent_wallet_creds(ows_wallet_name)``
+        instead. This method calls user-primary endpoints
+        (``/api/user/wallet/external/dw-approvals/...``) and will return 401
+        when called with a per-agent SDK key. Per-agent wallets require
+        OWS-Python — see ``clawhub install simmer-wallet-setup``.
 
         Calls /dw-approvals/prepare to get the EIP-712 batch, signs it
         locally with WALLET_PRIVATE_KEY (key never leaves the process),
@@ -4625,14 +4631,20 @@ class SimmerClient:
         return resp
 
     def update_agent_wallet_creds(self, ows_wallet_name: str) -> dict:
-        """Derive CLOB credentials via OWS and cache them server-side.
+        """Derive CLOB credentials via OWS and cache them server-side (per-agent).
 
-        Call this after setting on-chain approvals for an agent wallet.
+        **This is the correct method for per-agent wallets.** For user-primary
+        wallets use ``activate_polymarket_dw()`` instead.
+
+        Call this after setting on-chain approvals for an agent wallet (e.g.
+        after completing the dashboard wizard for a per-agent OWS wallet).
         Derives Polymarket CLOB API credentials using OWS signing (no private
-        key needed) and uploads them encrypted to the server.
+        key needed — OWS-Python required) and uploads them encrypted to the
+        server. Requires ``pip install "simmer-sdk[ows]"`` and OWS-Python
+        installed locally (``npx clawhub@latest install simmer-wallet-setup``).
 
         Args:
-            ows_wallet_name: Name of the OWS wallet
+            ows_wallet_name: Name of the OWS wallet (e.g. "my-agent-a1b2c3d4")
 
         Returns:
             dict with updated wallet record
