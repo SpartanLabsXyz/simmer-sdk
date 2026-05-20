@@ -127,6 +127,8 @@ const simmer = apiKey ? new SimmerApi(apiKey, apiUrl, BUNDLED_VERSION) : null;
 
 if (!apiKey) {
   console.error("[simmer-mcp] No SIMMER_API_KEY set — only free tools available (list_skills, get_skill_docs, troubleshoot_error).");
+} else if (!apiKey.startsWith("sk_live_")) {
+  console.error("[simmer-mcp] WARNING: SIMMER_API_KEY does not start with sk_live_ — key may be corrupted. Common cause: clipboard contamination during install (pbpaste reading the install command instead of the key). Inspect via: printenv SIMMER_API_KEY | cut -c1-20");
 }
 
 // ---------------------------------------------------------------------------
