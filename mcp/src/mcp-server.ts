@@ -112,12 +112,7 @@ import { buildToolSchema, buildToolDescription, invokeSkillTool } from "./per-sk
 import { listSkills, getSkillDocs, listDocResources, readDocResource } from "./docs-tools.js";
 import { troubleshootError } from "./troubleshoot.js";
 import { probeRuntime } from "./runtime-probe.js";
-
-// ---------------------------------------------------------------------------
-// Bundled version
-// ---------------------------------------------------------------------------
-
-const BUNDLED_VERSION = "3.0.0";
+import { BUNDLED_VERSION } from "./version.js";
 
 // ---------------------------------------------------------------------------
 // Config from environment
