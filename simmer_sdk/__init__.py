@@ -59,6 +59,7 @@ from .client import (
     TradeResult,
     RealTradeResult,
     PolymarketOrderParams,
+    PreflightResult,
 )
 from .paper import PaperPortfolio
 from .approvals import (
@@ -89,6 +90,7 @@ __all__ = [
     "TradeResult",
     "RealTradeResult",
     "PolymarketOrderParams",
+    "PreflightResult",
     "PaperPortfolio",
     # Polymarket approvals
     "get_required_approvals",
