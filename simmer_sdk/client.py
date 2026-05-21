@@ -113,6 +113,43 @@ class TradeResult:
 
 
 @dataclass
+class PreflightResult:
+    """Structured result of a pre-trade readiness check.
+
+    Log ``client_preflight_id`` in your trade ledger before order submission.
+    Check ``ok_to_trade`` first; if False, ``blockers`` contains codes that
+    explain why trading is unsafe.
+
+    Blocker codes (v0):
+        EXPOSURE_CAP_EXCEEDED  — open_exposure_total + planned_amount > exposure_cap_usd
+        EXPOSURE_UNKNOWN       — real venue + active cap but positions fetch failed (fail-closed)
+        WALLET_UNVERIFIED      — real venue requested but agent not real-trading-enabled
+        VENUE_UNSUPPORTED      — venue string not recognised by the SDK
+        INSUFFICIENT_GAS       — gas signal detected in risk_alerts (v0 proxy; no on-chain query)
+
+    ``gas_balance`` is None in v0 — on-chain RPC query is deferred to v1.
+    ``warnings`` are non-blocking advisories (fetch failures, skipped checks).
+    """
+    client_preflight_id: str
+    agent_id: Optional[str]
+    tier: Optional[str]
+    resolved_venue: str
+    execution_wallet: Optional[str]
+    deposit_wallet: Optional[str]
+    signer_status: str  # "ows" | "external_key" | "managed" | "unknown"
+    spendable_balance: Optional[float]
+    gas_balance: Optional[float]
+    open_exposure_total: float
+    exposure_cap_usd: float
+    planned_amount: float
+    would_exceed_cap: bool
+    pending_alerts: List[dict]
+    ok_to_trade: bool
+    blockers: List[str]
+    warnings: List[str]
+
+
+@dataclass
 class PolymarketOrderParams:
     """Order parameters for Polymarket CLOB execution."""
     token_id: str
@@ -753,6 +790,218 @@ class SimmerClient:
                 print(f"[SimmerSDK] Update available: {upd['slug']} {upd['current']} -> {upd['latest']} — run: clawhub install {upd['slug']}")
 
         return response
+
+    def preflight(
+        self,
+        venue: Optional[str] = None,
+        planned_amount: float = 0.0,
+        exposure_cap_usd: float = 100.0,
+    ) -> "PreflightResult":
+        """Run a pre-trade readiness check without signing or mutating state.
+
+        Composes identity, wallet, balance, and exposure data from three
+        read-only SDK endpoints. Safe to call before every real-money trade.
+
+        Args:
+            venue: Trading venue to check ("sim", "polymarket", "kalshi").
+                   Defaults to this client's configured venue.
+            planned_amount: Planned trade size in USD (USDC for real venues,
+                           $SIM for sim). Used with exposure_cap_usd to check
+                           whether this trade would exceed your cap.
+                           Pass 0.0 to skip cap math.
+            exposure_cap_usd: Your maximum allowed total open exposure in USD
+                             across real venues (polymarket + kalshi). The cap
+                             is applied to the sum of current_value across all
+                             non-sim positions plus planned_amount. Pass 0.0
+                             to disable. Default: 100.0 ($100 USDC).
+
+        Returns:
+            PreflightResult — check ``ok_to_trade`` and ``blockers`` before
+            submitting. Log ``client_preflight_id`` in your trade ledger for
+            audit correlation.
+
+        Example::
+
+            result = client.preflight(
+                venue="polymarket",
+                planned_amount=5,
+                exposure_cap_usd=100,
+            )
+            if not result.ok_to_trade:
+                print(f"Cannot trade: {result.blockers}")
+                return
+            ledger.record(result.client_preflight_id)
+        """
+        import uuid as _uuid
+
+        client_preflight_id = str(_uuid.uuid4())
+
+        # Resolve and normalise venue
+        resolved_venue = venue or self.venue
+        if resolved_venue in ("simmer", "sandbox"):
+            resolved_venue = "sim"
+
+        blockers: List[str] = []
+        warnings_list: List[str] = []
+
+        # ── Signer status from client-side state ──────────────────────────
+        if self._ows_wallet:
+            signer_status = "ows"
+        elif self._private_key:
+            signer_status = "external_key"
+        elif self._solana_key_available and resolved_venue == "kalshi":
+            signer_status = "external_key"
+        else:
+            signer_status = "managed"
+
+        # ── Agent identity from /api/sdk/agents/me ────────────────────────
+        agent_id: Optional[str] = None
+        tier: Optional[str] = None
+        real_trading_enabled = False
+        execution_wallet = self._wallet_address
+        deposit_wallet = self._deposit_wallet_address
+
+        try:
+            me = self._request("GET", "/api/sdk/agents/me")
+            agent_id = me.get("agent_id")
+            _rl = me.get("rate_limits") or {}
+            tier = _rl.get("tier")
+            real_trading_enabled = bool(me.get("real_trading_enabled"))
+
+            # Per-agent OWS wallet takes priority over user-primary wallet.
+            # This prevents the SIM-2130 parent-user identity leak: for a
+            # per-agent API key, agents/me returns per_agent_wallet_address
+            # (the OWS EOA) rather than the parent user's wallet_address.
+            _per_agent_wallet = me.get("per_agent_wallet_address")
+            if _per_agent_wallet:
+                execution_wallet = _per_agent_wallet
+                deposit_wallet = me.get("per_agent_deposit_wallet_address")
+            else:
+                if not execution_wallet:
+                    execution_wallet = me.get("wallet_address")
+                if not deposit_wallet:
+                    deposit_wallet = me.get("deposit_wallet_address")
+        except Exception as _e:
+            warnings_list.append(f"identity_fetch_failed: {_e}")
+
+        # ── Venue support ─────────────────────────────────────────────────
+        _SUPPORTED_VENUES = ("sim", "polymarket", "kalshi")
+        if resolved_venue not in _SUPPORTED_VENUES:
+            blockers.append("VENUE_UNSUPPORTED")
+        elif resolved_venue in ("polymarket", "kalshi"):
+            if not real_trading_enabled:
+                blockers.append("WALLET_UNVERIFIED")
+            elif resolved_venue == "polymarket" and not execution_wallet:
+                blockers.append("WALLET_UNVERIFIED")
+            elif resolved_venue == "kalshi" and not self._solana_key_available:
+                blockers.append("WALLET_UNVERIFIED")
+
+        # ── Briefing: balances + risk alerts ──────────────────────────────
+        spendable_balance: Optional[float] = None
+        pending_alerts: List[dict] = []
+        _briefing_sim_exposure: float = 0.0
+        _has_briefing_sim_exposure = False
+
+        try:
+            briefing = self._request("GET", "/api/sdk/briefing")
+
+            # Normalise risk alerts to list[dict]
+            for _a in (briefing.get("risk_alerts") or []):
+                if isinstance(_a, str):
+                    pending_alerts.append({"message": _a})
+                elif isinstance(_a, dict):
+                    pending_alerts.append(_a)
+
+            _venues = briefing.get("venues") or {}
+            if resolved_venue == "sim":
+                _sv = _venues.get("sim") or {}
+                spendable_balance = _sv.get("cash_balance") or _sv.get("balance")
+                # Exposure fallback: portfolio_value − cash_balance = open positions
+                _pv = _sv.get("portfolio_value")
+                _cb = _sv.get("cash_balance")
+                if _pv is not None and _cb is not None:
+                    _briefing_sim_exposure = max(0.0, float(_pv) - float(_cb))
+                    _has_briefing_sim_exposure = True
+            elif resolved_venue == "polymarket":
+                _pm = _venues.get("polymarket") or {}
+                spendable_balance = _pm.get("balance")
+            elif resolved_venue == "kalshi":
+                _kal = _venues.get("kalshi") or {}
+                spendable_balance = _kal.get("balance")
+        except Exception as _e:
+            warnings_list.append(f"briefing_fetch_failed: {_e}")
+
+        # ── Positions: precise open exposure ──────────────────────────────
+        open_exposure_total = 0.0
+        _positions_ok = False
+
+        try:
+            _pos_data = self._request("GET", "/api/sdk/positions")
+            _positions = _pos_data.get("positions") or []
+
+            # Sum current_value by real vs sim venue so the cap check operates
+            # on the right currency domain. $SIM (virtual) never counts toward
+            # a USD cap; real positions (polymarket, kalshi) always count.
+            _real_exp = sum(
+                float(p.get("current_value") or 0)
+                for p in _positions
+                if p.get("venue") not in (None, "sim")
+            )
+            _sim_exp = sum(
+                float(p.get("current_value") or 0)
+                for p in _positions
+                if p.get("venue") in (None, "sim")
+            )
+            open_exposure_total = _sim_exp if resolved_venue == "sim" else _real_exp
+            _positions_ok = True
+        except Exception as _e:
+            warnings_list.append(f"positions_fetch_failed: {_e}")
+            # Fallback: briefing portfolio_value for sim venue only.
+            # For real venues with an active cap, unknown exposure is unsafe —
+            # block rather than silently assume zero open positions.
+            if _has_briefing_sim_exposure and resolved_venue == "sim":
+                open_exposure_total = _briefing_sim_exposure
+            elif resolved_venue not in (None, "sim") and exposure_cap_usd > 0:
+                blockers.append("EXPOSURE_UNKNOWN")
+
+        # ── Exposure cap ──────────────────────────────────────────────────
+        would_exceed_cap = False
+        if exposure_cap_usd > 0:
+            if open_exposure_total + planned_amount > exposure_cap_usd:
+                would_exceed_cap = True
+                blockers.append("EXPOSURE_CAP_EXCEEDED")
+
+        # ── Gas balance (v0: deferred — no on-chain RPC in SDK client) ────
+        gas_balance: Optional[float] = None
+        # Proxy: check risk_alerts for gas/POL signals from the server.
+        for _alert in pending_alerts:
+            _msg = (_alert.get("message") or "").lower() if isinstance(_alert, dict) else str(_alert).lower()
+            if "gas" in _msg or ("pol" in _msg and "polymarket" not in _msg):
+                if "INSUFFICIENT_GAS" not in blockers:
+                    blockers.append("INSUFFICIENT_GAS")
+                break
+
+        ok_to_trade = len(blockers) == 0
+
+        return PreflightResult(
+            client_preflight_id=client_preflight_id,
+            agent_id=agent_id,
+            tier=tier,
+            resolved_venue=resolved_venue,
+            execution_wallet=execution_wallet,
+            deposit_wallet=deposit_wallet,
+            signer_status=signer_status,
+            spendable_balance=spendable_balance,
+            gas_balance=gas_balance,
+            open_exposure_total=round(open_exposure_total, 6),
+            exposure_cap_usd=exposure_cap_usd,
+            planned_amount=planned_amount,
+            would_exceed_cap=would_exceed_cap,
+            pending_alerts=pending_alerts,
+            ok_to_trade=ok_to_trade,
+            blockers=blockers,
+            warnings=warnings_list,
+        )
 
     def _get_clob_client(self):
         """Get or create an authenticated ClobClient for local CLOB operations."""
