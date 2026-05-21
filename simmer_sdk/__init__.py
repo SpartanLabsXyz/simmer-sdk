@@ -54,7 +54,12 @@ External Wallet Trading (BYOW):
     - Use environment variables or secure secret management
 """
 
-from .client import SimmerClient
+from .client import (
+    SimmerClient,
+    TradeResult,
+    RealTradeResult,
+    PolymarketOrderParams,
+)
 from .paper import PaperPortfolio
 from .approvals import (
     get_required_approvals,
@@ -81,6 +86,9 @@ except ImportError:
     __version__ = "dev"
 __all__ = [
     "SimmerClient",
+    "TradeResult",
+    "RealTradeResult",
+    "PolymarketOrderParams",
     "PaperPortfolio",
     # Polymarket approvals
     "get_required_approvals",
