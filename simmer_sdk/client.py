@@ -87,10 +87,11 @@ class TradeResult:
     market_id: str = ""
     side: str = ""
     venue: str = "sim"  # "sim", "polymarket", or "kalshi"
-    shares_bought: float = 0  # Actual shares filled (for Polymarket, assumes full fill if matched)
+    shares_bought: float = 0  # Filled shares for a BUY (0 for sells)
+    shares_sold: float = 0  # Filled shares for a SELL (0 for buys). SIM-2238.
     shares_requested: float = 0  # Shares requested (for partial fill detection)
     order_status: Optional[str] = None  # Polymarket order status: "matched", "live", "delayed"
-    cost: float = 0  # Cost in $SIM (simmer) or USDC (polymarket/kalshi)
+    cost: float = 0  # Cost for buys, proceeds for sells (always positive). $SIM (sim) or USDC (real).
     new_price: float = 0
     balance: Optional[float] = None  # Remaining $SIM balance (simmer only, None for real venues)
     error: Optional[str] = None
@@ -99,11 +100,16 @@ class TradeResult:
     fill_status: str = "unknown"  # Server fill status: "filled", "submitted", "unconfirmed", "failed"
 
     @property
+    def shares_filled(self) -> float:
+        """Filled shares regardless of buy/sell direction. SIM-2238."""
+        return self.shares_bought if self.shares_bought else self.shares_sold
+
+    @property
     def fully_filled(self) -> bool:
-        """Check if order was fully filled (shares_bought >= shares_requested)."""
+        """Check if order was fully filled (shares_filled >= shares_requested)."""
         if self.shares_requested <= 0:
             return self.success
-        return self.shares_bought >= self.shares_requested
+        return self.shares_filled >= self.shares_requested
 
 
 @dataclass
@@ -1371,6 +1377,7 @@ class SimmerClient:
                 side=d.get("side", side),
                 venue=effective_venue,
                 shares_bought=d.get("shares_bought", 0),
+                shares_sold=d.get("shares_sold", 0),  # SIM-2238
                 shares_requested=d.get("shares_requested", 0),
                 order_status=d.get("order_status"),
                 cost=d.get("cost", 0),
@@ -1511,13 +1518,16 @@ class SimmerClient:
 
         self._paper_portfolio.log_trade(market_id, side, action, shares_filled, cost, fill_price, venue=venue)
 
+        # SIM-2238: route filled shares to shares_sold for paper sells; otherwise shares_bought
+        is_sell_action = action == "sell"
         return TradeResult(
             success=True,
             trade_id=f"paper_{int(_time.time())}",
             market_id=market_id,
             side=side,
             venue=venue,
-            shares_bought=round(shares_filled, 6),
+            shares_bought=0 if is_sell_action else round(shares_filled, 6),
+            shares_sold=round(shares_filled, 6) if is_sell_action else 0,
             shares_requested=round(shares_filled, 6),
             order_status="simulated",
             cost=round(cost, 4),
@@ -3651,6 +3661,7 @@ class SimmerClient:
             side=data.get("side", side),
             venue="kalshi",
             shares_bought=data.get("shares_bought", 0) if not is_sell else 0,
+            shares_sold=data.get("shares_sold", 0) if is_sell else 0,  # SIM-2238
             shares_requested=data.get("shares_requested", 0),
             order_status=data.get("order_status"),
             cost=data.get("cost", 0),
