@@ -42,6 +42,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 - **Skip sell loop on resolved markets — polymarket-weather-trader v1.21.1, kalshi-weather-trader v1.0.7, polymarket-elon-tweets v1.3.3 (SIM-2046).** All three skills could retry sells indefinitely on resolved markets while waiting for `auto_redeem()` to claim the winning shares. Root cause: the exit loop didn't check `position.status` before attempting a sell; Polymarket/Kalshi reject sells on resolved markets with "Insufficient shares to sell", and the skill retried every cycle. Fix: added `status == "resolved"` guard immediately after the minimum-shares check. `auto_redeem()` at the top of each cycle handles the actual payout. Also changed silent `except: pass` on `auto_redeem()` to log the exception at `force=True` so future failures surface in skill logs.
 
+## [0.17.14] — 2026-05-21
+
+### Added
+
+- **`client.preflight()` pre-trade readiness check (SIM-2237).** A canonical read-only preflight that composes identity / wallet / balance / exposure from existing SDK endpoints and returns a typed `PreflightResult` with `ok_to_trade`, `blockers[]`, `warnings[]`, and `client_preflight_id` for ledger correlation. Blocker codes: `EXPOSURE_CAP_EXCEEDED`, `WALLET_UNVERIFIED`, `VENUE_UNSUPPORTED`, `INSUFFICIENT_GAS`, `EXPOSURE_UNKNOWN` (fail-closed when positions fetch fails on a real-venue capped call). No new server endpoints — pure client-side composition. v0 scope per ticket discussion; v1 may add server-issued `preflight_id` once usage reveals what `ok_to_trade` actually needs to mean.
+- **`PreflightResult` exported from top-level `simmer_sdk`** (alongside `TradeResult` family from v0.17.13).
+- **Standalone `skills/preflight/` skill** for ClawHub — wraps `client.preflight()` with a CLI (supports `--json` + `AUTOMATON_MANAGED=1` for non-interactive ledger callers). 34 unit tests covering all blocker paths + SIM-2130 per-agent identity regression.
+
 ## [0.17.13] — 2026-05-21
 
 ### Fixed
