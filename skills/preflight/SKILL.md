@@ -74,7 +74,7 @@ ledger.record({
 | `resolved_venue` | str | Normalised venue: "sim" / "polymarket" / "kalshi" |
 | `execution_wallet` | str \| None | EOA that signs trades (per-agent OWS wallet for Elite per-agent callers) |
 | `deposit_wallet` | str \| None | Deposit wallet address (DW cohort only; None for Cohort A) |
-| `signer_status` | str | "ows" / "external_key" / "managed" / "unknown" |
+| `signer_status` | str | "ows" / "external_key" / "managed" |
 | `spendable_balance` | float \| None | Venue balance: pUSD/USDC (real) or $SIM (sim) |
 | `gas_balance` | float \| None | POL / SOL for gas — None in v0 (deferred to v1) |
 | `open_exposure_total` | float | Sum of `current_value` across open positions (real venues only when cap is USD) |
@@ -94,6 +94,7 @@ ledger.record({
 | `WALLET_UNVERIFIED` | Real venue requested but `real_trading_enabled` is False, or no wallet configured | Claim agent + link wallet in dashboard |
 | `VENUE_UNSUPPORTED` | Venue string not recognised | Use "sim", "polymarket", or "kalshi" |
 | `INSUFFICIENT_GAS` | Gas signal detected in risk_alerts (proxy only in v0) | Fund wallet with POL / SOL |
+| `EXPOSURE_UNKNOWN` | Real venue + active cap, but positions fetch failed — fail-closed | Check connectivity or set `exposure_cap_usd=0` to disable cap temporarily |
 
 Blockers are additive — all blocking conditions are reported, not just the first.
 

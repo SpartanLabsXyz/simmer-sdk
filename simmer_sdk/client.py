@@ -136,7 +136,7 @@ class PreflightResult:
     resolved_venue: str
     execution_wallet: Optional[str]
     deposit_wallet: Optional[str]
-    signer_status: str  # "ows" | "external_key" | "managed" | "unknown"
+    signer_status: str  # "ows" | "external_key" | "managed"
     spendable_balance: Optional[float]
     gas_balance: Optional[float]
     open_exposure_total: float
