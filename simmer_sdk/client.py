@@ -896,6 +896,36 @@ class SimmerClient:
             elif resolved_venue == "kalshi" and not self._solana_key_available:
                 blockers.append("WALLET_UNVERIFIED")
 
+        # ── OWS + deposit-wallet incompatibility (Polymarket V2) ─────────
+        # The OWS signing path uses sig-type-0 (EOA) only; Polymarket V2
+        # CLOB requires sig-type-3 for DW-funded orders. V1 was retired
+        # 2026-04-28. Fail closed here so ok_to_trade reflects actual
+        # execution viability, not only balance/exposure readiness.
+        # Mirror of the hard-fail in _execute_polymarket_byow_trade.
+        if (
+            resolved_venue == "polymarket"
+            and signer_status == "ows"
+            and deposit_wallet
+        ):
+            blockers.append("POLYMARKET_SIGNER_UNSUPPORTED")
+
+        # ── Polymarket approvals (external wallets without DW block) ─────
+        # Warn if CLOB token approvals are missing. Missing approvals fail
+        # the trade path. Skipped when POLYMARKET_SIGNER_UNSUPPORTED is
+        # already blocking (approvals are moot in that case).
+        if (
+            resolved_venue == "polymarket"
+            and signer_status in ("ows", "external_key")
+            and "POLYMARKET_SIGNER_UNSUPPORTED" not in blockers
+            and execution_wallet
+        ):
+            try:
+                _appr = self.check_approvals(address=execution_wallet)
+                if not _appr.get("all_set", True):
+                    warnings_list.append("POLYMARKET_APPROVALS_MISSING")
+            except Exception:
+                pass  # fail-quiet — approvals check is best-effort
+
         # ── Briefing: balances + risk alerts ──────────────────────────────
         spendable_balance: Optional[float] = None
         pending_alerts: List[dict] = []
