@@ -518,6 +518,26 @@ class TestPreflightOWSDWIncompatibility(unittest.TestCase):
         result = client.preflight(venue="sim", planned_amount=1.0, exposure_cap_usd=100.0)
         self.assertNotIn("POLYMARKET_SIGNER_UNSUPPORTED", result.blockers)
 
+    def test_ows_dw_polymarket_blocked_via_agents_me(self):
+        """Herman's repro path: preflight is the FIRST SDK call, _ensure_wallet_linked
+        has not run, so the blocker must derive DW state from agents/me, not self."""
+        client = _make_client(
+            ows_wallet="herman-v3",
+            wallet_address="0x3dfe3c60aaa",
+            # Intentionally NOT setting deposit_wallet_address or uses_deposit_wallet.
+            # Production init does not populate these before preflight.
+        )
+        # Confirm init-time default — the blocker must NOT rely on this field.
+        self.assertFalse(client._uses_deposit_wallet)
+        _mock_request(client, me_resp=_agents_me(
+            real_trading_enabled=True,
+            per_agent_wallet_address="0x3dfe3c60aaa",
+            per_agent_deposit_wallet_address="0xDW123",
+        ))
+        result = client.preflight(venue="polymarket", planned_amount=1.0, exposure_cap_usd=100.0)
+        self.assertIn("POLYMARKET_SIGNER_UNSUPPORTED", result.blockers)
+        self.assertFalse(result.ok_to_trade)
+
 
 class TestPreflightApprovalsWarning(unittest.TestCase):
     """POLYMARKET_APPROVALS_MISSING warning for external wallets with missing CLOB approvals."""

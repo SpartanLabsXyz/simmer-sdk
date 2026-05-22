@@ -905,7 +905,7 @@ class SimmerClient:
         if (
             resolved_venue == "polymarket"
             and signer_status == "ows"
-            and self._uses_deposit_wallet
+            and deposit_wallet
         ):
             blockers.append("POLYMARKET_SIGNER_UNSUPPORTED")
 
