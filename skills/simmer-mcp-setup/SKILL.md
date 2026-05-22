@@ -1,11 +1,11 @@
 ---
 name: simmer-mcp-setup
-version: "0.1.1"
+version: "0.1.2"
 published: true
 description: One-shot bootstrap for the Simmer MCP server. Detects your agent runtime (Claude Code / Cursor / OpenClaw / Hermes / Codex), installs simmer-mcp via npm, writes the right MCP config, prompts a restart, and verifies the tool handshake. Use after registering an agent on simmer.markets to run pre-built Simmer trading strategies through your MCP-aware agent.
 metadata:
   author: "Simmer (@simmer_markets)"
-  version: "0.1.1"
+  version: "0.1.2"
   displayName: Simmer MCP Setup
   difficulty: beginner
   primaryEnv: SIMMER_API_KEY
@@ -34,10 +34,10 @@ So: MCP and SDK are different shapes, both legitimate. MCP runs pre-built strate
 - `simmer-mcp` runnable via `npx -y simmer-mcp` (global install optional)
 - Your agent runtime's MCP config updated with a `simmer` entry
 - `SIMMER_API_KEY` plumbed into the MCP subprocess
-- ~12 simmer tools visible to your agent:
-  - **3 free utility tools**: `list_skills`, `get_skill_docs`, `troubleshoot_error`
-  - **~11 per-skill execution tools** (one per bundled strategy — runs the skill as a subprocess, paper-mode default)
-  - **4 Pro-gated autoresearch tools** (`init_experiment`, `run_experiment`, `log_experiment`, `backtest_experiment`) for users on the Pro plan
+- Simmer tools visible to your agent:
+  - **3 free utility tools** (always available): `list_skills`, `get_skill_docs`, `troubleshoot_error`
+  - **A catalog of per-skill execution tools** — one tool per bundled Simmer trading skill (Polymarket strategies, Kalshi weather trading, sentiment/copytrading skills, plus utilities like `preflight`). The catalog grows over time — call `list_skills` to see what's currently available, or browse the live catalog at [clawhub.ai/skills?q=simmer](https://clawhub.ai/skills?q=simmer).
+  - **4 Pro-gated autoresearch tools** (`init_experiment`, `run_experiment`, `log_experiment`, `backtest_experiment`) — only registered if you're on the Pro plan.
 
 ## Step 1 — confirm you have an API key
 
@@ -241,11 +241,11 @@ Don't trust "looks installed" — verify with a real tool call.
 Ask your agent:
 > What simmer tools can you see? List them.
 
-You should see ~12 tools, including:
+The agent should respond with the 3 utility tools plus per-skill execution tools:
 - `list_skills`
 - `get_skill_docs`
 - `troubleshoot_error`
-- Per-skill execution tools (their exact names depend on which skills you have installed)
+- A catalog of per-skill execution tools (one per bundled Simmer trading skill). The exact count depends on how many skills are currently bundled — have the agent call `list_skills` for the up-to-date inventory.
 
 Then ask the agent to do something safe that exercises the API:
 > Use the simmer tools to show me a few of the most active markets on the sim venue.
