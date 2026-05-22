@@ -880,17 +880,27 @@ class SimmerClient:
             # This prevents the SIM-2130 parent-user identity leak: for a
             # per-agent API key, agents/me returns per_agent_wallet_address
             # (the OWS EOA) rather than the parent user's wallet_address.
+            #
+            # DW-active flag: only override the cached default when the
+            # response actually contains the field. Older servers may omit
+            # per_agent_dw_active / wallet_uses_deposit_wallet entirely; an
+            # unconditional `bool(me.get(...))` would coerce None → False and
+            # silently downgrade an already-linked DW-active user, causing
+            # approvals to be checked on the EOA instead of the DW (codex
+            # review round 2 P2, 2026-05-22).
             _per_agent_wallet = me.get("per_agent_wallet_address")
             if _per_agent_wallet:
                 execution_wallet = _per_agent_wallet
                 deposit_wallet = me.get("per_agent_deposit_wallet_address")
-                dw_active = bool(me.get("per_agent_dw_active"))
+                if "per_agent_dw_active" in me and me.get("per_agent_dw_active") is not None:
+                    dw_active = bool(me.get("per_agent_dw_active"))
             else:
                 if not execution_wallet:
                     execution_wallet = me.get("wallet_address")
                 if not deposit_wallet:
                     deposit_wallet = me.get("deposit_wallet_address")
-                dw_active = bool(me.get("wallet_uses_deposit_wallet"))
+                if "wallet_uses_deposit_wallet" in me and me.get("wallet_uses_deposit_wallet") is not None:
+                    dw_active = bool(me.get("wallet_uses_deposit_wallet"))
         except Exception as _e:
             warnings_list.append(f"identity_fetch_failed: {_e}")
 

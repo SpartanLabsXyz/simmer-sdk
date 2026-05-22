@@ -670,6 +670,50 @@ class TestPreflightApprovalsWarning(unittest.TestCase):
         client.preflight(venue="polymarket", planned_amount=1.0, exposure_cap_usd=100.0)
         self.assertEqual(captured.get("address"), "0xUserDW")
 
+    def test_ows_dw_active_preserved_when_agents_me_omits_flag(self):
+        """Codex review round 2 P2: agents/me may omit the new flag fields
+        (older server version, partial response). When it does, the cached
+        client-side _uses_deposit_wallet=True must NOT be silently
+        overwritten to False. A genuinely DW-active user would otherwise
+        have approvals checked on the EOA instead of the DW."""
+        client = _make_client(
+            ows_wallet="herman-v3",
+            wallet_address="0x3dfe3c60aaa",
+            deposit_wallet_address="0xDW123",
+            uses_deposit_wallet=True,  # cached as active
+        )
+        # agents/me response that omits per_agent_dw_active entirely
+        # (simulating an older server build before the flag was added)
+        def _side_effect(method, endpoint, **kwargs):
+            if "/agents/me" in endpoint:
+                return {
+                    "agent_id": "agt_test",
+                    "rate_limits": {"tier": "elite"},
+                    "real_trading_enabled": True,
+                    "per_agent_wallet_address": "0x3dfe3c60aaa",
+                    "per_agent_deposit_wallet_address": "0xDW123",
+                    # NOTE: per_agent_dw_active intentionally omitted
+                }
+            if "/briefing" in endpoint:
+                return _briefing()
+            if "/positions" in endpoint:
+                return _positions()
+            if "/allowances/" in endpoint:
+                return {"all_set": True}
+            raise RuntimeError(f"Unexpected endpoint: {endpoint}")
+        client._request = _side_effect
+
+        captured = {}
+        def _capture(address):
+            captured["address"] = address
+            return {"all_set": True}
+        client.check_approvals = _capture
+        client.preflight(venue="polymarket", planned_amount=1.0, exposure_cap_usd=100.0)
+        self.assertEqual(
+            captured.get("address"), "0xDW123",
+            "cached _uses_deposit_wallet=True must be preserved when agents/me omits per_agent_dw_active",
+        )
+
     def test_ows_dw_approvals_missing_surfaces_warning(self):
         """OWS + DW (active) with missing CLOB approvals on the DW →
         POLYMARKET_APPROVALS_MISSING warning."""
