@@ -120,7 +120,8 @@ def _positions(items=None):
     return {"positions": items or []}
 
 
-def _mock_request(client, me_resp=None, briefing_resp=None, positions_resp=None, fail=None):
+def _mock_request(client, me_resp=None, briefing_resp=None, positions_resp=None, fail=None,
+                  approvals_all_set=True):
     """Patch client._request to return canned responses."""
     def _side_effect(method, endpoint, **kwargs):
         if fail and endpoint == fail:
@@ -131,6 +132,8 @@ def _mock_request(client, me_resp=None, briefing_resp=None, positions_resp=None,
             return briefing_resp or _briefing()
         if "/positions" in endpoint:
             return positions_resp or _positions()
+        if "/allowances/" in endpoint:
+            return {"all_set": approvals_all_set}
         raise RuntimeError(f"Unexpected endpoint: {endpoint}")
 
     client._request = _side_effect
@@ -451,6 +454,122 @@ class TestPreflightUUID(unittest.TestCase):
         # Should not raise
         parsed = uuid.UUID(result.client_preflight_id)
         self.assertEqual(str(parsed), result.client_preflight_id)
+
+
+class TestPreflightOWSDWIncompatibility(unittest.TestCase):
+    """SIM-2325: OWS + deposit-wallet + Polymarket → POLYMARKET_SIGNER_UNSUPPORTED blocker."""
+
+    def test_ows_dw_polymarket_blocked(self):
+        """Herman's exact repro: OWS signer + active DW + polymarket = POLYMARKET_SIGNER_UNSUPPORTED."""
+        client = _make_client(
+            ows_wallet="herman-v3",
+            wallet_address="0x3dfe3c60aaa",
+            deposit_wallet_address="0xDW123",
+            uses_deposit_wallet=True,
+        )
+        _mock_request(client, me_resp=_agents_me(
+            real_trading_enabled=True,
+            per_agent_wallet_address="0x3dfe3c60aaa",
+            per_agent_deposit_wallet_address="0xDW123",
+        ))
+        result = client.preflight(venue="polymarket", planned_amount=1.0, exposure_cap_usd=100.0)
+        self.assertIn("POLYMARKET_SIGNER_UNSUPPORTED", result.blockers)
+        self.assertFalse(result.ok_to_trade)
+
+    def test_ows_no_dw_polymarket_allowed(self):
+        """OWS without a deposit wallet (EOA-only path) should not get the DW blocker."""
+        client = _make_client(
+            ows_wallet="my-agent",
+            wallet_address="0xOWSEOA",
+            deposit_wallet_address=None,
+            uses_deposit_wallet=False,
+        )
+        _mock_request(client, me_resp=_agents_me(
+            real_trading_enabled=True,
+            wallet_address="0xOWSEOA",
+        ))
+        result = client.preflight(venue="polymarket", planned_amount=1.0, exposure_cap_usd=100.0)
+        self.assertNotIn("POLYMARKET_SIGNER_UNSUPPORTED", result.blockers)
+
+    def test_external_key_dw_polymarket_not_blocked(self):
+        """Private-key external wallet with DW is valid — should NOT get POLYMARKET_SIGNER_UNSUPPORTED."""
+        client = _make_client(
+            private_key="0x" + "a" * 64,
+            wallet_address="0xExtEOA",
+            deposit_wallet_address="0xExtDW",
+            uses_deposit_wallet=True,
+        )
+        _mock_request(client, me_resp=_agents_me(
+            real_trading_enabled=True,
+            wallet_address="0xExtEOA",
+            deposit_wallet_address="0xExtDW",
+        ))
+        result = client.preflight(venue="polymarket", planned_amount=1.0, exposure_cap_usd=100.0)
+        self.assertNotIn("POLYMARKET_SIGNER_UNSUPPORTED", result.blockers)
+
+    def test_ows_dw_sim_venue_not_blocked(self):
+        """OWS + DW on the sim venue is fine — the DW incompatibility is polymarket-only."""
+        client = _make_client(
+            ows_wallet="my-agent",
+            wallet_address="0xOWSEOA",
+            uses_deposit_wallet=True,
+        )
+        _mock_request(client, me_resp=_agents_me(real_trading_enabled=True))
+        result = client.preflight(venue="sim", planned_amount=1.0, exposure_cap_usd=100.0)
+        self.assertNotIn("POLYMARKET_SIGNER_UNSUPPORTED", result.blockers)
+
+
+class TestPreflightApprovalsWarning(unittest.TestCase):
+    """POLYMARKET_APPROVALS_MISSING warning for external wallets with missing CLOB approvals."""
+
+    def test_missing_approvals_adds_warning(self):
+        """External-key wallet with missing approvals → POLYMARKET_APPROVALS_MISSING warning."""
+        client = _make_client(
+            private_key="0x" + "a" * 64,
+            wallet_address="0xExtEOA",
+            uses_deposit_wallet=False,
+        )
+        _mock_request(client, me_resp=_agents_me(real_trading_enabled=True),
+                      approvals_all_set=False)
+        result = client.preflight(venue="polymarket", planned_amount=1.0, exposure_cap_usd=100.0)
+        self.assertIn("POLYMARKET_APPROVALS_MISSING", result.warnings)
+
+    def test_approvals_ok_no_warning(self):
+        """External-key wallet with all approvals set → no approvals warning."""
+        client = _make_client(
+            private_key="0x" + "a" * 64,
+            wallet_address="0xExtEOA",
+            uses_deposit_wallet=False,
+        )
+        _mock_request(client, me_resp=_agents_me(real_trading_enabled=True),
+                      approvals_all_set=True)
+        result = client.preflight(venue="polymarket", planned_amount=1.0, exposure_cap_usd=100.0)
+        self.assertNotIn("POLYMARKET_APPROVALS_MISSING", result.warnings)
+
+    def test_ows_dw_blocked_approvals_not_checked(self):
+        """When POLYMARKET_SIGNER_UNSUPPORTED is blocking, approvals check is skipped."""
+        client = _make_client(
+            ows_wallet="herman-v3",
+            wallet_address="0x3dfe3c60aaa",
+            deposit_wallet_address="0xDW123",
+            uses_deposit_wallet=True,
+        )
+        _mock_request(client, me_resp=_agents_me(
+            real_trading_enabled=True,
+            per_agent_wallet_address="0x3dfe3c60aaa",
+            per_agent_deposit_wallet_address="0xDW123",
+        ), approvals_all_set=False)
+        result = client.preflight(venue="polymarket", planned_amount=1.0, exposure_cap_usd=100.0)
+        # DW blocker is present; approvals warning should NOT be added (moot)
+        self.assertIn("POLYMARKET_SIGNER_UNSUPPORTED", result.blockers)
+        self.assertNotIn("POLYMARKET_APPROVALS_MISSING", result.warnings)
+
+    def test_managed_wallet_no_approvals_check(self):
+        """Managed-wallet signer doesn't need CLOB approvals from the client side."""
+        client = _make_client()
+        _mock_request(client, me_resp=_agents_me(real_trading_enabled=True))
+        result = client.preflight(venue="polymarket", planned_amount=1.0, exposure_cap_usd=100.0)
+        self.assertNotIn("POLYMARKET_APPROVALS_MISSING", result.warnings)
 
 
 if __name__ == "__main__":

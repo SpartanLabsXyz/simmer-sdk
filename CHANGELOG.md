@@ -42,6 +42,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 - **Skip sell loop on resolved markets — polymarket-weather-trader v1.21.1, kalshi-weather-trader v1.0.7, polymarket-elon-tweets v1.3.3 (SIM-2046).** All three skills could retry sells indefinitely on resolved markets while waiting for `auto_redeem()` to claim the winning shares. Root cause: the exit loop didn't check `position.status` before attempting a sell; Polymarket/Kalshi reject sells on resolved markets with "Insufficient shares to sell", and the skill retried every cycle. Fix: added `status == "resolved"` guard immediately after the minimum-shares check. `auto_redeem()` at the top of each cycle handles the actual payout. Also changed silent `except: pass` on `auto_redeem()` to log the exception at `force=True` so future failures surface in skill logs.
 
+## [0.17.15] — 2026-05-22
+
+### Fixed
+
+- **`client.preflight()` now returns `ok_to_trade=False` when OWS signing + active deposit wallet + Polymarket venue are combined (SIM-2325).** This combo raises a `ValueError` in the trade path (`_execute_polymarket_byow_trade`) because the OWS signing path uses sig-type-0 (EOA) only and Polymarket V2 CLOB requires sig-type-3 for DW-funded orders. V1 was retired 2026-04-28. Preflight now mirrors the hard-fail guard and adds the `POLYMARKET_SIGNER_UNSUPPORTED` blocker so agents catch the incompatibility before the trade call.
+- **`client.preflight()` adds `POLYMARKET_APPROVALS_MISSING` warning** when CLOB token approvals are missing for external-wallet (OWS without DW, private-key) Polymarket traders. Previously only surfaced as a log warning immediately before the first trade attempt; now visible in the preflight envelope for pre-flight gating.
+
 ## [0.17.14] — 2026-05-21
 
 ### Added
