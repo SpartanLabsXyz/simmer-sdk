@@ -15,6 +15,8 @@ Requires:
     SIMMER_API_KEY environment variable (get from simmer.markets/dashboard)
 """
 
+from __future__ import annotations
+
 import os
 import sys
 import re
@@ -929,7 +931,7 @@ def execute_trade(market_id: str, side: str, amount: float, reasoning: str = Non
     try:
         client = get_client()
         if client.live:
-            pf = client.preflight(planned_amount=amount, venue=client.venue)
+            pf = client.preflight(planned_amount=amount, exposure_cap_usd=0, venue=client.venue)
             if not pf.ok_to_trade:
                 blockers = ", ".join(pf.blockers)
                 print(f"  ⛔ Preflight blocked: {blockers}")
@@ -956,7 +958,7 @@ def execute_sell(market_id: str, shares: float) -> dict:
     try:
         client = get_client()
         if client.live:
-            pf = client.preflight(planned_amount=0, venue=client.venue)
+            pf = client.preflight(planned_amount=0, exposure_cap_usd=0, venue=client.venue)
             if not pf.ok_to_trade:
                 blockers = ", ".join(pf.blockers)
                 print(f"  ⛔ Preflight blocked: {blockers}")
