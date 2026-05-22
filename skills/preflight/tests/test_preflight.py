@@ -81,6 +81,7 @@ def _agents_me(
     real_trading_enabled=True,
     wallet_address="0xUserWallet",
     deposit_wallet_address=None,
+    wallet_uses_deposit_wallet=None,
     per_agent_wallet_address=None,
     per_agent_deposit_wallet_address=None,
     per_agent_dw_active=None,
@@ -91,6 +92,7 @@ def _agents_me(
         "real_trading_enabled": real_trading_enabled,
         "wallet_address": wallet_address,
         "deposit_wallet_address": deposit_wallet_address,
+        "wallet_uses_deposit_wallet": wallet_uses_deposit_wallet,
         "per_agent_wallet_address": per_agent_wallet_address,
         "per_agent_deposit_wallet_address": per_agent_deposit_wallet_address,
         "per_agent_dw_active": per_agent_dw_active,
@@ -571,11 +573,11 @@ class TestPreflightApprovalsWarning(unittest.TestCase):
         result = client.preflight(venue="polymarket", planned_amount=1.0, exposure_cap_usd=100.0)
         self.assertNotIn("POLYMARKET_APPROVALS_MISSING", result.warnings)
 
-    def test_ows_dw_approvals_checked_on_dw_address(self):
-        """OWS + DW: approvals must be checked on the deposit wallet (the
-        funder), not the EOA. Without this fix (codex consult P1 #4),
-        preflight would surface ok_to_trade=true while the DW lacks CLOB
-        allowances → real trade failure at submission."""
+    def test_ows_dw_active_approvals_checked_on_dw_address(self):
+        """OWS + DW (active): approvals must be checked on the deposit
+        wallet (the funder), not the EOA. Without this (codex consult P1
+        #4), preflight would surface ok_to_trade=true while the DW lacks
+        CLOB allowances → real trade failure at submission."""
         client = _make_client(
             ows_wallet="herman-v3",
             wallet_address="0x3dfe3c60aaa",
@@ -586,8 +588,8 @@ class TestPreflightApprovalsWarning(unittest.TestCase):
             real_trading_enabled=True,
             per_agent_wallet_address="0x3dfe3c60aaa",
             per_agent_deposit_wallet_address="0xDW123",
+            per_agent_dw_active=True,
         ))
-        # Capture the address argument passed to check_approvals.
         captured = {}
         def _capture(address):
             captured["address"] = address
@@ -596,7 +598,36 @@ class TestPreflightApprovalsWarning(unittest.TestCase):
         client.preflight(venue="polymarket", planned_amount=1.0, exposure_cap_usd=100.0)
         self.assertEqual(
             captured.get("address"), "0xDW123",
-            "approvals must be checked on the deposit wallet address for OWS+DW users",
+            "approvals must be checked on the deposit wallet address for active-DW OWS users",
+        )
+
+    def test_ows_dw_pre_activation_approvals_checked_on_eoa(self):
+        """OWS + DW address populated but per_agent_dw_active=False (pre-
+        activation): approvals must be checked on the EOA, not the DW.
+        The DW exists in DB but isn't yet the funder — trades still go
+        through the EOA. Codex review 2026-05-22 P2: gating only on
+        truthy `deposit_wallet` would mis-route this case."""
+        client = _make_client(
+            ows_wallet="herman-v3",
+            wallet_address="0xPreActEOA",
+            deposit_wallet_address="0xPreActDW",
+            uses_deposit_wallet=False,
+        )
+        _mock_request(client, me_resp=_agents_me(
+            real_trading_enabled=True,
+            per_agent_wallet_address="0xPreActEOA",
+            per_agent_deposit_wallet_address="0xPreActDW",
+            per_agent_dw_active=False,
+        ))
+        captured = {}
+        def _capture(address):
+            captured["address"] = address
+            return {"all_set": True}
+        client.check_approvals = _capture
+        client.preflight(venue="polymarket", planned_amount=1.0, exposure_cap_usd=100.0)
+        self.assertEqual(
+            captured.get("address"), "0xPreActEOA",
+            "pre-activation OWS+DW users must check approvals on the EOA",
         )
 
     def test_external_key_no_dw_approvals_checked_on_eoa(self):
@@ -616,8 +647,32 @@ class TestPreflightApprovalsWarning(unittest.TestCase):
         client.preflight(venue="polymarket", planned_amount=1.0, exposure_cap_usd=100.0)
         self.assertEqual(captured.get("address"), "0xExtEOA")
 
+    def test_user_primary_dw_active_approvals_checked_on_dw_address(self):
+        """User-primary external-key DW user (not per-agent): approvals
+        checked on user-primary DW when wallet_uses_deposit_wallet=true."""
+        client = _make_client(
+            private_key="0x" + "a" * 64,
+            wallet_address="0xUserEOA",
+            deposit_wallet_address="0xUserDW",
+            uses_deposit_wallet=True,
+        )
+        _mock_request(client, me_resp=_agents_me(
+            real_trading_enabled=True,
+            wallet_address="0xUserEOA",
+            deposit_wallet_address="0xUserDW",
+            wallet_uses_deposit_wallet=True,
+        ))
+        captured = {}
+        def _capture(address):
+            captured["address"] = address
+            return {"all_set": True}
+        client.check_approvals = _capture
+        client.preflight(venue="polymarket", planned_amount=1.0, exposure_cap_usd=100.0)
+        self.assertEqual(captured.get("address"), "0xUserDW")
+
     def test_ows_dw_approvals_missing_surfaces_warning(self):
-        """OWS + DW with missing CLOB approvals on the DW → POLYMARKET_APPROVALS_MISSING warning."""
+        """OWS + DW (active) with missing CLOB approvals on the DW →
+        POLYMARKET_APPROVALS_MISSING warning."""
         client = _make_client(
             ows_wallet="herman-v3",
             wallet_address="0x3dfe3c60aaa",
@@ -628,6 +683,7 @@ class TestPreflightApprovalsWarning(unittest.TestCase):
             real_trading_enabled=True,
             per_agent_wallet_address="0x3dfe3c60aaa",
             per_agent_deposit_wallet_address="0xDW123",
+            per_agent_dw_active=True,
         ), approvals_all_set=False)
         result = client.preflight(venue="polymarket", planned_amount=1.0, exposure_cap_usd=100.0)
         self.assertIn("POLYMARKET_APPROVALS_MISSING", result.warnings)

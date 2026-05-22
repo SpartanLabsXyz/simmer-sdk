@@ -860,6 +860,14 @@ class SimmerClient:
         real_trading_enabled = False
         execution_wallet = self._wallet_address
         deposit_wallet = self._deposit_wallet_address
+        # DW-active flag: True only when the user/agent has actually completed
+        # the DW upgrade (CREATE2 deploy + approvals + server state flip),
+        # not just "DW address is populated". Pre-activation users have a DW
+        # address pre-computed but still trade against the EOA, so approvals
+        # must be checked on the EOA until activation completes.
+        # Default conservatively to the client-side cached flag; agents/me
+        # overrides below per cohort.
+        dw_active = bool(getattr(self, "_uses_deposit_wallet", False))
 
         try:
             me = self._request("GET", "/api/sdk/agents/me")
@@ -876,11 +884,13 @@ class SimmerClient:
             if _per_agent_wallet:
                 execution_wallet = _per_agent_wallet
                 deposit_wallet = me.get("per_agent_deposit_wallet_address")
+                dw_active = bool(me.get("per_agent_dw_active"))
             else:
                 if not execution_wallet:
                     execution_wallet = me.get("wallet_address")
                 if not deposit_wallet:
                     deposit_wallet = me.get("deposit_wallet_address")
+                dw_active = bool(me.get("wallet_uses_deposit_wallet"))
         except Exception as _e:
             warnings_list.append(f"identity_fetch_failed: {_e}")
 
@@ -900,9 +910,13 @@ class SimmerClient:
         # Warn if CLOB token approvals are missing — missing approvals fail
         # the trade path at submission. For DW-active users, approvals live
         # on the deposit wallet (the funder); the CLOB looks for allowances
-        # against it. For non-DW users, approvals are on the EOA. Select
-        # the right address based on cohort. check_approvals is address-
-        # parametric (verified via codex consult 2026-05-22).
+        # against it. For non-DW users (including users with a DW address
+        # populated but not yet activated), approvals are on the EOA. Gate
+        # the address choice on the DW-active flag, not just truthy
+        # `deposit_wallet`: pre-activation users have a DW address but still
+        # trade against the EOA, so a truthy-only check would hide missing
+        # EOA approvals (codex review 2026-05-22 P2). check_approvals is
+        # address-parametric (verified via codex consult P1 #4).
         #
         # POLYMARKET_SIGNER_UNSUPPORTED blocker removed 2026-05-22: V2 OWS
         # + DW order signing is now supported via build_and_sign_order_v2_dw_ows.
@@ -911,7 +925,9 @@ class SimmerClient:
             and signer_status in ("ows", "external_key")
             and execution_wallet
         ):
-            approvals_address = deposit_wallet if deposit_wallet else execution_wallet
+            approvals_address = (
+                deposit_wallet if (dw_active and deposit_wallet) else execution_wallet
+            )
             try:
                 _appr = self.check_approvals(address=approvals_address)
                 if not _appr.get("all_set", True):
