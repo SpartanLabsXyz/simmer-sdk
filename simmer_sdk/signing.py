@@ -15,6 +15,7 @@ SECURITY NOTE: The private key should NEVER be logged, transmitted, or stored
 outside of memory. It is only used for signing operations.
 """
 
+import json
 import os
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Dict, Any, Optional
