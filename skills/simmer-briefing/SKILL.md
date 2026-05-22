@@ -111,17 +111,18 @@ Don't dump raw JSON. Summarize.
 
 ```python
 briefing = client.get_briefing(since=last_check)
+venues = briefing.get("venues") or {}
 
-sim = briefing.venues.sim          # None if no $SIM activity
-pm  = briefing.venues.polymarket   # None if no Polymarket activity
-ks  = briefing.venues.kalshi       # None if no Kalshi activity
+sim = venues.get("sim")          # None if no $SIM activity
+pm  = venues.get("polymarket")   # None if no Polymarket activity
+ks  = venues.get("kalshi")       # None if no Kalshi activity
 ```
 
 Each key is `None` when the agent has no activity on that venue, so a `None` check is both the skip-inactive guard and the single-venue filter.
 
 ## Recommended cadence
 
-Call `client.get_briefing(since=last_check)` a few times per day. Address `risk_alerts` first, then walk `briefing.venues` and present each venue's `actions` to your human. Track `last_check` to fetch only deltas next time.
+Call `client.get_briefing(since=last_check)` a few times per day. Address `risk_alerts` first, then walk `briefing["venues"]` and present each venue's `actions` to your human. Track `last_check` to fetch only deltas next time.
 
 ## Scope
 
