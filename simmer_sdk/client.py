@@ -49,6 +49,7 @@ class Market:
     polymarket_neg_risk: bool = False
     spread_cents: Optional[float] = None  # Bid-ask spread in cents (fast markets only)
     liquidity_tier: Optional[str] = None  # "tight", "moderate", or "wide" (fast markets only)
+    resolution_criteria: Optional[str] = None  # Opt-in via include="resolution_criteria"
 
 
 @dataclass
@@ -1339,7 +1340,8 @@ class SimmerClient:
         self,
         status: str = "active",
         import_source: Optional[str] = None,
-        limit: int = 50
+        limit: int = 50,
+        include: Optional[str] = None,
     ) -> List[Market]:
         """
         Get available markets.
@@ -1348,6 +1350,7 @@ class SimmerClient:
             status: Filter by status ('active', 'resolved')
             import_source: Filter by source ('polymarket', 'kalshi', or None for all)
             limit: Maximum number of markets to return
+            include: Opt-in extra fields, e.g. "resolution_criteria"
 
         Returns:
             List of Market objects
@@ -1355,6 +1358,8 @@ class SimmerClient:
         params = {"status": status, "limit": limit}
         if import_source:
             params["import_source"] = import_source
+        if include:
+            params["include"] = include
 
         data = self._request("GET", "/api/sdk/markets", params=params)
 
@@ -1411,6 +1416,7 @@ class SimmerClient:
             polymarket_neg_risk=m.get("polymarket_neg_risk", False),
             spread_cents=m.get("spread_cents"),
             liquidity_tier=m.get("liquidity_tier"),
+            resolution_criteria=m.get("resolution_criteria"),
         )
 
     def trade(
