@@ -1,11 +1,11 @@
 ---
 name: simmer-mcp-setup
-version: "0.1.0"
+version: "0.1.1"
 published: true
-description: One-shot bootstrap for the Simmer MCP server. Detects your agent runtime (Claude Code / Cursor / OpenClaw / Hermes / Codex), installs simmer-mcp via npm, writes the right MCP config, prompts a restart, and verifies the tool handshake. Use after registering an agent on simmer.markets if you want MCP tools instead of (or alongside) the Python SDK.
+description: One-shot bootstrap for the Simmer MCP server. Detects your agent runtime (Claude Code / Cursor / OpenClaw / Hermes / Codex), installs simmer-mcp via npm, writes the right MCP config, prompts a restart, and verifies the tool handshake. Use after registering an agent on simmer.markets to run pre-built Simmer trading strategies through your MCP-aware agent.
 metadata:
   author: "Simmer (@simmer_markets)"
-  version: "0.1.0"
+  version: "0.1.1"
   displayName: Simmer MCP Setup
   difficulty: beginner
   primaryEnv: SIMMER_API_KEY
