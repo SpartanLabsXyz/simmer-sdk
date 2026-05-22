@@ -625,7 +625,14 @@ def get_positions():
 def execute_trade(market_id, side, amount, signal_data=None):
     """Execute a trade on Simmer."""
     try:
-        result = get_client().trade(
+        client = get_client()
+        if client.live:
+            pf = client.preflight(planned_amount=amount, venue=client.venue)
+            if not pf.ok_to_trade:
+                blockers = ", ".join(pf.blockers)
+                print(f"  ⛔ Preflight blocked: {blockers}")
+                return {"error": f"preflight_blocked: {blockers}"}
+        result = client.trade(
             market_id=market_id,
             side=side,
             amount=amount,
