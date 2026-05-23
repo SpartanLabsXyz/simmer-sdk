@@ -3,13 +3,17 @@ name: polymarket-copytrading
 description: Mirror positions from top Polymarket traders. Polling mode (free) for portfolio-style copying, Reactor mode (Pro) for event-driven real-time mirroring via Simmer's on-chain signal infrastructure.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.11.0"
+  version: "1.11.1"
   displayName: Polymarket Copytrading
   difficulty: beginner
 ---
 # Polymarket Copytrading
 
-Mirror positions from successful Polymarket traders using the Simmer SDK. Two modes share the same skill, use whichever fits your strategy:
+Mirror positions from successful Polymarket traders using the Simmer SDK. Two modes share the same skill, use whichever fits your strategy.
+
+> 🚨 **Framework, not a production trading system.** Read [DISCLAIMER.md](./DISCLAIMER.md) before connecting to a wallet with real funds. Per-position cap defaults to $50; per-run cap defaults to 10 trades. Use `$SIM` paper-mode to validate any new whale selection before scaling to real USDC.
+
+> **This is a template.** The default logic mirrors whale wallets — remix it with your own wallet selection, sizing rules, filters, or cap logic. The skill handles all the plumbing (signal polling, trade execution, dedup, signing). Your agent provides the alpha.
 
 | | **Polling mode** (free) | **Reactor mode** (Pro) |
 |---|---|---|
@@ -19,8 +23,6 @@ Mirror positions from successful Polymarket traders using the Simmer SDK. Two mo
 | Strategy | Size-weighted aggregation across wallets, conviction tiering, rebalance to target allocations, drift/stale filters | Event-by-event mirror with fixed `mirror_fraction` sizing, programmatic filters |
 | Best for | Portfolio-aware, multi-whale, periodic scans | Real-time reaction to specific whales as they trade |
 | Requires | `SIMMER_API_KEY` | `SIMMER_API_KEY` + Simmer Pro plan |
-
-> **This is a template.** The default logic mirrors whale wallets — remix it with your own wallet selection, sizing rules, filters, or cap logic. The skill handles all the plumbing (signal polling, trade execution, dedup, signing). Your agent provides the alpha.
 
 ## Setup Flow
 
@@ -46,8 +48,6 @@ When user asks to install or configure this skill:
    - Max per position: Amount per trade (default $50)
    - Top N positions: How many positions to track (auto-calculated from balance)
    - Max trades per run: Safety cap (default 10)
-
-> 🚨 **Framework, not a production trading system.** Read [DISCLAIMER.md](./DISCLAIMER.md) before connecting to a wallet with real funds.
 
 ## When to Use This Skill
 
