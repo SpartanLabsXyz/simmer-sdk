@@ -81,6 +81,7 @@ def _agents_me(
     real_trading_enabled=True,
     wallet_address="0xUserWallet",
     deposit_wallet_address=None,
+    wallet_uses_deposit_wallet=None,
     per_agent_wallet_address=None,
     per_agent_deposit_wallet_address=None,
     per_agent_dw_active=None,
@@ -91,6 +92,7 @@ def _agents_me(
         "real_trading_enabled": real_trading_enabled,
         "wallet_address": wallet_address,
         "deposit_wallet_address": deposit_wallet_address,
+        "wallet_uses_deposit_wallet": wallet_uses_deposit_wallet,
         "per_agent_wallet_address": per_agent_wallet_address,
         "per_agent_deposit_wallet_address": per_agent_deposit_wallet_address,
         "per_agent_dw_active": per_agent_dw_active,
@@ -456,11 +458,15 @@ class TestPreflightUUID(unittest.TestCase):
         self.assertEqual(str(parsed), result.client_preflight_id)
 
 
-class TestPreflightOWSDWIncompatibility(unittest.TestCase):
-    """SIM-2325: OWS + deposit-wallet + Polymarket → POLYMARKET_SIGNER_UNSUPPORTED blocker."""
+class TestPreflightOWSDWNowSupported(unittest.TestCase):
+    """OWS + deposit-wallet + Polymarket is supported as of 2026-05-22 via
+    build_and_sign_order_v2_dw_ows (V2 sig-type-3 / POLY_1271 / ERC-7739).
+    The POLYMARKET_SIGNER_UNSUPPORTED blocker is removed; these tests
+    invert the prior SIM-2325 assertions and lock in the new behavior."""
 
-    def test_ows_dw_polymarket_blocked(self):
-        """Herman's exact repro: OWS signer + active DW + polymarket = POLYMARKET_SIGNER_UNSUPPORTED."""
+    def test_ows_dw_polymarket_no_longer_blocked(self):
+        """Herman's exact prior repro: OWS signer + active DW + polymarket.
+        Blocker must NOT fire — trade is supported via OWS V2-DW path."""
         client = _make_client(
             ows_wallet="herman-v3",
             wallet_address="0x3dfe3c60aaa",
@@ -473,11 +479,13 @@ class TestPreflightOWSDWIncompatibility(unittest.TestCase):
             per_agent_deposit_wallet_address="0xDW123",
         ))
         result = client.preflight(venue="polymarket", planned_amount=1.0, exposure_cap_usd=100.0)
-        self.assertIn("POLYMARKET_SIGNER_UNSUPPORTED", result.blockers)
-        self.assertFalse(result.ok_to_trade)
+        self.assertNotIn("POLYMARKET_SIGNER_UNSUPPORTED", result.blockers)
+        # ok_to_trade depends on balance + cap + approvals; this test only
+        # asserts the blocker is gone, not the full ok_to_trade outcome.
 
     def test_ows_no_dw_polymarket_allowed(self):
-        """OWS without a deposit wallet (EOA-only path) should not get the DW blocker."""
+        """OWS without a deposit wallet (Cohort A external) — no DW blocker
+        ever existed for this combo. Locked in for regression safety."""
         client = _make_client(
             ows_wallet="my-agent",
             wallet_address="0xOWSEOA",
@@ -492,7 +500,8 @@ class TestPreflightOWSDWIncompatibility(unittest.TestCase):
         self.assertNotIn("POLYMARKET_SIGNER_UNSUPPORTED", result.blockers)
 
     def test_external_key_dw_polymarket_not_blocked(self):
-        """Private-key external wallet with DW is valid — should NOT get POLYMARKET_SIGNER_UNSUPPORTED."""
+        """Private-key external wallet with DW — uses raw-key V2-DW path.
+        Blocker never fired for this combo; locked in for regression safety."""
         client = _make_client(
             private_key="0x" + "a" * 64,
             wallet_address="0xExtEOA",
@@ -508,7 +517,8 @@ class TestPreflightOWSDWIncompatibility(unittest.TestCase):
         self.assertNotIn("POLYMARKET_SIGNER_UNSUPPORTED", result.blockers)
 
     def test_ows_dw_sim_venue_not_blocked(self):
-        """OWS + DW on the sim venue is fine — the DW incompatibility is polymarket-only."""
+        """OWS + DW on the sim venue — DW incompatibility was polymarket-only.
+        Locked in for regression safety."""
         client = _make_client(
             ows_wallet="my-agent",
             wallet_address="0xOWSEOA",
@@ -518,16 +528,14 @@ class TestPreflightOWSDWIncompatibility(unittest.TestCase):
         result = client.preflight(venue="sim", planned_amount=1.0, exposure_cap_usd=100.0)
         self.assertNotIn("POLYMARKET_SIGNER_UNSUPPORTED", result.blockers)
 
-    def test_ows_dw_polymarket_blocked_via_agents_me(self):
-        """Herman's repro path: preflight is the FIRST SDK call, _ensure_wallet_linked
-        has not run, so the blocker must derive DW state from agents/me, not self."""
+    def test_ows_dw_polymarket_via_agents_me_no_longer_blocked(self):
+        """Herman's repro path via agents/me: preflight is the FIRST SDK call,
+        _ensure_wallet_linked has not run. The OWS+DW state derives from
+        agents/me response. Confirm the blocker does NOT fire."""
         client = _make_client(
             ows_wallet="herman-v3",
             wallet_address="0x3dfe3c60aaa",
-            # Intentionally NOT setting deposit_wallet_address or uses_deposit_wallet.
-            # Production init does not populate these before preflight.
         )
-        # Confirm init-time default — the blocker must NOT rely on this field.
         self.assertFalse(client._uses_deposit_wallet)
         _mock_request(client, me_resp=_agents_me(
             real_trading_enabled=True,
@@ -535,8 +543,7 @@ class TestPreflightOWSDWIncompatibility(unittest.TestCase):
             per_agent_deposit_wallet_address="0xDW123",
         ))
         result = client.preflight(venue="polymarket", planned_amount=1.0, exposure_cap_usd=100.0)
-        self.assertIn("POLYMARKET_SIGNER_UNSUPPORTED", result.blockers)
-        self.assertFalse(result.ok_to_trade)
+        self.assertNotIn("POLYMARKET_SIGNER_UNSUPPORTED", result.blockers)
 
 
 class TestPreflightApprovalsWarning(unittest.TestCase):
@@ -566,8 +573,11 @@ class TestPreflightApprovalsWarning(unittest.TestCase):
         result = client.preflight(venue="polymarket", planned_amount=1.0, exposure_cap_usd=100.0)
         self.assertNotIn("POLYMARKET_APPROVALS_MISSING", result.warnings)
 
-    def test_ows_dw_blocked_approvals_not_checked(self):
-        """When POLYMARKET_SIGNER_UNSUPPORTED is blocking, approvals check is skipped."""
+    def test_ows_dw_active_approvals_checked_on_dw_address(self):
+        """OWS + DW (active): approvals must be checked on the deposit
+        wallet (the funder), not the EOA. Without this (codex consult P1
+        #4), preflight would surface ok_to_trade=true while the DW lacks
+        CLOB allowances → real trade failure at submission."""
         client = _make_client(
             ows_wallet="herman-v3",
             wallet_address="0x3dfe3c60aaa",
@@ -578,11 +588,149 @@ class TestPreflightApprovalsWarning(unittest.TestCase):
             real_trading_enabled=True,
             per_agent_wallet_address="0x3dfe3c60aaa",
             per_agent_deposit_wallet_address="0xDW123",
+            per_agent_dw_active=True,
+        ))
+        captured = {}
+        def _capture(address):
+            captured["address"] = address
+            return {"all_set": True}
+        client.check_approvals = _capture
+        client.preflight(venue="polymarket", planned_amount=1.0, exposure_cap_usd=100.0)
+        self.assertEqual(
+            captured.get("address"), "0xDW123",
+            "approvals must be checked on the deposit wallet address for active-DW OWS users",
+        )
+
+    def test_ows_dw_pre_activation_approvals_checked_on_eoa(self):
+        """OWS + DW address populated but per_agent_dw_active=False (pre-
+        activation): approvals must be checked on the EOA, not the DW.
+        The DW exists in DB but isn't yet the funder — trades still go
+        through the EOA. Codex review 2026-05-22 P2: gating only on
+        truthy `deposit_wallet` would mis-route this case."""
+        client = _make_client(
+            ows_wallet="herman-v3",
+            wallet_address="0xPreActEOA",
+            deposit_wallet_address="0xPreActDW",
+            uses_deposit_wallet=False,
+        )
+        _mock_request(client, me_resp=_agents_me(
+            real_trading_enabled=True,
+            per_agent_wallet_address="0xPreActEOA",
+            per_agent_deposit_wallet_address="0xPreActDW",
+            per_agent_dw_active=False,
+        ))
+        captured = {}
+        def _capture(address):
+            captured["address"] = address
+            return {"all_set": True}
+        client.check_approvals = _capture
+        client.preflight(venue="polymarket", planned_amount=1.0, exposure_cap_usd=100.0)
+        self.assertEqual(
+            captured.get("address"), "0xPreActEOA",
+            "pre-activation OWS+DW users must check approvals on the EOA",
+        )
+
+    def test_external_key_no_dw_approvals_checked_on_eoa(self):
+        """Non-DW (Cohort A external) external-key user: approvals checked
+        on the EOA (existing behavior)."""
+        client = _make_client(
+            private_key="0x" + "a" * 64,
+            wallet_address="0xExtEOA",
+            uses_deposit_wallet=False,
+        )
+        _mock_request(client, me_resp=_agents_me(real_trading_enabled=True))
+        captured = {}
+        def _capture(address):
+            captured["address"] = address
+            return {"all_set": True}
+        client.check_approvals = _capture
+        client.preflight(venue="polymarket", planned_amount=1.0, exposure_cap_usd=100.0)
+        self.assertEqual(captured.get("address"), "0xExtEOA")
+
+    def test_user_primary_dw_active_approvals_checked_on_dw_address(self):
+        """User-primary external-key DW user (not per-agent): approvals
+        checked on user-primary DW when wallet_uses_deposit_wallet=true."""
+        client = _make_client(
+            private_key="0x" + "a" * 64,
+            wallet_address="0xUserEOA",
+            deposit_wallet_address="0xUserDW",
+            uses_deposit_wallet=True,
+        )
+        _mock_request(client, me_resp=_agents_me(
+            real_trading_enabled=True,
+            wallet_address="0xUserEOA",
+            deposit_wallet_address="0xUserDW",
+            wallet_uses_deposit_wallet=True,
+        ))
+        captured = {}
+        def _capture(address):
+            captured["address"] = address
+            return {"all_set": True}
+        client.check_approvals = _capture
+        client.preflight(venue="polymarket", planned_amount=1.0, exposure_cap_usd=100.0)
+        self.assertEqual(captured.get("address"), "0xUserDW")
+
+    def test_ows_dw_active_preserved_when_agents_me_omits_flag(self):
+        """Codex review round 2 P2: agents/me may omit the new flag fields
+        (older server version, partial response). When it does, the cached
+        client-side _uses_deposit_wallet=True must NOT be silently
+        overwritten to False. A genuinely DW-active user would otherwise
+        have approvals checked on the EOA instead of the DW."""
+        client = _make_client(
+            ows_wallet="herman-v3",
+            wallet_address="0x3dfe3c60aaa",
+            deposit_wallet_address="0xDW123",
+            uses_deposit_wallet=True,  # cached as active
+        )
+        # agents/me response that omits per_agent_dw_active entirely
+        # (simulating an older server build before the flag was added)
+        def _side_effect(method, endpoint, **kwargs):
+            if "/agents/me" in endpoint:
+                return {
+                    "agent_id": "agt_test",
+                    "rate_limits": {"tier": "elite"},
+                    "real_trading_enabled": True,
+                    "per_agent_wallet_address": "0x3dfe3c60aaa",
+                    "per_agent_deposit_wallet_address": "0xDW123",
+                    # NOTE: per_agent_dw_active intentionally omitted
+                }
+            if "/briefing" in endpoint:
+                return _briefing()
+            if "/positions" in endpoint:
+                return _positions()
+            if "/allowances/" in endpoint:
+                return {"all_set": True}
+            raise RuntimeError(f"Unexpected endpoint: {endpoint}")
+        client._request = _side_effect
+
+        captured = {}
+        def _capture(address):
+            captured["address"] = address
+            return {"all_set": True}
+        client.check_approvals = _capture
+        client.preflight(venue="polymarket", planned_amount=1.0, exposure_cap_usd=100.0)
+        self.assertEqual(
+            captured.get("address"), "0xDW123",
+            "cached _uses_deposit_wallet=True must be preserved when agents/me omits per_agent_dw_active",
+        )
+
+    def test_ows_dw_approvals_missing_surfaces_warning(self):
+        """OWS + DW (active) with missing CLOB approvals on the DW →
+        POLYMARKET_APPROVALS_MISSING warning."""
+        client = _make_client(
+            ows_wallet="herman-v3",
+            wallet_address="0x3dfe3c60aaa",
+            deposit_wallet_address="0xDW123",
+            uses_deposit_wallet=True,
+        )
+        _mock_request(client, me_resp=_agents_me(
+            real_trading_enabled=True,
+            per_agent_wallet_address="0x3dfe3c60aaa",
+            per_agent_deposit_wallet_address="0xDW123",
+            per_agent_dw_active=True,
         ), approvals_all_set=False)
         result = client.preflight(venue="polymarket", planned_amount=1.0, exposure_cap_usd=100.0)
-        # DW blocker is present; approvals warning should NOT be added (moot)
-        self.assertIn("POLYMARKET_SIGNER_UNSUPPORTED", result.blockers)
-        self.assertNotIn("POLYMARKET_APPROVALS_MISSING", result.warnings)
+        self.assertIn("POLYMARKET_APPROVALS_MISSING", result.warnings)
 
     def test_managed_wallet_no_approvals_check(self):
         """Managed-wallet signer doesn't need CLOB approvals from the client side."""

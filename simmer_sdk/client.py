@@ -860,6 +860,14 @@ class SimmerClient:
         real_trading_enabled = False
         execution_wallet = self._wallet_address
         deposit_wallet = self._deposit_wallet_address
+        # DW-active flag: True only when the user/agent has actually completed
+        # the DW upgrade (CREATE2 deploy + approvals + server state flip),
+        # not just "DW address is populated". Pre-activation users have a DW
+        # address pre-computed but still trade against the EOA, so approvals
+        # must be checked on the EOA until activation completes.
+        # Default conservatively to the client-side cached flag; agents/me
+        # overrides below per cohort.
+        dw_active = bool(getattr(self, "_uses_deposit_wallet", False))
 
         try:
             me = self._request("GET", "/api/sdk/agents/me")
@@ -872,15 +880,27 @@ class SimmerClient:
             # This prevents the SIM-2130 parent-user identity leak: for a
             # per-agent API key, agents/me returns per_agent_wallet_address
             # (the OWS EOA) rather than the parent user's wallet_address.
+            #
+            # DW-active flag: only override the cached default when the
+            # response actually contains the field. Older servers may omit
+            # per_agent_dw_active / wallet_uses_deposit_wallet entirely; an
+            # unconditional `bool(me.get(...))` would coerce None → False and
+            # silently downgrade an already-linked DW-active user, causing
+            # approvals to be checked on the EOA instead of the DW (codex
+            # review round 2 P2, 2026-05-22).
             _per_agent_wallet = me.get("per_agent_wallet_address")
             if _per_agent_wallet:
                 execution_wallet = _per_agent_wallet
                 deposit_wallet = me.get("per_agent_deposit_wallet_address")
+                if "per_agent_dw_active" in me and me.get("per_agent_dw_active") is not None:
+                    dw_active = bool(me.get("per_agent_dw_active"))
             else:
                 if not execution_wallet:
                     execution_wallet = me.get("wallet_address")
                 if not deposit_wallet:
                     deposit_wallet = me.get("deposit_wallet_address")
+                if "wallet_uses_deposit_wallet" in me and me.get("wallet_uses_deposit_wallet") is not None:
+                    dw_active = bool(me.get("wallet_uses_deposit_wallet"))
         except Exception as _e:
             warnings_list.append(f"identity_fetch_failed: {_e}")
 
@@ -896,31 +916,30 @@ class SimmerClient:
             elif resolved_venue == "kalshi" and not self._solana_key_available:
                 blockers.append("WALLET_UNVERIFIED")
 
-        # ── OWS + deposit-wallet incompatibility (Polymarket V2) ─────────
-        # The OWS signing path uses sig-type-0 (EOA) only; Polymarket V2
-        # CLOB requires sig-type-3 for DW-funded orders. V1 was retired
-        # 2026-04-28. Fail closed here so ok_to_trade reflects actual
-        # execution viability, not only balance/exposure readiness.
-        # Mirror of the hard-fail in _execute_polymarket_byow_trade.
-        if (
-            resolved_venue == "polymarket"
-            and signer_status == "ows"
-            and deposit_wallet
-        ):
-            blockers.append("POLYMARKET_SIGNER_UNSUPPORTED")
-
-        # ── Polymarket approvals (external wallets without DW block) ─────
-        # Warn if CLOB token approvals are missing. Missing approvals fail
-        # the trade path. Skipped when POLYMARKET_SIGNER_UNSUPPORTED is
-        # already blocking (approvals are moot in that case).
+        # ── Polymarket approvals (external + OWS wallets, EOA + DW) ─────
+        # Warn if CLOB token approvals are missing — missing approvals fail
+        # the trade path at submission. For DW-active users, approvals live
+        # on the deposit wallet (the funder); the CLOB looks for allowances
+        # against it. For non-DW users (including users with a DW address
+        # populated but not yet activated), approvals are on the EOA. Gate
+        # the address choice on the DW-active flag, not just truthy
+        # `deposit_wallet`: pre-activation users have a DW address but still
+        # trade against the EOA, so a truthy-only check would hide missing
+        # EOA approvals (codex review 2026-05-22 P2). check_approvals is
+        # address-parametric (verified via codex consult P1 #4).
+        #
+        # POLYMARKET_SIGNER_UNSUPPORTED blocker removed 2026-05-22: V2 OWS
+        # + DW order signing is now supported via build_and_sign_order_v2_dw_ows.
         if (
             resolved_venue == "polymarket"
             and signer_status in ("ows", "external_key")
-            and "POLYMARKET_SIGNER_UNSUPPORTED" not in blockers
             and execution_wallet
         ):
+            approvals_address = (
+                deposit_wallet if (dw_active and deposit_wallet) else execution_wallet
+            )
             try:
-                _appr = self.check_approvals(address=execution_wallet)
+                _appr = self.check_approvals(address=approvals_address)
                 if not _appr.get("all_set", True):
                     warnings_list.append("POLYMARKET_APPROVALS_MISSING")
             except Exception:
@@ -3738,30 +3757,73 @@ class SimmerClient:
             order_signature_type = 3 if uses_dw and dw_address else 0
 
         if self._ows_wallet:
-            # OWS path is V1-only and predates deposit-wallet support; if a
-            # OWS user ever ends up on a DW (not currently possible per the
-            # custody migration design), the V1 builder will reject sig type 3.
-            # Hard-fail here with a clear message rather than silently signing
-            # the wrong type.
             if uses_dw:
-                raise ValueError(
-                    "OWS BYOW trading does not support Polymarket deposit "
-                    "wallets. Either pin SIMMER_POLYMARKET_EXCHANGE_VERSION=v1 "
-                    "(no longer supported by Polymarket — V1 retired 2026-04-28) "
-                    "or trade via private-key external wallet."
+                # ── SIM-1646 dual-wallet routing (OWS branch) ──
+                # The raw-key V2-DW path handles per-position holder-address
+                # routing (lines above): EOA-held → sig-type-0, DW-held →
+                # sig-type-3. For per-agent OWS users this case should be
+                # structurally absent (per-agent wallets start with the DW
+                # activated; no pre-DW EOA positions accumulate). But
+                # migrations, manual transfers, or server state drift could
+                # in theory falsify that assumption. Hard-fail explicitly
+                # here rather than silently signing the wrong sig type.
+                # See _dev/active/_v2-ows-dw-signing/spec.md §4.3 + §5.6.
+                _eoa_lower = (self._wallet_address or "").lower()
+                _dw_lower = (dw_address or "").lower()
+                _holder_lower = (holder_address or "").lower()
+                if (
+                    _holder_lower
+                    and _holder_lower == _eoa_lower
+                    and _holder_lower != _dw_lower
+                ):
+                    raise ValueError(
+                        "OWS + deposit-wallet trade has holder=EOA "
+                        "(pre-DW position). Per-agent OWS users are "
+                        "expected to hold positions in the DW only; an "
+                        "EOA-held position indicates manual transfer, "
+                        "server drift, or unsupported migration. "
+                        "Refusing to sign. (SIM-1646 dual-wallet routing "
+                        "is implemented in the raw-key path; OWS path "
+                        "deferred until live receipts justify the "
+                        "complexity.)"
+                    )
+
+                # V2 OWS + deposit-wallet path. OWS upstream supports
+                # EIP-712 typed-data signing (verified v=27/28 + nested
+                # TypedDataSign envelope 2026-05-22). We hand-roll the
+                # same ERC-7739 wrap the raw-key V2-DW path does, just
+                # sourcing the inner ECDSA from OWS.
+                from .signing import build_and_sign_order_v2_dw_ows
+                signed = build_and_sign_order_v2_dw_ows(
+                    ows_wallet=self._ows_wallet,
+                    eoa_address=self._wallet_address,
+                    deposit_wallet_address=dw_address,
+                    token_id=token_id,
+                    side=clob_side,
+                    price=price,
+                    size=size,
+                    neg_risk=neg_risk,
+                    tick_size=tick_size,
+                    order_type=order_type,
+                    builder_code=None,  # picks up POLY_BUILDER_CODE env
+                    metadata=None,
+                    amount_usdc=amount_usdc,
                 )
-            signed = build_and_sign_order_ows(
-                ows_wallet=self._ows_wallet,
-                token_id=token_id,
-                side=clob_side,
-                price=price,
-                size=size,
-                neg_risk=neg_risk,
-                signature_type=0,  # EOA
-                tick_size=tick_size,
-                fee_rate_bps=fee_rate_bps,
-                order_type=order_type,
-            )
+            else:
+                # Cohort A external (no DW) — existing V1 OWS path,
+                # sig-type-0 against the EOA.
+                signed = build_and_sign_order_ows(
+                    ows_wallet=self._ows_wallet,
+                    token_id=token_id,
+                    side=clob_side,
+                    price=price,
+                    size=size,
+                    neg_risk=neg_risk,
+                    signature_type=0,  # EOA
+                    tick_size=tick_size,
+                    fee_rate_bps=fee_rate_bps,
+                    order_type=order_type,
+                )
         else:
             signed = build_and_sign_order(
                 private_key=self._private_key,

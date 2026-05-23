@@ -68,35 +68,55 @@ def get_ows_wallet_address(wallet_name: str) -> str:
 
 def _coerce_typed_data_uints(typed_data_json: str) -> str:
     """
-    Coerce uint values in EIP-712 typed data to strings.
+    Coerce uint values in EIP-712 typed data to strings, recursively walking
+    nested struct fields.
 
-    OWS's Rust EIP-712 parser requires uint values as strings when they
-    exceed JavaScript's Number.MAX_SAFE_INTEGER (e.g., Polymarket token IDs).
-    This converts all uint fields in the message to string representation.
+    OWS's Rust EIP-712 parser rejects uint decimal values exceeding 2^128
+    with "uint decimal value '...' exceeds u128 range; use hex encoding"
+    (e.g., Polymarket token IDs). Smaller uints work as JSON ints but
+    standardize to string for cross-runtime safety.
+
+    Nested struct recursion (codex consult 2026-05-22 P1 #2): Polymarket V1
+    orders use `primaryType=Order` with all uints at top-level `message.*`.
+    Polymarket V2 deposit-wallet orders use `primaryType=TypedDataSign`
+    with the load-bearing uints (tokenId, makerAmount, takerAmount, salt,
+    timestamp) nested under `message.contents.*` as the inner Order
+    struct. A top-level-only sweep misses the V2 case; the OWS Rust
+    parser then rejects the large tokenId. This recursion walks the type
+    graph and coerces uints at any depth. Array-typed fields are not
+    walked into — Polymarket V1/V2 envelopes don't use arrays of structs
+    or arrays of uints; if future envelopes do, extend here.
+
+    Backward compatibility: V1 (`primaryType=Order`, flat message) has no
+    nested struct fields, so the recursion branch never triggers. Output
+    is identical to the prior top-level-only implementation.
     """
     data = json.loads(typed_data_json)
     types = data.get("types", {})
     primary_type = data.get("primaryType", "")
     message = data.get("message", {})
 
-    # Find which fields are uint types
-    uint_fields = set()
-    for field in types.get(primary_type, []):
-        if field["type"].startswith("uint"):
-            uint_fields.add(field["name"])
-
-    # Convert int values for uint fields:
-    # - Values > 2^128: hex encoding (OWS requirement for large uint256)
-    # - Other values: string encoding
     U128_MAX = (1 << 128) - 1
-    for field_name in uint_fields:
-        if field_name in message and isinstance(message[field_name], int):
-            val = message[field_name]
-            if val > U128_MAX:
-                message[field_name] = hex(val)
-            else:
-                message[field_name] = str(val)
 
+    def _coerce_struct(struct_dict, struct_type_name):
+        """Walk one struct level: coerce uint fields, recurse into nested structs."""
+        if struct_type_name not in types or not isinstance(struct_dict, dict):
+            return
+        for field in types[struct_type_name]:
+            field_name = field["name"]
+            field_type = field["type"]
+            if field_name not in struct_dict:
+                continue
+            val = struct_dict[field_name]
+            # Strip array suffix to get the base type. Arrays themselves
+            # are not walked — see docstring.
+            base_type = field_type.rstrip("[]")
+            if field_type.startswith("uint") and isinstance(val, int):
+                struct_dict[field_name] = hex(val) if val > U128_MAX else str(val)
+            elif base_type in types and isinstance(val, dict):
+                _coerce_struct(val, base_type)
+
+    _coerce_struct(message, primary_type)
     return json.dumps(data)
 
 

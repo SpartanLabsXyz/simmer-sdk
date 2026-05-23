@@ -42,6 +42,22 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 - **Skip sell loop on resolved markets — polymarket-weather-trader v1.21.1, kalshi-weather-trader v1.0.7, polymarket-elon-tweets v1.3.3 (SIM-2046).** All three skills could retry sells indefinitely on resolved markets while waiting for `auto_redeem()` to claim the winning shares. Root cause: the exit loop didn't check `position.status` before attempting a sell; Polymarket/Kalshi reject sells on resolved markets with "Insufficient shares to sell", and the skill retried every cycle. Fix: added `status == "resolved"` guard immediately after the minimum-shares check. `auto_redeem()` at the top of each cycle handles the actual payout. Also changed silent `except: pass` on `auto_redeem()` to log the exception at `force=True` so future failures surface in skill logs.
 
+## [0.17.17] — 2026-05-22
+
+### Added
+
+- **OWS-wallet users can now trade Polymarket deposit-wallet markets (V2 sig-type-3).** Added `build_and_sign_order_v2_dw_ows` — a V2 POLY_1271 / ERC-7739 order signer that uses OWS upstream's `sign_typed_data` for the inner ECDSA. Mirrors the existing raw-private-key V2-DW path (`_build_and_sign_order_v2_dw`) byte-for-byte except at the signing call. Empirically verified: OWS returns 65-byte signatures with v ∈ {27, 28} (Solady ECDSA in the deposit-wallet contract requires this; v=0/1 returns 0x0 and rejects). New function asserts the v range at runtime to fail-closed if a future OWS upstream version changes encoding. Per-agent Elite OWS cohort can now trade on Polymarket — Herman's blocker since the 2026-04-28 V1 retirement is cleared.
+
+### Fixed
+
+- **`_coerce_typed_data_uints` now recurses into nested EIP-712 structs.** The prior top-level-only sweep missed Polymarket V2 deposit-wallet orders, where the load-bearing uints (`tokenId`, `makerAmount`, `takerAmount`, `salt`, `timestamp`) live under `message.contents.*` as the inner Order struct. OWS Rust parser rejected with "uint decimal value '...' exceeds u128 range" on large `tokenId`. V1 Order envelopes are unaffected (no nested structs → recursion is a no-op → identical output).
+- **Preflight removes `POLYMARKET_SIGNER_UNSUPPORTED` blocker** — the underlying constraint no longer applies now that OWS+DW V2 signing is supported. Also fixes `POLYMARKET_APPROVALS_MISSING` warning to check approvals on the **deposit wallet** address (the funder) for DW-active users, not the EOA. Without this fix, `ok_to_trade=true` could return while the DW lacked CLOB allowances → real trade failure at submission.
+- **`_execute_polymarket_byow_trade` OWS branch routes through the new V2 path** when `uses_dw=true`, with a defensive SIM-1646 hard-fail if `holder_address` indicates a pre-DW EOA-held position (theoretically impossible for per-agent OWS users but defensive against migrations, manual transfers, server state drift).
+
+### Internal
+
+- Codex consult on the implementation spec surfaced 4 P1 + 6 P2 design findings before any code was written; all P1s addressed in spec v2, then re-consulted with verdict CLEAN. Full design record at `_dev/active/_v2-ows-dw-signing/spec.md`.
+
 ## [0.17.16] — 2026-05-22
 
 ### Fixed
