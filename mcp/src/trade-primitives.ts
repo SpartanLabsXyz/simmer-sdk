@@ -16,16 +16,21 @@ export interface TradePrimitiveResult {
   isError?: boolean;
 }
 
+// Allowlist of live venues. Anything outside this list (including "", undefined,
+// malformed strings like "polymarketz") is treated as paper/sim — defense-in-depth
+// against bypass of the MCP Zod schema by programmatic callers.
+const LIVE_VENUES = ["polymarket", "kalshi"] as const;
+
 function resolveVenue(
   dry_run: boolean,
   venue: string,
   processEnv: Record<string, string | undefined> = process.env as Record<string, string | undefined>,
 ): { resolvedVenue: string; coercionWarning?: string } {
   const allowLive = processEnv.SIMMER_MCP_ALLOW_LIVE === "true";
-  // Strict === false: defense-in-depth. Undefined/null/falsy values default
-  // to paper mode even if TS signature is bypassed (programmatic callers,
-  // malformed MCP args, tests). Only literal `false` opts into live.
-  const wantsLive = dry_run === false && venue !== "sim";
+  // Strict === false: only literal `false` opts into live. Undefined/null/0/""
+  // all default to paper. Paired with the venue allowlist below.
+  const isLiveVenue = (LIVE_VENUES as readonly string[]).includes(venue);
+  const wantsLive = dry_run === false && isLiveVenue;
 
   if (wantsLive && allowLive) {
     return { resolvedVenue: venue };
@@ -38,7 +43,19 @@ function resolveVenue(
         `To enable live trading on ${venue}, set SIMMER_MCP_ALLOW_LIVE=true in your MCP env.`,
     };
   }
-  return { resolvedVenue: venue };
+  // Paper path: pass venue through only if it's sim or a known live venue (for
+  // paper-trading on real pricing). Unknown/malformed venues coerce to sim
+  // with a warning so the caller knows what happened. This also ensures
+  // effectiveDryRun gets forced to true downstream (coercionWarning truthy).
+  if (venue === "sim" || isLiveVenue) {
+    return { resolvedVenue: venue };
+  }
+  return {
+    resolvedVenue: "sim",
+    coercionWarning:
+      `⚠️ Unknown venue "${venue}" coerced to sim. ` +
+      `Allowed venues: sim, polymarket, kalshi.`,
+  };
 }
 
 export async function executeTrade(
@@ -85,6 +102,42 @@ export async function executeTrade(
     if (e instanceof BackendError) return e.toMcpResponse();
     return {
       content: [{ type: "text" as const, text: `❌ Trade failed: ${e instanceof Error ? e.message : String(e)}` }],
+      isError: true,
+    };
+  }
+}
+
+/**
+ * Cancel an open order. Always a live state-changing action (no paper mode
+ * exists for cancellation), so it's gated on SIMMER_MCP_ALLOW_LIVE=true.
+ * Mirrors the live-trading posture: explicit env opt-in required.
+ */
+export async function executeCancelOrder(
+  api: SimmerApi,
+  orderId: string,
+  processEnv: Record<string, string | undefined> = process.env as Record<string, string | undefined>,
+): Promise<TradePrimitiveResult> {
+  const allowLive = processEnv.SIMMER_MCP_ALLOW_LIVE === "true";
+  if (!allowLive) {
+    return {
+      content: [{
+        type: "text" as const,
+        text: `⚠️ Cancellation blocked — order cancellation is a live state-changing action. ` +
+          `Set SIMMER_MCP_ALLOW_LIVE=true in your MCP env to enable.`,
+      }],
+      isError: true,
+    };
+  }
+
+  try {
+    const result = await api.cancelOrder(orderId);
+    return {
+      content: [{ type: "text" as const, text: `✅ Order cancelled:\n${JSON.stringify(result, null, 2)}` }],
+    };
+  } catch (e) {
+    if (e instanceof BackendError) return e.toMcpResponse();
+    return {
+      content: [{ type: "text" as const, text: `❌ Cancel failed: ${e instanceof Error ? e.message : String(e)}` }],
       isError: true,
     };
   }

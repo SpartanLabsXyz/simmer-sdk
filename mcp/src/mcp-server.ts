@@ -111,7 +111,7 @@ import { discoverSkills } from "./skill-discovery.js";
 import { buildToolSchema, buildToolDescription, invokeSkillTool } from "./per-skill-tools.js";
 import { listSkills, getSkillDocs } from "./docs-tools.js";
 import { troubleshootError } from "./troubleshoot.js";
-import { executeTrade } from "./trade-primitives.js";
+import { executeTrade, executeCancelOrder } from "./trade-primitives.js";
 import { probeRuntime } from "./runtime-probe.js";
 import { BUNDLED_VERSION } from "./version.js";
 
@@ -769,23 +769,17 @@ if (simmer) {
 
   server.tool(
     "simmer_cancel_order",
-    "Cancel a single open order by its order ID (managed wallets only).",
+    [
+      "Cancel a single open order by its order ID (managed wallets only).",
+      "",
+      "Live state-changing action: requires SIMMER_MCP_ALLOW_LIVE=true env.",
+      "Without it, the call returns an error explaining the gate.",
+    ].join("\n"),
     {
       order_id: z.string().describe("Order ID to cancel (from GET /api/sdk/orders/open)"),
     },
     async ({ order_id }) => {
-      try {
-        const result = await simmer!.cancelOrder(order_id);
-        return {
-          content: [{ type: "text" as const, text: `✅ Order cancelled:\n${JSON.stringify(result, null, 2)}` }],
-        };
-      } catch (e) {
-        if (e instanceof BackendError) return e.toMcpResponse();
-        return {
-          content: [{ type: "text" as const, text: `❌ Cancel failed: ${e instanceof Error ? e.message : String(e)}` }],
-          isError: true,
-        };
-      }
+      return executeCancelOrder(simmer!, order_id);
     },
   );
 

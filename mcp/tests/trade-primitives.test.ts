@@ -5,7 +5,7 @@
  */
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { executeTrade } from "../dist/trade-primitives.js";
+import { executeTrade, executeCancelOrder } from "../dist/trade-primitives.js";
 import { SimmerApi } from "../dist/api.js";
 import { BackendError } from "../dist/errors.js";
 
@@ -122,6 +122,45 @@ describe("executeTrade — safety gate (SIMMER_MCP_ALLOW_LIVE)", () => {
 
     assert.ok(!result.isError);
     // Critical: dry_run MUST be true (not false, not undefined) — no live trade.
+    assert.equal(captured[0].dry_run, true);
+  });
+
+  it("coerces malformed venue to sim even with dry_run=false + ALLOW_LIVE=true", async () => {
+    const captured: Record<string, unknown>[] = [];
+    mockFetch(async (_url, init) => {
+      captured.push(JSON.parse((init?.body as string) ?? "{}") as Record<string, unknown>);
+      return okJson({ status: "ok" });
+    });
+
+    // Bypass Zod schema — simulate caller passing a malformed venue string.
+    // Only the LIVE_VENUES allowlist (polymarket, kalshi) opens the live gate.
+    const result = await executeTrade(
+      api,
+      { market_id: "m1", side: "yes", action: "buy", amount: 10, venue: "polymarketz", dry_run: false },
+      { SIMMER_MCP_ALLOW_LIVE: "true" },
+    );
+
+    assert.ok(!result.isError);
+    // Malformed venue must coerce to sim — never forward "polymarketz" downstream.
+    assert.equal(captured[0].venue, "sim");
+    assert.equal(captured[0].dry_run, true);
+  });
+
+  it("coerces empty venue to sim", async () => {
+    const captured: Record<string, unknown>[] = [];
+    mockFetch(async (_url, init) => {
+      captured.push(JSON.parse((init?.body as string) ?? "{}") as Record<string, unknown>);
+      return okJson({ status: "ok" });
+    });
+
+    const result = await executeTrade(
+      api,
+      { market_id: "m1", side: "yes", action: "buy", amount: 10, venue: "", dry_run: false },
+      { SIMMER_MCP_ALLOW_LIVE: "true" },
+    );
+
+    assert.ok(!result.isError);
+    assert.equal(captured[0].venue, "sim");
     assert.equal(captured[0].dry_run, true);
   });
 
@@ -344,5 +383,67 @@ describe("SimmerApi.cancelOrder", () => {
       assert.equal(e.statusCode, 404);
       return true;
     });
+  });
+});
+
+describe("executeCancelOrder — safety gate (SIMMER_MCP_ALLOW_LIVE)", () => {
+  beforeEach(() => { savedFetch = global.fetch; });
+  afterEach(() => { global.fetch = savedFetch; });
+
+  const api = new SimmerApi("sk_live_test", "https://api.simmer.markets", "3.3.0");
+
+  it("blocks cancellation when SIMMER_MCP_ALLOW_LIVE is not set", async () => {
+    let fetchCalled = false;
+    mockFetch(async () => { fetchCalled = true; return okJson({ cancelled: true }); });
+
+    const result = await executeCancelOrder(api, "o1", { /* no SIMMER_MCP_ALLOW_LIVE */ });
+
+    assert.equal(result.isError, true);
+    assert.ok(result.content[0].text.includes("blocked"), "should mention block");
+    assert.ok(result.content[0].text.includes("SIMMER_MCP_ALLOW_LIVE"), "should name the gate");
+    assert.equal(fetchCalled, false, "must NOT hit the backend");
+  });
+
+  it("blocks cancellation when SIMMER_MCP_ALLOW_LIVE is empty string", async () => {
+    let fetchCalled = false;
+    mockFetch(async () => { fetchCalled = true; return okJson({ cancelled: true }); });
+
+    const result = await executeCancelOrder(api, "o1", { SIMMER_MCP_ALLOW_LIVE: "" });
+
+    assert.equal(result.isError, true);
+    assert.equal(fetchCalled, false);
+  });
+
+  it("blocks cancellation when SIMMER_MCP_ALLOW_LIVE is 'false'", async () => {
+    let fetchCalled = false;
+    mockFetch(async () => { fetchCalled = true; return okJson({ cancelled: true }); });
+
+    const result = await executeCancelOrder(api, "o1", { SIMMER_MCP_ALLOW_LIVE: "false" });
+
+    assert.equal(result.isError, true);
+    assert.equal(fetchCalled, false);
+  });
+
+  it("allows cancellation when SIMMER_MCP_ALLOW_LIVE='true'", async () => {
+    const methods: string[] = [];
+    mockFetch(async (_url, init) => {
+      methods.push(init?.method ?? "GET");
+      return okJson({ cancelled: true, order_id: "o1" });
+    });
+
+    const result = await executeCancelOrder(api, "o1", { SIMMER_MCP_ALLOW_LIVE: "true" });
+
+    assert.ok(!result.isError);
+    assert.equal(methods[0], "DELETE");
+    assert.ok(result.content[0].text.includes("cancelled"));
+  });
+
+  it("surfaces BackendError correctly when backend rejects", async () => {
+    mockFetch(async () => errorJson(404, "Order not found"));
+
+    const result = await executeCancelOrder(api, "bad-order", { SIMMER_MCP_ALLOW_LIVE: "true" });
+
+    assert.equal(result.isError, true);
+    assert.ok(result.content[0].text.includes("404") || result.content[0].text.includes("not found"));
   });
 });
