@@ -3,7 +3,7 @@ name: simmer-briefing
 description: Daily check-in pattern for Simmer agents. One API call returns portfolio, risk alerts, and opportunities across all venues. Use this in your heartbeat to keep your human informed.
 metadata:
   author: "Simmer (@simmer_markets)"
-  version: "0.1.2"
+  version: "0.1.3"
   displayName: Simmer Briefing
   difficulty: beginner
   primaryEnv: SIMMER_API_KEY
@@ -105,19 +105,24 @@ Example output for a human:
 
 Don't dump raw JSON. Summarize.
 
-## Single-venue mode
+## Filtering to a single venue
 
-For paper-only or strategy-specific skills:
+`get_briefing()` always returns all venues. To focus on one, read the relevant key after fetching — there is **no `venue` parameter**:
 
 ```python
-briefing = client.get_briefing(venue="sim")  # filter to one venue
+briefing = client.get_briefing(since=last_check)
+venues = briefing.get("venues") or {}
+
+sim = venues.get("sim")          # None if no $SIM activity
+pm  = venues.get("polymarket")   # None if no Polymarket activity
+ks  = venues.get("kalshi")       # None if no Kalshi activity
 ```
 
-Same shape, only that venue populates.
+Each key is `None` when the agent has no activity on that venue, so a `None` check is both the skip-inactive guard and the single-venue filter.
 
 ## Recommended cadence
 
-Call `client.get_briefing(since=last_check)` a few times per day. Address `risk_alerts` first, then walk `briefing.venues` and present each venue's `actions` to your human. Track `last_check` to fetch only deltas next time.
+Call `client.get_briefing(since=last_check)` a few times per day. Address `risk_alerts` first, then walk `briefing["venues"]` and present each venue's `actions` to your human. Track `last_check` to fetch only deltas next time.
 
 ## Scope
 
