@@ -374,6 +374,7 @@ def execute_sell(market_id, shares):
             "error": result.error,
             "simulated": result.simulated,
             "order_status": result.order_status,
+            "retryable": result.retryable,
         }
         if result.order_status == "live":
             print(f"  [GTC] Sell order placed on book — waiting for fill (trade {result.trade_id})")
@@ -594,7 +595,11 @@ def check_exit_opportunities(dry_run=True, use_safeguards=True):
                         action="sell",
                     )
             else:
-                print(f"     ❌ Sell failed: {result.get('error', 'Unknown')}")
+                error = result.get("error", "Unknown")
+                if not result.get("retryable", True):
+                    print(f"     ⛔ Sell aborted (position cleared on-chain — no retry): {error}")
+                else:
+                    print(f"     ❌ Sell failed: {error}")
         else:
             print(f"  📊 {question}...")
             print(f"     Price ${current_price:.2f} < exit ${EXIT_THRESHOLD:.2f} - hold")

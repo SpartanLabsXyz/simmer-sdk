@@ -186,6 +186,7 @@ def execute_trade(market_id, side, amount, reasoning=""):
             "shares": result.shares_bought,
             "error": result.error,
             "simulated": result.simulated,
+            "retryable": result.retryable,
         }
     except Exception as e:
         return {"error": str(e)}
@@ -616,7 +617,10 @@ def run_mert_strategy(dry_run=True, positions_only=False, show_config=False,
             print(f"     {'[PAPER] ' if result.get('simulated') else ''}Bought {shares:.1f} {side.upper()} shares @ ${side_price:.2f}")
         else:
             error = result.get("error", "Unknown error")
-            print(f"     Trade failed: {error}")
+            if not result.get("retryable", True):
+                print(f"     ⛔ Trade aborted (position cleared on-chain — no retry): {error}")
+            else:
+                print(f"     Trade failed: {error}")
             execution_errors.append(error[:120])
 
     # Summary

@@ -640,6 +640,7 @@ def execute_trade(market_id, side, amount, signal_data=None):
             "shares": result.shares_bought,
             "error": result.error,
             "simulated": result.simulated,
+            "retryable": result.retryable,
         }
     except Exception as e:
         return {"error": str(e)}
@@ -1141,7 +1142,10 @@ def run_fast_market_strategy(dry_run=True, positions_only=False, show_config=Fal
             )
     else:
         error = result.get("error", "Unknown error") if result else "No response"
-        log(f"  ❌ Trade failed: {error}", force=True)
+        if result and not result.get("retryable", True):
+            log(f"  ⛔ Trade aborted (position cleared on-chain — no retry): {error}", force=True)
+        else:
+            log(f"  ❌ Trade failed: {error}", force=True)
         execution_error = error[:120]
 
     # Summary

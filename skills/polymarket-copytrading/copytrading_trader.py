@@ -371,6 +371,8 @@ def execute_copytrading(wallets: list, top_n: int = None, max_usd: float = 50.0,
             t["trade_id"] = trade_result.trade_id
             if trade_result.success:
                 executed += 1
+            elif action == "sell" and not trade_result.retryable:
+                print(f"  ⛔ Sell aborted — position cleared on-chain, skipping retry: {trade_result.error}")
         except Exception as e:
             t["success"] = False
             t["error"] = str(e)
