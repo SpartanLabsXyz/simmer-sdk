@@ -4684,21 +4684,43 @@ class SimmerClient:
         print()
         return {"set": set_count, "skipped": skipped, "failed": failed, "details": details}
 
-    def activate_polymarket_dw(self) -> Dict[str, Any]:
+    def activate_polymarket_dw(self, agent_id: Optional[str] = None) -> Dict[str, Any]:
         """Activate Polymarket Deposit Wallet trading headlessly.
 
         Calls /dw-approvals/prepare to get the EIP-712 batch, signs it
-        locally with WALLET_PRIVATE_KEY (key never leaves the process),
-        then submits via /dw-approvals/submit. No browser required.
+        locally with WALLET_PRIVATE_KEY or the configured OWS wallet (key
+        never leaves the process / OWS vault), then submits via
+        /dw-approvals/submit. No browser required.
 
-        NOTE: This method handles user-primary wallets only and will 401 on a
-        per-agent SDK API key. For per-agent wallets (Elite tier dedicated
-        wallets), use ``update_agent_wallet_creds(ows_wallet_name)`` instead.
+        Two scopes (user-primary vs per-agent):
+
+        - **User-primary** (default, ``agent_id=None``): operates on the
+          authenticated user's primary wallet via
+          ``/api/user/wallet/external/dw-approvals/*``. Works with the
+          user's SDK API key OR Dynamic JWT.
+        - **Per-agent** (``agent_id="..."``): operates on the named
+          Elite-tier per-agent OWS wallet via
+          ``/api/user/agent/{agent_id}/wallet/external/dw-approvals/*``.
+          Required when the signing key is the per-agent OWS wallet on
+          the agent's host (the dashboard wizard can't sign for an OWS
+          wallet because the browser has no access to the OWS vault).
+          Works with a per-agent SDK API key OR Dynamic JWT.
+
+        Idempotent: returns ``{already_set: True}`` if all required
+        spenders are already approved on-chain.
 
         Requires:
-        - WALLET_PRIVATE_KEY env var (or private_key constructor arg)
-        - Account upgraded to a Deposit Wallet (wallet_uses_deposit_wallet=True)
-        - eth-account: pip install eth-account
+        - WALLET_PRIVATE_KEY env var, ``private_key`` constructor arg,
+          OR OWS_WALLET env var / ``ows_wallet`` constructor arg
+        - Account upgraded to a Deposit Wallet (wallet_uses_deposit_wallet=True
+          for user-primary; the per-agent equivalent flag in the per-agent
+          variant)
+        - eth-account installed for the raw-key path
+
+        Args:
+            agent_id: When set, routes to the per-agent dw-approvals
+                endpoints. Omit (or pass None) for the user-primary
+                wallet path.
 
         Returns:
             Dict with keys:
@@ -4707,12 +4729,16 @@ class SimmerClient:
             - success (bool): True on completion
 
         Raises:
-            ValueError: if no private key is configured
-            ImportError: if eth-account is not installed
+            ValueError: if no private key / OWS wallet is configured
+            ImportError: if eth-account is not installed and we're on the raw-key path
 
-        Example:
+        Example (user-primary, raw key):
             client = SimmerClient(api_key="sk_live_...")  # WALLET_PRIVATE_KEY in env
             result = client.activate_polymarket_dw()
+
+        Example (per-agent, OWS — Herman's case):
+            client = SimmerClient(api_key="sk_live_per_agent_...", ows_wallet="herman-v3")
+            result = client.activate_polymarket_dw(agent_id="1b279e61-...")
             print(f"Done — already_set={result['already_set']}, calls={result['calls_count']}")
         """
         if not self._private_key and not self._ows_wallet:
@@ -4731,13 +4757,25 @@ class SimmerClient:
                     "Install with: pip install eth-account"
                 )
 
+        # Endpoint base routes per scope. Both endpoint pairs share the same
+        # request/response shape; only the path differs and the server reads
+        # state from `user_agent_wallets` vs `users` accordingly.
+        if agent_id:
+            _dw_base = (
+                f"/api/user/agent/{agent_id}/wallet/external/dw-approvals"
+            )
+            _scope_label = f"per-agent {agent_id}"
+        else:
+            _dw_base = "/api/user/wallet/external/dw-approvals"
+            _scope_label = "user-primary"
+
         # Step 1 — prepare: server scans on-chain allowances and returns the
         # EIP-712 typed data batch. Idempotent — returns already_set=True if
         # nothing to do.
-        print("[DW-Activate] Preparing approval batch…")
+        print(f"[DW-Activate] Preparing approval batch ({_scope_label})…")
         prepare = self._request(
             "POST",
-            "/api/user/wallet/external/dw-approvals/prepare",
+            f"{_dw_base}/prepare",
         )
 
         if prepare.get("already_set"):
@@ -4773,11 +4811,12 @@ class SimmerClient:
 
         # Step 3 — submit: server re-builds the DepositWalletBatchRequest,
         # posts to Polymarket's relayer with its builder HMAC, polls until
-        # STATE_MINED, then flips polymarket_allowances_set=TRUE.
+        # STATE_MINED, then flips approvals_set=TRUE on the matching row
+        # (`users` for user-primary, `user_agent_wallets` for per-agent).
         print("[DW-Activate] Submitting to relayer…")
         self._request(
             "POST",
-            "/api/user/wallet/external/dw-approvals/submit",
+            f"{_dw_base}/submit",
             json={
                 "signature": signature,
                 "nonce": nonce,

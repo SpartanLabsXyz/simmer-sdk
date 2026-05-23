@@ -42,6 +42,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 - **Skip sell loop on resolved markets — polymarket-weather-trader v1.21.1, kalshi-weather-trader v1.0.7, polymarket-elon-tweets v1.3.3 (SIM-2046).** All three skills could retry sells indefinitely on resolved markets while waiting for `auto_redeem()` to claim the winning shares. Root cause: the exit loop didn't check `position.status` before attempting a sell; Polymarket/Kalshi reject sells on resolved markets with "Insufficient shares to sell", and the skill retried every cycle. Fix: added `status == "resolved"` guard immediately after the minimum-shares check. `auto_redeem()` at the top of each cycle handles the actual payout. Also changed silent `except: pass` on `auto_redeem()` to log the exception at `force=True` so future failures surface in skill logs.
 
+## [0.17.18] — 2026-05-23
+
+### Added
+
+- **`client.activate_polymarket_dw(agent_id="...")` per-agent variant.** The existing user-primary helper handled OWS signing correctly (line 4768-4772) but was hardcoded to `/api/user/wallet/external/dw-approvals/*`, returning 401 for per-agent SDK API keys. New `agent_id` keyword arg routes to the per-agent endpoint pair `/api/user/agent/{id}/wallet/external/dw-approvals/{prepare,submit}` shipped in SIM-1906, server reading state from `user_agent_wallets` instead of `users` and flipping the per-agent `approvals_set` flag on relayer success. Same idempotent contract — `already_set=True` when on-chain is already complete. Default behavior (no `agent_id`) is unchanged. Unblocks per-agent Elite OWS users from completing missed approvals when Polymarket adds spender contracts post-activation; the dashboard wizard can't sign for these wallets because the OWS vault lives on the agent's host machine, not the user's browser.
+
 ## [0.17.17] — 2026-05-22
 
 ### Added
