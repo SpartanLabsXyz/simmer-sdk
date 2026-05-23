@@ -1,26 +1,24 @@
 ---
 name: polymarket-mert-sniper
-description: Near-expiry conviction trading on Polymarket. Snipe markets about to resolve when the odds are heavily skewed. Filter by topic, cap your bets, and only trade strong splits close to deadline.
+description: Near-expiry conviction trading on Polymarket. The skill scans markets in their final minutes, filters for strongly-skewed splits (60/40+), and places bounded trades against the under-priced side. Defaults — $10 max per trade, 5 trades/run, dry-run unless `--live`.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.3.0"
+  version: "1.3.1"
   displayName: Mert Sniper
   difficulty: advanced
   attribution: Strategy inspired by @mert — https://x.com/mert/status/2020216613279060433
 ---
 # Mert Sniper
 
-Near-expiry conviction trading on Polymarket. Snipe markets about to resolve when the odds are heavily skewed.
+Near-expiry conviction trading on Polymarket. The skill scans markets in their final minutes of pricing, filters for strongly-skewed splits, and places bounded trades against the under-priced side.
 
-> Strategy by [@mert](https://x.com/mert/status/2020216613279060433) — filter by topic, cap your bets, wait until near expiry, and only trade strong splits.
+> 🚨 **Framework, not a production trading system.** Read [DISCLAIMER.md](./DISCLAIMER.md) before connecting to a wallet with real funds. Dry-run is the default; `--live` is required for any real-USDC trade. Defaults: $10 max per trade, 60/40 split minimum, 2-minute expiry window, 5 trades per scan cycle — adjust deliberately before scaling.
 
-> **This is a template.** The default logic (expiry + split filter) gets you started — remix it with your own filters, timing rules, or market selection criteria. The skill handles all the plumbing (market discovery, trade execution, safeguards). Your agent provides the alpha.
+> **This is a template.** The default logic (expiry + split filter) is a starting point — remix it with your own filters, timing rules, or market selection criteria. The skill handles all the plumbing (market discovery, trade execution, safeguards). Your agent provides the alpha.
 
-> 🚨 **Framework, not a production trading system.** Read [DISCLAIMER.md](./DISCLAIMER.md) before connecting to a wallet with real funds.
+> Strategy attribution: [@mert](https://x.com/mert/status/2020216613279060433) — see source thread for the original methodology (topic filter, near-expiry timing, strong-split entry).
 
 ## When to Use This Skill
-
-> **Polymarket only.** All trades execute on Polymarket with real USDC. Use `--live` for real trades, dry-run is the default.
 
 Use this skill when the user wants to:
 - Trade markets that are about to resolve (last-minute conviction bets)
