@@ -443,7 +443,7 @@ def run_mert_strategy(dry_run=True, positions_only=False, show_config=False,
         else:
             for pos in positions:
                 question = pos.get("question", "Unknown")[:50]
-                sources = pos.get("sources", [])
+                sources = pos.get("sources") or []
                 print(f"  - {question}...")
                 print(f"    YES: {pos.get('shares_yes', 0):.1f} | NO: {pos.get('shares_no', 0):.1f} | P&L: ${pos.get('pnl', 0):.2f} | Sources: {sources}")
         return
