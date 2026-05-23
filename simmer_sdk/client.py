@@ -4764,15 +4764,20 @@ class SimmerClient:
             _dw_base = (
                 f"/api/user/agent/{agent_id}/wallet/external/dw-approvals"
             )
-            _scope_label = f"per-agent {agent_id}"
         else:
             _dw_base = "/api/user/wallet/external/dw-approvals"
-            _scope_label = "user-primary"
 
         # Step 1 — prepare: server scans on-chain allowances and returns the
         # EIP-712 typed data batch. Idempotent — returns already_set=True if
         # nothing to do.
-        print(f"[DW-Activate] Preparing approval batch ({_scope_label})…")
+        #
+        # Preserve byte-identical stdout for the default (user-primary) path
+        # so existing log scrapers + tests don't drift. Scope label only
+        # printed for per-agent (the new path).
+        if agent_id:
+            print(f"[DW-Activate] Preparing approval batch (per-agent {agent_id})…")
+        else:
+            print("[DW-Activate] Preparing approval batch…")
         prepare = self._request(
             "POST",
             f"{_dw_base}/prepare",
