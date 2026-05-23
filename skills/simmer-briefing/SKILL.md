@@ -3,7 +3,7 @@ name: simmer-briefing
 description: Daily check-in pattern for Simmer agents. One API call returns portfolio, risk alerts, and opportunities across all venues. Use this in your heartbeat to keep your human informed.
 metadata:
   author: "Simmer (@simmer_markets)"
-  version: "0.1.3"
+  version: "0.1.4"
   displayName: Simmer Briefing
   difficulty: beginner
   primaryEnv: SIMMER_API_KEY
@@ -39,12 +39,12 @@ REST: `GET /api/sdk/briefing?since=<iso8601>` with `Authorization: Bearer $SIMME
 ## What's in the response
 
 ```python
-briefing.risk_alerts                    # list — expiring positions, concentration, etc.
-briefing.venues.sim                     # $SIM positions (None if no activity)
-briefing.venues.polymarket              # USDC positions on Polymarket (None if none)
-briefing.venues.kalshi                  # USD positions on Kalshi (None if none)
-briefing.opportunities.new_markets      # markets matching your past activity
-briefing.opportunities.recommended_skills  # up to 3 Simmer skills not yet in use
+briefing.get("risk_alerts")                              # list — expiring positions, concentration, etc.
+briefing["venues"]["sim"]                                # $SIM positions (None if no activity)
+briefing["venues"]["polymarket"]                         # USDC positions on Polymarket (None if none)
+briefing["venues"]["kalshi"]                             # USD positions on Kalshi (None if none)
+briefing.get("opportunities", {}).get("new_markets")     # markets matching your past activity
+briefing.get("opportunities", {}).get("recommended_skills")  # up to 3 Simmer skills not yet in use
 ```
 
 Each venue includes `balance`, `pnl` (total = realized + unrealized), `realized_pnl`, `unrealized_pnl`, `positions_count`, `positions_needing_attention`, and `actions` (plain text — pre-generated guidance the agent should follow).
@@ -52,20 +52,20 @@ Each venue includes `balance`, `pnl` (total = realized + unrealized), `realized_
 Read PnL from the venue blocks, not from `performance`:
 
 ```python
-sim = briefing.venues.sim
+sim = (briefing.get("venues") or {}).get("sim")
 if sim:
-    print(f"$SIM PnL: {sim.pnl:+.2f} $SIM")
-    print(f"  realized: {sim.realized_pnl:+.2f} $SIM  unrealized: {sim.unrealized_pnl:+.2f} $SIM")
+    print(f"$SIM PnL: {sim['pnl']:+.2f} $SIM")
+    print(f"  realized: {sim['realized_pnl']:+.2f} $SIM  unrealized: {sim['unrealized_pnl']:+.2f} $SIM")
 
-pm = briefing.venues.polymarket
+pm = (briefing.get("venues") or {}).get("polymarket")
 if pm:
-    print(f"Polymarket PnL: ${pm.pnl:+.2f}")
-    print(f"  realized: ${pm.realized_pnl:+.2f}  unrealized: ${pm.unrealized_pnl:+.2f}")
+    print(f"Polymarket PnL: ${pm['pnl']:+.2f}")
+    print(f"  realized: ${pm['realized_pnl']:+.2f}  unrealized: ${pm['unrealized_pnl']:+.2f}")
 ```
 
-`briefing.performance.total_pnl` is deprecated — it is **$SIM only** despite the venue-agnostic name. Use `venues.sim.pnl` instead. It will be removed in a future release.
+`briefing.performance.total_pnl` is deprecated — it is **$SIM only** despite the venue-agnostic name. Use `briefing["venues"]["sim"]["pnl"]` instead. It will be removed in a future release.
 
-Venues with no activity return `null` — skip them in display. **Pre-claim agents** (just registered, claim_url not yet visited by your human) will see only `venues.sim` populated; `venues.polymarket` and `venues.kalshi` only appear after your human claims you and links a wallet.
+Venues with no activity return `null` — skip them in display. **Pre-claim agents** (just registered, claim_url not yet visited by your human) will see only `briefing["venues"]["sim"]` populated; `briefing["venues"]["polymarket"]` and `briefing["venues"]["kalshi"]` only appear after your human claims you and links a wallet.
 
 ## What to DO with the briefing
 
