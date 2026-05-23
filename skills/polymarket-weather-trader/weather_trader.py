@@ -1015,7 +1015,7 @@ def check_exit_opportunities(dry_run: bool = False, use_safeguards: bool = True)
     weather_positions = []
     for pos in positions:
         question = pos.get("question", "").lower()
-        sources = pos.get("sources", [])
+        sources = pos.get("sources") or []
         # Check if from weather skill OR has weather keywords
         if TRADE_SOURCE in sources or any(kw in question for kw in ["temperature", "°f", "highest temp", "lowest temp"]):
             weather_positions.append(pos)
@@ -1192,7 +1192,7 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
         else:
             for pos in positions:
                 log(f"  • {pos.get('question', 'Unknown')[:50]}...")
-                sources = pos.get('sources', [])
+                sources = pos.get('sources') or []
                 log(f"    YES: {pos.get('shares_yes', 0):.1f} | NO: {pos.get('shares_no', 0):.1f} | P&L: ${pos.get('pnl', 0):.2f} | Sources: {sources}")
         return
 
