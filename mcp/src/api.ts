@@ -44,6 +44,7 @@ export interface PostExperimentResult {
 export interface TradeParams {
   market_id: string;
   side: "yes" | "no";
+  action?: "buy" | "sell";
   amount?: number;
   shares?: number;
   venue?: string;

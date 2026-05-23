@@ -1,6 +1,6 @@
 /**
  * Tests for raw trade primitive tools:
- *   - executeTrade (safety gate, coercion, success/error paths)
+ *   - executeTrade (safety gate, action field, coercion, success/error paths)
  *   - SimmerApi.trade, getBriefing, getMarkets, getMarketContext, cancelOrder
  */
 import { describe, it, beforeEach, afterEach } from "node:test";
@@ -55,7 +55,7 @@ describe("executeTrade — safety gate (SIMMER_MCP_ALLOW_LIVE)", () => {
 
     const result = await executeTrade(
       api,
-      { market_id: "m1", side: "yes", amount: 10, venue: "polymarket", dry_run: false },
+      { market_id: "m1", side: "yes", action: "buy", amount: 10, venue: "polymarket", dry_run: false },
       { /* no SIMMER_MCP_ALLOW_LIVE */ },
     );
 
@@ -75,7 +75,7 @@ describe("executeTrade — safety gate (SIMMER_MCP_ALLOW_LIVE)", () => {
 
     const result = await executeTrade(
       api,
-      { market_id: "m1", side: "yes", amount: 5, venue: "polymarket", dry_run: true },
+      { market_id: "m1", side: "yes", action: "buy", amount: 5, venue: "polymarket", dry_run: true },
       { SIMMER_MCP_ALLOW_LIVE: "true" },
     );
 
@@ -94,7 +94,7 @@ describe("executeTrade — safety gate (SIMMER_MCP_ALLOW_LIVE)", () => {
 
     const result = await executeTrade(
       api,
-      { market_id: "m1", side: "yes", amount: 10, venue: "polymarket", dry_run: false },
+      { market_id: "m1", side: "yes", action: "buy", amount: 10, venue: "polymarket", dry_run: false },
       { SIMMER_MCP_ALLOW_LIVE: "true" },
     );
 
@@ -109,7 +109,7 @@ describe("executeTrade — safety gate (SIMMER_MCP_ALLOW_LIVE)", () => {
 
     const result = await executeTrade(
       api,
-      { market_id: "m1", side: "yes", amount: 10, venue: "sim", dry_run: true },
+      { market_id: "m1", side: "yes", action: "buy", amount: 10, venue: "sim", dry_run: true },
       {},
     );
 
@@ -122,12 +122,79 @@ describe("executeTrade — safety gate (SIMMER_MCP_ALLOW_LIVE)", () => {
 
     const result = await executeTrade(
       api,
-      { market_id: "m1", side: "yes", amount: 10, venue: "sim", dry_run: true },
+      { market_id: "m1", side: "yes", action: "buy", amount: 10, venue: "sim", dry_run: true },
       {},
     );
 
     assert.ok(result.isError);
     assert.ok(result.content[0].text.includes("Network timeout"));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// executeTrade — action field (buy vs sell)
+// ---------------------------------------------------------------------------
+
+describe("executeTrade — action field threading", () => {
+  beforeEach(() => { savedFetch = global.fetch; });
+  afterEach(() => { global.fetch = savedFetch; });
+
+  const api = new SimmerApi("sk_live_test", "https://api.simmer.markets", "3.3.0");
+
+  it("threads action='buy' into POST body", async () => {
+    const captured: Record<string, unknown>[] = [];
+    mockFetch(async (_url, init) => {
+      captured.push(JSON.parse((init?.body as string) ?? "{}") as Record<string, unknown>);
+      return okJson({ status: "ok", action: "buy" });
+    });
+
+    await executeTrade(
+      api,
+      { market_id: "m1", side: "yes", action: "buy", amount: 10, venue: "sim", dry_run: true },
+      {},
+    );
+
+    assert.equal(captured[0].action, "buy");
+    assert.equal(captured[0].amount, 10);
+  });
+
+  it("threads action='sell' + shares into POST body", async () => {
+    const captured: Record<string, unknown>[] = [];
+    mockFetch(async (_url, init) => {
+      captured.push(JSON.parse((init?.body as string) ?? "{}") as Record<string, unknown>);
+      return okJson({ status: "ok", action: "sell" });
+    });
+
+    const result = await executeTrade(
+      api,
+      { market_id: "m1", side: "yes", action: "sell", shares: 50, venue: "sim", dry_run: true },
+      {},
+    );
+
+    assert.ok(!result.isError);
+    assert.equal(captured[0].action, "sell");
+    assert.equal(captured[0].shares, 50);
+    assert.equal(captured[0].amount, undefined, "amount should not be sent for sells without amount");
+  });
+
+  it("venue gate still coerces a sell on live venue without SIMMER_MCP_ALLOW_LIVE", async () => {
+    const captured: Record<string, unknown>[] = [];
+    mockFetch(async (_url, init) => {
+      captured.push(JSON.parse((init?.body as string) ?? "{}") as Record<string, unknown>);
+      return okJson({ status: "ok" });
+    });
+
+    const result = await executeTrade(
+      api,
+      { market_id: "m1", side: "yes", action: "sell", shares: 25, venue: "polymarket", dry_run: false },
+      { /* no SIMMER_MCP_ALLOW_LIVE */ },
+    );
+
+    assert.ok(!result.isError);
+    assert.ok(result.content[0].text.includes("coerced"), "sell coercion warning should appear");
+    assert.equal(captured[0].venue, "sim");
+    assert.equal(captured[0].action, "sell"); // action still threads through correctly
+    assert.equal(captured[0].dry_run, true);
   });
 });
 

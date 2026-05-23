@@ -43,6 +43,7 @@ export async function executeTrade(
   args: {
     market_id: string;
     side: "yes" | "no";
+    action: "buy" | "sell";
     amount?: number;
     shares?: number;
     venue: string;
@@ -58,6 +59,7 @@ export async function executeTrade(
   const params: TradeParams = {
     market_id: args.market_id,
     side: args.side,
+    action: args.action,
     venue: resolvedVenue,
     dry_run: effectiveDryRun,
   };

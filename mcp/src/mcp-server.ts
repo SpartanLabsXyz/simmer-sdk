@@ -661,8 +661,9 @@ if (simmer) {
     {
       market_id: z.string().describe("Simmer market UUID (from simmer_get_markets)"),
       side: z.enum(["yes", "no"]).describe("Which outcome to trade"),
-      amount: z.number().optional().describe("USD to spend (for buys). Mutually exclusive with shares."),
-      shares: z.number().optional().describe("Shares to sell (for sells). Mutually exclusive with amount."),
+      action: z.enum(["buy", "sell"]).default("buy").describe("'buy' to open/add to a position (requires amount); 'sell' to close/reduce (requires shares)."),
+      amount: z.number().optional().describe("USD to spend. Required for action='buy'."),
+      shares: z.number().optional().describe("Shares to sell. Required for action='sell'."),
       venue: z.enum(["sim", "polymarket", "kalshi"]).default("sim").describe("Trading venue. 'sim' = $SIM paper mode."),
       dry_run: z.boolean().default(true).describe("If false (+ SIMMER_MCP_ALLOW_LIVE=true + live venue), places a real order. Default: paper mode."),
       reasoning: z.string().optional().describe("Why you're making this trade (stored for P&L attribution and flip-flop detection)"),
