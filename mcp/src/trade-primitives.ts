@@ -22,7 +22,10 @@ function resolveVenue(
   processEnv: Record<string, string | undefined> = process.env as Record<string, string | undefined>,
 ): { resolvedVenue: string; coercionWarning?: string } {
   const allowLive = processEnv.SIMMER_MCP_ALLOW_LIVE === "true";
-  const wantsLive = !dry_run && venue !== "sim";
+  // Strict === false: defense-in-depth. Undefined/null/falsy values default
+  // to paper mode even if TS signature is bypassed (programmatic callers,
+  // malformed MCP args, tests). Only literal `false` opts into live.
+  const wantsLive = dry_run === false && venue !== "sim";
 
   if (wantsLive && allowLive) {
     return { resolvedVenue: venue };
@@ -54,7 +57,10 @@ export async function executeTrade(
   processEnv: Record<string, string | undefined> = process.env as Record<string, string | undefined>,
 ): Promise<TradePrimitiveResult> {
   const { resolvedVenue, coercionWarning } = resolveVenue(args.dry_run, args.venue, processEnv);
-  const effectiveDryRun = coercionWarning ? true : args.dry_run;
+  // Fail-closed: only literal `false` opts out of dry-run. Undefined/null/any
+  // other falsy value defaults to paper mode. Paired with resolveVenue's
+  // strict === false check above for defense-in-depth.
+  const effectiveDryRun = args.dry_run === false && !coercionWarning ? false : true;
 
   const params: TradeParams = {
     market_id: args.market_id,

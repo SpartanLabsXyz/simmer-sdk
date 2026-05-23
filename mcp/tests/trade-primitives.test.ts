@@ -104,6 +104,27 @@ describe("executeTrade — safety gate (SIMMER_MCP_ALLOW_LIVE)", () => {
     assert.ok(!result.content[0].text.includes("coerced"), "should not warn about coercion");
   });
 
+  it("fail-closes when dry_run is undefined even with ALLOW_LIVE=true (defense-in-depth)", async () => {
+    const captured: Record<string, unknown>[] = [];
+    mockFetch(async (_url, init) => {
+      captured.push(JSON.parse((init?.body as string) ?? "{}") as Record<string, unknown>);
+      return okJson({ status: "ok" });
+    });
+
+    // Bypass TS signature — simulate programmatic/malformed caller passing undefined.
+    // Only literal `dry_run === false` should open the live gate; undefined must
+    // coerce dry_run to true (paper). Venue may pass through (paper on real pricing).
+    const result = await executeTrade(
+      api,
+      { market_id: "m1", side: "yes", action: "buy", amount: 10, venue: "polymarket", dry_run: undefined as unknown as boolean },
+      { SIMMER_MCP_ALLOW_LIVE: "true" },
+    );
+
+    assert.ok(!result.isError);
+    // Critical: dry_run MUST be true (not false, not undefined) — no live trade.
+    assert.equal(captured[0].dry_run, true);
+  });
+
   it("returns BackendError response on 4xx", async () => {
     mockFetch(async () => errorJson(401, "Invalid API key"));
 
