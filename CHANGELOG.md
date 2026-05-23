@@ -42,6 +42,16 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 - **Skip sell loop on resolved markets — polymarket-weather-trader v1.21.1, kalshi-weather-trader v1.0.7, polymarket-elon-tweets v1.3.3 (SIM-2046).** All three skills could retry sells indefinitely on resolved markets while waiting for `auto_redeem()` to claim the winning shares. Root cause: the exit loop didn't check `position.status` before attempting a sell; Polymarket/Kalshi reject sells on resolved markets with "Insufficient shares to sell", and the skill retried every cycle. Fix: added `status == "resolved"` guard immediately after the minimum-shares check. `auto_redeem()` at the top of each cycle handles the actual payout. Also changed silent `except: pass` on `auto_redeem()` to log the exception at `force=True` so future failures surface in skill logs.
 
+## [0.17.19] — 2026-05-23
+
+### Added
+
+- **`client.get_markets(include=[...])` kwarg + `Market.resolution_criteria` field (SIM-2318).** New `include` parameter on `get_markets()` lets callers request optional fields server-side instead of pulling them per-market. First supported include: `"resolution_criteria"` (the human-readable text describing how a market resolves), surfaced as a new optional field on the `Market` dataclass. Backward compatible — omitting `include` returns the existing shape. Useful for skills that want to inspect resolution criteria during candidate filtering without an N+1 round trip.
+
+### Changed
+
+- **`TradeResult` carries `retryable: bool` and `order_id: Optional[str]` from server response (SIM-1329).** Two new fields on the `TradeResult` dataclass with safe defaults (`retryable=True`, `order_id=None`) so existing callers see no behavior change. When the server knows retrying is futile (e.g., position cleared on-chain before sell hit the CLOB), it sets `retryable=False` so the skill can stop the retry loop instead of looping at a stale price. `order_id` exposes the CLOB order ID for GTC/GTD orders, enabling `cancel_order()` follow-up. Six bundled skills (copytrading, elon-tweets, fast-loop, mert-sniper, signal-sniper, weather-trader) propagate the field and switch from `❌ Trade failed` to `⛔ Trade aborted (position cleared on-chain — no retry)` log lines when the server tags the response non-retryable. Dominant failure mode for the 18 agents with ≥10 failed sells in 7 days.
+
 ## [0.17.18] — 2026-05-23
 
 ### Added
