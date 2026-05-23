@@ -39,6 +39,40 @@ export interface PostExperimentResult {
   latest_version?: string;
 }
 
+// Raw primitive API types
+
+export interface TradeParams {
+  market_id: string;
+  side: "yes" | "no";
+  amount?: number;
+  shares?: number;
+  venue?: string;
+  dry_run?: boolean;
+  reasoning?: string;
+  source?: string;
+}
+
+export interface TradeResult {
+  [key: string]: unknown;
+}
+
+export interface BriefingResult {
+  [key: string]: unknown;
+}
+
+export interface MarketsResult {
+  markets: unknown[];
+  [key: string]: unknown;
+}
+
+export interface MarketContextResult {
+  [key: string]: unknown;
+}
+
+export interface CancelOrderResult {
+  [key: string]: unknown;
+}
+
 export class SimmerApi {
   private apiKey: string;
   private apiUrl: string;
@@ -153,6 +187,111 @@ export class SimmerApi {
     } catch {
       return null;
     }
+  }
+
+  // -------------------------------------------------------------------------
+  // Raw trading primitives
+  // -------------------------------------------------------------------------
+
+  /**
+   * Execute or dry-run a trade. Throws BackendError on 4xx/5xx.
+   */
+  async trade(params: TradeParams): Promise<TradeResult> {
+    const resp = await this.timedFetch(
+      `${this.apiUrl}/api/sdk/trade`,
+      {
+        method: "POST",
+        headers: this.headers(),
+        body: JSON.stringify(params),
+      },
+      30_000,
+    );
+    if (!resp.ok) {
+      const detail = await this.extractDetail(resp);
+      const upgradeUrl = resp.status === 403 ? "https://simmer.markets/pro" : undefined;
+      throw new BackendError(resp.status, detail, upgradeUrl);
+    }
+    return (await resp.json()) as TradeResult;
+  }
+
+  /**
+   * Get the agent briefing (portfolio, positions, opportunities, performance).
+   * Throws BackendError on 4xx/5xx.
+   */
+  async getBriefing(since?: string): Promise<BriefingResult> {
+    const url = since
+      ? `${this.apiUrl}/api/sdk/briefing?since=${encodeURIComponent(since)}`
+      : `${this.apiUrl}/api/sdk/briefing`;
+    const resp = await this.timedFetch(url, { headers: this.headers() }, 15_000);
+    if (!resp.ok) {
+      const detail = await this.extractDetail(resp);
+      const upgradeUrl = resp.status === 403 ? "https://simmer.markets/pro" : undefined;
+      throw new BackendError(resp.status, detail, upgradeUrl);
+    }
+    return (await resp.json()) as BriefingResult;
+  }
+
+  /**
+   * List or search markets. Throws BackendError on 4xx/5xx.
+   */
+  async getMarkets(params: {
+    q?: string;
+    limit?: number;
+    venue?: string;
+    status?: string;
+    tags?: string;
+    sort?: string;
+  }): Promise<MarketsResult> {
+    const qs = new URLSearchParams();
+    if (params.q) qs.set("q", params.q);
+    if (params.limit) qs.set("limit", String(params.limit));
+    if (params.venue) qs.set("venue", params.venue);
+    if (params.status) qs.set("status", params.status);
+    if (params.tags) qs.set("tags", params.tags);
+    if (params.sort) qs.set("sort", params.sort);
+    const url = `${this.apiUrl}/api/sdk/markets?${qs.toString()}`;
+    const resp = await this.timedFetch(url, { headers: this.headers() }, 15_000);
+    if (!resp.ok) {
+      const detail = await this.extractDetail(resp);
+      throw new BackendError(resp.status, detail);
+    }
+    return (await resp.json()) as MarketsResult;
+  }
+
+  /**
+   * Get rich context for a market. Throws BackendError on 4xx/5xx.
+   */
+  async getMarketContext(marketId: string, params: {
+    my_probability?: number;
+    venue?: string;
+  } = {}): Promise<MarketContextResult> {
+    const qs = new URLSearchParams();
+    if (params.my_probability !== undefined) qs.set("my_probability", String(params.my_probability));
+    if (params.venue) qs.set("venue", params.venue);
+    const qStr = qs.toString();
+    const url = `${this.apiUrl}/api/sdk/context/${encodeURIComponent(marketId)}${qStr ? `?${qStr}` : ""}`;
+    const resp = await this.timedFetch(url, { headers: this.headers() }, 15_000);
+    if (!resp.ok) {
+      const detail = await this.extractDetail(resp);
+      throw new BackendError(resp.status, detail);
+    }
+    return (await resp.json()) as MarketContextResult;
+  }
+
+  /**
+   * Cancel a single open order by ID. Throws BackendError on 4xx/5xx.
+   */
+  async cancelOrder(orderId: string): Promise<CancelOrderResult> {
+    const resp = await this.timedFetch(
+      `${this.apiUrl}/api/sdk/orders/${encodeURIComponent(orderId)}`,
+      { method: "DELETE", headers: this.headers() },
+      15_000,
+    );
+    if (!resp.ok) {
+      const detail = await this.extractDetail(resp);
+      throw new BackendError(resp.status, detail);
+    }
+    return (await resp.json()) as CancelOrderResult;
   }
 
   /**
