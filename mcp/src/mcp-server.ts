@@ -112,6 +112,7 @@ import { buildToolSchema, buildToolDescription, invokeSkillTool } from "./per-sk
 import { listSkills, getSkillDocs } from "./docs-tools.js";
 import { troubleshootError } from "./troubleshoot.js";
 import { executeTrade, executeCancelOrder } from "./trade-primitives.js";
+import { registerTool } from "./tool-registry.js";
 import { probeRuntime } from "./runtime-probe.js";
 import { BUNDLED_VERSION } from "./version.js";
 
@@ -263,17 +264,24 @@ if (simmer) {
 
   // --- init_experiment ---
 
-  server.tool(
-    "init_experiment",
-    "Initialize the experiment session. Call once before the first run_experiment to set the name, primary metric, unit, and direction. Writes config to autoresearch.jsonl.",
-    {
+  registerTool(server, {
+    name: "init_experiment",
+    description: "Initialize the experiment session. Call once before the first run_experiment to set the name, primary metric, unit, and direction. Writes config to autoresearch.jsonl.",
+    schema: {
       name: z.string().describe('Human-readable name (e.g. "Optimizing polymarket-ai-divergence for P&L")'),
       metric_name: z.string().describe('Primary metric name (e.g. "pnl", "trades", "sharpe")'),
       skill_slug: z.string().describe('Skill slug for API tracking (e.g. "polymarket-fast-loop")'),
       metric_unit: z.string().optional().describe('Unit (e.g. "$", "%", "")'),
       direction: z.enum(["lower", "higher"]).optional().describe('Whether "lower" or "higher" is better. Default: "higher"'),
     },
-    async ({ name, metric_name, skill_slug, metric_unit, direction }) => {
+    mutates: false,
+    handler: async ({ name, metric_name, skill_slug, metric_unit, direction }: {
+      name: string;
+      metric_name: string;
+      skill_slug: string;
+      metric_unit?: string;
+      direction?: "lower" | "higher";
+    }, _ctx) => {
       const isReinit = state.results.length > 0;
 
       state.name = name;
@@ -355,18 +363,19 @@ if (simmer) {
         }],
       };
     },
-  );
+  });
 
   // --- run_experiment (Pro-gated — Task 22, Codex CRITICAL #1) ---
 
-  server.tool(
-    "run_experiment",
-    "Run a shell command as an experiment. Times execution, captures output, detects pass/fail. Requires Pro plan.",
-    {
+  registerTool(server, {
+    name: "run_experiment",
+    description: "Run a shell command as an experiment. Times execution, captures output, detects pass/fail. Requires Pro plan.",
+    schema: {
       command: z.string().describe("Shell command to run"),
       timeout_seconds: z.number().optional().describe("Kill after this many seconds (default: 600)"),
     },
-    async ({ command, timeout_seconds }) => {
+    mutates: false,
+    handler: async ({ command, timeout_seconds }: { command: string; timeout_seconds?: number }, _ctx) => {
       // Per-call Pro check — Codex CRITICAL #1
       try {
         await assertProForRunExperiment(simmer!);
@@ -413,14 +422,14 @@ if (simmer) {
 
       return { content: [{ type: "text" as const, text }] };
     },
-  );
+  });
 
   // --- log_experiment ---
 
-  server.tool(
-    "log_experiment",
-    'Record an experiment result. "keep" auto-commits via git. "discard"/"crash"/"checks_failed" reverts. Reports confidence score after 3+ runs.',
-    {
+  registerTool(server, {
+    name: "log_experiment",
+    description: 'Record an experiment result. "keep" auto-commits via git. "discard"/"crash"/"checks_failed" reverts. Reports confidence score after 3+ runs.',
+    schema: {
       commit: z.string().describe("Git commit hash (short, 7 chars)"),
       metric: z.number().describe("Primary metric value. 0 for crashes."),
       status: z.enum(["keep", "discard", "crash", "checks_failed"]).describe("keep if improved, discard if worse, crash if skill broke, checks_failed if ran but post-run checks failed"),
@@ -429,7 +438,16 @@ if (simmer) {
       asi: z.record(z.string(), z.unknown()).optional().describe('Actionable Side Information — free-form diagnostics'),
       force: z.boolean().optional().describe("Set true to allow adding a new secondary metric not previously tracked"),
     },
-    async ({ commit, metric, status, description, metrics: secondaryMetrics, asi, force }) => {
+    mutates: false,
+    handler: async ({ commit, metric, status, description, metrics: secondaryMetrics, asi, force }: {
+      commit: string;
+      metric: number;
+      status: "keep" | "discard" | "crash" | "checks_failed";
+      description: string;
+      metrics?: Record<string, number>;
+      asi?: Record<string, unknown>;
+      force?: boolean;
+    }, _ctx) => {
       const secMetrics: Record<string, number> = secondaryMetrics ?? {};
       const forceAdd = force ?? false;
 
@@ -602,20 +620,26 @@ if (simmer) {
 
       return { content: [{ type: "text" as const, text }] };
     },
-  );
+  });
 
   // --- backtest_experiment (Task 21 — throws BackendError on 4xx/5xx) ---
 
-  server.tool(
-    "backtest_experiment",
-    "Replay historical trades against new config params without executing real trades. Returns simulated P&L. Requires Pro plan.",
-    {
+  registerTool(server, {
+    name: "backtest_experiment",
+    description: "Replay historical trades against new config params without executing real trades. Returns simulated P&L. Requires Pro plan.",
+    schema: {
       skill_slug: z.string().describe("Skill to backtest"),
       config: z.record(z.string(), z.number()).describe("Config overrides to test"),
       days: z.number().optional().describe("Days of history to replay (default 7, max 30)"),
       venue: z.string().optional().describe("'sim' or 'polymarket' (default 'sim')"),
     },
-    async ({ skill_slug, config, days, venue }) => {
+    mutates: false,
+    handler: async ({ skill_slug, config, days, venue }: {
+      skill_slug: string;
+      config: Record<string, number>;
+      days?: number;
+      venue?: string;
+    }, _ctx) => {
       let result;
       try {
         result = await simmer!.backtest({ skill_slug, config, days, venue });
@@ -639,7 +663,7 @@ if (simmer) {
 
       return { content: [{ type: "text" as const, text }] };
     },
-  );
+  });
 
   // ===========================================================================
   // RAW TRADE PRIMITIVES — direct REST, no Python subprocess
@@ -647,46 +671,46 @@ if (simmer) {
 
   // --- simmer_trade ---
 
-  server.tool(
-    "simmer_trade",
-    [
+  registerTool(server, {
+    name: "simmer_trade",
+    description: [
       "Execute or dry-run a trade on a Simmer market.",
       "",
-      "Safety triple-gate: a live trade on a real venue requires (1) dry_run=false,",
-      "(2) venue='polymarket' or 'kalshi', AND (3) SIMMER_MCP_ALLOW_LIVE=true env.",
-      "Any missing gate coerces to sim with a warning. Default: dry_run=true (paper mode).",
+      "Requires SIMMER_MCP_ALLOW_LIVE=true in your MCP env to operate.",
+      "Default: dry_run=true (paper mode on sim venue).",
       "",
+      "For a live order: set dry_run=false, specify a live venue (polymarket/kalshi),",
+      "and ensure SIMMER_MCP_ALLOW_LIVE=true is set.",
       "Use 'amount' (USD) for buys, 'shares' for sells. Providing both raises an error.",
-    ].join("\n"),
-    {
+    ],
+    schema: {
       market_id: z.string().describe("Simmer market UUID (from simmer_get_markets)"),
       side: z.enum(["yes", "no"]).describe("Which outcome to trade"),
-      action: z.enum(["buy", "sell"]).default("buy").describe("'buy' to open/add to a position (requires amount); 'sell' to close/reduce (requires shares)."),
-      amount: z.number().optional().describe("USD to spend. Required for action='buy'."),
-      shares: z.number().optional().describe("Shares to sell. Required for action='sell'."),
+      amount: z.number().optional().describe("USD to spend (for buys). Mutually exclusive with shares."),
+      shares: z.number().optional().describe("Shares to sell (for sells). Mutually exclusive with amount."),
       venue: z.enum(["sim", "polymarket", "kalshi"]).default("sim").describe("Trading venue. 'sim' = $SIM paper mode."),
-      dry_run: z.boolean().default(true).describe("If false (+ SIMMER_MCP_ALLOW_LIVE=true + live venue), places a real order. Default: paper mode."),
+      dry_run: z.boolean().default(true).describe("If false + live venue, places a real order. Default: paper mode."),
       reasoning: z.string().optional().describe("Why you're making this trade (stored for P&L attribution and flip-flop detection)"),
       source: z.string().optional().describe("Source tag for grouping trades (e.g. 'sdk:my-strategy')"),
     },
-    async (args) => {
-      return executeTrade(simmer!, args);
-    },
-  );
+    mutates: true,
+    handler: async (args, ctx) => executeTrade(simmer!, args as Parameters<typeof executeTrade>[1], ctx),
+  });
 
   // --- simmer_get_briefing ---
 
-  server.tool(
-    "simmer_get_briefing",
-    [
+  registerTool(server, {
+    name: "simmer_get_briefing",
+    description: [
       "Get a single-call agent briefing: portfolio balance, open positions,",
       "top opportunities, and recent performance. Replaces 5-6 separate API calls.",
       "Ideal for agent heartbeat check-ins.",
-    ].join("\n"),
-    {
+    ],
+    schema: {
       since: z.string().optional().describe("ISO timestamp — only show changes since this time. Defaults to 24h ago."),
     },
-    async ({ since }) => {
+    mutates: false,
+    handler: async ({ since }: { since?: string }, _ctx) => {
       try {
         const result = await simmer!.getBriefing(since);
         return {
@@ -700,18 +724,18 @@ if (simmer) {
         };
       }
     },
-  );
+  });
 
   // --- simmer_get_markets ---
 
-  server.tool(
-    "simmer_get_markets",
-    [
+  registerTool(server, {
+    name: "simmer_get_markets",
+    description: [
       "List or search markets available for SDK trading.",
       "Use 'q' for text search. Results include price, volume, and venue.",
       "Default limit is 50; max is 500.",
-    ].join("\n"),
-    {
+    ],
+    schema: {
       q: z.string().optional().describe("Text search query (min 2 chars, case-insensitive)"),
       limit: z.number().optional().describe("Max markets to return (default 50, max 500)"),
       venue: z.enum(["sim", "polymarket", "kalshi"]).optional().describe("Filter by venue"),
@@ -719,7 +743,11 @@ if (simmer) {
       tags: z.string().optional().describe("Comma-separated tags to filter by (e.g. 'weather,crypto')"),
       sort: z.enum(["volume", "created"]).optional().describe("Sort order: 'volume' (24h) or 'created'"),
     },
-    async (args) => {
+    mutates: false,
+    handler: async (args: {
+      q?: string; limit?: number; venue?: "sim" | "polymarket" | "kalshi";
+      status?: string; tags?: string; sort?: "volume" | "created";
+    }, _ctx) => {
       try {
         const result = await simmer!.getMarkets(args);
         return {
@@ -733,23 +761,28 @@ if (simmer) {
         };
       }
     },
-  );
+  });
 
   // --- simmer_get_market_context ---
 
-  server.tool(
-    "simmer_get_market_context",
-    [
+  registerTool(server, {
+    name: "simmer_get_market_context",
+    description: [
       "Get rich context for a specific market: price history, your position,",
       "recent trades, flip-flop detection, slippage estimates, and edge analysis.",
       "Pass my_probability for a TRADE/HOLD recommendation.",
-    ].join("\n"),
-    {
+    ],
+    schema: {
       market_id: z.string().describe("Simmer market UUID"),
       my_probability: z.number().min(0).max(1).optional().describe("Your probability estimate (0-1) for edge calculation and TRADE/HOLD recommendation"),
       venue: z.enum(["sim", "polymarket", "kalshi", "all"]).optional().describe("Which venue's positions to include (default 'all')"),
     },
-    async ({ market_id, my_probability, venue }) => {
+    mutates: false,
+    handler: async ({ market_id, my_probability, venue }: {
+      market_id: string;
+      my_probability?: number;
+      venue?: "sim" | "polymarket" | "kalshi" | "all";
+    }, _ctx) => {
       try {
         const result = await simmer!.getMarketContext(market_id, { my_probability, venue });
         return {
@@ -763,38 +796,37 @@ if (simmer) {
         };
       }
     },
-  );
+  });
 
   // --- simmer_cancel_order ---
 
-  server.tool(
-    "simmer_cancel_order",
-    [
+  registerTool(server, {
+    name: "simmer_cancel_order",
+    description: [
       "Cancel a single open order by its order ID (managed wallets only).",
       "",
-      "Live state-changing action: requires SIMMER_MCP_ALLOW_LIVE=true env.",
-      "Without it, the call returns an error explaining the gate.",
-    ].join("\n"),
-    {
+      "Requires SIMMER_MCP_ALLOW_LIVE=true in your MCP env to operate.",
+    ],
+    schema: {
       order_id: z.string().describe("Order ID to cancel (from GET /api/sdk/orders/open)"),
     },
-    async ({ order_id }) => {
-      return executeCancelOrder(simmer!, order_id);
-    },
-  );
+    mutates: true,
+    handler: async (args, ctx) => executeCancelOrder(simmer!, args as { order_id: string }, ctx),
+  });
 
   // --- per-skill tools ---
 
   for (const skill of skills) {
     const capturedSkill = skill; // closure capture
-    server.tool(
-      capturedSkill.toolName,
-      buildToolDescription(capturedSkill),
-      buildToolSchema(capturedSkill),
-      async (args) => {
+    registerTool(server, {
+      name: capturedSkill.toolName,
+      description: buildToolDescription(capturedSkill),
+      schema: buildToolSchema(capturedSkill),
+      mutates: false,
+      handler: async (args, _ctx) => {
         return invokeSkillTool(capturedSkill, args as Record<string, unknown>);
       },
-    );
+    });
   }
 
 } // end if (simmer)

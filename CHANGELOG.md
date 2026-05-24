@@ -5,6 +5,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Infrastructure
+
+- **MCP tool safety gate is now structurally enforced.** All tools registered with the MCP server must explicitly declare `mutates: boolean`. Tools with `mutates: true` are blocked unless `SIMMER_MCP_ALLOW_LIVE=true` is set — no opt-in, no live state changes. The compiler rejects any new tool that omits the field, making the failure mode that previously left `simmer_cancel_order` ungated structurally impossible.
+
 ### Added
 
 - **`simmer_sdk.regime` — realized-vol regime gate.** A venue-agnostic primitive that lets a strategy declare which regime (range-bound vs trending) it is registered for, then skip entirely when the current realized volatility says we're in the wrong regime.
