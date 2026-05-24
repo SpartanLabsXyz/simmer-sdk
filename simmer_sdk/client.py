@@ -46,6 +46,7 @@ class Market:
     opens_at: Optional[str] = None  # When the market window opens (fast markets only)
     polymarket_token_id: Optional[str] = None  # YES token ID for CLOB trading
     polymarket_no_token_id: Optional[str] = None  # NO token ID for CLOB trading
+    polymarket_condition_id: Optional[str] = None  # Polymarket condition ID (0x hex) — use with get_top_holders()
     polymarket_neg_risk: bool = False
     spread_cents: Optional[float] = None  # Bid-ask spread in cents (fast markets only)
     liquidity_tier: Optional[str] = None  # "tight", "moderate", or "wide" (fast markets only)
@@ -1415,6 +1416,7 @@ class SimmerClient:
             opens_at=m.get("opens_at"),
             polymarket_token_id=m.get("polymarket_token_id"),
             polymarket_no_token_id=m.get("polymarket_no_token_id"),
+            polymarket_condition_id=m.get("polymarket_id"),
             polymarket_neg_risk=m.get("polymarket_neg_risk", False),
             spread_cents=m.get("spread_cents"),
             liquidity_tier=m.get("liquidity_tier"),
@@ -2445,6 +2447,63 @@ class SimmerClient:
         if ticker:
             params["ticker"] = ticker
         return self._request("GET", "/api/sdk/markets/check", params=params)
+
+    def get_top_holders(
+        self,
+        condition_id: str,
+        limit: int = 10,
+    ) -> List[Dict[str, Any]]:
+        """
+        Get top holders (largest positions) for a Polymarket market.
+
+        Calls the public Polymarket data API directly (no auth needed).
+        Use this for pre-trade research — see who else holds positions
+        and how large they are.
+
+        Args:
+            condition_id: Polymarket condition ID (0x hex string).
+                Get from market.polymarket_condition_id or
+                list_importable_markets() response.
+            limit: Max holders to return per outcome (default 10)
+
+        Returns:
+            List of dicts, each with: address, display_name, amount,
+            outcome, profile_url
+
+        Example:
+            market = client.get_market_by_id("uuid")
+            if market.polymarket_condition_id:
+                holders = client.get_top_holders(market.polymarket_condition_id)
+                for h in holders:
+                    print(f"{h['display_name']}: {h['amount']:.0f} shares ({h['outcome']})")
+        """
+        from urllib.request import urlopen, Request
+        from urllib.error import HTTPError, URLError
+        import json as _json
+
+        url = f"https://data-api.polymarket.com/holders?market={condition_id}"
+        try:
+            req = Request(url, headers={"Accept": "application/json"})
+            with urlopen(req, timeout=10) as resp:
+                data = _json.loads(resp.read().decode())
+        except (HTTPError, URLError, TimeoutError):
+            return []
+
+        outcome_labels = {0: "Yes", 1: "No"}
+        holders = []
+        for token_group in data:
+            for h in token_group.get("holders", [])[:limit]:
+                addr = h.get("proxyWallet", "")
+                name = h.get("name", "") or h.get("pseudonym", "")
+                holders.append({
+                    "address": addr,
+                    "display_name": name or (addr[:10] + "..." if addr else "unknown"),
+                    "amount": float(h.get("amount", 0)),
+                    "outcome": outcome_labels.get(h.get("outcomeIndex"), "Unknown"),
+                    "profile_url": f"https://polymarket.com/profile/{addr}" if addr else None,
+                })
+        holders.sort(key=lambda x: x["amount"], reverse=True)
+        return holders[:limit]
 
     def get_trades(
         self,
