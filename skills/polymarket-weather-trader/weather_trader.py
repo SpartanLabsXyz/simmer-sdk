@@ -76,6 +76,17 @@ CONFIG_SCHEMA = {
                           "help": "Min allocation floor from vol targeting (stay in market during high vol)."},
     "vol_span":          {"env": "SIMMER_WEATHER_VOL_SPAN",          "default": 10,    "type": int,
                           "help": "EWMA span for volatility calculation (lower = more responsive)."},
+    # Multi-source bucket-confidence (SIM-2420). Cross-checks NOAA primary against
+    # Open-Meteo secondary at the same station. Adjacent-bucket disagreement caps
+    # position to MAX_CANARY_USD; wider disagreement skips.
+    "require_source_agreement":      {"env": "SIMMER_WEATHER_REQUIRE_SOURCE_AGREEMENT",      "default": False, "type": bool,
+                                       "help": "Skip on any source disagreement (no canary fallback)."},
+    "canary_on_adjacent":            {"env": "SIMMER_WEATHER_CANARY_ON_ADJACENT_DISAGREEMENT","default": True,  "type": bool,
+                                       "help": "When NOAA + Open-Meteo land in adjacent buckets, cap size to MAX_CANARY_USD instead of skipping."},
+    "max_canary_usd":                {"env": "SIMMER_WEATHER_MAX_CANARY_USD",                "default": 2.0,   "type": float,
+                                       "help": "Max position USD when source disagreement triggers canary mode (default $2)."},
+    "max_source_spread_f":           {"env": "SIMMER_WEATHER_MAX_SOURCE_SPREAD_F",           "default": 2.0,   "type": float,
+                                       "help": "Max degrees-F spread between primary and secondary forecast before skipping outright (default 2.0)."},
 }
 
 # Backwards-compatible env var aliases (old name -> new name)
@@ -145,6 +156,12 @@ VOL_SPAN = _config["vol_span"]
 SLIPPAGE_MAX_PCT = _config["slippage_max"]  # Skip if slippage exceeds this (tunable)
 MIN_LIQUIDITY_USD = _config["min_liquidity"]  # Skip markets with liquidity below this (0 = disabled)
 TIME_TO_RESOLUTION_MIN_HOURS = 2  # Skip if resolving in < 2 hours
+
+# Multi-source bucket-confidence (SIM-2420)
+REQUIRE_SOURCE_AGREEMENT = _config["require_source_agreement"]
+CANARY_ON_ADJACENT = _config["canary_on_adjacent"]
+MAX_CANARY_USD = _config["max_canary_usd"]
+MAX_SOURCE_SPREAD_F = _config["max_source_spread_f"]
 
 # Price trend detection
 PRICE_DROP_THRESHOLD = 0.10  # 10% drop in last 24h = stronger signal
@@ -367,6 +384,24 @@ def get_openmeteo_forecast_for_station(station_id: str) -> dict:
     if not coords:
         return {}
     return _fetch_openmeteo_at(coords["lat"], coords["lon"], coords["tz"], station_id)
+
+
+def get_openmeteo_forecast_for_us_station(station_id: str) -> dict:
+    """SIM-2420: Open-Meteo cross-check at a US NOAA-mapped station's coords.
+    Returns daily highs/lows converted from °C to °F so comparisons against
+    NOAA primary stay unit-aligned. Returns {} if station unknown or API fails.
+    """
+    coords = STATION_ID_TO_NOAA.get(station_id)
+    if not coords:
+        return {}
+    raw = _fetch_openmeteo_at(coords["lat"], coords["lon"], "auto", station_id)
+    out = {}
+    for d, v in raw.items():
+        out[d] = {
+            "high": round(v["high_c"] * 9 / 5 + 32) if v.get("high_c") is not None else None,
+            "low":  round(v["low_c"]  * 9 / 5 + 32) if v.get("low_c")  is not None else None,
+        }
+    return out
 
 
 def fetch_json(url, headers=None):
@@ -595,6 +630,111 @@ def parse_temperature_bucket(outcome_name: str) -> tuple:
         return (t, t)
 
     return None
+
+
+# =============================================================================
+# Multi-source bucket-confidence (SIM-2420)
+# =============================================================================
+#
+# Cross-checks the primary forecast (NOAA for US stations, Open-Meteo for intl)
+# against an Open-Meteo secondary at the same coords. Three tiers:
+#   - match      → both sources land in the same bucket. Normal sizing.
+#   - adjacent   → sources land in neighboring buckets. Cap to MAX_CANARY_USD
+#                  (or skip if REQUIRE_SOURCE_AGREEMENT=true).
+#   - wide       → temp spread > MAX_SOURCE_SPREAD_F, or buckets non-adjacent.
+#                  Always skip.
+#   - missing_secondary → no secondary available (intl today). Behave per
+#                  REQUIRE_SOURCE_AGREEMENT flag.
+
+def _bucket_for_temp(temp, all_markets):
+    """Find the market whose bucket contains the given temperature."""
+    if temp is None:
+        return None, None
+    for m in all_markets:
+        name = m.get("outcome_name") or m.get("question", "")
+        b = parse_temperature_bucket(name)
+        if b and b[0] <= temp <= b[1]:
+            return name, b
+    return None, None
+
+
+def _bucket_index(target_name, all_markets):
+    """Index of `target_name` in buckets sorted ascending by low temp.
+    Returns None if not present or unparseable."""
+    if not target_name:
+        return None
+    parsed = []
+    for m in all_markets:
+        name = m.get("outcome_name") or m.get("question", "")
+        b = parse_temperature_bucket(name)
+        if b:
+            parsed.append((b[0], name))
+    parsed.sort(key=lambda x: x[0])
+    for i, (_, name) in enumerate(parsed):
+        if name == target_name:
+            return i
+    return None
+
+
+def evaluate_source_agreement(primary_temp, secondary_temp, primary_bucket_name,
+                              all_markets, unit_label):
+    """Compare primary + secondary forecasts. Returns (tier, spread, sec_bucket_name).
+
+    tier ∈ {'match', 'adjacent', 'wide', 'missing_secondary'}
+    spread is in native market units (°F or °C); None when secondary missing.
+    sec_bucket_name is the secondary's matching outcome_name, or None.
+    """
+    if secondary_temp is None:
+        return ('missing_secondary', None, None)
+
+    spread = abs(primary_temp - secondary_temp)
+    # MAX_SOURCE_SPREAD_F is configured in °F. Convert when comparing °C.
+    max_spread = (MAX_SOURCE_SPREAD_F / 1.8) if unit_label == "°C" else MAX_SOURCE_SPREAD_F
+
+    if spread > max_spread:
+        return ('wide', spread, None)
+
+    sec_name, _ = _bucket_for_temp(secondary_temp, all_markets)
+    if sec_name is None:
+        # Secondary outside any defined bucket (below floor / above ceiling).
+        return ('wide', spread, None)
+
+    if sec_name == primary_bucket_name:
+        return ('match', spread, sec_name)
+
+    p_idx = _bucket_index(primary_bucket_name, all_markets)
+    s_idx = _bucket_index(sec_name, all_markets)
+    if p_idx is None or s_idx is None:
+        return ('wide', spread, sec_name)
+
+    if abs(p_idx - s_idx) == 1:
+        return ('adjacent', spread, sec_name)
+    return ('wide', spread, sec_name)
+
+
+def apply_source_tier_to_sizing(tier, base_size):
+    """Apply the source-agreement tier to a position size.
+
+    Returns (final_size, reason). final_size=None means skip the trade.
+    reason is a short human-readable string for logs / signal payload.
+    """
+    if tier == 'match':
+        return (base_size, "sources agree (same bucket)")
+    if tier == 'missing_secondary':
+        if REQUIRE_SOURCE_AGREEMENT:
+            return (None, "no secondary source; REQUIRE_SOURCE_AGREEMENT=true")
+        return (base_size, "no secondary source — single-source mode")
+    if tier == 'wide':
+        return (None, f"source spread > {MAX_SOURCE_SPREAD_F}°F equivalent — skip")
+    if tier == 'adjacent':
+        if REQUIRE_SOURCE_AGREEMENT:
+            return (None, "adjacent-bucket disagreement; REQUIRE_SOURCE_AGREEMENT=true")
+        if CANARY_ON_ADJACENT:
+            capped = min(base_size, MAX_CANARY_USD)
+            return (capped, f"adjacent-bucket disagreement → canary cap ${MAX_CANARY_USD:.2f}")
+        return (base_size, "adjacent-bucket disagreement; both safeguards disabled")
+    # Defensive — unknown tier; fail closed.
+    return (None, f"unknown source-agreement tier: {tier}")
 
 
 # =============================================================================
@@ -1246,6 +1386,7 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
     log(f"  Grouped into {len(events)} events")
 
     forecast_cache = {}
+    secondary_cache = {}  # SIM-2420: lazy Open-Meteo cross-check per station
     trades_executed = 0
     total_usd_spent = 0.0
     opportunities_found = 0
@@ -1392,6 +1533,29 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
                 trend_bonus = f" 📈 (up {trend['change_24h']:.0%} in 24h)"
 
         if price < ENTRY_THRESHOLD:
+            # SIM-2420: cross-check primary forecast against Open-Meteo secondary.
+            # US/NOAA stations get a second source; intl stations (where Open-Meteo
+            # IS primary) have no second source today and fall through to
+            # REQUIRE_SOURCE_AGREEMENT handling.
+            secondary_temp = None
+            if not is_international:
+                if cache_key not in secondary_cache:
+                    log(f"  Fetching Open-Meteo cross-check for {cache_key}...")
+                    secondary_cache[cache_key] = get_openmeteo_forecast_for_us_station(cache_key)
+                sec_forecasts = secondary_cache[cache_key]
+                sec_day = sec_forecasts.get(date_str, {})
+                secondary_temp = sec_day.get(metric)
+
+            agreement_tier, source_spread, sec_bucket_name = evaluate_source_agreement(
+                forecast_temp, secondary_temp, outcome_name, event_markets, unit_label,
+            )
+            if secondary_temp is not None:
+                spread_str = f"{source_spread:.1f}{unit_label}" if source_spread is not None else "n/a"
+                log(f"  Open-Meteo cross-check: {secondary_temp}{unit_label} "
+                    f"({sec_bucket_name or 'out-of-range'}) → tier={agreement_tier}, spread={spread_str}")
+            else:
+                log(f"  Source-agreement: tier={agreement_tier} (no secondary source)")
+
             position_size = calculate_position_size(MAX_POSITION_USD, smart_sizing)
 
             # Apply volatility targeting
@@ -1408,6 +1572,16 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
                     log(f"  📊 Vol targeting: realized={current_vol:.0%} target={TARGET_VOL:.0%} → {vol_meta['leverage']:.2f}x (${position_size:.2f})")
                 else:
                     log(f"  📊 Vol targeting: insufficient price data — using base size")
+
+            # SIM-2420: apply source-agreement tier (skip on wide / cap on adjacent).
+            tier_size, tier_reason = apply_source_tier_to_sizing(agreement_tier, position_size)
+            if tier_size is None:
+                log(f"  ⏭️  Source-tier {agreement_tier}: {tier_reason}")
+                skip_reasons.append(f"source-agreement: {agreement_tier}")
+                continue
+            if tier_size < position_size:
+                log(f"  🟡 Source-tier {agreement_tier}: capping ${position_size:.2f} → ${tier_size:.2f} ({tier_reason})")
+                position_size = tier_size
 
             min_cost_for_shares = MIN_SHARES_PER_ORDER * price
             if min_cost_for_shares > position_size:
@@ -1435,12 +1609,21 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
                     "bucket_range": outcome_name,
                     "market_price": round(price, 4),
                     "threshold": ENTRY_THRESHOLD,
+                    # SIM-2420: source-agreement metadata
+                    "source_agreement": {
+                        "tier": agreement_tier,
+                        "primary_temp": forecast_temp,
+                        "secondary_temp": secondary_temp,
+                        "spread": round(source_spread, 2) if source_spread is not None else None,
+                        "secondary_bucket": sec_bucket_name,
+                    },
             }
             if vol_meta:
                 signal["vol_targeting"] = vol_meta
+            tier_label = "" if agreement_tier == "match" else f" [{agreement_tier}]"
             result = execute_trade(
                 market_id, "yes", position_size,
-                reasoning=f"NOAA forecasts {forecast_temp}{unit_label} → bucket {outcome_name} underpriced at {price:.0%}",
+                reasoning=f"NOAA forecasts {forecast_temp}{unit_label} → bucket {outcome_name} underpriced at {price:.0%}{tier_label}",
                 signal_data=signal,
             )
 
