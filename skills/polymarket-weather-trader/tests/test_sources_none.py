@@ -32,6 +32,11 @@ _mock_cfg = {
     "vol_max_leverage": 2.0,
     "vol_min_allocation": 0.2,
     "vol_span": 10,
+    # SIM-2420 source-agreement knobs
+    "require_source_agreement": False,
+    "canary_on_adjacent": True,
+    "max_canary_usd": 2.0,
+    "max_source_spread_f": 2.0,
 }
 
 _skill_mod = types.ModuleType("simmer_sdk.skill")
