@@ -2,6 +2,11 @@
 Pref.trade MCP client - fetches military aircraft via aviation.get_adsb_military.
 
 Uses stdlib urllib only. JSON-RPC 2.0 over HTTP to https://pref.trade/mcp.
+
+Pref uses two call conventions:
+- Direct tools (e.g. preference_account_status): params.name = tool_name
+- Dotted tool_refs (e.g. aviation.get_adsb_military): params.name = 'call_tool',
+  tool_ref and arguments nested inside params.arguments
 """
 
 import json
@@ -20,17 +25,29 @@ def _next_id():
 
 
 def _call_tool(tool_name, arguments=None):
-    """Call a pref MCP tool via JSON-RPC 2.0. Returns parsed result or None."""
+    """Call a pref MCP tool via JSON-RPC 2.0. Returns parsed result or None.
+
+    Dotted tool names (containing '.') use the call_tool meta-pattern.
+    Direct tool names use the standard MCP tools/call pattern.
+    """
     api_key = os.environ.get("PREF_API_KEY", "")
     if not api_key:
         print("  [pref] PREF_API_KEY not set - skipping pref call")
         return None
 
+    if "." in tool_name:
+        params = {
+            "name": "call_tool",
+            "arguments": {"tool_ref": tool_name, "arguments": arguments or {}},
+        }
+    else:
+        params = {"name": tool_name, "arguments": arguments or {}}
+
     payload = json.dumps({
         "jsonrpc": "2.0",
         "id": _next_id(),
         "method": "tools/call",
-        "params": {"name": tool_name, "arguments": arguments or {}},
+        "params": params,
     }).encode()
 
     req = Request(
@@ -39,7 +56,8 @@ def _call_tool(tool_name, arguments=None):
         headers={
             "Content-Type": "application/json",
             "Authorization": f"Bearer {api_key}",
-            "Accept": "application/json, text/event-stream",
+            "Accept": "application/json",
+            "User-Agent": "simmer-sdk/milaircraft-tracker",
         },
         method="POST",
     )
