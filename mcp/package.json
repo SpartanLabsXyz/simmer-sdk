@@ -1,6 +1,6 @@
 {
   "name": "simmer-mcp",
-  "version": "3.3.1",
+  "version": "3.3.2",
   "description": "MCP server for Simmer — skill discovery, execution, autoresearch, and AI market tools",
   "type": "module",
   "bin": {
@@ -29,7 +29,7 @@
     "experiment-loop",
     "simmer-mcp"
   ],
-  "mcpName": "io.github.SpartanLabsXyz/simmer-mcp",
+  "mcpName": "io.github.adlai88/simmer-mcp",
   "license": "MIT",
   "engines": {
     "node": ">=22.6.0"

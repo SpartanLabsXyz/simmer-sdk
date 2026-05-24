@@ -1,9 +1,9 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-  "name": "io.github.SpartanLabsXyz/simmer-mcp",
+  "name": "io.github.adlai88/simmer-mcp",
   "title": "Simmer",
-  "description": "Skill discovery, autoresearch experiments, and live trading on prediction markets (Polymarket, Kalshi, Simmer) for AI agents.",
-  "version": "3.3.1",
+  "description": "Trade prediction markets with AI agents — skill discovery, autoresearch, and execution.",
+  "version": "3.3.2",
   "websiteUrl": "https://simmer.markets",
   "repository": {
     "url": "https://github.com/SpartanLabsXyz/simmer-sdk",
@@ -12,9 +12,9 @@
   "packages": [
     {
       "registryType": "npm",
-      "registryBaseUrl": "https://www.npmjs.com",
+      "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "simmer-mcp",
-      "version": "3.3.1",
+      "version": "3.3.2",
       "runtimeHint": "npx",
       "transport": {
         "type": "stdio"
