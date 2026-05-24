@@ -785,6 +785,95 @@ if (simmer) {
     },
   );
 
+  // ===========================================================================
+  // DATA QUERY TOOLS — read-only portfolio, positions, fleet
+  // ===========================================================================
+
+  server.tool(
+    "get_portfolio",
+    [
+      "Get portfolio summary: balance, total value, realized and unrealized P&L,",
+      "position count, and per-venue breakdown.",
+    ].join("\n"),
+    {},
+    async () => {
+      try {
+        const data = await simmer!.getPortfolio();
+        return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+      } catch (e) {
+        if (e instanceof BackendError) return e.toMcpResponse();
+        return {
+          content: [{ type: "text" as const, text: `❌ Portfolio failed: ${e instanceof Error ? e.message : String(e)}` }],
+          isError: true,
+        };
+      }
+    },
+  );
+
+  server.tool(
+    "get_positions",
+    [
+      "Get open positions with market question, side, size, entry price, current price, and P&L.",
+      "Optionally filter by venue.",
+    ].join("\n"),
+    {
+      venue: z.enum(["sim", "polymarket", "kalshi"]).optional().describe("Filter positions by venue"),
+    },
+    async ({ venue }) => {
+      try {
+        const data = await simmer!.getPositions({ venue });
+        return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+      } catch (e) {
+        if (e instanceof BackendError) return e.toMcpResponse();
+        return {
+          content: [{ type: "text" as const, text: `❌ Positions failed: ${e instanceof Error ? e.message : String(e)}` }],
+          isError: true,
+        };
+      }
+    },
+  );
+
+  server.tool(
+    "get_expiring_positions",
+    "Get positions expiring within a time window. Use this to check what's about to resolve so you can exit or hold.",
+    {
+      hours: z.number().optional().describe("Window in hours to look ahead (default: 24)"),
+    },
+    async ({ hours }) => {
+      try {
+        const data = await simmer!.getExpiringPositions({ hours });
+        return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+      } catch (e) {
+        if (e instanceof BackendError) return e.toMcpResponse();
+        return {
+          content: [{ type: "text" as const, text: `❌ Expiring positions failed: ${e instanceof Error ? e.message : String(e)}` }],
+          isError: true,
+        };
+      }
+    },
+  );
+
+  server.tool(
+    "get_fleet_summary",
+    [
+      "Get fleet overview: all agents' positions, realized + unrealized P&L,",
+      "trade counts, and active status. Use this to monitor multi-agent performance.",
+    ].join("\n"),
+    {},
+    async () => {
+      try {
+        const data = await simmer!.getFleetSummary();
+        return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+      } catch (e) {
+        if (e instanceof BackendError) return e.toMcpResponse();
+        return {
+          content: [{ type: "text" as const, text: `❌ Fleet summary failed: ${e instanceof Error ? e.message : String(e)}` }],
+          isError: true,
+        };
+      }
+    },
+  );
+
   // --- per-skill tools ---
 
   for (const skill of skills) {
