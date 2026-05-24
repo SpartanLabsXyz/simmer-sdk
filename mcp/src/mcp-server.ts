@@ -216,7 +216,7 @@ const server = new McpServer({
 
 server.tool(
   "list_skills",
-  "List all Simmer trading skills available in this package. Returns slug, name, version, tier, and whether the skill requires a Pro plan.",
+  "List all Simmer trading skills available in this MCP server. Returns slug, name, version, tier, and whether the skill requires a Pro plan.",
   {},
   async () => {
     const list = listSkills(skills);
@@ -266,7 +266,7 @@ if (simmer) {
 
   registerTool(server, {
     name: "init_experiment",
-    description: "Initialize the experiment session. Call once before the first run_experiment to set the name, primary metric, unit, and direction. Writes config to autoresearch.jsonl.",
+    description: "Initialize the autoresearch experiment session (step 1 of the init → run → log loop). Call once before the first run_experiment to set the name, primary metric, unit, and direction. Re-calling archives previous results and starts a new segment.",
     schema: {
       name: z.string().describe('Human-readable name (e.g. "Optimizing polymarket-ai-divergence for P&L")'),
       metric_name: z.string().describe('Primary metric name (e.g. "pnl", "trades", "sharpe")'),
@@ -369,7 +369,7 @@ if (simmer) {
 
   registerTool(server, {
     name: "run_experiment",
-    description: "Run a shell command as an experiment. Times execution, captures output, detects pass/fail. Requires Pro plan.",
+    description: "Run a shell command as an experiment (step 2 of the init → run → log autoresearch loop). Times execution, captures output, detects pass/fail. Not a general shell tool — use only for autoresearch experiments. Requires Pro plan.",
     schema: {
       command: z.string().describe("Shell command to run"),
       timeout_seconds: z.number().optional().describe("Kill after this many seconds (default: 600)"),
@@ -428,7 +428,7 @@ if (simmer) {
 
   registerTool(server, {
     name: "log_experiment",
-    description: 'Record an experiment result. "keep" auto-commits via git. "discard"/"crash"/"checks_failed" reverts. Reports confidence score after 3+ runs.',
+    description: 'Record an experiment result (step 3 of the init → run → log autoresearch loop). Status values: "keep" = improved, auto-commits via git; "discard" = worse, reverts changes; "crash" = skill broke, reverts and pauses after 3 consecutive; "checks_failed" = ran but post-run checks failed, reverts. Reports confidence score after 3+ runs per segment.',
     schema: {
       commit: z.string().describe("Git commit hash (short, 7 chars)"),
       metric: z.number().describe("Primary metric value. 0 for crashes."),
@@ -674,7 +674,8 @@ if (simmer) {
   registerTool(server, {
     name: "simmer_trade",
     description: [
-      "Execute or dry-run a trade on a Simmer market.",
+      "Execute or dry-run a single direct trade on a Simmer market.",
+      "Use this for one-off trades; use per-skill tools (simmer_<slug>) for strategy-driven runs.",
       "",
       "Safety triple-gate: a live trade on a real venue requires (1) dry_run=false,",
       "(2) venue='polymarket' or 'kalshi', AND (3) SIMMER_MCP_ALLOW_LIVE=true env.",
@@ -731,7 +732,7 @@ if (simmer) {
   registerTool(server, {
     name: "simmer_get_markets",
     description: [
-      "List or search markets available for SDK trading.",
+      "List or search markets available for trading.",
       "Use 'q' for text search. Results include price, volume, and venue.",
       "Default limit is 50; max is 500.",
     ],
@@ -770,7 +771,8 @@ if (simmer) {
     description: [
       "Get rich context for a specific market: price history, your position,",
       "recent trades, flip-flop detection, slippage estimates, and edge analysis.",
-      "Pass my_probability for a TRADE/HOLD recommendation.",
+      "Optionally pass my_probability (0-1) for edge calculation and a TRADE/HOLD recommendation;",
+      "without it, context is returned without a recommendation.",
     ],
     schema: {
       market_id: z.string().describe("Simmer market UUID"),
@@ -803,7 +805,7 @@ if (simmer) {
   registerTool(server, {
     name: "simmer_cancel_order",
     description: [
-      "Cancel a single open order by its order ID (managed wallets only).",
+      "Cancel a single open order by its order ID.",
       "",
       "Requires SIMMER_MCP_ALLOW_LIVE=true in your MCP env to operate.",
     ],
@@ -815,6 +817,67 @@ if (simmer) {
   });
 
   // --- per-skill tools ---
+
+  // ===========================================================================
+  // DATA QUERY TOOLS — read-only portfolio, positions, fleet
+  // ===========================================================================
+
+  registerTool(server, {
+    name: "get_portfolio",
+    description: [
+      "Get portfolio summary: balance, total value, realized and unrealized P&L,",
+      "position count, and per-venue breakdown.",
+    ],
+    schema: {},
+    mutates: false,
+    handler: async (_args, _ctx) => {
+      const data = await simmer!.getPortfolio();
+      return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+    },
+  });
+
+  registerTool(server, {
+    name: "get_positions",
+    description: [
+      "Get open positions with market question, side, size, entry price, current price, and P&L.",
+      "Optionally filter by venue.",
+    ],
+    schema: {
+      venue: z.enum(["sim", "polymarket", "kalshi"]).optional().describe("Filter positions by venue"),
+    },
+    mutates: false,
+    handler: async ({ venue }: { venue?: string }, _ctx) => {
+      const data = await simmer!.getPositions({ venue });
+      return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+    },
+  });
+
+  registerTool(server, {
+    name: "get_expiring_positions",
+    description: "Get positions expiring within a time window. Use this to check what's about to resolve so you can exit or hold.",
+    schema: {
+      hours: z.number().optional().describe("Window in hours to look ahead (default: 24)"),
+    },
+    mutates: false,
+    handler: async ({ hours }: { hours?: number }, _ctx) => {
+      const data = await simmer!.getExpiringPositions({ hours });
+      return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+    },
+  });
+
+  registerTool(server, {
+    name: "get_fleet_summary",
+    description: [
+      "Get fleet overview: all agents' positions, realized + unrealized P&L,",
+      "trade counts, and active status. Use this to monitor multi-agent performance.",
+    ],
+    schema: {},
+    mutates: false,
+    handler: async (_args, _ctx) => {
+      const data = await simmer!.getFleetSummary();
+      return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+    },
+  });
 
   for (const skill of skills) {
     const capturedSkill = skill; // closure capture
