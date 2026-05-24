@@ -1,5 +1,18 @@
 # Changelog — polymarket-weather-trader
 
+## [1.22.2] - 2026-05-24
+
+### Fixed
+- Intl markets where Polymarket cites the resolution station by NAME only (no Wunderground URL / no ICAO) are no longer silently skipped (SIM-2428). Added a normalized-name → ICAO fallback index covering all 21 US + 16 intl stations. Normalizer strips diacritics (`ğ→g`), trailing `Intl` / `International` / `Airport` tokens, and lowercases — so `Esenboğa Intl Airport`, `Esenboga International Airport`, and `Esenboga Intl Airport` all resolve to `LTAC`.
+- Added `name` field to all 16 `INTERNATIONAL_STATION_COORDS` entries (US table already had it). The name-index is built from both tables at module load.
+
+### Added
+- `resolve_station_id_from_name(station_name)` — public helper for name-to-ICAO lookup.
+- `_normalize_station_name(name)` — internal normalizer used by the index + resolver.
+
+### Behavior delta
+Routing logic now: (a) if `station_id` is present in maps → as before; (b) if `station_id is None` but `station_name` matches an index entry → resolved and logged; (c) otherwise skip with the same message as before. No behavior change for markets that already resolve via ICAO.
+
 ## [1.22.1] - 2026-05-24
 
 ### Fixed
