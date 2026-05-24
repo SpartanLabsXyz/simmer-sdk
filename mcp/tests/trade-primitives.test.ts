@@ -2,11 +2,10 @@
  * Tests for raw trade primitive handlers and SimmerApi methods.
  *
  * After the registerTool middleware refactor (SIM-2383):
- *   - executeTrade / executeCancelOrder accept ctx: { live: boolean } instead of processEnv.
+ *   - executeTrade accepts ctx: { live: boolean; allowLive: boolean } instead of processEnv.
+ *   - ctx.allowLive drives the resolveVenue gate (live vs paper).
  *   - Safety gating (blocking when SIMMER_MCP_ALLOW_LIVE is not set) is tested in
  *     register-tool.test.ts, not here.
- *   - These tests verify that handlers pass args through correctly and surface
- *     API errors properly.
  */
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
@@ -40,11 +39,149 @@ function errorJson(status: number, detail: string): Response {
   });
 }
 
+// Helpers for constructing ctx
+const ctxPaper = { live: false, allowLive: false };
+const ctxLive = { live: true, allowLive: true };
+const ctxAllowedButPaper = { live: false, allowLive: true };
+
 // ---------------------------------------------------------------------------
-// executeTrade — handler behaviour (gating tested in register-tool.test.ts)
+// executeTrade — action field threading
 // ---------------------------------------------------------------------------
 
-describe("executeTrade — handler behaviour", () => {
+describe("executeTrade — action field threading", () => {
+  beforeEach(() => { savedFetch = global.fetch; });
+  afterEach(() => { global.fetch = savedFetch; });
+
+  const api = new SimmerApi("sk_live_test", "https://api.simmer.markets", "3.3.0");
+
+  it("threads action='buy' + amount into POST body", async () => {
+    const captured: Record<string, unknown>[] = [];
+    mockFetch(async (_url, init) => {
+      captured.push(JSON.parse((init?.body as string) ?? "{}") as Record<string, unknown>);
+      return okJson({ status: "ok" });
+    });
+
+    await executeTrade(
+      api,
+      { market_id: "m1", side: "yes", action: "buy", amount: 10, venue: "sim", dry_run: true },
+      ctxPaper,
+    );
+
+    assert.equal(captured[0].action, "buy", "action='buy' must be in POST body");
+    assert.equal(captured[0].amount, 10);
+  });
+
+  it("threads action='sell' + shares into POST body", async () => {
+    const captured: Record<string, unknown>[] = [];
+    mockFetch(async (_url, init) => {
+      captured.push(JSON.parse((init?.body as string) ?? "{}") as Record<string, unknown>);
+      return okJson({ status: "ok" });
+    });
+
+    await executeTrade(
+      api,
+      { market_id: "m1", side: "yes", action: "sell", shares: 50, venue: "sim", dry_run: true },
+      ctxPaper,
+    );
+
+    assert.equal(captured[0].action, "sell", "action='sell' must be in POST body (not 'buy')");
+    assert.equal(captured[0].shares, 50);
+    assert.equal(captured[0].amount, undefined, "amount should not be present for sells");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// executeTrade — resolveVenue coercion gate
+// ---------------------------------------------------------------------------
+
+describe("executeTrade — resolveVenue coercion gate", () => {
+  beforeEach(() => { savedFetch = global.fetch; });
+  afterEach(() => { global.fetch = savedFetch; });
+
+  const api = new SimmerApi("sk_live_test", "https://api.simmer.markets", "3.3.0");
+
+  it("coerces to sim and warns when dry_run=false + live venue but !allowLive", async () => {
+    const captured: Record<string, unknown>[] = [];
+    mockFetch(async (_url, init) => {
+      captured.push(JSON.parse((init?.body as string) ?? "{}") as Record<string, unknown>);
+      return okJson({ status: "ok" });
+    });
+
+    const result = await executeTrade(
+      api,
+      { market_id: "m1", side: "yes", action: "buy", amount: 10, venue: "polymarket", dry_run: false },
+      ctxPaper, // allowLive=false
+    );
+
+    assert.ok(!result.isError, "should not be isError — coercion produces a warning, not an error");
+    assert.ok(result.content[0].text.includes("SIMMER_MCP_ALLOW_LIVE"), "should warn about env var");
+    assert.equal(captured[0].venue, "sim", "venue coerced to sim");
+    assert.equal(captured[0].dry_run, true, "dry_run coerced to true");
+  });
+
+  it("allows live trade when dry_run=false + live venue + allowLive=true", async () => {
+    const captured: Record<string, unknown>[] = [];
+    mockFetch(async (_url, init) => {
+      captured.push(JSON.parse((init?.body as string) ?? "{}") as Record<string, unknown>);
+      return okJson({ status: "executed", venue: "polymarket" });
+    });
+
+    const result = await executeTrade(
+      api,
+      { market_id: "m1", side: "yes", action: "buy", amount: 10, venue: "polymarket", dry_run: false },
+      ctxLive, // allowLive=true
+    );
+
+    assert.ok(!result.isError);
+    assert.equal(captured[0].venue, "polymarket", "venue NOT coerced when live allowed");
+    assert.equal(captured[0].dry_run, false, "dry_run NOT coerced when live allowed");
+    assert.ok(result.content[0].text.includes("Trade result"), "label reflects live trade");
+  });
+
+  it("paper trade on sim venue passes through without coercion even without allowLive", async () => {
+    const captured: Record<string, unknown>[] = [];
+    mockFetch(async (_url, init) => {
+      captured.push(JSON.parse((init?.body as string) ?? "{}") as Record<string, unknown>);
+      return okJson({ status: "ok", dry_run: true });
+    });
+
+    const result = await executeTrade(
+      api,
+      { market_id: "m1", side: "no", action: "buy", amount: 5, venue: "sim", dry_run: true },
+      ctxPaper,
+    );
+
+    assert.ok(!result.isError);
+    assert.equal(captured[0].venue, "sim");
+    assert.equal(captured[0].dry_run, true);
+    assert.ok(!result.content[0].text.includes("coerced"), "no coercion warning for paper/sim");
+    assert.ok(result.content[0].text.includes("Dry-run result"));
+  });
+
+  it("unknown venue coerced to sim with warning", async () => {
+    const captured: Record<string, unknown>[] = [];
+    mockFetch(async (_url, init) => {
+      captured.push(JSON.parse((init?.body as string) ?? "{}") as Record<string, unknown>);
+      return okJson({ status: "ok" });
+    });
+
+    const result = await executeTrade(
+      api,
+      { market_id: "m1", side: "yes", action: "buy", amount: 5, venue: "invalid_venue", dry_run: true },
+      ctxAllowedButPaper,
+    );
+
+    assert.ok(!result.isError);
+    assert.equal(captured[0].venue, "sim", "unknown venue coerced to sim");
+    assert.ok(result.content[0].text.includes("Unknown venue"), "warns about unknown venue");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// executeTrade — handler behaviour (error paths)
+// ---------------------------------------------------------------------------
+
+describe("executeTrade — error handling", () => {
   beforeEach(() => { savedFetch = global.fetch; });
   afterEach(() => { global.fetch = savedFetch; });
 
@@ -59,8 +196,8 @@ describe("executeTrade — handler behaviour", () => {
 
     const result = await executeTrade(
       api,
-      { market_id: "m1", side: "yes", amount: 5, venue: "polymarket", dry_run: true },
-      { live: true },
+      { market_id: "m1", side: "yes", action: "buy", amount: 5, venue: "polymarket", dry_run: true },
+      ctxAllowedButPaper, // allowLive=true but dry_run=true → paper
     );
 
     assert.ok(!result.isError, "should not be error");
@@ -69,26 +206,7 @@ describe("executeTrade — handler behaviour", () => {
     assert.ok(result.content[0].text.includes("Dry-run result"), "label reflects dry_run");
   });
 
-  it("passes dry_run=false and live venue through (live trade when ctx.live=true)", async () => {
-    const captured: Record<string, unknown>[] = [];
-    mockFetch(async (_url, init) => {
-      captured.push(JSON.parse((init?.body as string) ?? "{}") as Record<string, unknown>);
-      return okJson({ status: "executed", venue: "polymarket" });
-    });
-
-    const result = await executeTrade(
-      api,
-      { market_id: "m1", side: "yes", amount: 10, venue: "polymarket", dry_run: false },
-      { live: true },
-    );
-
-    assert.ok(!result.isError);
-    assert.equal(captured[0].venue, "polymarket");
-    assert.equal(captured[0].dry_run, false);
-    assert.ok(result.content[0].text.includes("Trade result"), "label reflects live trade");
-  });
-
-  it("forwards optional args (reasoning, source, shares)", async () => {
+  it("forwards optional args (reasoning, source)", async () => {
     const captured: Record<string, unknown>[] = [];
     mockFetch(async (_url, init) => {
       captured.push(JSON.parse((init?.body as string) ?? "{}") as Record<string, unknown>);
@@ -98,11 +216,11 @@ describe("executeTrade — handler behaviour", () => {
     await executeTrade(
       api,
       {
-        market_id: "m2", side: "no",
+        market_id: "m2", side: "no", action: "sell",
         shares: 50, venue: "sim", dry_run: true,
         reasoning: "test reason", source: "sdk:test",
       },
-      { live: false },
+      ctxPaper,
     );
 
     assert.equal(captured[0].shares, 50);
@@ -116,8 +234,8 @@ describe("executeTrade — handler behaviour", () => {
 
     const result = await executeTrade(
       api,
-      { market_id: "m1", side: "yes", amount: 10, venue: "sim", dry_run: true },
-      { live: false },
+      { market_id: "m1", side: "yes", action: "buy", amount: 10, venue: "sim", dry_run: true },
+      ctxPaper,
     );
 
     assert.ok(result.isError);
@@ -129,8 +247,8 @@ describe("executeTrade — handler behaviour", () => {
 
     const result = await executeTrade(
       api,
-      { market_id: "m1", side: "yes", amount: 10, venue: "sim", dry_run: true },
-      { live: false },
+      { market_id: "m1", side: "yes", action: "buy", amount: 10, venue: "sim", dry_run: true },
+      ctxPaper,
     );
 
     assert.ok(result.isError);
@@ -157,7 +275,7 @@ describe("executeCancelOrder — handler behaviour", () => {
       return okJson({ cancelled: true, order_id: "o1" });
     });
 
-    const result = await executeCancelOrder(api, { order_id: "o1" }, { live: true });
+    const result = await executeCancelOrder(api, { order_id: "o1" }, ctxLive);
 
     assert.ok(!result.isError, "should not be error");
     assert.equal(methods[0], "DELETE");
@@ -168,19 +286,19 @@ describe("executeCancelOrder — handler behaviour", () => {
 
   it("URL-encodes order ID with special characters", async () => {
     const urls: string[] = [];
-    mockFetch(async (url, init) => {
+    mockFetch(async (url) => {
       urls.push(url.toString());
       return okJson({ cancelled: true });
     });
 
-    await executeCancelOrder(api, { order_id: "ord/special" }, { live: true });
+    await executeCancelOrder(api, { order_id: "ord/special" }, ctxLive);
     assert.ok(urls[0].includes("ord%2Fspecial"), "order ID should be URL-encoded");
   });
 
   it("returns BackendError response on 4xx", async () => {
     mockFetch(async () => errorJson(404, "Order not found"));
 
-    const result = await executeCancelOrder(api, { order_id: "bad" }, { live: true });
+    const result = await executeCancelOrder(api, { order_id: "bad" }, ctxLive);
 
     assert.ok(result.isError);
     assert.ok(result.content[0].text.includes("Order not found"));
@@ -189,7 +307,7 @@ describe("executeCancelOrder — handler behaviour", () => {
   it("returns error text on network failure", async () => {
     mockFetch(async () => { throw new Error("Connection refused"); });
 
-    const result = await executeCancelOrder(api, { order_id: "o2" }, { live: true });
+    const result = await executeCancelOrder(api, { order_id: "o2" }, ctxLive);
 
     assert.ok(result.isError);
     assert.ok(result.content[0].text.includes("Connection refused"));

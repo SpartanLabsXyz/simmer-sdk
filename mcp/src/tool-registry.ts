@@ -11,13 +11,23 @@
  *   mutates:true + SIMMER_MCP_ALLOW_LIVE == "true"  → handler called with ctx.live=true
  *   mutates:false                                    → handler always called, ctx.live=false
  *
- * Handlers receive ctx.live and must NOT re-read process.env — ctx is the single
- * source of truth for the live-trading decision.
+ * Both branches always receive ctx.allowLive (the raw env flag). "Sometimes-live" tools
+ * (e.g. simmer_trade which supports both paper and live modes) should be registered as
+ * mutates:false and use ctx.allowLive internally to decide whether a specific call is
+ * live, rather than relying on the outer gate which would block paper trades.
+ *
+ * Handlers receive ctx and must NOT re-read process.env — ctx is the single source
+ * of truth for the live-trading decision.
  */
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
-export type ToolContext = { live: boolean };
+export type ToolContext = {
+  /** true iff mutates:true AND SIMMER_MCP_ALLOW_LIVE=true. Always false for mutates:false tools. */
+  live: boolean;
+  /** Raw SIMMER_MCP_ALLOW_LIVE env flag. Available to all handlers regardless of mutates. */
+  allowLive: boolean;
+};
 
 export type ToolResult = {
   content: Array<{ type: "text"; text: string }>;
@@ -29,7 +39,11 @@ export type ToolDef<A> = {
   description: string | string[];
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   schema: Record<string, any>;
-  /** Required — TS errors if omitted. True = tool can place live orders / delete state. */
+  /**
+   * Required — TS errors if omitted.
+   * true  = tool ALWAYS modifies live state (e.g. cancel_order); outer gate blocks when !allowLive.
+   * false = tool may be paper-safe (e.g. simmer_trade dry-run); use ctx.allowLive internally.
+   */
   mutates: boolean;
   handler: (args: A, ctx: ToolContext) => Promise<ToolResult>;
 };
@@ -71,6 +85,6 @@ export function registerTool<A>(
         isError: true,
       };
     }
-    return tool.handler(args, { live: tool.mutates && allowLive });
+    return tool.handler(args, { live: tool.mutates && allowLive, allowLive });
   });
 }

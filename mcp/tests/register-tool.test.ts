@@ -170,9 +170,10 @@ describe("registerTool pass-through — mutates:false", () => {
     assert.equal(result.isError, undefined, "should not be error");
     assert.equal(calls.length, 1, "handler should be called");
     assert.equal(calls[0].ctx.live, false, "ctx.live must be false for mutates:false");
+    assert.equal(calls[0].ctx.allowLive, false, "ctx.allowLive reflects env (false when unset)");
   });
 
-  it("passes through even when SIMMER_MCP_ALLOW_LIVE=true (ctx.live stays false)", async () => {
+  it("passes through even when SIMMER_MCP_ALLOW_LIVE=true (ctx.live stays false, allowLive=true)", async () => {
     const { server, getLastHandler } = makeMockServer();
     const { handler, calls } = recordingHandler();
 
@@ -185,7 +186,8 @@ describe("registerTool pass-through — mutates:false", () => {
     }, { SIMMER_MCP_ALLOW_LIVE: "true" });
 
     await getLastHandler()({});
-    assert.equal(calls[0].ctx.live, false, "ctx.live is always false for mutates:false (not a live action)");
+    assert.equal(calls[0].ctx.live, false, "ctx.live is always false for mutates:false");
+    assert.equal(calls[0].ctx.allowLive, true, "ctx.allowLive reflects env (true when set)");
   });
 });
 
@@ -194,22 +196,23 @@ describe("registerTool pass-through — mutates:false", () => {
 // ---------------------------------------------------------------------------
 
 describe("registerTool live path — mutates:true with env", () => {
-  it("calls handler with ctx.live=true when SIMMER_MCP_ALLOW_LIVE=true", async () => {
+  it("calls handler with ctx.live=true and ctx.allowLive=true when SIMMER_MCP_ALLOW_LIVE=true", async () => {
     const { server, getLastHandler } = makeMockServer();
     const { handler, calls } = recordingHandler();
 
     registerTool(server, {
-      name: "simmer_trade",
+      name: "simmer_cancel_order",
       description: "test",
       schema: {},
       mutates: true,
       handler,
     }, { SIMMER_MCP_ALLOW_LIVE: "true" });
 
-    const result = await getLastHandler()({ market_id: "m1", side: "yes" });
+    const result = await getLastHandler()({ order_id: "o1" });
     assert.ok(!result.isError, "should not be an error");
     assert.equal(calls.length, 1, "handler should be called");
     assert.equal(calls[0].ctx.live, true, "ctx.live must be true when env gate passes");
+    assert.equal(calls[0].ctx.allowLive, true, "ctx.allowLive must be true when env gate passes");
   });
 
   it("forwards args unchanged to the handler", async () => {
