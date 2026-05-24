@@ -1,5 +1,14 @@
 # Changelog — polymarket-weather-trader
 
+## [1.22.1] - 2026-05-24
+
+### Fixed
+- `Matching bucket: None` log when a market's `outcome_name` field is explicitly `None` (matcher loop fell back to `question`, but post-selection line used `.get("outcome_name", "")` which returns `None` not the default). Same class-of-bug as SIM-2371. Closes SIM-2427 issue 1.
+- Source-tier classification + log now runs for EVERY bucket-matched candidate, not only those that pass safeguards. Moved the cross-check fetch + `evaluate_source_agreement` call from inside the entry-threshold branch to immediately after bucket-match. Sizing application stays in the entry-threshold branch. Autoresearch + dogfood receipts now see would-have-been tier classification on slippage-blocked candidates too. Closes SIM-2427 issue 2.
+
+### Cost note
+The cross-check now fires on every bucket-matched candidate (vs. only entry-eligible ones in 1.22.0). `secondary_cache[station_id]` deduplicates within a scan run, so worst case = 1 Open-Meteo fetch per unique station per scan, unchanged from 1.22.0 for any candidate that reached entry-threshold evaluation. New cost: candidates above entry threshold now also incur the fetch — bounded by the per-station cache.
+
 ## [1.22.0] - 2026-05-24
 
 ### Added
