@@ -113,6 +113,18 @@ class TestResolveStationIdFromName(unittest.TestCase):
             "RJAA",
         )
 
+    def test_resolve_london_city_official_station(self):
+        # Polymarket's published London weather station is EGLC, not Heathrow.
+        self.assertEqual(
+            wt.resolve_station_id_from_name("London City Airport"), "EGLC"
+        )
+
+    def test_london_city_has_openmeteo_coords(self):
+        station = wt.INTERNATIONAL_STATION_COORDS.get("EGLC")
+        self.assertIsNotNone(station)
+        self.assertEqual(station["city"], "London")
+        self.assertEqual(station["tz"], "Europe/London")
+
     def test_unknown_returns_none(self):
         self.assertIsNone(
             wt.resolve_station_id_from_name("Somewhere Nonexistent Airport")
