@@ -7,10 +7,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
-- **`simmer_sdk.regime` — realized-vol regime gate (SIM-1450).** A
-  venue-agnostic primitive that lets a strategy declare which regime
-  (range-bound vs trending) it is registered for, then skip entirely when
-  the current realized volatility says we're in the wrong regime.
+- **`simmer_sdk.regime` — realized-vol regime gate.** A venue-agnostic primitive that lets a strategy declare which regime (range-bound vs trending) it is registered for, then skip entirely when the current realized volatility says we're in the wrong regime.
 
   ```python
   from simmer_sdk import realized_vol_gate, size_position
@@ -27,26 +24,41 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   amount = size_position(p_win, market_price, bankroll)
   ```
 
-  Returns a `RegimeDecision` with `allowed` (bool), `realized_vol`,
-  `regime` (`"trending"` / `"range_bound"`), `reason`
-  (`"ok"` / `"regime_mismatch"` / `"insufficient_data"` / `"invalid_input"`),
-  and `n_candles`. Fails closed when fewer than `lookback_candles` prices
-  are supplied. Distinct from the empirical-Kelly haircut in
-  `simmer_sdk.sizing` (SIM-1012): the gate is trade / no-trade, the
-  haircut scales an already-allowed trade. See
-  `examples/regime_gate_skill.py` for the canonical wiring pattern, and
-  `REGIME_CONFIG_SCHEMA` for opt-in via `config.json` / env vars.
+  Returns a `RegimeDecision` with `allowed`, `realized_vol`, `regime`, `reason`, and `n_candles`. Fails closed when fewer than `lookback_candles` prices are supplied. See `examples/regime_gate_skill.py` for the canonical wiring pattern, and `REGIME_CONFIG_SCHEMA` for opt-in via `config.json` / env vars.
 
-  Origin: stacyonchain noted that gating a 1¢-reversal strategy on the
-  realized vol of the prior 12 candles turned trending-period losses into
-  no-ops and meaningfully improved overall results.
+  **Operator note — tuning `vol_threshold`:** "trending" means *volatile*, not *directional*. Realized vol is the std-dev of per-candle price diffs. Tune the threshold against your asset's *choppy vs calm* distribution. See the tuning workflow in `examples/regime_gate_skill.py`.
 
-  **Operator note — tuning `vol_threshold`:** "trending" in this gate
-  means *volatile*, not *directional*. Realized vol is the std-dev of
-  per-candle price diffs, so a perfectly linear ramp has stdev 0 and is
-  classified as range_bound. Tune the threshold against your asset's
-  *choppy vs calm* distribution, not its *up vs down* distribution. See
-  the tuning workflow in `examples/regime_gate_skill.py`.
+- **Paste-a-post skill builder workflow (#136).** New `skills/skill-builder/` ClawHub skill lets agents create trading skills from a natural-language description (forum post, tweet, strategy writeup). Includes the agent-as-oracle pattern for delegated market resolution.
+
+- **`client.preflight()` wired into bundled trading skills.** All 6 bundled skills (weather-trader, copytrading, mert-sniper, elon-tweets, fast-loop, signal-sniper) now call `client.preflight()` before first trade and surface blockers/warnings in skill logs.
+
+### Fixed
+
+- **`auto_redeem()` warns when signing key is unavailable.** Previously failed silently for managed-wallet users calling `auto_redeem()` without a local signing key. Now surfaces a visible warning explaining that managed-wallet redemptions are handled server-side.
+
+- **Tunable env-var names aligned between `clawhub.json` and `CONFIG_SCHEMA`.** Skills that declared config tunables in both their ClawHub metadata and their Python CONFIG_SCHEMA could have name mismatches (e.g., `SIMMER_MIN_EDGE` vs `MIN_EDGE`). Aligned across all bundled skills.
+
+- **Briefing skill fixes:** Removed unsupported `venue=` parameter. Converted remaining attribute access to dict access for compatibility with briefing response shape changes.
+
+- **Exit scan `sources=None` guard.** Skills with no configured signal sources no longer crash on the exit scan. (#130)
+
+## simmer-mcp v3.3.0 — 2026-05-24
+
+### Added
+
+- **Raw trade primitives.** Three new MCP tools for agents that want direct trade control: `place_order` (limit/market with full parameter control), `cancel_order` (by order ID), and `get_order_status`. These complement the existing `trade` tool (which handles sizing, risk checks, and position management automatically) for agents that need lower-level access.
+
+## Skills — 2026-05-24
+
+### Added
+
+- **simmer-mcp-setup v0.1.2** — One-shot MCP server onboarding skill. Walks agents through installing and configuring the Simmer MCP server with validated credentials.
+
+- **connect-existing-agent branch in simmer-wallet-setup** — New 5-step flow for agents with an existing runtime (Hermes, OpenClaw, custom) connecting to Simmer for the first time.
+
+### Changed
+
+- **Bundled skill disclaimer rollout.** polymarket-mert-sniper, polymarket-copytrading, and simmer-x402 now include `DISCLAIMER.md` and bounding language in their opening descriptions per the skill compliance standard. Copy reframed from "snipe" to method-first language.
 
 ## simmer-mcp v3.1.0 — 2026-05-20
 
