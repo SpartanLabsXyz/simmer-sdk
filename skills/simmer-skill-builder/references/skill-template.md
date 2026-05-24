@@ -90,6 +90,9 @@ CONFIG_SCHEMA = {
     "param_name": {"env": "SIMMER_SKILLNAME_PARAM", "default": 0.10, "type": float},
     "max_position_usd": {"env": "SIMMER_SKILLNAME_MAX_POSITION", "default": 5.00, "type": float},
     "max_trades_per_run": {"env": "SIMMER_SKILLNAME_MAX_TRADES", "default": 5, "type": int},
+    "max_bankroll_fraction": {"env": "SIMMER_SKILLNAME_MAX_FRACTION", "default": 0.95, "type": float},
+    # Order type: "FAK" (market, default), "GTC" (limit on book), "FOK", "GTD"
+    "order_type": {"env": "SIMMER_SKILLNAME_ORDER_TYPE", "default": "FAK", "type": str},
     # Position sizing knobs (SIMMER_POSITION_SIZING, SIMMER_KELLY_MULTIPLIER, SIMMER_MIN_EV)
     **SIZING_CONFIG_SCHEMA,
 }
@@ -146,6 +149,8 @@ SLIPPAGE_MAX_PCT = 0.15
 # Unpack config to module-level
 MAX_POSITION_USD = _config["max_position_usd"]
 MAX_TRADES_PER_RUN = _config["max_trades_per_run"]
+MAX_BANKROLL_FRACTION = _config["max_bankroll_fraction"]  # Bankroll-% cap (0.03 = 3%)
+ORDER_TYPE = _config["order_type"]                # "FAK" (market), "GTC" (limit), "FOK", "GTD"
 POSITION_SIZING = _config["position_sizing"]      # from SIZING_CONFIG_SCHEMA
 KELLY_MULTIPLIER = _config["kelly_multiplier"]    # from SIZING_CONFIG_SCHEMA
 MIN_EV = _config["min_ev"]                        # from SIZING_CONFIG_SCHEMA
@@ -205,15 +210,22 @@ def check_context_safeguards(context):
 
     return True, reasons
 
-def execute_trade(market_id, side, amount, reasoning=""):
+def execute_trade(market_id, side, amount, reasoning="", price=None, order_type=None):
     try:
-        result = get_client().trade(
+        kwargs = dict(
             market_id=market_id, side=side, amount=amount,
             source=TRADE_SOURCE, reasoning=reasoning,
+            skill_slug=SKILL_SLUG,
         )
+        if order_type:
+            kwargs["order_type"] = order_type
+        if price is not None:
+            kwargs["price"] = price
+        result = get_client().trade(**kwargs)
         return {
             "success": result.success, "trade_id": result.trade_id,
             "shares_bought": result.shares_bought, "shares": result.shares_bought,
+            "order_id": result.order_id, "fill_status": result.fill_status,
             "error": result.error, "simulated": result.simulated,
         }
     except Exception as e:
