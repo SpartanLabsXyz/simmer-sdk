@@ -215,7 +215,7 @@ const server = new McpServer({
 
 server.tool(
   "list_skills",
-  "List all Simmer trading skills available in this package. Returns slug, name, version, tier, and whether the skill requires a Pro plan.",
+  "List all Simmer trading skills available in this MCP server. Returns slug, name, version, tier, and whether the skill requires a Pro plan.",
   {},
   async () => {
     const list = listSkills(skills);
@@ -265,7 +265,7 @@ if (simmer) {
 
   server.tool(
     "init_experiment",
-    "Initialize the experiment session. Call once before the first run_experiment to set the name, primary metric, unit, and direction. Writes config to autoresearch.jsonl.",
+    "Initialize the autoresearch experiment session (step 1 of the init → run → log loop). Call once before the first run_experiment to set the name, primary metric, unit, and direction. Re-calling archives previous results and starts a new segment.",
     {
       name: z.string().describe('Human-readable name (e.g. "Optimizing polymarket-ai-divergence for P&L")'),
       metric_name: z.string().describe('Primary metric name (e.g. "pnl", "trades", "sharpe")'),
@@ -361,7 +361,7 @@ if (simmer) {
 
   server.tool(
     "run_experiment",
-    "Run a shell command as an experiment. Times execution, captures output, detects pass/fail. Requires Pro plan.",
+    "Run a shell command as an experiment (step 2 of the init → run → log autoresearch loop). Times execution, captures output, detects pass/fail. Not a general shell tool — use only for autoresearch experiments. Requires Pro plan.",
     {
       command: z.string().describe("Shell command to run"),
       timeout_seconds: z.number().optional().describe("Kill after this many seconds (default: 600)"),
@@ -419,7 +419,7 @@ if (simmer) {
 
   server.tool(
     "log_experiment",
-    'Record an experiment result. "keep" auto-commits via git. "discard"/"crash"/"checks_failed" reverts. Reports confidence score after 3+ runs.',
+    'Record an experiment result (step 3 of the init → run → log autoresearch loop). Status values: "keep" = improved, auto-commits via git; "discard" = worse, reverts changes; "crash" = skill broke, reverts and pauses after 3 consecutive; "checks_failed" = ran but post-run checks failed, reverts. Reports confidence score after 3+ runs per segment.',
     {
       commit: z.string().describe("Git commit hash (short, 7 chars)"),
       metric: z.number().describe("Primary metric value. 0 for crashes."),
@@ -650,7 +650,8 @@ if (simmer) {
   server.tool(
     "simmer_trade",
     [
-      "Execute or dry-run a trade on a Simmer market.",
+      "Execute or dry-run a single direct trade on a Simmer market.",
+      "Use this for one-off trades; use per-skill tools (simmer_<slug>) for strategy-driven runs.",
       "",
       "Safety triple-gate: a live trade on a real venue requires (1) dry_run=false,",
       "(2) venue='polymarket' or 'kalshi', AND (3) SIMMER_MCP_ALLOW_LIVE=true env.",
@@ -707,7 +708,7 @@ if (simmer) {
   server.tool(
     "simmer_get_markets",
     [
-      "List or search markets available for SDK trading.",
+      "List or search markets available for trading.",
       "Use 'q' for text search. Results include price, volume, and venue.",
       "Default limit is 50; max is 500.",
     ].join("\n"),
@@ -742,7 +743,8 @@ if (simmer) {
     [
       "Get rich context for a specific market: price history, your position,",
       "recent trades, flip-flop detection, slippage estimates, and edge analysis.",
-      "Pass my_probability for a TRADE/HOLD recommendation.",
+      "Optionally pass my_probability (0-1) for edge calculation and a TRADE/HOLD recommendation;",
+      "without it, context is returned without a recommendation.",
     ].join("\n"),
     {
       market_id: z.string().describe("Simmer market UUID"),
@@ -770,7 +772,7 @@ if (simmer) {
   server.tool(
     "simmer_cancel_order",
     [
-      "Cancel a single open order by its order ID (managed wallets only).",
+      "Cancel a single open order by its order ID.",
       "",
       "Live state-changing action: requires SIMMER_MCP_ALLOW_LIVE=true env.",
       "Without it, the call returns an error explaining the gate.",

@@ -54,19 +54,16 @@ export function buildToolSchema(skill: Skill): z.ZodRawShape {
 }
 
 export function buildToolDescription(skill: Skill): string {
-  const parts = ["Simmer", skill.tier];
-  if (skill.status) parts.push(skill.status);
-  const prefix = `[${parts.join(" · ")}]`;
-
   const lines = [
-    `${prefix} ${skill.name} v${skill.version}`,
+    `${skill.name} v${skill.version}`,
     "",
     skill.description,
+    "",
+    "Runs in dry-run paper mode by default (dry_run=true). Set trading_venue to 'sim', 'polymarket', or 'kalshi'.",
   ];
 
   if (skill.hasDisclaimer) {
-    lines.push("");
-    lines.push("Read DISCLAIMER.md before connecting real funds (default is dry-run paper mode).");
+    lines.push("Read DISCLAIMER.md before connecting real funds.");
   }
 
   return lines.join("\n");
