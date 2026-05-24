@@ -1,0 +1,26 @@
+{
+  "emoji": "🔍",
+  "primaryEnv": "SIMMER_API_KEY",
+  "requires": {
+    "env": ["SIMMER_API_KEY"],
+    "pip": ["simmer-sdk"]
+  },
+  "envVars": [
+    {
+      "name": "SIMMER_API_KEY",
+      "required": true,
+      "description": "Your Simmer SDK API key — get from simmer.markets/dashboard"
+    }
+  ],
+  "cron": null,
+  "autostart": false,
+  "automaton": {
+    "managed": true,
+    "entrypoint": "research.py"
+  },
+  "tunables": [
+    {"env": "SIMMER_RESEARCH_MIN_VOLUME", "type": "number", "default": 10000, "range": [0, 1000000], "step": 1000, "label": "Minimum 24h volume"},
+    {"env": "SIMMER_RESEARCH_MAX_RESULTS", "type": "number", "default": 5, "range": [1, 20], "step": 1, "label": "Max markets to return"},
+    {"env": "SIMMER_RESEARCH_TOP_HOLDERS", "type": "number", "default": 10, "range": [0, 50], "step": 5, "label": "Top holders per outcome"}
+  ]
+}

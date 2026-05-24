@@ -219,6 +219,19 @@ result = client.import_market("https://polymarket.com/event/...")
 
 Import quota: 10/day free, 50/day Pro.
 
+### Top Holders (Polymarket)
+
+```python
+# Get largest position holders for a market
+holders = client.get_top_holders(market.polymarket_condition_id, limit=10)
+for h in holders:
+    print(f"{h['display_name']}: {h['amount']:.0f} shares ({h['outcome']})")
+```
+
+Calls the public Polymarket data API directly (free, no auth). Returns list of dicts with `address`, `display_name`, `amount`, `outcome`, `profile_url`. Use for pre-trade research — see who else holds positions and how large.
+
+**Note:** `polymarket_condition_id` is available on Market objects. It's the 0x hex condition ID, NOT the Simmer UUID or the CLOB token ID.
+
 ### Price History
 
 ```python
