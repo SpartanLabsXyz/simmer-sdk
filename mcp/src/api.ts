@@ -307,9 +307,6 @@ export class SimmerApi {
     return (await resp.json()) as CancelOrderResult;
   }
 
-  /**
-   * Get portfolio summary (balance, value, P&L breakdown).
-   */
   async getPortfolio(): Promise<PortfolioResult> {
     const resp = await this.timedFetch(
       `${this.apiUrl}/api/sdk/portfolio`,
@@ -324,12 +321,7 @@ export class SimmerApi {
     return (await resp.json()) as PortfolioResult;
   }
 
-  /**
-   * Get open positions, optionally filtered by venue.
-   */
-  async getPositions(params: {
-    venue?: string;
-  } = {}): Promise<PositionsResult> {
+  async getPositions(params: { venue?: string } = {}): Promise<PositionsResult> {
     const qs = new URLSearchParams();
     if (params.venue) qs.set("venue", params.venue);
     const qStr = qs.toString();
@@ -343,12 +335,7 @@ export class SimmerApi {
     return (await resp.json()) as PositionsResult;
   }
 
-  /**
-   * Get positions expiring within a window.
-   */
-  async getExpiringPositions(params: {
-    hours?: number;
-  } = {}): Promise<PositionsResult> {
+  async getExpiringPositions(params: { hours?: number } = {}): Promise<PositionsResult> {
     const qs = new URLSearchParams();
     if (params.hours) qs.set("hours", String(params.hours));
     const qStr = qs.toString();
@@ -361,9 +348,6 @@ export class SimmerApi {
     return (await resp.json()) as PositionsResult;
   }
 
-  /**
-   * Get fleet summary — all agents' positions, P&L, trade counts.
-   */
   async getFleetSummary(): Promise<FleetSummaryResult> {
     const resp = await this.timedFetch(
       `${this.apiUrl}/api/sdk/fleet/summary`,

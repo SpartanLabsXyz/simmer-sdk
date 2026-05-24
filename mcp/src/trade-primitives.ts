@@ -1,20 +1,17 @@
 /**
- * Raw trade primitive tools — direct REST calls, no Python subprocess.
- * Safety gate mirrors the per-skill triple gate in env-translation.ts:
- *   1. dry_run === false  (explicit opt-out)
- *   2. venue is a live venue (not "sim")
- *   3. SIMMER_MCP_ALLOW_LIVE === "true"
- * If any gate fails, the trade is coerced to sim with a warning in the result.
+ * Raw trade primitive handlers — direct REST calls, no Python subprocess.
+ *
+ * Safety gating for always-live operations (executeCancelOrder) is handled upstream by
+ * registerTool (mutates:true) in tool-registry.ts. For executeTrade, which supports both
+ * paper and live modes, gating is handled internally via ctx.allowLive — the outer gate
+ * is skipped (mutates:false) so paper/dry-run trades work without SIMMER_MCP_ALLOW_LIVE.
+ *
+ * Handlers receive ctx from the middleware and must NOT re-read process.env.
  */
 
 import type { SimmerApi, TradeParams } from "./api.js";
 import { BackendError } from "./errors.js";
-
-export interface TradePrimitiveResult {
-  [key: string]: unknown;
-  content: Array<{ type: "text"; text: string }>;
-  isError?: boolean;
-}
+import type { ToolContext, ToolResult } from "./tool-registry.js";
 
 // Allowlist of live venues. Anything outside this list (including "", undefined,
 // malformed strings like "polymarketz") is treated as paper/sim — defense-in-depth
@@ -24,12 +21,11 @@ const LIVE_VENUES = ["polymarket", "kalshi"] as const;
 function resolveVenue(
   dry_run: boolean,
   venue: string,
-  processEnv: Record<string, string | undefined> = process.env as Record<string, string | undefined>,
+  allowLive: boolean,
 ): { resolvedVenue: string; coercionWarning?: string } {
-  const allowLive = processEnv.SIMMER_MCP_ALLOW_LIVE === "true";
+  const isLiveVenue = (LIVE_VENUES as readonly string[]).includes(venue);
   // Strict === false: only literal `false` opts into live. Undefined/null/0/""
   // all default to paper. Paired with the venue allowlist below.
-  const isLiveVenue = (LIVE_VENUES as readonly string[]).includes(venue);
   const wantsLive = dry_run === false && isLiveVenue;
 
   if (wantsLive && allowLive) {
@@ -44,9 +40,8 @@ function resolveVenue(
     };
   }
   // Paper path: pass venue through only if it's sim or a known live venue (for
-  // paper-trading on real pricing). Unknown/malformed venues coerce to sim
-  // with a warning so the caller knows what happened. This also ensures
-  // effectiveDryRun gets forced to true downstream (coercionWarning truthy).
+  // paper-trading on real pricing). Unknown/malformed venues coerce to sim with
+  // a warning so the caller knows what happened.
   if (venue === "sim" || isLiveVenue) {
     return { resolvedVenue: venue };
   }
@@ -71,12 +66,12 @@ export async function executeTrade(
     reasoning?: string;
     source?: string;
   },
-  processEnv: Record<string, string | undefined> = process.env as Record<string, string | undefined>,
-): Promise<TradePrimitiveResult> {
-  const { resolvedVenue, coercionWarning } = resolveVenue(args.dry_run, args.venue, processEnv);
+  ctx: ToolContext,
+): Promise<ToolResult> {
+  const { resolvedVenue, coercionWarning } = resolveVenue(args.dry_run, args.venue, ctx.allowLive);
   // Fail-closed: only literal `false` opts out of dry-run. Undefined/null/any
-  // other falsy value defaults to paper mode. Paired with resolveVenue's
-  // strict === false check above for defense-in-depth.
+  // other falsy value defaults to paper mode. Paired with resolveVenue's strict
+  // === false check above for defense-in-depth.
   const effectiveDryRun = args.dry_run === false && !coercionWarning ? false : true;
 
   const params: TradeParams = {
@@ -107,30 +102,14 @@ export async function executeTrade(
   }
 }
 
-/**
- * Cancel an open order. Always a live state-changing action (no paper mode
- * exists for cancellation), so it's gated on SIMMER_MCP_ALLOW_LIVE=true.
- * Mirrors the live-trading posture: explicit env opt-in required.
- */
 export async function executeCancelOrder(
   api: SimmerApi,
-  orderId: string,
-  processEnv: Record<string, string | undefined> = process.env as Record<string, string | undefined>,
-): Promise<TradePrimitiveResult> {
-  const allowLive = processEnv.SIMMER_MCP_ALLOW_LIVE === "true";
-  if (!allowLive) {
-    return {
-      content: [{
-        type: "text" as const,
-        text: `⚠️ Cancellation blocked — order cancellation is a live state-changing action. ` +
-          `Set SIMMER_MCP_ALLOW_LIVE=true in your MCP env to enable.`,
-      }],
-      isError: true,
-    };
-  }
-
+  args: { order_id: string },
+  _ctx: ToolContext,
+): Promise<ToolResult> {
+  // Outer gate (mutates:true) already blocked when !allowLive — no re-check needed.
   try {
-    const result = await api.cancelOrder(orderId);
+    const result = await api.cancelOrder(args.order_id);
     return {
       content: [{ type: "text" as const, text: `✅ Order cancelled:\n${JSON.stringify(result, null, 2)}` }],
     };
