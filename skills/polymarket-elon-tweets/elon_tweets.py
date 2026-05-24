@@ -55,7 +55,7 @@ CONFIG_SCHEMA = {
     "sizing_pct": {"env": "SIMMER_ELON_SIZING_PCT", "default": 0.05, "type": float},
     "max_trades_per_run": {"env": "SIMMER_ELON_MAX_TRADES_PER_RUN", "default": 6, "type": int},
     "exit_threshold": {"env": "SIMMER_ELON_EXIT_THRESHOLD", "default": 0.65, "type": float},
-    "slippage_max_pct": {"env": "SIMMER_ELON_SLIPPAGE_BPS", "default": 0.05, "type": float},
+    "slippage_max_bps": {"env": "SIMMER_ELON_SLIPPAGE_BPS", "default": 100, "type": float},
     "min_position_usd": {"env": "SIMMER_ELON_MIN_POSITION", "default": 2.00, "type": float},
     "data_source": {"env": "SIMMER_ELON_DATA_SOURCE", "default": "xtracker", "type": str},
     "order_type": {"env": "SIMMER_ELON_ORDER_TYPE", "default": "GTC", "type": str,
@@ -76,7 +76,7 @@ def _reload_config_globals():
     SMART_SIZING_PCT = _config["sizing_pct"]
     MAX_TRADES_PER_RUN = _config["max_trades_per_run"]
     EXIT_THRESHOLD = _config["exit_threshold"]
-    SLIPPAGE_MAX_PCT = _config["slippage_max_pct"]
+    SLIPPAGE_MAX_PCT = _config["slippage_max_bps"] / 10000.0
     MIN_POSITION_USD = _config["min_position_usd"]
     DATA_SOURCE = _config["data_source"]
     ORDER_TYPE = (_config.get("order_type") or "GTC").upper()
@@ -178,7 +178,7 @@ BUCKET_SPREAD = _config["bucket_spread"]
 SMART_SIZING_PCT = _config["sizing_pct"]
 MAX_TRADES_PER_RUN = _config["max_trades_per_run"]
 EXIT_THRESHOLD = _config["exit_threshold"]
-SLIPPAGE_MAX_PCT = _config["slippage_max_pct"]
+SLIPPAGE_MAX_PCT = _config["slippage_max_bps"] / 10000.0
 MIN_POSITION_USD = _config["min_position_usd"]
 DATA_SOURCE = _config["data_source"]
 ORDER_TYPE = (_config.get("order_type") or "GTC").upper()

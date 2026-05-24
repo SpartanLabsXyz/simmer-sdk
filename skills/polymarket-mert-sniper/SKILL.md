@@ -56,10 +56,10 @@ Use this skill when the user wants to:
 | Setting | Environment Variable | Default | Description |
 |---------|---------------------|---------|-------------|
 | Market filter | `SIMMER_MERT_FILTER` | (all) | Tag or keyword filter (e.g. `solana`, `crypto`) |
-| Max bet | `SIMMER_MERT_MAX_BET` | 10.00 | Maximum USD per trade |
-| Expiry window | `SIMMER_MERT_EXPIRY_MINS` | 2 | Only trade markets resolving within N minutes |
+| Max bet | `SIMMER_MERT_MAX_BET_USD` | 10.00 | Maximum USD per trade |
+| Expiry window | `SIMMER_MERT_EXPIRY_MINUTES` | 2 | Only trade markets resolving within N minutes |
 | Min split | `SIMMER_MERT_MIN_SPLIT` | 0.60 | Only trade when YES or NO >= this (e.g. 0.60 = 60/40) |
-| Max trades/run | `SIMMER_MERT_MAX_TRADES` | 5 | Maximum trades per scan cycle |
+| Max trades/run | `SIMMER_MERT_MAX_TRADES_PER_RUN` | 5 | Maximum trades per scan cycle |
 | Smart sizing % | `SIMMER_MERT_SIZING_PCT` | 0.05 | % of balance per trade |
 | Fee buffer | `SIMMER_MERT_FEE_BUFFER` | 0.02 | Extra alpha required above entry fee; only applies when `SIMMER_MERT_MIN_EDGE` is set |
 | Declared edge | `SIMMER_MERT_MIN_EDGE` | 0.00 | Your signal's claimed edge above market price (probability units). At 0 (default): fee is logged but gate is advisory only. Set to X to block trades where entry fee > X — e.g. `0.05` requires your signal to clear at least 5¢ above market after fees |

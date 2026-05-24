@@ -80,9 +80,9 @@ For automated recurring scans, configure via environment:
 | RSS Feeds | `SIMMER_SNIPER_FEEDS` | (none) | Comma-separated RSS URLs |
 | Markets | `SIMMER_SNIPER_MARKETS` | (auto) | Comma-separated market IDs (auto-discovers from keywords if empty) |
 | Keywords | `SIMMER_SNIPER_KEYWORDS` | (none) | Comma-separated keywords to match |
-| Confidence | `SIMMER_SNIPER_CONFIDENCE` | 0.7 | Min confidence to trade (0.0-1.0) |
+| Confidence | `SIMMER_SNIPER_CONFIDENCE_THRESHOLD` | 0.7 | Min confidence to trade (0.0-1.0) |
 | Max USD | `SIMMER_SNIPER_MAX_USD` | 25 | Max per trade |
-| Max trades/run | `SIMMER_SNIPER_MAX_TRADES` | 5 | Maximum trades per scan cycle |
+| Max trades/run | `SIMMER_SNIPER_MAX_TRADES_PER_RUN` | 5 | Maximum trades per scan cycle |
 
 **Polymarket Constraints:**
 - Minimum 5 shares per order
