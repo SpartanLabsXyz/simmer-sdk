@@ -252,6 +252,7 @@ INTERNATIONAL_LOCATIONS = {
 INTERNATIONAL_STATION_COORDS = {
     "LLBG": {"lat": 32.0114, "lon": 34.8867, "tz": "Asia/Jerusalem",   "city": "Tel Aviv",   "name": "Ben Gurion Airport"},
     "EDDM": {"lat": 48.3538, "lon": 11.7861, "tz": "Europe/Berlin",    "city": "Munich",     "name": "Munich Airport"},
+    "EGLC": {"lat": 51.5053, "lon": 0.0553, "tz": "Europe/London",     "city": "London",     "name": "London City Airport"},
     "EGLL": {"lat": 51.4700, "lon": -0.4543, "tz": "Europe/London",    "city": "London",     "name": "Heathrow Airport"},
     "RJTT": {"lat": 35.5494, "lon": 139.7798, "tz": "Asia/Tokyo",      "city": "Tokyo",      "name": "Tokyo Haneda Airport"},
     "RJAA": {"lat": 35.7647, "lon": 140.3863, "tz": "Asia/Tokyo",      "city": "Tokyo",      "name": "Narita International Airport"},

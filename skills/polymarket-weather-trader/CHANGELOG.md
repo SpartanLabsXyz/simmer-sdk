@@ -1,5 +1,10 @@
 # Changelog — polymarket-weather-trader
 
+## [Unreleased]
+
+### Fixed
+- Added `EGLC` (London City Airport) to the international station coordinate map so Polymarket London weather markets that cite the official London City station can route to Open-Meteo instead of fail-closing as an unsupported station. This does not change markets whose Simmer/SDK metadata lacks usable `resolution_criteria`; those still fail closed.
+
 ## [1.22.2] - 2026-05-24
 
 ### Fixed
