@@ -111,6 +111,7 @@ import { discoverSkills } from "./skill-discovery.js";
 import { buildToolSchema, buildToolDescription, invokeSkillTool } from "./per-skill-tools.js";
 import { listSkills, getSkillDocs } from "./docs-tools.js";
 import { troubleshootError } from "./troubleshoot.js";
+import { executeTrade, executeCancelOrder } from "./trade-primitives.js";
 import { probeRuntime } from "./runtime-probe.js";
 import { BUNDLED_VERSION } from "./version.js";
 
@@ -640,6 +641,148 @@ if (simmer) {
     },
   );
 
+  // ===========================================================================
+  // RAW TRADE PRIMITIVES — direct REST, no Python subprocess
+  // ===========================================================================
+
+  // --- simmer_trade ---
+
+  server.tool(
+    "simmer_trade",
+    [
+      "Execute or dry-run a trade on a Simmer market.",
+      "",
+      "Safety triple-gate: a live trade on a real venue requires (1) dry_run=false,",
+      "(2) venue='polymarket' or 'kalshi', AND (3) SIMMER_MCP_ALLOW_LIVE=true env.",
+      "Any missing gate coerces to sim with a warning. Default: dry_run=true (paper mode).",
+      "",
+      "Use 'amount' (USD) for buys, 'shares' for sells. Providing both raises an error.",
+    ].join("\n"),
+    {
+      market_id: z.string().describe("Simmer market UUID (from simmer_get_markets)"),
+      side: z.enum(["yes", "no"]).describe("Which outcome to trade"),
+      action: z.enum(["buy", "sell"]).default("buy").describe("'buy' to open/add to a position (requires amount); 'sell' to close/reduce (requires shares)."),
+      amount: z.number().optional().describe("USD to spend. Required for action='buy'."),
+      shares: z.number().optional().describe("Shares to sell. Required for action='sell'."),
+      venue: z.enum(["sim", "polymarket", "kalshi"]).default("sim").describe("Trading venue. 'sim' = $SIM paper mode."),
+      dry_run: z.boolean().default(true).describe("If false (+ SIMMER_MCP_ALLOW_LIVE=true + live venue), places a real order. Default: paper mode."),
+      reasoning: z.string().optional().describe("Why you're making this trade (stored for P&L attribution and flip-flop detection)"),
+      source: z.string().optional().describe("Source tag for grouping trades (e.g. 'sdk:my-strategy')"),
+    },
+    async (args) => {
+      return executeTrade(simmer!, args);
+    },
+  );
+
+  // --- simmer_get_briefing ---
+
+  server.tool(
+    "simmer_get_briefing",
+    [
+      "Get a single-call agent briefing: portfolio balance, open positions,",
+      "top opportunities, and recent performance. Replaces 5-6 separate API calls.",
+      "Ideal for agent heartbeat check-ins.",
+    ].join("\n"),
+    {
+      since: z.string().optional().describe("ISO timestamp — only show changes since this time. Defaults to 24h ago."),
+    },
+    async ({ since }) => {
+      try {
+        const result = await simmer!.getBriefing(since);
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
+        };
+      } catch (e) {
+        if (e instanceof BackendError) return e.toMcpResponse();
+        return {
+          content: [{ type: "text" as const, text: `❌ Briefing failed: ${e instanceof Error ? e.message : String(e)}` }],
+          isError: true,
+        };
+      }
+    },
+  );
+
+  // --- simmer_get_markets ---
+
+  server.tool(
+    "simmer_get_markets",
+    [
+      "List or search markets available for SDK trading.",
+      "Use 'q' for text search. Results include price, volume, and venue.",
+      "Default limit is 50; max is 500.",
+    ].join("\n"),
+    {
+      q: z.string().optional().describe("Text search query (min 2 chars, case-insensitive)"),
+      limit: z.number().optional().describe("Max markets to return (default 50, max 500)"),
+      venue: z.enum(["sim", "polymarket", "kalshi"]).optional().describe("Filter by venue"),
+      status: z.string().optional().describe("Filter by status ('active', 'resolved', etc.)"),
+      tags: z.string().optional().describe("Comma-separated tags to filter by (e.g. 'weather,crypto')"),
+      sort: z.enum(["volume", "created"]).optional().describe("Sort order: 'volume' (24h) or 'created'"),
+    },
+    async (args) => {
+      try {
+        const result = await simmer!.getMarkets(args);
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
+        };
+      } catch (e) {
+        if (e instanceof BackendError) return e.toMcpResponse();
+        return {
+          content: [{ type: "text" as const, text: `❌ Markets fetch failed: ${e instanceof Error ? e.message : String(e)}` }],
+          isError: true,
+        };
+      }
+    },
+  );
+
+  // --- simmer_get_market_context ---
+
+  server.tool(
+    "simmer_get_market_context",
+    [
+      "Get rich context for a specific market: price history, your position,",
+      "recent trades, flip-flop detection, slippage estimates, and edge analysis.",
+      "Pass my_probability for a TRADE/HOLD recommendation.",
+    ].join("\n"),
+    {
+      market_id: z.string().describe("Simmer market UUID"),
+      my_probability: z.number().min(0).max(1).optional().describe("Your probability estimate (0-1) for edge calculation and TRADE/HOLD recommendation"),
+      venue: z.enum(["sim", "polymarket", "kalshi", "all"]).optional().describe("Which venue's positions to include (default 'all')"),
+    },
+    async ({ market_id, my_probability, venue }) => {
+      try {
+        const result = await simmer!.getMarketContext(market_id, { my_probability, venue });
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
+        };
+      } catch (e) {
+        if (e instanceof BackendError) return e.toMcpResponse();
+        return {
+          content: [{ type: "text" as const, text: `❌ Market context failed: ${e instanceof Error ? e.message : String(e)}` }],
+          isError: true,
+        };
+      }
+    },
+  );
+
+  // --- simmer_cancel_order ---
+
+  server.tool(
+    "simmer_cancel_order",
+    [
+      "Cancel a single open order by its order ID (managed wallets only).",
+      "",
+      "Live state-changing action: requires SIMMER_MCP_ALLOW_LIVE=true env.",
+      "Without it, the call returns an error explaining the gate.",
+    ].join("\n"),
+    {
+      order_id: z.string().describe("Order ID to cancel (from GET /api/sdk/orders/open)"),
+    },
+    async ({ order_id }) => {
+      return executeCancelOrder(simmer!, order_id);
+    },
+  );
+
   // --- per-skill tools ---
 
   for (const skill of skills) {
@@ -670,7 +813,7 @@ async function main() {
   ].join(" | ");
 
   const freeCount = 3;
-  const proCount = simmer ? 4 + skills.length : 0;
+  const proCount = simmer ? 9 + skills.length : 0; // 4 autoresearch + 5 raw primitives
   const totalTools = freeCount + proCount;
   const tier = simmer ? "free + autoresearch + per-skill" : "free only";
 
