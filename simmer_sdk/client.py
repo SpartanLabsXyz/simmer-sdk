@@ -3130,6 +3130,15 @@ class SimmerClient:
                     "redeem ext+DW: %s", stage
                 ),
             )
+            if result.get("not_redeemable"):
+                reason = result.get("reason", "unknown")
+                print(f"  Auto-redeem skipped: {market_id} ({side}) — {reason}")
+                return {
+                    "success": True,
+                    "tx_hash": None,
+                    "not_redeemable": True,
+                    "reason": reason,
+                }
             tx_hash = result.get("tx_hash")
             print(f"  Auto-redeem OK: {market_id} ({side}) tx={tx_hash}")
             return {
@@ -3472,6 +3481,10 @@ class SimmerClient:
             try:
                 print(f"  Auto-redeem: {market_id} ({side})...")
                 result = self.redeem(market_id, side)
+                if result.get("not_redeemable"):
+                    reason = result.get("reason", "not redeemable")
+                    logger.info("auto_redeem: skipped %s (%s) — %s", market_id, side, reason)
+                    continue
                 success = bool(result.get("success"))
                 tx_hash = result.get("tx_hash")
                 error = result.get("error") if not success else None
