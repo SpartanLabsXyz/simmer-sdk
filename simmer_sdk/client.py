@@ -2489,16 +2489,21 @@ class SimmerClient:
         except (HTTPError, URLError, TimeoutError):
             return []
 
+        outcome_labels = {0: "Yes", 1: "No"}
         holders = []
-        for h in data[:limit]:
-            holders.append({
-                "address": h.get("address", ""),
-                "display_name": h.get("displayName") or h.get("address", "")[:10] + "...",
-                "amount": float(h.get("amount", 0)),
-                "outcome": h.get("outcome", ""),
-                "profile_url": f"https://polymarket.com/@{h['address']}" if h.get("address") else None,
-            })
-        return holders
+        for token_group in data:
+            for h in token_group.get("holders", [])[:limit]:
+                addr = h.get("proxyWallet", "")
+                name = h.get("name", "") or h.get("pseudonym", "")
+                holders.append({
+                    "address": addr,
+                    "display_name": name or (addr[:10] + "..." if addr else "unknown"),
+                    "amount": float(h.get("amount", 0)),
+                    "outcome": outcome_labels.get(h.get("outcomeIndex"), "Unknown"),
+                    "profile_url": f"https://polymarket.com/profile/{addr}" if addr else None,
+                })
+        holders.sort(key=lambda x: x["amount"], reverse=True)
+        return holders[:limit]
 
     def get_trades(
         self,
