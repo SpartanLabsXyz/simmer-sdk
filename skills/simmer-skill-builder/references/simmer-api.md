@@ -63,13 +63,24 @@ market.polymarket_token_id # For CLOB queries
 ### Trading
 
 ```python
-# Buy
+# Buy (market order — default)
 result = client.trade(
     market_id="uuid",
     side="yes",              # "yes" or "no"
     amount=10.0,             # USD to spend (required for buys)
     source="sdk:my-skill",   # Tag for tracking (REQUIRED in generated skills)
     reasoning="My thesis",   # Displayed publicly, builds reputation
+)
+
+# Buy (limit order — sits on the CLOB book until filled or cancelled)
+result = client.trade(
+    market_id="uuid",
+    side="yes",
+    amount=10.0,
+    price=0.35,              # Limit price (see Order Types below)
+    order_type="GTC",        # Good Till Cancelled (see Order Types below)
+    source="sdk:my-skill",
+    reasoning="Limit buy at 35c",
 )
 
 # Sell
@@ -82,6 +93,24 @@ result = client.trade(
 )
 ```
 
+### Order Types
+
+| Type | Behavior | Use when |
+|------|----------|----------|
+| `FAK` | Fill And Kill (default). Fills what's available immediately, cancels the rest. | Standard trades — get filled now, accept partial fills |
+| `FOK` | Fill Or Kill. Execute fully or cancel entirely — no partial fills. | All-or-nothing entries |
+| `GTC` | Good Till Cancelled. Limit order sits on the CLOB book until filled or manually cancelled. | Limit orders — patient entries, maker rebates |
+| `GTD` | Good Till Date. Limit order with an expiry timestamp. | Time-bound limit orders |
+
+**`price=` semantics (Polymarket only, ignored for sim venue):**
+- For `side="yes"`: `price` is the YES token price (e.g., `price=0.35` = buy YES at 35c)
+- For `side="no"`: `price` is the NO token price (e.g., `price=0.65` = buy NO at 65c — this is NOT `1 - yes_price`)
+- Range: 0.01 to 0.99
+
+**GTC/GTD fill tracking:** `result.fill_status` will be `"submitted"` (order on book, `cost=$0` is correct — no fill yet). Use `result.order_id` to check or cancel: `client.cancel_order(order_id)`. The order fills asynchronously; check positions later to confirm.
+
+**Maker vs taker:** GTC limit orders earn maker rebates (~1.12%). FAK/FOK pay taker fees (~1.12%). Over many trades, the 2.24pp spread compounds significantly.
+
 **TradeResult fields:**
 ```python
 result.success          # bool — order accepted (not necessarily filled)
@@ -90,6 +119,7 @@ result.shares_bought    # float (shares acquired)
 result.shares_requested # float (shares requested — compare for partial fills)
 result.cost             # float (USD spent)
 result.fill_status      # "filled" | "submitted" | "unconfirmed" | "failed"
+result.order_id         # CLOB order ID (for GTC/GTD — use with cancel_order())
 result.order_status     # Polymarket order status: "matched", "live", "delayed"
 result.fully_filled     # bool — shares_bought >= shares_requested
 result.error            # string (if failed)
@@ -134,6 +164,31 @@ portfolio = client.get_portfolio()
 # Returns dict:
 # balance_usdc, total_exposure, positions_count, pnl_total, concentration, by_source
 ```
+
+### Position Sizing
+
+```python
+from simmer_sdk.sizing import size_position
+
+amount = size_position(
+    p_win=0.65,              # Estimated probability of winning
+    market_price=0.50,       # Current market YES price
+    bankroll=1000.0,         # Available capital
+    kelly_multiplier=0.25,   # Fraction of Kelly (0.25 = Quarter-Kelly)
+    max_fraction=0.03,       # Cap at 3% of bankroll (default: 0.95)
+    min_ev=0.02,             # Minimum expected value to trade (default: 0.02)
+)
+# Returns: dollar amount to trade, or 0.0 if below min_ev threshold
+```
+
+**`max_fraction`** caps the position as a fraction of bankroll, regardless of Kelly output. Use this for per-strategy risk limits:
+- `0.03` = 3% of bankroll per trade (conservative, e.g., Lunar quant style)
+- `0.10` = 10% cap (moderate)
+- `0.95` = default (effectively uncapped by fraction)
+
+**`kelly_multiplier`** scales the Kelly-optimal bet. Common values: `0.25` (Quarter-Kelly, most popular), `0.5` (Half-Kelly), `1.0` (full Kelly — aggressive, high variance).
+
+These are exposed as env-var tunables via `SIZING_CONFIG_SCHEMA` (see skill-template.md). Users can override them without touching code.
 
 ### Market Context (Pre-Trade)
 
