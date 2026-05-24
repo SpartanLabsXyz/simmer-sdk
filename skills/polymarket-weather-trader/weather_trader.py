@@ -1490,7 +1490,10 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
             log(f"  ⚠️  No bucket found for {forecast_temp}{unit_label}")
             continue
 
-        outcome_name = matching_market.get("outcome_name", "")
+        # SIM-2427: prefer outcome_name, fall back to question. Mirrors the
+        # matcher loop above. `.get("outcome_name", "")` would return None when
+        # the key exists with None value — same class-of-bug as SIM-2371.
+        outcome_name = matching_market.get("outcome_name") or matching_market.get("question", "")
         price = matching_market.get("external_price_yes") or 0.5
         market_id = matching_market.get("id")
 
@@ -1504,6 +1507,29 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
             log(f"  ⏸️  Price ${price:.4f} above max tradeable - skip (market at extreme)")
             skip_reasons.append("price at extreme")
             continue
+
+        # SIM-2427: compute source-tier early so it logs for EVERY bucket-matched
+        # candidate, even ones subsequently blocked by safeguards. Autoresearch +
+        # dogfood receipts need visibility into would-have-been tier classification.
+        # Cost stays bounded — secondary_cache dedupes per station within a scan.
+        secondary_temp = None
+        if not is_international:
+            if cache_key not in secondary_cache:
+                log(f"  Fetching Open-Meteo cross-check for {cache_key}...")
+                secondary_cache[cache_key] = get_openmeteo_forecast_for_us_station(cache_key)
+            sec_forecasts = secondary_cache[cache_key]
+            sec_day = sec_forecasts.get(date_str, {})
+            secondary_temp = sec_day.get(metric)
+
+        agreement_tier, source_spread, sec_bucket_name = evaluate_source_agreement(
+            forecast_temp, secondary_temp, outcome_name, event_markets, unit_label,
+        )
+        if secondary_temp is not None:
+            spread_str = f"{source_spread:.1f}{unit_label}" if source_spread is not None else "n/a"
+            log(f"  Open-Meteo cross-check: {secondary_temp}{unit_label} "
+                f"({sec_bucket_name or 'out-of-range'}) → tier={agreement_tier}, spread={spread_str}")
+        else:
+            log(f"  Source-agreement: tier={agreement_tier} (no secondary source)")
 
         # Check safeguards with edge analysis
         # NOAA forecasts are ~85% accurate for 1-2 day predictions when in-bucket
@@ -1533,29 +1559,6 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
                 trend_bonus = f" 📈 (up {trend['change_24h']:.0%} in 24h)"
 
         if price < ENTRY_THRESHOLD:
-            # SIM-2420: cross-check primary forecast against Open-Meteo secondary.
-            # US/NOAA stations get a second source; intl stations (where Open-Meteo
-            # IS primary) have no second source today and fall through to
-            # REQUIRE_SOURCE_AGREEMENT handling.
-            secondary_temp = None
-            if not is_international:
-                if cache_key not in secondary_cache:
-                    log(f"  Fetching Open-Meteo cross-check for {cache_key}...")
-                    secondary_cache[cache_key] = get_openmeteo_forecast_for_us_station(cache_key)
-                sec_forecasts = secondary_cache[cache_key]
-                sec_day = sec_forecasts.get(date_str, {})
-                secondary_temp = sec_day.get(metric)
-
-            agreement_tier, source_spread, sec_bucket_name = evaluate_source_agreement(
-                forecast_temp, secondary_temp, outcome_name, event_markets, unit_label,
-            )
-            if secondary_temp is not None:
-                spread_str = f"{source_spread:.1f}{unit_label}" if source_spread is not None else "n/a"
-                log(f"  Open-Meteo cross-check: {secondary_temp}{unit_label} "
-                    f"({sec_bucket_name or 'out-of-range'}) → tier={agreement_tier}, spread={spread_str}")
-            else:
-                log(f"  Source-agreement: tier={agreement_tier} (no secondary source)")
-
             position_size = calculate_position_size(MAX_POSITION_USD, smart_sizing)
 
             # Apply volatility targeting
