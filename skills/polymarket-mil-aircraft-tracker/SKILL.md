@@ -52,7 +52,7 @@ Use this skill when the user wants to:
 Required environment:
 
 - `SIMMER_API_KEY` - get from `simmer.markets/dashboard`
-- `PREF_API_KEY` - pref.trade agent key such as `pref_agent_*`
+- `PREF_API_KEY` - register your own agent at [pref.trade](https://pref.trade) via `POST /v1/agents/register` to get a `pref_agent_*` key (50 free calls/day on anonymous tier, 250/day after claiming)
 
 Then install the SDK:
 
