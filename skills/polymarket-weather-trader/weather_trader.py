@@ -15,6 +15,8 @@ Requires:
     SIMMER_API_KEY environment variable (get from simmer.markets/dashboard)
 """
 
+from __future__ import annotations
+
 import os
 import sys
 import re
@@ -927,7 +929,14 @@ def fetch_weather_markets():
 def execute_trade(market_id: str, side: str, amount: float, reasoning: str = None, signal_data: dict = None) -> dict:
     """Execute a buy trade via Simmer SDK with source tagging."""
     try:
-        result = get_client().trade(
+        client = get_client()
+        if client.live:
+            pf = client.preflight(planned_amount=amount, exposure_cap_usd=0, venue=client.venue)
+            if not pf.ok_to_trade:
+                blockers = ", ".join(pf.blockers)
+                print(f"  ⛔ Preflight blocked: {blockers}")
+                return {"error": f"preflight_blocked: {blockers}"}
+        result = client.trade(
             market_id=market_id, side=side, amount=amount, source=TRADE_SOURCE, skill_slug=SKILL_SLUG,
             reasoning=reasoning, signal_data=signal_data, order_type=ORDER_TYPE,
         )
@@ -947,7 +956,14 @@ def execute_trade(market_id: str, side: str, amount: float, reasoning: str = Non
 def execute_sell(market_id: str, shares: float) -> dict:
     """Execute a sell trade via Simmer SDK with source tagging."""
     try:
-        result = get_client().trade(
+        client = get_client()
+        if client.live:
+            pf = client.preflight(planned_amount=0, exposure_cap_usd=0, venue=client.venue)
+            if not pf.ok_to_trade:
+                blockers = ", ".join(pf.blockers)
+                print(f"  ⛔ Preflight blocked: {blockers}")
+                return {"error": f"preflight_blocked: {blockers}"}
+        result = client.trade(
             market_id=market_id, side="yes", action="sell",
             shares=shares, source=TRADE_SOURCE, skill_slug=SKILL_SLUG,
             order_type=ORDER_TYPE,

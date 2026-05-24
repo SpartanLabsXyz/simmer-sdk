@@ -171,7 +171,14 @@ def check_context_safeguards(context):
 
 def execute_trade(market_id, side, amount, reasoning=""):
     try:
-        result = get_client().trade(
+        client = get_client()
+        if client.live:
+            pf = client.preflight(planned_amount=amount, exposure_cap_usd=0, venue=client.venue)
+            if not pf.ok_to_trade:
+                blockers = ", ".join(pf.blockers)
+                print(f"  ⛔ Preflight blocked: {blockers}")
+                return {"error": f"preflight_blocked: {blockers}"}
+        result = client.trade(
             market_id=market_id,
             side=side,
             amount=amount,
