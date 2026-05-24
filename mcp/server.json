@@ -1,0 +1,40 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.SpartanLabsXyz/simmer-mcp",
+  "title": "Simmer",
+  "description": "Skill discovery, autoresearch experiments, and live trading on prediction markets (Polymarket, Kalshi, Simmer) for AI agents.",
+  "version": "3.3.0",
+  "websiteUrl": "https://simmer.markets",
+  "repository": {
+    "url": "https://github.com/SpartanLabsXyz/simmer-sdk",
+    "source": "github"
+  },
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://www.npmjs.com",
+      "identifier": "simmer-mcp",
+      "version": "3.3.0",
+      "runtimeHint": "npx",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "SIMMER_API_KEY",
+          "description": "Simmer API key (sk_live_...) from simmer.markets/dashboard. Required for Pro tools (autoresearch, trading, briefings). Free tools work without it.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": true
+        },
+        {
+          "name": "SIMMER_MCP_ALLOW_LIVE",
+          "description": "Set to 'true' to allow live trading via simmer_trade. Without this, all trades run in paper/sim mode.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        }
+      ]
+    }
+  ]
+}

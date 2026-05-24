@@ -29,6 +29,7 @@
     "experiment-loop",
     "simmer-mcp"
   ],
+  "mcpName": "io.github.SpartanLabsXyz/simmer-mcp",
   "license": "MIT",
   "engines": {
     "node": ">=22.6.0"
