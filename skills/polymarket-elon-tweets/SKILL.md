@@ -3,7 +3,7 @@ name: polymarket-elon-tweets
 description: 'Trade Polymarket "Elon Musk # tweets" markets using XTracker post count data. Buys adjacent range buckets when combined cost < $1 for structural edge. Use when user wants to trade tweet count markets, automate Elon tweet bets, check XTracker stats, or run noovd-style trading.'
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.3.3"
+  version: "1.3.5"
   displayName: Polymarket Elon Tweet Trader
   difficulty: advanced
   attribution: Strategy inspired by @noovd
@@ -66,12 +66,12 @@ When user asks to install or configure this skill:
 | Setting | Env Variable | Config Key | Default | Description |
 |---------|-------------|------------|---------|-------------|
 | Max bucket sum | `SIMMER_ELON_MAX_BUCKET_SUM` | `max_bucket_sum` | 0.90 | Only buy if cluster prices sum < this |
-| Max position | `SIMMER_ELON_MAX_POSITION` | `max_position_usd` | 5.00 | Maximum USD per bucket |
+| Max position | `SIMMER_ELON_MAX_POSITION_USD` | `max_position_usd` | 5.00 | Maximum USD per bucket |
 | Bucket spread | `SIMMER_ELON_BUCKET_SPREAD` | `bucket_spread` | 1 | Neighbors on each side (1 = 3 buckets) |
 | Smart sizing % | `SIMMER_ELON_SIZING_PCT` | `sizing_pct` | 0.05 | % of balance per trade |
-| Max trades/run | `SIMMER_ELON_MAX_TRADES` | `max_trades_per_run` | 6 | Maximum trades per scan cycle |
-| Exit threshold | `SIMMER_ELON_EXIT` | `exit_threshold` | 0.65 | Sell when bucket price above this |
-| Slippage max | `SIMMER_ELON_SLIPPAGE_MAX` | `slippage_max_pct` | 0.05 | Skip trade if slippage exceeds this |
+| Max trades/run | `SIMMER_ELON_MAX_TRADES_PER_RUN` | `max_trades_per_run` | 6 | Maximum trades per scan cycle |
+| Exit threshold | `SIMMER_ELON_EXIT_THRESHOLD` | `exit_threshold` | 0.65 | Sell when bucket price above this |
+| Slippage max | `SIMMER_ELON_SLIPPAGE_BPS` | `slippage_max_bps` | 100 | Skip trade if slippage exceeds this (basis points, e.g. 100 = 1%) |
 | Min position | `SIMMER_ELON_MIN_POSITION` | `min_position_usd` | 2.00 | Floor for smart sizing (USD) |
 | Data source | `SIMMER_ELON_DATA_SOURCE` | `data_source` | xtracker | Data source (xtracker) |
 | Order type | `SIMMER_ELON_ORDER_TYPE` | `order_type` | GTC | Order type: GTC (good-til-cancelled) or FAK (fill-and-kill) |

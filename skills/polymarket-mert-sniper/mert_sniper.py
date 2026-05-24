@@ -37,10 +37,10 @@ from simmer_sdk.skill import load_config, update_config, get_config_path
 # Configuration schema
 CONFIG_SCHEMA = {
     "market_filter": {"env": "SIMMER_MERT_FILTER", "default": "", "type": str},
-    "max_bet_usd": {"env": "SIMMER_MERT_MAX_BET", "default": 10.00, "type": float},
-    "expiry_window_mins": {"env": "SIMMER_MERT_EXPIRY_MINS", "default": 8, "type": int},
+    "max_bet_usd": {"env": "SIMMER_MERT_MAX_BET_USD", "default": 10.00, "type": float},
+    "expiry_window_mins": {"env": "SIMMER_MERT_EXPIRY_MINUTES", "default": 8, "type": int},
     "min_split": {"env": "SIMMER_MERT_MIN_SPLIT", "default": 0.60, "type": float},
-    "max_trades_per_run": {"env": "SIMMER_MERT_MAX_TRADES", "default": 5, "type": int},
+    "max_trades_per_run": {"env": "SIMMER_MERT_MAX_TRADES_PER_RUN", "default": 5, "type": int},
     "sizing_pct": {"env": "SIMMER_MERT_SIZING_PCT", "default": 0.05, "type": float},
     "order_type": {"env": "SIMMER_MERT_ORDER_TYPE", "default": "GTC", "type": str},
     "fee_buffer": {"env": "SIMMER_MERT_FEE_BUFFER", "default": 0.02, "type": float},
@@ -431,7 +431,7 @@ def run_mert_strategy(dry_run=True, positions_only=False, show_config=False,
         print("\n  To change settings, either:")
         print('  1. Edit config.json: {"max_bet_usd": 5.00, "min_split": 0.65}')
         print("  2. Use --set: python mert_sniper.py --set max_bet_usd=5.00")
-        print("  3. Set env vars: SIMMER_MERT_MAX_BET=5.00")
+        print("  3. Set env vars: SIMMER_MERT_MAX_BET_USD=5.00")
         return
 
     # Show portfolio if smart sizing
