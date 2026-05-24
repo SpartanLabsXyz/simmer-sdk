@@ -3428,13 +3428,17 @@ class SimmerClient:
                     "error": error,
                 })
             except Exception as e:
+                err_str = str(e)
                 logger.warning("auto_redeem: error redeeming %s %s: %s", market_id, side, e)
+                if "WALLET_PRIVATE_KEY" in err_str or "OWS_WALLET" in err_str:
+                    print(f"  ⚠️  Auto-redeem skipped — external wallet needs WALLET_PRIVATE_KEY or OWS_WALLET configured for on-chain redemption. Redeem manually from dashboard at simmer.markets")
+                    return results
                 results.append({
                     "market_id": market_id,
                     "side": side,
                     "success": False,
                     "tx_hash": None,
-                    "error": str(e),
+                    "error": err_str,
                 })
 
         return results
