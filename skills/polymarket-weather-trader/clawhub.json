@@ -99,6 +99,26 @@
       "name": "SIMMER_WEATHER_VOL_SPAN",
       "required": false,
       "description": "EWMA span for vol calculation; lower = more responsive (default 10)."
+    },
+    {
+      "name": "SIMMER_WEATHER_REQUIRE_SOURCE_AGREEMENT",
+      "required": false,
+      "description": "Skip on any NOAA/Open-Meteo bucket disagreement (no canary fallback). Default false."
+    },
+    {
+      "name": "SIMMER_WEATHER_CANARY_ON_ADJACENT_DISAGREEMENT",
+      "required": false,
+      "description": "Cap to MAX_CANARY_USD on adjacent-bucket source disagreement instead of skipping. Default true."
+    },
+    {
+      "name": "SIMMER_WEATHER_MAX_CANARY_USD",
+      "required": false,
+      "description": "Max position USD when source disagreement triggers canary mode (default $2)."
+    },
+    {
+      "name": "SIMMER_WEATHER_MAX_SOURCE_SPREAD_F",
+      "required": false,
+      "description": "Max degrees-F spread between primary + secondary forecast before skipping outright (default 2.0)."
     }
   ],
   "cron": null,
@@ -246,6 +266,40 @@
       ],
       "step": 1,
       "label": "EWMA span for vol calculation"
+    },
+    {
+      "env": "SIMMER_WEATHER_REQUIRE_SOURCE_AGREEMENT",
+      "type": "boolean",
+      "default": false,
+      "label": "Require source agreement (skip any disagreement)"
+    },
+    {
+      "env": "SIMMER_WEATHER_CANARY_ON_ADJACENT_DISAGREEMENT",
+      "type": "boolean",
+      "default": true,
+      "label": "Canary mode on adjacent-bucket disagreement"
+    },
+    {
+      "env": "SIMMER_WEATHER_MAX_CANARY_USD",
+      "type": "number",
+      "default": 2.0,
+      "range": [
+        0.5,
+        20
+      ],
+      "step": 0.5,
+      "label": "Max canary USD (source-disagreement mode)"
+    },
+    {
+      "env": "SIMMER_WEATHER_MAX_SOURCE_SPREAD_F",
+      "type": "number",
+      "default": 2.0,
+      "range": [
+        0.5,
+        10
+      ],
+      "step": 0.5,
+      "label": "Max source spread °F before skip"
     }
   ]
 }

@@ -1,0 +1,30 @@
+# Smithery configuration file: https://smithery.ai/docs/config#smitheryyaml
+#
+# simmer-mcp is a local stdio MCP server for AI agent trading on
+# prediction markets (Polymarket, Kalshi, Simmer venue).
+#
+# Free tools (skill discovery, troubleshooting) require no config.
+# Pro tools (autoresearch, trading, briefings) require a SIMMER_API_KEY
+# from simmer.markets/dashboard.
+
+startCommand:
+  type: stdio
+
+configSchema:
+  type: object
+  properties:
+    simmerApiKey:
+      type: string
+      description: "Simmer API key (sk_live_...) from simmer.markets/dashboard. Optional — without it, only free tools (list_skills, get_skill_docs, troubleshoot_error) are available."
+    simmerMcpAllowLive:
+      type: boolean
+      description: "Set true to allow live trading via simmer_trade. Without this, all trades run in paper mode."
+      default: false
+
+commandFunction: |-
+  (config) => {
+    const env = {};
+    if (config.simmerApiKey) env.SIMMER_API_KEY = config.simmerApiKey;
+    if (config.simmerMcpAllowLive) env.SIMMER_MCP_ALLOW_LIVE = "true";
+    return { command: "npx", args: ["-y", "simmer-mcp"], env };
+  }

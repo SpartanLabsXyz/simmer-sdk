@@ -1,11 +1,11 @@
 ---
-name: preflight
-version: "0.1.0"
+name: simmer-preflight
+version: "0.3.1"
 published: true
 description: Pre-trade readiness check for autonomous agents. One call returns wallet identity, venue status, spendable balance, open exposure, and a structured ok_to_trade verdict. Run before every real-money trade to prevent cap overruns and catch config issues before they become P&L issues.
 metadata:
   author: "Simmer (@simmer_markets)"
-  version: "0.1.0"
+  version: "0.3.1"
   displayName: Simmer Preflight
   difficulty: beginner
   primaryEnv: SIMMER_API_KEY

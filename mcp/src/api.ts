@@ -363,6 +363,77 @@ export class SimmerApi {
   }
 
   /**
+   * Get portfolio summary (balance, value, P&L breakdown).
+   */
+  async getPortfolio(): Promise<PortfolioResult> {
+    const resp = await this.timedFetch(
+      `${this.apiUrl}/api/sdk/portfolio`,
+      { headers: this.headers() },
+      15_000,
+    );
+    if (!resp.ok) {
+      const detail = await this.extractDetail(resp);
+      const upgradeUrl = resp.status === 403 ? "https://simmer.markets/pro" : undefined;
+      throw new BackendError(resp.status, detail, upgradeUrl);
+    }
+    return (await resp.json()) as PortfolioResult;
+  }
+
+  /**
+   * Get open positions, optionally filtered by venue.
+   */
+  async getPositions(params: {
+    venue?: string;
+  } = {}): Promise<PositionsResult> {
+    const qs = new URLSearchParams();
+    if (params.venue) qs.set("venue", params.venue);
+    const qStr = qs.toString();
+    const url = `${this.apiUrl}/api/sdk/positions${qStr ? `?${qStr}` : ""}`;
+    const resp = await this.timedFetch(url, { headers: this.headers() }, 15_000);
+    if (!resp.ok) {
+      const detail = await this.extractDetail(resp);
+      const upgradeUrl = resp.status === 403 ? "https://simmer.markets/pro" : undefined;
+      throw new BackendError(resp.status, detail, upgradeUrl);
+    }
+    return (await resp.json()) as PositionsResult;
+  }
+
+  /**
+   * Get positions expiring within a window.
+   */
+  async getExpiringPositions(params: {
+    hours?: number;
+  } = {}): Promise<PositionsResult> {
+    const qs = new URLSearchParams();
+    if (params.hours) qs.set("hours", String(params.hours));
+    const qStr = qs.toString();
+    const url = `${this.apiUrl}/api/sdk/positions/expiring${qStr ? `?${qStr}` : ""}`;
+    const resp = await this.timedFetch(url, { headers: this.headers() }, 15_000);
+    if (!resp.ok) {
+      const detail = await this.extractDetail(resp);
+      throw new BackendError(resp.status, detail);
+    }
+    return (await resp.json()) as PositionsResult;
+  }
+
+  /**
+   * Get fleet summary — all agents' positions, P&L, trade counts.
+   */
+  async getFleetSummary(): Promise<FleetSummaryResult> {
+    const resp = await this.timedFetch(
+      `${this.apiUrl}/api/sdk/fleet/summary`,
+      { headers: this.headers() },
+      15_000,
+    );
+    if (!resp.ok) {
+      const detail = await this.extractDetail(resp);
+      const upgradeUrl = resp.status === 403 ? "https://simmer.markets/pro" : undefined;
+      throw new BackendError(resp.status, detail, upgradeUrl);
+    }
+    return (await resp.json()) as FleetSummaryResult;
+  }
+
+  /**
    * Runs a backtest. Throws BackendError on 4xx/5xx so callers can relay the
    * error cleanly (403 → upgrade prompt, 401 → invalid key, etc.).
    */
