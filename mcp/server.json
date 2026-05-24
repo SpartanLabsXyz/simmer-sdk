@@ -3,7 +3,7 @@
   "name": "io.github.SpartanLabsXyz/simmer-mcp",
   "title": "Simmer",
   "description": "Skill discovery, autoresearch experiments, and live trading on prediction markets (Polymarket, Kalshi, Simmer) for AI agents.",
-  "version": "3.3.0",
+  "version": "3.3.1",
   "websiteUrl": "https://simmer.markets",
   "repository": {
     "url": "https://github.com/SpartanLabsXyz/simmer-sdk",
@@ -14,7 +14,7 @@
       "registryType": "npm",
       "registryBaseUrl": "https://www.npmjs.com",
       "identifier": "simmer-mcp",
-      "version": "3.3.0",
+      "version": "3.3.1",
       "runtimeHint": "npx",
       "transport": {
         "type": "stdio"
