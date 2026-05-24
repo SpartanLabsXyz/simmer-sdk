@@ -68,9 +68,9 @@ CONFIG_SCHEMA = {
     "feeds": {"env": "SIMMER_SNIPER_FEEDS", "default": "", "type": str},
     "markets": {"env": "SIMMER_SNIPER_MARKETS", "default": "", "type": str},
     "keywords": {"env": "SIMMER_SNIPER_KEYWORDS", "default": "", "type": str},
-    "confidence_threshold": {"env": "SIMMER_SNIPER_CONFIDENCE", "default": 0.7, "type": float},
+    "confidence_threshold": {"env": "SIMMER_SNIPER_CONFIDENCE_THRESHOLD", "default": 0.7, "type": float},
     "max_usd": {"env": "SIMMER_SNIPER_MAX_USD", "default": 25.0, "type": float},
-    "max_trades_per_run": {"env": "SIMMER_SNIPER_MAX_TRADES", "default": 5, "type": int},
+    "max_trades_per_run": {"env": "SIMMER_SNIPER_MAX_TRADES_PER_RUN", "default": 5, "type": int},
 }
 
 # Load configuration

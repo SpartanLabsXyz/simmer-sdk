@@ -73,17 +73,6 @@
       "label": "Lookback window (minutes)"
     },
     {
-      "env": "SIMMER_FASTLOOP_MIN_TIME_BETWEEN_TRADES_SEC",
-      "type": "number",
-      "default": 60,
-      "range": [
-        10,
-        600
-      ],
-      "step": 10,
-      "label": "Min time between trades (seconds)"
-    },
-    {
       "env": "SIMMER_FASTLOOP_DAILY_BUDGET_USD",
       "type": "number",
       "default": 50,
