@@ -250,23 +250,86 @@ INTERNATIONAL_LOCATIONS = {
 # class of bug the US side fixes by going per-station. Coords are the airport
 # itself; tz is the local timezone.
 INTERNATIONAL_STATION_COORDS = {
-    "LLBG": {"lat": 32.0114, "lon": 34.8867, "tz": "Asia/Jerusalem",   "city": "Tel Aviv"},   # Ben Gurion
-    "EDDM": {"lat": 48.3538, "lon": 11.7861, "tz": "Europe/Berlin",    "city": "Munich"},     # Munich Airport
-    "EGLL": {"lat": 51.4700, "lon": -0.4543, "tz": "Europe/London",    "city": "London"},     # Heathrow
-    "RJTT": {"lat": 35.5494, "lon": 139.7798, "tz": "Asia/Tokyo",      "city": "Tokyo"},      # Haneda
-    "RJAA": {"lat": 35.7647, "lon": 140.3863, "tz": "Asia/Tokyo",      "city": "Tokyo"},      # Narita
-    "RKSI": {"lat": 37.4602, "lon": 126.4407, "tz": "Asia/Seoul",      "city": "Seoul"},      # Incheon
-    "RKSS": {"lat": 37.5586, "lon": 126.7906, "tz": "Asia/Seoul",      "city": "Seoul"},      # Gimpo
-    "LTAC": {"lat": 40.1281, "lon": 32.9951, "tz": "Europe/Istanbul",  "city": "Ankara"},     # Esenboga
-    "VILK": {"lat": 26.7606, "lon": 80.8893, "tz": "Asia/Kolkata",     "city": "Lucknow"},    # Chaudhary Charan Singh
-    "NZWN": {"lat": -41.3272, "lon": 174.8053, "tz": "Pacific/Auckland", "city": "Wellington"},  # Wellington Intl
-    "LEMD": {"lat": 40.4839, "lon": -3.5680, "tz": "Europe/Madrid",    "city": "Madrid"},     # Barajas
-    "LIMC": {"lat": 45.6306, "lon": 8.7281, "tz": "Europe/Rome",       "city": "Milan"},      # Malpensa
-    "LIML": {"lat": 45.4451, "lon": 9.2767, "tz": "Europe/Rome",       "city": "Milan"},      # Linate
-    "EHAM": {"lat": 52.3105, "lon": 4.7683, "tz": "Europe/Amsterdam",  "city": "Amsterdam"},  # Schiphol
-    "RCSS": {"lat": 25.0697, "lon": 121.5519, "tz": "Asia/Taipei",     "city": "Taipei"},     # Songshan
-    "RCTP": {"lat": 25.0777, "lon": 121.2328, "tz": "Asia/Taipei",     "city": "Taipei"},     # Taoyuan
+    "LLBG": {"lat": 32.0114, "lon": 34.8867, "tz": "Asia/Jerusalem",   "city": "Tel Aviv",   "name": "Ben Gurion Airport"},
+    "EDDM": {"lat": 48.3538, "lon": 11.7861, "tz": "Europe/Berlin",    "city": "Munich",     "name": "Munich Airport"},
+    "EGLL": {"lat": 51.4700, "lon": -0.4543, "tz": "Europe/London",    "city": "London",     "name": "Heathrow Airport"},
+    "RJTT": {"lat": 35.5494, "lon": 139.7798, "tz": "Asia/Tokyo",      "city": "Tokyo",      "name": "Tokyo Haneda Airport"},
+    "RJAA": {"lat": 35.7647, "lon": 140.3863, "tz": "Asia/Tokyo",      "city": "Tokyo",      "name": "Narita International Airport"},
+    "RKSI": {"lat": 37.4602, "lon": 126.4407, "tz": "Asia/Seoul",      "city": "Seoul",      "name": "Incheon International Airport"},
+    "RKSS": {"lat": 37.5586, "lon": 126.7906, "tz": "Asia/Seoul",      "city": "Seoul",      "name": "Gimpo International Airport"},
+    "LTAC": {"lat": 40.1281, "lon": 32.9951, "tz": "Europe/Istanbul",  "city": "Ankara",     "name": "Esenboğa International Airport"},
+    "VILK": {"lat": 26.7606, "lon": 80.8893, "tz": "Asia/Kolkata",     "city": "Lucknow",    "name": "Chaudhary Charan Singh International Airport"},
+    "NZWN": {"lat": -41.3272, "lon": 174.8053, "tz": "Pacific/Auckland", "city": "Wellington", "name": "Wellington International Airport"},
+    "LEMD": {"lat": 40.4839, "lon": -3.5680, "tz": "Europe/Madrid",    "city": "Madrid",     "name": "Adolfo Suárez Madrid-Barajas Airport"},
+    "LIMC": {"lat": 45.6306, "lon": 8.7281, "tz": "Europe/Rome",       "city": "Milan",      "name": "Milan Malpensa Airport"},
+    "LIML": {"lat": 45.4451, "lon": 9.2767, "tz": "Europe/Rome",       "city": "Milan",      "name": "Milan Linate Airport"},
+    "EHAM": {"lat": 52.3105, "lon": 4.7683, "tz": "Europe/Amsterdam",  "city": "Amsterdam",  "name": "Amsterdam Schiphol Airport"},
+    "RCSS": {"lat": 25.0697, "lon": 121.5519, "tz": "Asia/Taipei",     "city": "Taipei",     "name": "Taipei Songshan Airport"},
+    "RCTP": {"lat": 25.0777, "lon": 121.2328, "tz": "Asia/Taipei",     "city": "Taipei",     "name": "Taoyuan International Airport"},
 }
+
+
+# =============================================================================
+# Station-name → ICAO fallback (SIM-2428)
+# =============================================================================
+#
+# Some Polymarket markets cite the station by NAME ("Esenboğa Intl Airport")
+# without a Wunderground URL or explicit ICAO. The resolution parser then
+# returns station_id=None, station_name=<airport name>. Before SIM-2428 those
+# markets got skipped even when the skill had coords for the station; this
+# index lets the router fall back to a normalized-name lookup.
+
+import unicodedata as _unicodedata
+
+def _normalize_station_name(name: str) -> str:
+    """Lower-cased, diacritic-stripped, suffix-trimmed station name for
+    fuzzy matching. Strips trailing 'airport', 'intl', 'international',
+    'intl airport', 'international airport' tokens so 'Esenboğa Intl
+    Airport' and 'Esenboga International Airport' both collapse to
+    'esenboğa'-normalized → 'esenboga'."""
+    if not name:
+        return ""
+    # Strip diacritics (ğ → g, ü → u, etc.)
+    decomposed = _unicodedata.normalize("NFKD", name)
+    ascii_only = "".join(c for c in decomposed if not _unicodedata.combining(c))
+    s = ascii_only.lower().strip()
+    # Repeatedly strip trailing airport-class suffixes
+    for _ in range(4):
+        for suffix in (" international airport", " intl airport", " airport",
+                       " international", " intl"):
+            if s.endswith(suffix):
+                s = s[: -len(suffix)].strip()
+                break
+        else:
+            break
+    return s
+
+
+def _build_station_name_index() -> dict:
+    """Build {normalized_name: icao} from BOTH coord tables at module load.
+    Used by the router when Polymarket cites a station by name only."""
+    index = {}
+    for icao, info in STATION_ID_TO_NOAA.items():
+        nm = _normalize_station_name(info.get("name", ""))
+        if nm:
+            index[nm] = icao
+    for icao, info in INTERNATIONAL_STATION_COORDS.items():
+        nm = _normalize_station_name(info.get("name", ""))
+        if nm:
+            index[nm] = icao
+    return index
+
+
+_STATION_NAME_INDEX = _build_station_name_index()
+
+
+def resolve_station_id_from_name(station_name: str) -> str | None:
+    """Map a Polymarket-cited airport name to a known ICAO via the
+    normalized-name index. Returns None if no match — caller should
+    skip the market as before."""
+    if not station_name:
+        return None
+    return _STATION_NAME_INDEX.get(_normalize_station_name(station_name))
 
 # =============================================================================
 # Resolution-source parser
@@ -1431,6 +1494,15 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
 
         station_id = parsed.get("station_id")
         station_name = parsed.get("station_name") or station_id or "?"
+
+        # SIM-2428: when Polymarket cites the station by name only (no
+        # Wunderground URL / no explicit ICAO), parsed["station_id"] is
+        # None. Try the normalized-name index before declaring unknown.
+        if not station_id and station_name and station_name != "?":
+            resolved = resolve_station_id_from_name(station_name)
+            if resolved:
+                log(f"  Resolved '{station_name}' → {resolved} via name index")
+                station_id = resolved
 
         # Route forecast source by station_id. Cache key is the station_id
         # itself (not the city) so multi-airport cities like NYC/Chicago/
