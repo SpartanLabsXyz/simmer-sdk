@@ -630,16 +630,6 @@ def main():
         status_only=args.status,
         quiet=args.quiet,
     )
-
-    if os.environ.get("AUTOMATON_MANAGED"):
-        print(json.dumps({
-            "automaton": {
-                "signals": 0,
-                "trades_attempted": 0,
-                "trades_executed": 0,
-                "skip_reason": "no_signal",
-            }
-        }))
     return 0
 
 
