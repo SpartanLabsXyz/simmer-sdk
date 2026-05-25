@@ -197,6 +197,45 @@ class TestTradeWalletAddress:
         payload = call_args.kwargs.get("json") or call_args[1].get("json")
         assert payload.get("wallet_address") == "0x1234567890abcdef1234567890abcdef12345678"
 
+    def test_registered_ows_polymarket_trade_skips_user_level_auto_link(self):
+        """Registered per-agent OWS trades must not relink the user wallet.
+
+        DW users can legitimately have open positions on the current user-level
+        external wallet. The backend rejects replacing that wallet; per-agent
+        OWS trades should route via user_agent_wallets instead.
+        """
+        client = _make_client(
+            ows_wallet="agent-mybot",
+            wallet_address="0x1234567890abcdef1234567890abcdef12345678",
+        )
+        client._agent_wallet_registered = True
+        client._request.return_value = {
+            "success": True,
+            "market_id": "test-market",
+            "side": "yes",
+            "shares_bought": 10.0,
+            "cost": 5.0,
+            "new_price": 0.5,
+            "fill_status": "filled",
+        }
+        client._get_held_markets = MagicMock(return_value={})
+        client._ensure_wallet_linked = MagicMock(
+            side_effect=RuntimeError(
+                "Cannot re-link: your current external wallet has open positions on Polymarket."
+            )
+        )
+        client._warn_approvals_once = MagicMock()
+        client._build_signed_order = MagicMock(return_value={"signed": "order"})
+
+        result = client.trade("test-market", "yes", amount=10.0, venue="polymarket")
+
+        assert result.success is True
+        client._ensure_wallet_linked.assert_not_called()
+        call_args = client._request.call_args
+        payload = call_args.kwargs.get("json") or call_args[1].get("json")
+        assert payload["wallet_address"] == "0x1234567890abcdef1234567890abcdef12345678"
+        assert payload["signed_order"] == {"signed": "order"}
+
     def test_omits_wallet_address_when_ows_wallet_not_registered(self):
         """OWS wallet without per-agent-wallet registration falls through to user-level path.
 

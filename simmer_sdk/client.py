@@ -1631,19 +1631,29 @@ class SimmerClient:
         if price is not None:
             payload["price"] = price
 
+        registered_agent_wallet = (
+            self._ows_wallet
+            and self._wallet_address
+            and self._is_agent_wallet_registered()
+        )
+
         # Include wallet_address only for users who explicitly opted into per-agent
         # wallet attribution by registering this OWS wallet (Elite feature).
         # Otherwise the server would reject with "Agent wallet not found" because
         # the wallet has no row in user_agent_wallets — but the user-level
         # linked_wallet_address path still works fine. Don't conflate "OWS configured"
         # with "wants per-agent isolation."
-        if self._ows_wallet and self._wallet_address and self._is_agent_wallet_registered():
+        if registered_agent_wallet:
             payload["wallet_address"] = self._wallet_address
 
         # External wallet: ensure linked, check approvals, sign locally
         if (self._private_key or self._ows_wallet) and effective_venue == "polymarket":
-            # Auto-link wallet if not already linked
-            self._ensure_wallet_linked()
+            # Registered per-agent OWS wallets route through user_agent_wallets
+            # via payload["wallet_address"]. They must not hit the user-level
+            # auto-link path, which can try to replace the account's current
+            # external wallet and fail when that wallet has open positions.
+            if not registered_agent_wallet:
+                self._ensure_wallet_linked()
             # Warn about missing approvals (once per session)
             self._warn_approvals_once()
             # SIM-1646: for DW users doing sells, look up the on-chain holder so
