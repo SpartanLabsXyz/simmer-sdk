@@ -72,3 +72,22 @@ def test_fetch_military_aircraft_handles_error():
         os.environ["PREF_API_KEY"] = "pref_agent_test"
         aircraft = pref_client.get_military_aircraft()
         assert aircraft == []
+
+
+def test_load_api_key_accepts_preference_alias():
+    """PREFERENCE_API_KEY works for agents that follow pref.trade onboarding docs."""
+    import pref_client
+
+    with patch.dict(os.environ, {"PREFERENCE_API_KEY": "pref_agent_alias"}, clear=True):
+        assert pref_client._load_api_key() == "pref_agent_alias"
+
+
+def test_load_api_key_reads_standard_credentials_file(tmp_path):
+    """Agents can store pref credentials outside .env and still run the skill."""
+    import pref_client
+
+    cred = tmp_path / "credentials.json"
+    cred.write_text(json.dumps({"api_key": "pref_agent_file"}))
+
+    with patch.dict(os.environ, {}, clear=True), patch.object(pref_client, "PREF_CREDENTIALS_PATH", cred):
+        assert pref_client._load_api_key() == "pref_agent_file"
