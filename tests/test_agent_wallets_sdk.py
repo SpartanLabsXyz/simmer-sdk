@@ -197,6 +197,110 @@ class TestTradeWalletAddress:
         payload = call_args.kwargs.get("json") or call_args[1].get("json")
         assert payload.get("wallet_address") == "0x1234567890abcdef1234567890abcdef12345678"
 
+    def test_registered_ows_polymarket_trade_skips_user_level_auto_link(self):
+        """Registered per-agent OWS trades must not relink the user wallet.
+
+        DW users can legitimately have open positions on the current user-level
+        external wallet. The backend rejects replacing that wallet; per-agent
+        OWS trades should route via user_agent_wallets instead.
+        """
+        client = _make_client(
+            ows_wallet="agent-mybot",
+            wallet_address="0x1234567890abcdef1234567890abcdef12345678",
+        )
+        client._agent_wallet_registered = True
+        client._request.return_value = {
+            "success": True,
+            "market_id": "test-market",
+            "side": "yes",
+            "shares_bought": 10.0,
+            "cost": 5.0,
+            "new_price": 0.5,
+            "fill_status": "filled",
+        }
+        client._get_held_markets = MagicMock(return_value={})
+        client._ensure_wallet_linked = MagicMock(
+            side_effect=RuntimeError(
+                "Cannot re-link: your current external wallet has open positions on Polymarket."
+            )
+        )
+        client._load_per_agent_dw_state = MagicMock()
+        client._warn_approvals_once = MagicMock()
+        client._build_signed_order = MagicMock(return_value={"signed": "order"})
+
+        result = client.trade("test-market", "yes", amount=10.0, venue="polymarket")
+
+        assert result.success is True
+        client._ensure_wallet_linked.assert_not_called()
+        client._load_per_agent_dw_state.assert_called_once()
+        call_args = client._request.call_args
+        payload = call_args.kwargs.get("json") or call_args[1].get("json")
+        assert payload["wallet_address"] == "0x1234567890abcdef1234567890abcdef12345678"
+        assert payload["signed_order"] == {"signed": "order"}
+
+    def test_registered_ows_populates_dw_state_from_agents_me(self):
+        """_load_per_agent_dw_state must populate _uses_deposit_wallet and
+        _deposit_wallet_address so _build_signed_order picks sig type 3."""
+        client = _make_client(
+            ows_wallet="agent-mybot",
+            wallet_address="0x1234567890abcdef1234567890abcdef12345678",
+        )
+        client._uses_deposit_wallet = False
+        client._deposit_wallet_address = None
+
+        def mock_request(method, endpoint, **kwargs):
+            if endpoint == "/api/sdk/agents/me":
+                return {
+                    "agent_id": "test-agent-uuid",
+                    "per_agent_wallet_address": "0x1234567890abcdef1234567890abcdef12345678",
+                    "per_agent_dw_active": True,
+                    "per_agent_deposit_wallet_address": "0xDW1234",
+                    "rate_limits": {"tier": "elite"},
+                    "real_trading_enabled": True,
+                }
+            return {}
+        client._request = MagicMock(side_effect=mock_request)
+
+        client._load_per_agent_dw_state()
+
+        assert client._uses_deposit_wallet is True
+        assert client._deposit_wallet_address == "0xDW1234"
+        client._request.assert_called_once_with("GET", "/api/sdk/agents/me")
+
+    def test_load_per_agent_dw_state_cached_after_first_call(self):
+        """Second call is a no-op — no duplicate /api/sdk/agents/me fetch."""
+        client = _make_client(
+            ows_wallet="agent-mybot",
+            wallet_address="0x1234567890abcdef1234567890abcdef12345678",
+        )
+        client._uses_deposit_wallet = False
+        client._deposit_wallet_address = None
+        client._request = MagicMock(return_value={
+            "per_agent_wallet_address": "0x1234567890abcdef1234567890abcdef12345678",
+            "per_agent_dw_active": True,
+            "per_agent_deposit_wallet_address": "0xDW1234",
+        })
+
+        client._load_per_agent_dw_state()
+        client._load_per_agent_dw_state()
+
+        assert client._request.call_count == 1
+
+    def test_load_per_agent_dw_state_graceful_on_error(self):
+        """Network failure leaves DW defaults (False/None) — degrades to EOA signing."""
+        client = _make_client(
+            ows_wallet="agent-mybot",
+            wallet_address="0x1234567890abcdef1234567890abcdef12345678",
+        )
+        client._uses_deposit_wallet = False
+        client._deposit_wallet_address = None
+        client._request = MagicMock(side_effect=Exception("timeout"))
+
+        client._load_per_agent_dw_state()
+
+        assert client._uses_deposit_wallet is False
+        assert client._deposit_wallet_address is None
+
     def test_omits_wallet_address_when_ows_wallet_not_registered(self):
         """OWS wallet without per-agent-wallet registration falls through to user-level path.
 

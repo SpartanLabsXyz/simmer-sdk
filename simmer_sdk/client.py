@@ -1158,6 +1158,31 @@ class SimmerClient:
             print(f"ERROR: Auto-link failed: {e}. Call client.link_wallet() manually.")
             raise RuntimeError(f"Wallet linking failed: {e}")
 
+    def _load_per_agent_dw_state(self) -> None:
+        """Populate DW routing flags from /api/sdk/agents/me for per-agent wallets.
+
+        Registered per-agent OWS wallets skip _ensure_wallet_linked() (to avoid
+        the user-level re-link path), but _build_signed_order() needs
+        _uses_deposit_wallet and _deposit_wallet_address for sig-type selection.
+        Fetches from the same endpoint preflight() uses. Cached for the session.
+        """
+        if getattr(self, "_per_agent_dw_loaded", False):
+            return
+        self._per_agent_dw_loaded = True
+        try:
+            me = self._request("GET", "/api/sdk/agents/me")
+            per_agent_wallet = me.get("per_agent_wallet_address")
+            if per_agent_wallet:
+                if "per_agent_dw_active" in me and me.get("per_agent_dw_active") is not None:
+                    self._uses_deposit_wallet = bool(me["per_agent_dw_active"])
+                    self._deposit_wallet_address = me.get("per_agent_deposit_wallet_address")
+            else:
+                if "wallet_uses_deposit_wallet" in me and me.get("wallet_uses_deposit_wallet") is not None:
+                    self._uses_deposit_wallet = bool(me["wallet_uses_deposit_wallet"])
+                    self._deposit_wallet_address = me.get("deposit_wallet_address")
+        except Exception as e:
+            logger.debug("Could not load per-agent DW state: %s", e)
+
     def _ensure_clob_credentials(self) -> None:
         """
         Derive and register Polymarket CLOB API credentials if not already done.
@@ -1631,19 +1656,33 @@ class SimmerClient:
         if price is not None:
             payload["price"] = price
 
+        registered_agent_wallet = (
+            self._ows_wallet
+            and self._wallet_address
+            and self._is_agent_wallet_registered()
+        )
+
         # Include wallet_address only for users who explicitly opted into per-agent
         # wallet attribution by registering this OWS wallet (Elite feature).
         # Otherwise the server would reject with "Agent wallet not found" because
         # the wallet has no row in user_agent_wallets — but the user-level
         # linked_wallet_address path still works fine. Don't conflate "OWS configured"
         # with "wants per-agent isolation."
-        if self._ows_wallet and self._wallet_address and self._is_agent_wallet_registered():
+        if registered_agent_wallet:
             payload["wallet_address"] = self._wallet_address
 
         # External wallet: ensure linked, check approvals, sign locally
         if (self._private_key or self._ows_wallet) and effective_venue == "polymarket":
-            # Auto-link wallet if not already linked
-            self._ensure_wallet_linked()
+            # Registered per-agent OWS wallets route through user_agent_wallets
+            # via payload["wallet_address"]. They must not hit the user-level
+            # auto-link path, which can try to replace the account's current
+            # external wallet and fail when that wallet has open positions.
+            # But we still need DW routing flags for _build_signed_order's
+            # sig-type selection — fetch from /api/sdk/agents/me instead.
+            if not registered_agent_wallet:
+                self._ensure_wallet_linked()
+            else:
+                self._load_per_agent_dw_state()
             # Warn about missing approvals (once per session)
             self._warn_approvals_once()
             # SIM-1646: for DW users doing sells, look up the on-chain holder so
