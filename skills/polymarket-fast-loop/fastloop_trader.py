@@ -89,6 +89,10 @@ ASSET_SYMBOLS = {
     "ETH": "ETHUSDT",
     "SOL": "SOLUSDT",
 }
+BINANCE_BASE_URLS = (
+    "https://api.binance.com",
+    "https://api.binance.us",
+)
 
 # Asset → Gamma API search patterns
 ASSET_PATTERNS = {
@@ -222,6 +226,30 @@ def _api_request(url, method="GET", data=None, headers=None, timeout=15):
 
 
 CLOB_API = "https://clob.polymarket.com"
+
+
+class SignalFetchError(RuntimeError):
+    """External price signal fetch failed after all configured attempts."""
+
+    def __init__(self, message, failures):
+        super().__init__(message)
+        self.failures = failures
+
+
+def _summarize_api_failure(result, *, url, endpoint):
+    failure = {"endpoint": endpoint, "url": url}
+    if isinstance(result, dict):
+        if result.get("status_code") is not None:
+            failure["status_code"] = result.get("status_code")
+        if result.get("error"):
+            failure["error"] = str(result.get("error"))[:240]
+        else:
+            failure["error"] = "unexpected object response"
+    elif not result:
+        failure["error"] = "empty response"
+    else:
+        failure["error"] = f"unexpected response type {type(result).__name__}"
+    return failure
 
 
 def _lookup_fee_rate(token_id):
@@ -474,19 +502,35 @@ def get_binance_momentum(symbol="BTCUSDT", lookback_minutes=5):
     """Get price momentum from Binance public API.
     Returns: {momentum_pct, direction, price_now, price_then, avg_volume, candles}
     """
-    url = (
-        f"https://api.binance.com/api/v3/klines"
-        f"?symbol={symbol}&interval=1m&limit={lookback_minutes}"
-    )
-    result = _api_request(url)
-    if not result or isinstance(result, dict):
-        return None
+    failures = []
+    result = None
+    endpoint = None
+    for base_url in BINANCE_BASE_URLS:
+        url = (
+            f"{base_url}/api/v3/klines"
+            f"?symbol={symbol}&interval=1m&limit={lookback_minutes}"
+        )
+        result = _api_request(url)
+        if result and not isinstance(result, dict):
+            endpoint = base_url
+            break
+        failures.append(_summarize_api_failure(result, url=url, endpoint=base_url))
+        result = None
+    if result is None:
+        detail = "; ".join(
+            f"{f['endpoint']} status={f.get('status_code', 'n/a')} error={f.get('error', 'unknown')}"
+            for f in failures
+        )
+        raise SignalFetchError(f"Binance kline fetch failed ({detail})", failures)
 
     try:
         # Kline format: [open_time, open, high, low, close, volume, ...]
         candles = result
         if len(candles) < 2:
-            return None
+            raise SignalFetchError(
+                f"Binance kline fetch returned {len(candles)} candles; need at least 2",
+                [{"endpoint": "binance", "error": "insufficient_candles", "candles": len(candles)}],
+            )
 
         price_then = float(candles[0][1])   # open of oldest candle
         price_now = float(candles[-1][4])    # close of newest candle
@@ -509,9 +553,14 @@ def get_binance_momentum(symbol="BTCUSDT", lookback_minutes=5):
             "latest_volume": latest_volume,
             "volume_ratio": volume_ratio,
             "candles": len(candles),
+            "endpoint": endpoint,
+            "fallback_attempts": failures,
         }
-    except (IndexError, ValueError, KeyError):
-        return None
+    except (IndexError, ValueError, KeyError) as exc:
+        raise SignalFetchError(
+            f"Binance kline parse failed: {exc}",
+            [{"endpoint": "binance", "error": str(exc)[:240]}],
+        ) from exc
 
 
 COINGECKO_ASSETS = {"BTC": "bitcoin", "ETH": "ethereum", "SOL": "solana"}
@@ -838,6 +887,23 @@ def run_fast_market_strategy(dry_run=True, positions_only=False, show_config=Fal
             print(f"📊 Summary: No tradeable markets (0/{len(markets)} live with enough time)")
         return
 
+    skip_reasons = []
+
+    def _emit_skip_report(signals=1, attempted=0, extra=None):
+        """Emit automaton JSON with skip_reason before early return."""
+        global _automaton_reported
+        if os.environ.get("AUTOMATON_MANAGED") and skip_reasons:
+            report = {
+                "signals": signals,
+                "trades_attempted": attempted,
+                "trades_executed": 0,
+                "skip_reason": ", ".join(dict.fromkeys(skip_reasons)),
+            }
+            if extra:
+                report.update(extra)
+            print(json.dumps({"automaton": report}))
+            _automaton_reported = True
+
     end_time = best.get("end_time")
     remaining = (end_time - datetime.now(timezone.utc)).total_seconds() if end_time else 0
     log(f"\n🎯 Selected: {best['question']}")
@@ -883,13 +949,40 @@ def run_fast_market_strategy(dry_run=True, positions_only=False, show_config=Fal
 
     # Step 3: Get CEX price momentum
     log(f"\n📈 Fetching {ASSET} price signal ({SIGNAL_SOURCE})...")
-    momentum = get_momentum(ASSET, SIGNAL_SOURCE, LOOKBACK_MINUTES)
+    signal_error = None
+    try:
+        momentum = get_momentum(ASSET, SIGNAL_SOURCE, LOOKBACK_MINUTES)
+    except SignalFetchError as exc:
+        momentum = None
+        signal_error = exc
 
     if not momentum:
         log("  ❌ Failed to fetch price data", force=True)
+        if signal_error:
+            for failure in signal_error.failures:
+                status = failure.get("status_code", "n/a")
+                log(
+                    f"     endpoint={failure.get('endpoint', 'unknown')} "
+                    f"status={status} error={failure.get('error', 'unknown')}",
+                    force=True,
+                )
+            error_payload = {
+                "signal_source": SIGNAL_SOURCE,
+                "signal_error": str(signal_error),
+                "signal_failures": signal_error.failures,
+            }
+        else:
+            error_payload = {
+                "signal_source": SIGNAL_SOURCE,
+                "signal_error": "price signal returned no data",
+            }
+        skip_reasons.append("signal_fetch_failed")
+        _emit_skip_report(signals=0, attempted=0, extra=error_payload)
         return
 
     log(f"  Price: ${momentum['price_now']:,.2f} (was ${momentum['price_then']:,.2f})")
+    if momentum.get("endpoint") and momentum.get("fallback_attempts"):
+        log(f"  Source endpoint: {momentum['endpoint']} (fallback after {len(momentum['fallback_attempts'])} failed attempt(s))")
     log(f"  Momentum: {momentum['momentum_pct']:+.3f}%")
     log(f"  Direction: {momentum['direction']}")
     if VOLUME_CONFIDENCE:
@@ -900,16 +993,6 @@ def run_fast_market_strategy(dry_run=True, positions_only=False, show_config=Fal
 
     momentum_pct = abs(momentum["momentum_pct"])
     direction = momentum["direction"]
-    skip_reasons = []
-
-    def _emit_skip_report(signals=1, attempted=0):
-        """Emit automaton JSON with skip_reason before early return."""
-        global _automaton_reported
-        if os.environ.get("AUTOMATON_MANAGED") and skip_reasons:
-            report = {"signals": signals, "trades_attempted": attempted, "trades_executed": 0,
-                      "skip_reason": ", ".join(dict.fromkeys(skip_reasons))}
-            print(json.dumps({"automaton": report}))
-            _automaton_reported = True
 
     # Check order book spread and depth
     # Use pre-fetched spread from Simmer API if available, otherwise fetch from CLOB
