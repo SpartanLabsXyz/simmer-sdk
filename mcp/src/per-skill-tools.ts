@@ -71,6 +71,11 @@ export function buildToolDescription(skill: Skill): string {
 
 const DEFAULT_TIMEOUT_MS = 60_000;
 const MAX_TIMEOUT_MS = 300_000;
+const READ_ONLY_EXTRA_ARGS = new Set(["--check", "--config", "--status", "--positions", "--help"]);
+
+function filterDefaultExtraArgs(args: unknown[]): string[] {
+  return filterBlockedFlags(args).filter((arg) => READ_ONLY_EXTRA_ARGS.has(arg));
+}
 
 export interface InvokeSkillResponse {
   [key: string]: unknown;
@@ -98,9 +103,10 @@ export async function invokeSkillTool(
   const skillPath = path.join(skill.skillDir, skill.entrypoint);
   const allowExtraArgs = (options.processEnv ?? process.env).SIMMER_MCP_ALLOW_EXTRA_ARGS === "true";
   const rawExtraArgs = (args.extra_args as unknown[]) ?? [];
-  const argv = allowExtraArgs
-    ? [skillPath, ...filterBlockedFlags(rawExtraArgs)]
-    : [skillPath];
+  const extraArgs = allowExtraArgs
+    ? filterBlockedFlags(rawExtraArgs)
+    : filterDefaultExtraArgs(rawExtraArgs);
+  const argv = [skillPath, ...extraArgs];
 
   const env = buildEnv(skill, args, { processEnv: options.processEnv });
 
