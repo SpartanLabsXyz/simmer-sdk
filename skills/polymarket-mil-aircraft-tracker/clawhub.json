@@ -1,7 +1,7 @@
 {
   "emoji": "✈️",
   "requires": {
-    "env": ["SIMMER_API_KEY", "PREF_API_KEY"],
+    "env": ["SIMMER_API_KEY"],
     "pip": ["simmer-sdk"]
   },
   "cron": null,

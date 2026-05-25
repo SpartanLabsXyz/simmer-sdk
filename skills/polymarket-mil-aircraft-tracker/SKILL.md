@@ -3,7 +3,7 @@ name: polymarket-mil-aircraft-tracker
 description: Trade Polymarket strike/action markets using military aircraft ADS-B positioning via pref.trade. Fires when tracked mil aircraft cluster in a target region.
 metadata:
   author: "Simmer (@simmer_markets)"
-  version: "1.0.0"
+  version: "1.1.0"
   displayName: "Polymarket Military Aircraft Tracker"
   difficulty: "intermediate"
 ---
