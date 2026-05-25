@@ -106,6 +106,23 @@ The skill reads pref credentials in this order:
 
 Keep the key out of terminal logs, issues, PRs, and prompts. If `--check` reports an anonymous identity or missing key, stop and fix the credential path before scanning.
 
+### MCP server config (alternative to env var)
+
+If your agent runtime supports MCP server configs (OpenClaw, Hermes, Claude Code, etc.), you can connect to pref.trade as a Streamable HTTP MCP server instead of setting the env var:
+
+```yaml
+mcpServers:
+  pref:
+    url: "https://pref.trade/mcp"
+    transport: "streamable-http"
+    headers:
+      Authorization: "Bearer ${PREFERENCE_API_KEY}"
+```
+
+`transport: "streamable-http"` is required for OpenClaw (otherwise it defaults to legacy SSE and sends `GET /mcp`, which returns 400). Hermes uses Streamable HTTP by default for `url`-based servers, but the explicit line is compatible.
+
+The skill's built-in `pref_client.py` HTTP shim works without this config. The MCP server config is for runtimes that manage tool connections natively.
+
 Then install the SDK:
 
 ```bash
