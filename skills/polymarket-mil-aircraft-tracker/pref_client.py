@@ -11,10 +11,12 @@ Pref uses two call conventions:
 
 import json
 import os
+from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 PREF_MCP_ENDPOINT = "https://pref.trade/mcp"
+PREF_CREDENTIALS_PATH = Path.home() / ".config" / "preference" / "credentials.json"
 _request_id = 0
 
 
@@ -24,15 +26,30 @@ def _next_id():
     return _request_id
 
 
+def _load_api_key():
+    """Load pref.trade API key from env or the standard agent credentials file."""
+    for env_name in ("PREF_API_KEY", "PREFERENCE_API_KEY"):
+        api_key = os.environ.get(env_name, "").strip()
+        if api_key:
+            return api_key
+
+    try:
+        data = json.loads(PREF_CREDENTIALS_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return ""
+
+    return str(data.get("api_key") or "").strip()
+
+
 def _call_tool(tool_name, arguments=None):
     """Call a pref MCP tool via JSON-RPC 2.0. Returns parsed result or None.
 
     Dotted tool names (containing '.') use the call_tool meta-pattern.
     Direct tool names use the standard MCP tools/call pattern.
     """
-    api_key = os.environ.get("PREF_API_KEY", "")
+    api_key = _load_api_key()
     if not api_key:
-        print("  [pref] PREF_API_KEY not set - skipping pref call")
+        print("  [pref] PREF_API_KEY not set and no ~/.config/preference/credentials.json key found - skipping pref call")
         return None
 
     if "." in tool_name:

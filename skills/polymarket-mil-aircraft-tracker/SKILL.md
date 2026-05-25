@@ -52,7 +52,59 @@ Use this skill when the user wants to:
 Required environment:
 
 - `SIMMER_API_KEY` - get from `simmer.markets/dashboard`
-- `PREF_API_KEY` - register your own agent at [pref.trade](https://pref.trade) via `POST /v1/agents/register` to get a `pref_agent_*` key (50 free calls/day on anonymous tier, 250/day after claiming)
+- `PREF_API_KEY`, `PREFERENCE_API_KEY`, or `~/.config/preference/credentials.json` - a pref.trade `pref_agent_*` key for the aircraft data source
+
+### Autonomous pref.trade key setup
+
+Agents do not need to use the human browser sign-up flow. If no pref key exists, register an agent key directly and save it to the standard credentials file:
+
+```bash
+mkdir -p ~/.config/preference
+python - <<'PY'
+import json
+import os
+import stat
+import urllib.request
+from pathlib import Path
+
+cred = Path.home() / ".config" / "preference" / "credentials.json"
+if cred.exists():
+    raise SystemExit(f"credentials already exist: {cred}")
+
+payload = json.dumps({
+    "name": "Military Aircraft Tracker Agent",
+    "description": "Agent using pref.trade aviation data through the Simmer mil-aircraft tracker skill",
+}).encode()
+req = urllib.request.Request(
+    "https://pref.trade/v1/agents/register",
+    data=payload,
+    headers={"Content-Type": "application/json"},
+    method="POST",
+)
+with urllib.request.urlopen(req, timeout=30) as resp:
+    data = json.loads(resp.read().decode())
+
+# The api_key is shown once. Save it without printing it.
+cred.write_text(json.dumps({"api_key": data["api_key"]}, indent=2))
+os.chmod(cred, stat.S_IRUSR | stat.S_IWUSR)
+print(f"saved pref credentials to {cred}")
+print("claim_url available:", bool(data.get("claim_url")))
+PY
+```
+
+Then verify the key and quota before any strategy run:
+
+```bash
+python milaircraft_tracker.py --check
+```
+
+The skill reads pref credentials in this order:
+
+1. `PREF_API_KEY`
+2. `PREFERENCE_API_KEY`
+3. `~/.config/preference/credentials.json` with shape `{"api_key":"pref_agent_*"}`
+
+Keep the key out of terminal logs, issues, PRs, and prompts. If `--check` reports an anonymous identity or missing key, stop and fix the credential path before scanning.
 
 Then install the SDK:
 
@@ -123,7 +175,7 @@ All trades are tagged with `source: "sdk:milaircraft"` and `skill_slug: "polymar
 
 ## Troubleshooting
 
-**`PREF_API_KEY not set`** - create or export a pref.trade agent key.
+**`PREF_API_KEY not set`** - create a pref.trade agent key with the autonomous setup command above, export it as `PREF_API_KEY`/`PREFERENCE_API_KEY`, or save it to `~/.config/preference/credentials.json`. Run `python milaircraft_tracker.py --check` before scanning.
 
 **`SIMMER_API_KEY environment variable not set`** - get a key from `simmer.markets/dashboard`.
 
