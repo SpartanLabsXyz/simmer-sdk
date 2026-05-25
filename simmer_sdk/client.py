@@ -1364,6 +1364,30 @@ class SimmerClient:
         response.raise_for_status()
         return response.json()
 
+    def _get_auto_redeem_positions_response(self) -> Optional[Dict[str, Any]]:
+        """Fetch resolved positions for auto_redeem with one timeout-only retry.
+
+        Intermittent positions timeouts are housekeeping noise for auto_redeem:
+        no trade is placed and the next cycle can try again. Keep them out of
+        WARNING/stderr while preserving real failures as warnings at the caller.
+        """
+        params = {"status": "resolved"}
+        for attempt in (1, 2):
+            try:
+                return self._request("GET", "/api/sdk/positions", params=params)
+            except requests.exceptions.Timeout as e:
+                logger.info(
+                    "auto_redeem_warning: positions fetch timed out; "
+                    "endpoint=/api/sdk/positions retryable=true non_fatal=true "
+                    "attempt=%d error=%s",
+                    attempt,
+                    e,
+                )
+                if attempt == 1:
+                    time.sleep(0.5)
+                    continue
+                return None
+
     def get_markets(
         self,
         status: str = "active",
@@ -3491,9 +3515,11 @@ class SimmerClient:
 
         # Fetch positions (raw request to get redeemable fields not on Position dataclass)
         try:
-            data = self._request("GET", "/api/sdk/positions", params={"status": "resolved"})
+            data = self._get_auto_redeem_positions_response()
         except Exception as e:
             logger.warning("auto_redeem: could not fetch positions (%s)", e)
+            return results
+        if data is None:
             return results
 
         positions = data.get("positions", [])
