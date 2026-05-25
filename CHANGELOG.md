@@ -38,6 +38,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **Preflight-gate test stubs scoped with `patch.dict`.** Three preflight-gate test files previously used `sys.modules.setdefault("simmer_sdk", MagicMock())` which could permanently replace the real SDK module when tests ran in a mixed collection order. Replaced with a `patch.dict` context manager scoped to the skill import.
+
 - **`auto_redeem()` warns when signing key is unavailable.** Previously failed silently for managed-wallet users calling `auto_redeem()` without a local signing key. Now surfaces a visible warning explaining that managed-wallet redemptions are handled server-side.
 
 - **Tunable env-var names aligned between `clawhub.json` and `CONFIG_SCHEMA`.** Skills that declared config tunables in both their ClawHub metadata and their Python CONFIG_SCHEMA could have name mismatches (e.g., `SIMMER_MIN_EDGE` vs `MIN_EDGE`). Aligned across all bundled skills.

@@ -29,10 +29,8 @@ _skill_stub.load_config = lambda schema, file, slug=None: _mock_cfg.copy()
 _skill_stub.update_config = lambda updates, file, slug=None: None
 _skill_stub.get_config_path = lambda file: "/tmp/config.json"
 
-sys.modules.setdefault("simmer_sdk", MagicMock())
-sys.modules["simmer_sdk.skill"] = _skill_stub
-
-import mert_sniper as ms  # noqa: E402
+with patch.dict(sys.modules, {"simmer_sdk": MagicMock(), "simmer_sdk.skill": _skill_stub}):
+    import mert_sniper as ms  # noqa: E402
 
 
 def _make_preflight(ok=False, blockers=None):
