@@ -3195,12 +3195,14 @@ class SimmerClient:
             )
             if result.get("not_redeemable"):
                 reason = result.get("reason", "unknown")
+                detail = result.get("detail")
                 print(f"  Auto-redeem skipped: {market_id} ({side}) — {reason}")
                 return {
                     "success": True,
                     "tx_hash": None,
                     "not_redeemable": True,
                     "reason": reason,
+                    "detail": detail,
                 }
             tx_hash = result.get("tx_hash")
             print(f"  Auto-redeem OK: {market_id} ({side}) tx={tx_hash}")
@@ -3224,6 +3226,21 @@ class SimmerClient:
                     "success": True,
                     "tx_hash": None,
                     "already_redeemed": True,
+                }
+            if exc.not_redeemable:
+                # SIM-2511: prepare blocked because payout not yet finalized
+                # on-chain (e.g. NegRisk adapter getDetermined=0). Return
+                # stable not_redeemable result so auto_redeem skips cleanly.
+                logger.info(
+                    "redeem ext+DW: payout not ready for %s (%s/%s) — deferring.",
+                    market_id, exc.reason, exc.detail,
+                )
+                return {
+                    "success": True,
+                    "tx_hash": None,
+                    "not_redeemable": True,
+                    "reason": exc.reason,
+                    "detail": exc.detail,
                 }
             if exc.eoa_fallback:
                 # SIM-1645 — server detected DW=0 + EOA>0, meaning the

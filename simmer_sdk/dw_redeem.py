@@ -69,6 +69,9 @@ class DwRedeemPrepareError(DwRedeemError):
         should fall back to the unsigned-tx EOA path.
       - already_redeemed: True when both DW + EOA balances are 0 — the
         position was already redeemed (or never held); nothing to do.
+      - not_redeemable: True when market payout is not yet ready on-chain.
+      - reason: machine-readable reason string (e.g. "market_not_settled").
+      - detail: fine-grained detail (e.g. "neg_risk_not_determined").
     """
 
     def __init__(
@@ -78,11 +81,17 @@ class DwRedeemPrepareError(DwRedeemError):
         status_code: int,
         eoa_fallback: bool = False,
         already_redeemed: bool = False,
+        not_redeemable: bool = False,
+        reason: str = "unknown",
+        detail: Optional[str] = None,
     ) -> None:
         super().__init__(message)
         self.status_code = status_code
         self.eoa_fallback = eoa_fallback
         self.already_redeemed = already_redeemed
+        self.not_redeemable = not_redeemable
+        self.reason = reason
+        self.detail = detail
 
 
 class DwRedeemSubmitError(DwRedeemError):
@@ -179,6 +188,23 @@ def prepare_dw_redeem(
             "Position tokens are held in your EOA — routing to direct EOA path.",
             status_code=200,
             eoa_fallback=True,
+        )
+    if data.get("not_redeemable"):
+        # SIM-2511: payout not yet finalized on-chain (e.g. NegRisk adapter
+        # getDetermined=0). Server blocks before returning signable typed data.
+        _reason = data.get("reason", "market_not_settled")
+        _detail = data.get("detail")
+        _msg = (
+            "Payouts are not finalized on-chain yet. Try again later."
+            if _detail == "neg_risk_not_determined"
+            else f"Market not yet redeemable ({_detail or _reason})."
+        )
+        raise DwRedeemPrepareError(
+            _msg,
+            status_code=200,
+            not_redeemable=True,
+            reason=_reason,
+            detail=_detail,
         )
     return data
 
