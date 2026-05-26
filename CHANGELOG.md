@@ -44,6 +44,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 - **Tunable env-var names aligned between `clawhub.json` and `CONFIG_SCHEMA`.** Skills that declared config tunables in both their ClawHub metadata and their Python CONFIG_SCHEMA could have name mismatches (e.g., `SIMMER_MIN_EDGE` vs `MIN_EDGE`). Aligned across all bundled skills.
 
+- **`bucket_spread` tunable type corrected for `polymarket-elon-tweets`.** The ClawHub slider was configured as a float in `[0.01, 0.2]`, but the code interprets `bucket_spread` as an integer count of neighboring buckets. Any ClawHub-configured value like `0.05` would `int()`-truncate to `0`, leaving only the center bucket and defeating the spread strategy. The slider is now an integer in `[0, 5]` with step 1 and a clarified label, matching the code's semantics.
+
+- **Mert-sniper documentation corrected: expiry window default is 8 minutes.** `SKILL.md` showed a 2-minute default for `SIMMER_MERT_EXPIRY_MINUTES` in multiple places; the actual code default is 8 minutes. Updated across all references in the skill documentation.
+
 - **Briefing skill fixes:** Removed unsupported `venue=` parameter. Converted remaining attribute access to dict access for compatibility with briefing response shape changes.
 
 - **Exit scan `sources=None` guard.** Skills with no configured signal sources no longer crash on the exit scan. (#130)
