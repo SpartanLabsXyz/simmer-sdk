@@ -57,6 +57,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 - **Briefing skill fixes:** Removed unsupported `venue=` parameter. Converted remaining attribute access to dict access for compatibility with briefing response shape changes.
 
+- **`kalshi-weather-trader` now gates every trade with `preflight()` and skips the run on empty wallets.** Matches the balance-check behaviour already present in `polymarket-weather-trader`: `client.preflight()` blocks each individual trade when the wallet is insufficient, and `client.ensure_can_trade(min_usd=1.0)` exits the run cleanly before the market scan when there is less than $1 available.
+
 - **Exit scan `sources=None` guard.** Skills with no configured signal sources no longer crash on the exit scan. (#130)
 
 ## simmer-mcp v3.3.0 — 2026-05-24

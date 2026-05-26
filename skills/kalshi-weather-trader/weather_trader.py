@@ -586,7 +586,14 @@ def fetch_weather_markets():
 def execute_trade(market_id: str, side: str, amount: float, reasoning: str = "", signal_data: dict = None) -> dict:
     """Execute a buy trade via Simmer SDK with source tagging."""
     try:
-        result = get_client().trade(
+        client = get_client()
+        if client.live:
+            pf = client.preflight(planned_amount=amount, exposure_cap_usd=0, venue=client.venue)
+            if not pf.ok_to_trade:
+                blockers = ", ".join(pf.blockers)
+                print(f"  ⛔ Preflight blocked: {blockers}")
+                return {"error": f"preflight_blocked: {blockers}"}
+        result = client.trade(
             market_id=market_id, side=side, amount=amount, source=TRADE_SOURCE, skill_slug=SKILL_SLUG,
             reasoning=reasoning, signal_data=signal_data,
         )
@@ -602,7 +609,14 @@ def execute_trade(market_id: str, side: str, amount: float, reasoning: str = "",
 def execute_sell(market_id: str, shares: float, reasoning: str = "") -> dict:
     """Execute a sell trade via Simmer SDK with source tagging."""
     try:
-        result = get_client().trade(
+        client = get_client()
+        if client.live:
+            pf = client.preflight(planned_amount=0, exposure_cap_usd=0, venue=client.venue)
+            if not pf.ok_to_trade:
+                blockers = ", ".join(pf.blockers)
+                print(f"  ⛔ Preflight blocked: {blockers}")
+                return {"error": f"preflight_blocked: {blockers}"}
+        result = client.trade(
             market_id=market_id, side="yes", action="sell",
             shares=shares, source=TRADE_SOURCE, skill_slug=SKILL_SLUG,
             reasoning=reasoning,
@@ -786,6 +800,19 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
                 log(f"  💰 Redeemed {r['market_id'][:8]}... ({r.get('side', '?')})")
     except Exception as e:
         log(f"  ⚠️  auto_redeem failed: {e}", force=True)
+
+    # Balance pre-flight: skip cleanly when wallet is underfunded instead of
+    # looping on rejected trades.
+    if not dry_run:
+        _preflight = client.ensure_can_trade(min_usd=1.0)
+        if not _preflight["ok"]:
+            log(f"  ⏸️  insufficient_balance: ${_preflight['balance']:.2f} {_preflight['collateral']} "
+                f"(need ≥ $1.00) — skip", force=True)
+            return
+        if _preflight["max_safe_size"] < MAX_POSITION_USD:
+            log(f"  💰 Capping max bet ${MAX_POSITION_USD:.2f} → ${_preflight['max_safe_size']:.2f} "
+                f"(balance ${_preflight['balance']:.2f} {_preflight['collateral']})", force=True)
+            MAX_POSITION_USD = _preflight["max_safe_size"]
 
     # Show portfolio if smart sizing enabled
     if smart_sizing:
