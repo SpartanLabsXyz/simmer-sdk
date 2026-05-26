@@ -159,9 +159,26 @@ def prepare_dw_redeem(
     if not res.ok:
         try:
             data = res.json()
+            if data.get("not_redeemable"):
+                _reason = data.get("reason", "market_not_settled")
+                _detail = data.get("detail")
+                _msg = (
+                    "Payouts are not finalized on-chain yet. Try again later."
+                    if _detail == "neg_risk_not_determined"
+                    else f"Market not yet redeemable ({_detail or _reason})."
+                )
+                raise DwRedeemPrepareError(
+                    _msg,
+                    status_code=res.status_code,
+                    not_redeemable=True,
+                    reason=_reason,
+                    detail=_detail,
+                )
             detail = data.get("detail")
             if isinstance(detail, list) and detail:
                 detail = detail[0].get("msg") or str(detail[0])
+        except DwRedeemPrepareError:
+            raise
         except Exception:
             detail = None
         raise DwRedeemPrepareError(

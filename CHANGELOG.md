@@ -3,6 +3,12 @@
 All notable changes to `simmer-sdk` are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.23] — 2026-05-26
+
+### Fixed
+
+- **`dw_redeem.prepare_dw_redeem` handles 422 `not_redeemable` responses.** Server now returns HTTP 422 (not 200) when on-chain payout is not finalized. The SDK's error handler preserves the `not_redeemable`, `reason`, and `detail` flags so `client.redeem()` and `auto_redeem()` skip cleanly instead of retrying.
+
 ## [Unreleased]
 
 ### Infrastructure
