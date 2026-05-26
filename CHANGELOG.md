@@ -38,6 +38,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **`polymarket-weather-trader` forces GTC order type, overrides FAK.** Weather markets are structurally illiquid; FAK orders are rejected immediately with no fill. The skill now detects when `order_type=FAK` is configured (via env var or `config.json`) and overrides it to GTC at startup with a clear warning. Default users are unaffected — the default was already GTC.
+
 - **Preflight-gate test stubs scoped with `patch.dict`.** Three preflight-gate test files previously used `sys.modules.setdefault("simmer_sdk", MagicMock())` which could permanently replace the real SDK module when tests ran in a mixed collection order. Replaced with a `patch.dict` context manager scoped to the skill import.
 
 - **`auto_redeem()` warns when signing key is unavailable.** Previously failed silently for managed-wallet users calling `auto_redeem()` without a local signing key. Now surfaces a visible warning explaining that managed-wallet redemptions are handled server-side.
