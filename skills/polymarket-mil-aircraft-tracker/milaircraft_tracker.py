@@ -252,12 +252,15 @@ def market_question(market):
 
 
 def is_strike_action_market(market, keywords):
-    text = " ".join([
-        market_question(market),
-        market.get("event_name", ""),
-        market.get("resolution_criteria", ""),
-        market.get("description", ""),
-    ]).lower()
+    text = " ".join(
+        str(part or "")
+        for part in (
+            market_question(market),
+            market.get("event_name"),
+            market.get("resolution_criteria"),
+            market.get("description"),
+        )
+    ).lower()
     if not any(str(keyword).lower() in text for keyword in keywords):
         return False
     action_terms = (
