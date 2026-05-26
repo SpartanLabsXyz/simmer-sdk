@@ -7,7 +7,11 @@ using stdlib logging gets a stderr signal on the first failure.
 """
 
 import logging
+import os
+import sys
 from unittest.mock import MagicMock
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from simmer_sdk.client import SimmerClient
 
@@ -23,6 +27,7 @@ def _make_client(venue="polymarket"):
     client.live = True
     client.venue = venue
     client._held_markets_cache = None
+    client._skill_slug = None
     client._request = MagicMock()
     client._get_held_markets = MagicMock(return_value={})
     return client
@@ -87,3 +92,47 @@ def test_does_not_log_when_failure_has_no_error(caplog):
     assert result.success is False
     warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
     assert warnings == []
+
+
+def test_trade_defaults_skill_slug_from_detected_skill():
+    """A client constructed inside a skill sends its detected skill slug."""
+    client = _make_client(venue="polymarket")
+    client._skill_slug = "polymarket-weather-trader"
+    client._request.return_value = {
+        "success": True,
+        "market_id": "test-market",
+        "side": "yes",
+        "shares_bought": 5.0,
+        "cost": 2.5,
+        "fill_status": "filled",
+    }
+
+    result = client.trade("test-market", "yes", amount=10.0)
+
+    assert result.success is True
+    payload = client._request.call_args.kwargs["json"]
+    assert payload["skill_slug"] == "polymarket-weather-trader"
+
+
+def test_explicit_trade_skill_slug_overrides_detected_skill():
+    client = _make_client(venue="polymarket")
+    client._skill_slug = "polymarket-weather-trader"
+    client._request.return_value = {
+        "success": True,
+        "market_id": "test-market",
+        "side": "yes",
+        "shares_bought": 5.0,
+        "cost": 2.5,
+        "fill_status": "filled",
+    }
+
+    result = client.trade(
+        "test-market",
+        "yes",
+        amount=10.0,
+        skill_slug="custom-skill",
+    )
+
+    assert result.success is True
+    payload = client._request.call_args.kwargs["json"]
+    assert payload["skill_slug"] == "custom-skill"

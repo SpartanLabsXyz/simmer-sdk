@@ -1660,6 +1660,8 @@ class SimmerClient:
             if effective_venue != "polymarket":
                 raise ValueError(f"price parameter only supported for venue='polymarket' (you specified venue='{effective_venue}')")
 
+        effective_skill_slug = skill_slug or self._skill_slug
+
         payload = {
             "market_id": market_id,
             "side": side,
@@ -1673,8 +1675,8 @@ class SimmerClient:
             payload["reasoning"] = reasoning
         if source:
             payload["source"] = source
-        if skill_slug:
-            payload["skill_slug"] = skill_slug
+        if effective_skill_slug:
+            payload["skill_slug"] = effective_skill_slug
         if signal_data:
             payload["signal_data"] = signal_data
         if price is not None:
