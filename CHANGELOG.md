@@ -9,6 +9,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 - **MCP tool safety gate is now structurally enforced.** All tools registered with the MCP server must explicitly declare `mutates: boolean`. Tools with `mutates: true` are blocked unless `SIMMER_MCP_ALLOW_LIVE=true` is set — no opt-in, no live state changes. The compiler rejects any new tool that omits the field, making the failure mode that previously left `simmer_cancel_order` ungated structurally impossible.
 
+### Fixed
+
+- **`polymarket-weather-trader`: skip markets with nonexistent CLOB orderbooks.** The skill now detects "orderbook does not exist" errors at execution time, caches the offending market ID for the run, and skips it on any subsequent encounter in the same process. Eliminates repeated failures against stale token IDs that remain in the market catalog after a market's CLOB book is removed.
+
 ### Added
 
 - **`simmer_sdk.regime` — realized-vol regime gate.** A venue-agnostic primitive that lets a strategy declare which regime (range-bound vs trending) it is registered for, then skip entirely when the current realized volatility says we're in the wrong regime.
@@ -39,6 +43,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Fixed
 
 - **`polymarket-weather-trader` forces GTC order type, overrides FAK.** Weather markets are structurally illiquid; FAK orders are rejected immediately with no fill. The skill now detects when `order_type=FAK` is configured (via env var or `config.json`) and overrides it to GTC at startup with a clear warning. Default users are unaffected — the default was already GTC.
+- **`preflight()` now gates every trade attempt in bundled weather-trader skills.** Both `polymarket-weather-trader` and `kalshi-weather-trader` now call `client.preflight()` before each `execute_trade()` and `execute_sell()` call when running live. `kalshi-weather-trader` also gains the run-start `ensure_can_trade(min_usd=1.0)` balance gate already present in the Polymarket variant.
 
 - **Preflight-gate test stubs scoped with `patch.dict`.** Three preflight-gate test files previously used `sys.modules.setdefault("simmer_sdk", MagicMock())` which could permanently replace the real SDK module when tests ran in a mixed collection order. Replaced with a `patch.dict` context manager scoped to the skill import.
 
