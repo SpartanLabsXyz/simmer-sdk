@@ -122,6 +122,20 @@ else:
 # SimmerClient singleton
 _client = None
 
+# Markets confirmed to have nonexistent CLOB orderbooks — populated at runtime
+# when the CLOB returns "orderbook does not exist". Keyed by Simmer market_id.
+# Module-level so the cache persists across multiple run_weather_strategy calls
+# within the same process (e.g., an agent that polls on a short interval).
+_STALE_ORDERBOOK_IDS: set = set()
+
+
+def _is_stale_orderbook_error(error_str: str) -> bool:
+    """Return True if the error indicates a nonexistent CLOB orderbook."""
+    if not error_str:
+        return False
+    lower = error_str.lower()
+    return "orderbook" in lower and "does not exist" in lower
+
 def get_client(live=True):
     """Lazy-init SimmerClient singleton."""
     global _client
@@ -1681,6 +1695,12 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
             opportunities_found += 1
             log(f"  ✅ Below threshold (${ENTRY_THRESHOLD:.2f}) - BUY opportunity!{trend_bonus}")
 
+            # Skip markets whose CLOB orderbook is confirmed nonexistent this run
+            if market_id in _STALE_ORDERBOOK_IDS:
+                log(f"  ⏭️  Skipping — CLOB orderbook confirmed nonexistent (cached)")
+                skip_reasons.append("stale orderbook (cached)")
+                continue
+
             # Check rate limit
             if trades_executed >= MAX_TRADES_PER_RUN:
                 log(f"  ⏸️  Max trades per run ({MAX_TRADES_PER_RUN}) reached - skipping")
@@ -1744,8 +1764,13 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
                 # Risk monitors are now auto-set via SDK settings (dashboard)
             else:
                 error = result.get("error", "Unknown error")
-                log(f"  ❌ Trade failed: {error}", force=True)
-                execution_errors.append(error[:120])
+                if _is_stale_orderbook_error(error):
+                    _STALE_ORDERBOOK_IDS.add(market_id)
+                    log(f"  ❌ Stale CLOB orderbook — market cached as dead for this run: {error}", force=True)
+                    execution_errors.append(f"stale_orderbook:{market_id[:12]}")
+                else:
+                    log(f"  ❌ Trade failed: {error}", force=True)
+                    execution_errors.append(error[:120])
         else:
             log(f"  ⏸️  Price ${price:.2f} above threshold ${ENTRY_THRESHOLD:.2f} - skip")
 
