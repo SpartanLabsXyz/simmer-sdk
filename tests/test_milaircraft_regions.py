@@ -72,3 +72,17 @@ def test_load_regions_from_yaml():
     assert len(regions) == 5
     assert regions[0]["name"] == "persian-gulf"
     assert regions[0]["cluster_threshold"] == 3
+
+
+def test_market_classifier_handles_nullable_text_fields():
+    """Market search responses can include nullable text fields."""
+    from milaircraft_tracker import is_strike_action_market
+
+    market = {
+        "question": "Will there be a military strike on the Korean peninsula?",
+        "event_name": None,
+        "resolution_criteria": None,
+        "description": None,
+    }
+
+    assert is_strike_action_market(market, ["Korea"]) is True
