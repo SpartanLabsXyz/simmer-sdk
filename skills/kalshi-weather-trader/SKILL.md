@@ -3,7 +3,7 @@ name: kalshi-weather-trader
 description: Trade Kalshi weather markets using NOAA forecasts via Simmer SDK and DFlow on Solana. Port of the popular polymarket-weather-trader. Use when user wants to trade temperature markets on Kalshi, automate weather bets, or check NOAA forecasts.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.0.8"
+  version: "1.0.9"
   displayName: Kalshi Weather Trader
   difficulty: intermediate
   attribution: Strategy inspired by gopfan2, powered by DFlow
