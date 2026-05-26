@@ -65,7 +65,7 @@ CONFIG_SCHEMA = {
     "slippage_max":      {"env": "SIMMER_WEATHER_SLIPPAGE_MAX",      "default": 0.15,  "type": float},
     "min_liquidity":     {"env": "SIMMER_WEATHER_MIN_LIQUIDITY",     "default": 0.0,   "type": float},
     "order_type":        {"env": "SIMMER_WEATHER_ORDER_TYPE",        "default": "GTC", "type": str,
-                          "help": "Order type: GTC (default, limit order that waits for fill) or FAK (cancel if not filled immediately). GTC recommended for illiquid weather markets."},
+                          "help": "Order type: GTC (default, limit order that waits for fill) or FAK (cancel if not filled immediately). FAK is automatically overridden to GTC because weather markets are structurally illiquid — FAK orders are rejected immediately with no fill."},
     "vol_targeting":     {"env": "SIMMER_WEATHER_VOL_TARGETING",     "default": False, "type": bool,
                           "help": "Enable volatility targeting: scale position sizes by target_vol / realized_vol."},
     "target_vol":        {"env": "SIMMER_WEATHER_TARGET_VOL",        "default": 0.20,  "type": float,
@@ -104,7 +104,20 @@ for _old, _new in _LEGACY_ENV_ALIASES.items():
 _config = load_config(CONFIG_SCHEMA, __file__, slug="polymarket-weather-trader")
 
 NOAA_API_BASE = "https://api.weather.gov"
-ORDER_TYPE = (_config.get("order_type") or "GTC").upper()
+_configured_order_type = (_config.get("order_type") or "GTC").upper()
+if _configured_order_type == "FAK":
+    # FAK (Fill And Kill) fails on weather markets because liquidity is structurally
+    # thin — the order gets cancelled immediately with no fill. Force GTC so limit
+    # orders queue on the book and wait for a counterparty. Users who set
+    # SIMMER_WEATHER_ORDER_TYPE=FAK or order_type=FAK in config.json get this override.
+    print(
+        "[weather-trader] WARNING: order_type=FAK is not suitable for weather markets "
+        "(thin liquidity → immediate cancel). Overriding to GTC. "
+        "Set SIMMER_WEATHER_ORDER_TYPE=GTC to silence this warning."
+    )
+    ORDER_TYPE = "GTC"
+else:
+    ORDER_TYPE = _configured_order_type
 
 # SimmerClient singleton
 _client = None
