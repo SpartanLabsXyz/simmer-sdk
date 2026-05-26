@@ -1,6 +1,6 @@
 ---
 name: polymarket-mert-sniper
-description: Near-expiry conviction trading on Polymarket. The skill scans markets in their final minutes, filters for strongly-skewed splits (60/40+), and places bounded trades against the under-priced side. Defaults — $10 max per trade, 5 trades/run, dry-run unless `--live`.
+description: Near-expiry conviction trading on Polymarket. The skill scans markets in their final minutes, filters for strongly-skewed splits (60/40+), and places bounded trades against the under-priced side. Defaults — $10 max per trade, 5 trades/run, 8-minute expiry window, dry-run unless `--live`.
 metadata:
   author: Simmer (@simmer_markets)
   version: "1.3.2"
@@ -12,7 +12,7 @@ metadata:
 
 Near-expiry conviction trading on Polymarket. The skill scans markets in their final minutes of pricing, filters for strongly-skewed splits, and places bounded trades against the under-priced side.
 
-> 🚨 **Framework, not a production trading system.** Read [DISCLAIMER.md](./DISCLAIMER.md) before connecting to a wallet with real funds. Dry-run is the default; `--live` is required for any real-USDC trade. Defaults: $10 max per trade, 60/40 split minimum, 2-minute expiry window, 5 trades per scan cycle — adjust deliberately before scaling.
+> 🚨 **Framework, not a production trading system.** Read [DISCLAIMER.md](./DISCLAIMER.md) before connecting to a wallet with real funds. Dry-run is the default; `--live` is required for any real-USDC trade. Defaults: $10 max per trade, 60/40 split minimum, 8-minute expiry window, 5 trades per scan cycle — adjust deliberately before scaling.
 
 > **This is a template.** The default logic (expiry + split filter) is a starting point — remix it with your own filters, timing rules, or market selection criteria. The skill handles all the plumbing (market discovery, trade execution, safeguards). Your agent provides the alpha.
 
@@ -46,7 +46,7 @@ Use this skill when the user wants to:
 4. **Ask about settings** (or confirm defaults)
    - Market filter: Which markets to scan (default: all)
    - Max bet: Maximum per trade (default $10)
-   - Expiry window: How close to resolution (default 2 minutes)
+   - Expiry window: How close to resolution (default 8 minutes)
    - Min split: Minimum odds skew (default 60/40)
 
 5. **Save settings to config.json or environment variables**
@@ -57,7 +57,7 @@ Use this skill when the user wants to:
 |---------|---------------------|---------|-------------|
 | Market filter | `SIMMER_MERT_FILTER` | (all) | Tag or keyword filter (e.g. `solana`, `crypto`) |
 | Max bet | `SIMMER_MERT_MAX_BET_USD` | 10.00 | Maximum USD per trade |
-| Expiry window | `SIMMER_MERT_EXPIRY_MINUTES` | 2 | Only trade markets resolving within N minutes |
+| Expiry window | `SIMMER_MERT_EXPIRY_MINUTES` | 8 | Only trade markets resolving within N minutes |
 | Min split | `SIMMER_MERT_MIN_SPLIT` | 0.60 | Only trade when YES or NO >= this (e.g. 0.60 = 60/40) |
 | Max trades/run | `SIMMER_MERT_MAX_TRADES_PER_RUN` | 5 | Maximum trades per scan cycle |
 | Smart sizing % | `SIMMER_MERT_SIZING_PCT` | 0.05 | % of balance per trade |
@@ -112,7 +112,7 @@ python mert_sniper.py --no-safeguards
 
 Each cycle the script:
 1. Fetches active markets from Simmer API (optionally filtered by tag/keyword)
-2. Filters to markets resolving within the expiry window (default 2 minutes)
+2. Filters to markets resolving within the expiry window (default 8 minutes)
 3. Checks the price split -- only trades when one side >= min_split (default 60%)
 4. Determines direction: backs the favored side (higher probability)
 5. **Fee logging**: prints entry-fee cost per market (`POLY_FEE_RATE_CRYPTO × p × (1-p)`, entry only — redemption is free). If `SIMMER_MERT_MIN_EDGE > 0`, gates out markets where declared edge < entry fee + buffer
@@ -131,7 +131,7 @@ Each cycle the script:
   Configuration:
   Filter:        solana
   Max bet:       $10.00
-  Expiry window: 2 minutes
+  Expiry window: 8 minutes
   Min split:     60/40
   Max trades:    5
   Smart sizing:  Disabled
@@ -140,7 +140,7 @@ Each cycle the script:
   Fetching markets (filter: solana)...
   Found 12 active markets
 
-  Markets expiring within 2 minutes: 2
+  Markets expiring within 8 minutes: 2
 
   SOL highest price on Feb 10?
      Resolves in: 1m 34s
