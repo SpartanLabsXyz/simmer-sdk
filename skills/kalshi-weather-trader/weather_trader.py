@@ -755,6 +755,9 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
                          use_safeguards: bool = True, use_trends: bool = True,
                          quiet: bool = False):
     """Run the weather trading strategy."""
+    # Globals declared up-front: balance pre-flight (below) may cap MAX_POSITION_USD.
+    global MAX_POSITION_USD
+
     def log(msg, force=False):
         """Print unless quiet mode is on. force=True always prints."""
         if not quiet or force:
