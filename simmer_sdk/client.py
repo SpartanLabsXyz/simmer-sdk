@@ -2082,27 +2082,10 @@ class SimmerClient:
             error=data.get("error")
         )
 
-    def get_positions(self, venue: Optional[str] = None, source: Optional[str] = None) -> List[Position]:
-        """
-        Get all positions for this agent.
-
-        In paper mode, returns simulated positions from the in-memory
-        portfolio and auto-settles any markets that have resolved.
-
-        Args:
-            venue: Filter by venue ("sim" or "polymarket"). If None, returns both.
-            source: Filter by trade source (e.g., "weather", "copytrading"). Partial match.
-
-        Returns:
-            List of Position objects with P&L info
-        """
-        # Paper mode: return in-memory positions (auto-settle first)
-        if not self.live and self._paper_portfolio is not None:
-            self._settle_paper_positions()
-            return self._get_paper_positions()
-
+    def _get_api_positions(self, venue: Optional[str] = None, source: Optional[str] = None) -> List[Position]:
+        """Fetch positions from the Simmer API and hydrate Position objects."""
         params = {}
-        if venue:
+        if venue and venue != "all":
             params["venue"] = venue
         if source:
             params["source"] = source
@@ -2139,6 +2122,36 @@ class SimmerClient:
         import time as _t
         self._position_holder_ts = _t.time()
         return positions
+
+    def get_positions(self, venue: Optional[str] = None, source: Optional[str] = None) -> List[Position]:
+        """
+        Get all positions for this agent.
+
+        In paper mode, returns simulated positions from the in-memory
+        portfolio and auto-settles any markets that have resolved.
+
+        Args:
+            venue: Filter by venue ("sim" or "polymarket"). If None, returns both.
+            source: Filter by trade source (e.g., "weather", "copytrading"). Partial match.
+
+        Returns:
+            List of Position objects with P&L info
+        """
+        if venue in ("simmer", "sandbox"):
+            venue = "sim"
+
+        # Paper mode: return in-memory positions when they exist. For real-venue
+        # clients, an empty paper portfolio should not hide live receipt data from
+        # /api/sdk/positions (SIM-2585).
+        if not self.live and self._paper_portfolio is not None:
+            self._settle_paper_positions()
+            paper_positions = self._get_paper_positions()
+            if paper_positions:
+                return paper_positions
+            if self.venue == "sim" and (venue is None or venue in ("sim", "all")):
+                return paper_positions
+
+        return self._get_api_positions(venue=venue, source=source)
 
     _HELD_MARKETS_TTL = 30  # seconds
     _HOLDER_CACHE_TTL = 30  # seconds — same as held-markets TTL
