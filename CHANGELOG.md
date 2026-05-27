@@ -11,6 +11,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Fixed
+
+- **`polymarket-mil-aircraft-tracker`: gate auto-trading on market category.** Markets are now classified as `strike_activity` (trade as before) or `invasion_tail_risk` (alert-only, no trade). Keyword matching on the question/description — invasion/invade/regime change/annex/declare war → tail-risk; strike/attack/airstrike/bomb → activity. Tail-risk markets emit a `[mil-tracker] Tail-risk market detected, alert-only: {question}` log line and are counted separately in the `tail_risk_alerts` field of the automaton output. Eliminates erroneous entry into long-horizon geopolitical markets (e.g. "Will North Korea invade South Korea before 2027?") triggered by routine ADS-B patrol activity.
+
 ### Infrastructure
 
 - **MCP tool safety gate is now structurally enforced.** All tools registered with the MCP server must explicitly declare `mutates: boolean`. Tools with `mutates: true` are blocked unless `SIMMER_MCP_ALLOW_LIVE=true` is set — no opt-in, no live state changes. The compiler rejects any new tool that omits the field, making the failure mode that previously left `simmer_cancel_order` ungated structurally impossible.
