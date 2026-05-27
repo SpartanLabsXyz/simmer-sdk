@@ -178,6 +178,7 @@ def check_context_safeguards(context):
 
 def execute_trade(market_id, side, amount, reasoning="", price=None, signal_data=None):
     try:
+        client = get_client()
         kwargs = dict(
             market_id=market_id,
             side=side,
@@ -188,9 +189,9 @@ def execute_trade(market_id, side, amount, reasoning="", price=None, signal_data
             order_type=ORDER_TYPE,
             signal_data=signal_data,
         )
-        if price is not None:
+        if price is not None and getattr(client, "venue", None) == "polymarket":
             kwargs["price"] = price
-        result = get_client().trade(**kwargs)
+        result = client.trade(**kwargs)
         return {
             "success": result.success,
             "trade_id": result.trade_id,
@@ -270,6 +271,7 @@ def is_strike_action_market(market, keywords):
         "missile",
         "airstrike",
         "invasion",
+        "invade",
         "bomb",
         "war",
         "conflict",
@@ -450,6 +452,7 @@ def run_strategy(
             print(f"    {name:<24} {data['count']}/{data['cluster_threshold']} {marker}")
 
     positions = get_positions()
+    open_market_ids = {str(pos.get("market_id")) for pos in positions if pos.get("market_id")}
     exits = handle_exits(positions, clusters, dry_run=dry_run)
 
     portfolio = get_portfolio() or {}
@@ -484,6 +487,9 @@ def run_strategy(
             question = market_question(market)
             if not market_id or price is None:
                 skip_reasons.append("missing market id or price")
+                continue
+            if market_id in open_market_ids:
+                skip_reasons.append(f"already positioned: {question[:40]}")
                 continue
             if price < MIN_TICK_SIZE or price > (1 - MIN_TICK_SIZE):
                 skip_reasons.append("price at extreme")
