@@ -251,6 +251,39 @@ def market_question(market):
     return market.get("question") or market.get("title") or market.get("name") or ""
 
 
+# Keywords that indicate a long-horizon tail-risk market (invasion, regime change,
+# annexation, or war declaration).  ADS-B clusters are not meaningful evidence for
+# these; they are alert-only and never auto-traded.
+INVASION_TAIL_RISK_KEYWORDS = (
+    "invasion",
+    "invade",
+    "regime change",
+    "annex",
+    "declare war",
+)
+
+
+def classify_market_category(market):
+    """Return 'invasion_tail_risk' or 'strike_activity' for a market.
+
+    Invasion/regime-change markets are alert-only — a few clustered aircraft
+    do not meaningfully update long-horizon invasion probability (routine
+    patrols, exercises, and ADS-B artefacts all fire the same trigger).
+    """
+    text = " ".join(
+        str(part or "")
+        for part in (
+            market_question(market),
+            market.get("event_name"),
+            market.get("resolution_criteria"),
+            market.get("description"),
+        )
+    ).lower()
+    if any(kw in text for kw in INVASION_TAIL_RISK_KEYWORDS):
+        return "invasion_tail_risk"
+    return "strike_activity"
+
+
 def is_strike_action_market(market, keywords):
     text = " ".join(
         str(part or "")
@@ -460,6 +493,7 @@ def run_strategy(
     trades_attempted = 0
     trades_executed = 0
     signals_found = 0
+    tail_risk_alerts = 0
     skip_reasons = []
     execution_errors = []
 
@@ -489,6 +523,15 @@ def run_strategy(
                 skip_reasons.append("price at extreme")
                 continue
             if price >= ENTRY_THRESHOLD:
+                continue
+
+            # Category gate: tail-risk markets (invasion/regime-change) are alert-only.
+            # ADS-B clusters are genuine alpha for near-term strike markets but do not
+            # meaningfully update long-horizon invasion probability.
+            category = classify_market_category(market)
+            if category == "invasion_tail_risk":
+                print(f"[mil-tracker] Tail-risk market detected, alert-only: {question}")
+                tail_risk_alerts += 1
                 continue
 
             current_region_exposure = region_exposure_from_state(state, region_name)
@@ -568,6 +611,7 @@ def run_strategy(
     print("\nSummary")
     print("-" * 50)
     print(f"  Signals found: {signals_found}")
+    print(f"  Tail-risk alerts: {tail_risk_alerts}")
     print(f"  Exits signaled: {exits}")
     print(f"  Trades attempted: {trades_attempted}")
     print(f"  Trades executed: {trades_executed}")
@@ -575,6 +619,7 @@ def run_strategy(
     if os.environ.get("AUTOMATON_MANAGED"):
         report = {
             "signals": signals_found,
+            "tail_risk_alerts": tail_risk_alerts,
             "trades_attempted": trades_attempted,
             "trades_executed": trades_executed,
         }
