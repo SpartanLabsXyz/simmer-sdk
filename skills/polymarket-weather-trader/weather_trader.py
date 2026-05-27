@@ -17,7 +17,6 @@ Requires:
 
 from __future__ import annotations
 
-import os
 import sys
 import re
 import json
@@ -87,18 +86,9 @@ CONFIG_SCHEMA = {
                                        "help": "Max position USD when source disagreement triggers canary mode (default $2)."},
     "max_source_spread_f":           {"env": "SIMMER_WEATHER_MAX_SOURCE_SPREAD_F",           "default": 2.0,   "type": float,
                                        "help": "Max degrees-F spread between primary and secondary forecast before skipping outright (default 2.0)."},
+    "venue":                         {"env": "TRADING_VENUE",                                "default": "polymarket", "type": str,
+                                       "help": "Trading venue: polymarket (default) or sim (paper trading)."},
 }
-
-# Backwards-compatible env var aliases (old name -> new name)
-_LEGACY_ENV_ALIASES = {
-    "SIMMER_WEATHER_ENTRY":        "SIMMER_WEATHER_ENTRY_THRESHOLD",
-    "SIMMER_WEATHER_EXIT":         "SIMMER_WEATHER_EXIT_THRESHOLD",
-    "SIMMER_WEATHER_MAX_POSITION": "SIMMER_WEATHER_MAX_POSITION_USD",
-    "SIMMER_WEATHER_MAX_TRADES":   "SIMMER_WEATHER_MAX_TRADES_PER_RUN",
-}
-for _old, _new in _LEGACY_ENV_ALIASES.items():
-    if _old in os.environ and _new not in os.environ:
-        os.environ[_new] = os.environ[_old]
 
 # Load configuration
 _config = load_config(CONFIG_SCHEMA, __file__, slug="polymarket-weather-trader")
@@ -145,8 +135,7 @@ def get_client(live=True):
         except ImportError:
             print("Error: simmer-sdk>=0.13.0 not installed. Run: pip install --upgrade simmer-sdk")
             sys.exit(1)
-        # TRADING_VENUE is user-tunable — defaults to polymarket; set to "sim" for paper trading.
-        venue = os.environ.get("TRADING_VENUE", "polymarket")
+        venue = _config.get("venue", "polymarket")
         _client = SimmerClient.from_env(venue=venue, live=live)
     return _client
 
