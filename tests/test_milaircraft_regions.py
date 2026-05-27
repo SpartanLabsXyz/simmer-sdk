@@ -86,3 +86,47 @@ def test_market_classifier_handles_nullable_text_fields():
     }
 
     assert is_strike_action_market(market, ["Korea"]) is True
+
+
+def test_market_classifier_matches_invade_wording():
+    """Polymarket often says 'invade' rather than 'invasion'."""
+    from milaircraft_tracker import is_strike_action_market
+
+    market = {
+        "question": "Will North Korea invade South Korea before 2027?",
+        "event_name": "Will North Korea invade South Korea before 2027?",
+        "resolution_criteria": None,
+        "description": None,
+    }
+
+    assert is_strike_action_market(market, ["North Korea", "Korea"]) is True
+
+
+def test_execute_trade_omits_limit_price_for_sim_venue(monkeypatch):
+    """Sim venue rejects explicit price; only Polymarket limit orders use it."""
+    import milaircraft_tracker
+
+    calls = []
+
+    class Result:
+        success = True
+        trade_id = "sim-trade"
+        shares_bought = 10
+        order_id = None
+        fill_status = "filled"
+        error = None
+        simulated = True
+
+    class FakeClient:
+        venue = "sim"
+
+        def trade(self, **kwargs):
+            calls.append(kwargs)
+            return Result()
+
+    monkeypatch.setattr(milaircraft_tracker, "get_client", lambda: FakeClient())
+
+    result = milaircraft_tracker.execute_trade("m1", "yes", 5, price=0.06)
+
+    assert result["success"] is True
+    assert "price" not in calls[0]
