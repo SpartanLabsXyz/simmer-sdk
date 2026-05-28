@@ -33,6 +33,7 @@ sys.stdout.reconfigure(line_buffering=True)
 # =============================================================================
 
 from simmer_sdk.skill import load_config, update_config, get_config_path
+from simmer_sdk.guards.news_recency_veto import load_macro_news_schedule, news_window_match
 
 # Configuration schema
 CONFIG_SCHEMA = {
@@ -45,6 +46,7 @@ CONFIG_SCHEMA = {
     "order_type": {"env": "SIMMER_MERT_ORDER_TYPE", "default": "GTC", "type": str},
     "fee_buffer": {"env": "SIMMER_MERT_FEE_BUFFER", "default": 0.02, "type": float},
     "min_edge": {"env": "SIMMER_MERT_MIN_EDGE", "default": 0.0, "type": float},
+    "enable_news_veto": {"env": "SIMMER_MERT_ENABLE_NEWS_VETO", "default": True, "type": bool},
 }
 
 _config = load_config(CONFIG_SCHEMA, __file__, slug="polymarket-mert-sniper")
@@ -69,6 +71,7 @@ MIN_SPLIT = _config["min_split"]
 MAX_TRADES_PER_RUN = _config["max_trades_per_run"]
 SMART_SIZING_PCT = _config["sizing_pct"]
 ORDER_TYPE = _config["order_type"]
+ENABLE_NEWS_VETO = _config["enable_news_veto"]
 
 # Safeguard thresholds
 SLIPPAGE_MAX_PCT = 0.15
@@ -598,6 +601,19 @@ def run_mert_strategy(dry_run=True, positions_only=False, show_config=False,
             if reasons:
                 print(f"     Warnings: {'; '.join(reasons)}")
 
+        if ENABLE_NEWS_VETO:
+            market_for_veto = {
+                "id": market_id,
+                "question": question,
+                "category": market.get("category") or market.get("tag"),
+            }
+            vetoed, event = news_window_match(market_for_veto, load_macro_news_schedule())
+            if vetoed:
+                event_id = event.get("id") or event.get("name") or event.get("category") or "scheduled-news"
+                print(f"     News-recency veto: {event_id} fired within the last 30s")
+                skip_reasons.append("news-recency veto")
+                continue
+
         # Rate limit
         if trades_executed >= MAX_TRADES_PER_RUN:
             print(f"     Max trades ({MAX_TRADES_PER_RUN}) reached - skipping")
@@ -680,7 +696,10 @@ if __name__ == "__main__":
                 if key in CONFIG_SCHEMA:
                     type_fn = CONFIG_SCHEMA[key].get("type", str)
                     try:
-                        value = type_fn(value)
+                        if type_fn == bool:
+                            value = value.lower() in ("true", "1", "yes")
+                        else:
+                            value = type_fn(value)
                     except (ValueError, TypeError):
                         pass
                 updates[key] = value
@@ -695,6 +714,7 @@ if __name__ == "__main__":
             globals()["MIN_SPLIT"] = _config["min_split"]
             globals()["MAX_TRADES_PER_RUN"] = _config["max_trades_per_run"]
             globals()["SMART_SIZING_PCT"] = _config["sizing_pct"]
+            globals()["ENABLE_NEWS_VETO"] = _config["enable_news_veto"]
 
     dry_run = not args.live
 

@@ -22,14 +22,22 @@ _mock_cfg = {
     "market_filter": "", "max_bet_usd": 10.00, "expiry_window_mins": 8,
     "min_split": 0.60, "max_trades_per_run": 5, "sizing_pct": 0.05,
     "order_type": "GTC", "fee_buffer": 0.02, "min_edge": 0.0,
+    "enable_news_veto": True,
 }
 
 _skill_stub = types.ModuleType("simmer_sdk.skill")
 _skill_stub.load_config = lambda schema, file, slug=None: _mock_cfg.copy()
 _skill_stub.update_config = lambda updates, file, slug=None: None
 _skill_stub.get_config_path = lambda file: "/tmp/config.json"
+_guards_stub = types.ModuleType("simmer_sdk.guards.news_recency_veto")
+_guards_stub.load_macro_news_schedule = lambda path=None: {"events": []}
+_guards_stub.news_window_match = lambda market_id, schedule, lookback_s=30, now=None: (False, None)
 
-with patch.dict(sys.modules, {"simmer_sdk": MagicMock(), "simmer_sdk.skill": _skill_stub}):
+with patch.dict(sys.modules, {
+    "simmer_sdk": MagicMock(),
+    "simmer_sdk.skill": _skill_stub,
+    "simmer_sdk.guards.news_recency_veto": _guards_stub,
+}):
     import mert_sniper as ms  # noqa: E402
 
 

@@ -74,6 +74,8 @@ CONFIG_SCHEMA = {
                        "help": "Annualised volatility for N(d) fair-value model (default: 0.55 = 55%)"},
     "order_type": {"default": "GTC", "env": "SIMMER_FASTLOOP_ORDER_TYPE", "type": str,
                    "help": "Order type for Polymarket trades: GTC (default, waits for fill) or FAK (cancel if not filled immediately)"},
+    "enable_news_veto": {"default": True, "env": "SIMMER_FASTLOOP_ENABLE_NEWS_VETO", "type": bool,
+                         "help": "Block news-resolution trades within 30s after scheduled macro/news releases"},
 }
 
 TRADE_SOURCE = "sdk:fastloop"
@@ -103,6 +105,7 @@ ASSET_PATTERNS = {
 
 
 from simmer_sdk.skill import load_config, update_config, get_config_path
+from simmer_sdk.guards.news_recency_veto import load_macro_news_schedule, news_window_match
 
 # Load config
 cfg = load_config(CONFIG_SCHEMA, __file__, slug="polymarket-fast-loop")
@@ -135,6 +138,7 @@ USE_FAIR_VALUE = cfg["use_fair_value"]
 FAIR_VALUE_MIN_EDGE = cfg["fair_value_min_edge"]
 BTC_ANNUAL_VOL = cfg["btc_annual_vol"]
 ORDER_TYPE = cfg["order_type"].upper() if cfg["order_type"] else "GTC"
+ENABLE_NEWS_VETO = cfg["enable_news_veto"]
 SECONDS_PER_YEAR = 31_536_000
 
 # Polymarket crypto taker fee formula (docs.polymarket.com/trading/fees)
@@ -1191,6 +1195,22 @@ def run_fast_market_strategy(dry_run=True, positions_only=False, show_config=Fal
             log(f"  ❌ Import failed: {import_error}", force=True)
             return
         log(f"  ✅ Market ID: {market_id[:16]}...", force=True)
+
+    if ENABLE_NEWS_VETO:
+        market_for_veto = {
+            "id": market_id,
+            "question": best.get("question"),
+            "slug": best.get("slug"),
+        }
+        vetoed, event = news_window_match(market_for_veto, load_macro_news_schedule())
+        if vetoed:
+            event_id = event.get("id") or event.get("name") or event.get("category") or "scheduled-news"
+            log(f"  ⏸️  News-recency veto: {event_id} fired within the last 30s — skip", force=True)
+            if not quiet:
+                print("📊 Summary: No trade (news-recency veto)")
+            skip_reasons.append("news-recency veto")
+            _emit_skip_report()
+            return
 
     execution_error = None
     tag = "SIMULATED" if dry_run else "LIVE"
