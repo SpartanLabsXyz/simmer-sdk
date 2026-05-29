@@ -105,7 +105,7 @@ By default, `simmer-mcp` resolves the Python binary in this order:
 
 Replace the path with the output of `which python3` (or your venv's `bin/python`) on your system.
 
-## Bundled skills (19)
+## Bundled skills (20)
 
 Trading skills included in this package. Each has a corresponding `simmer_<slug>` MCP tool when `SIMMER_API_KEY` is set:
 
@@ -113,6 +113,7 @@ Trading skills included in this package. Each has a corresponding `simmer_<slug>
 - `polymarket-ai-divergence` — AI signal vs market price divergence
 - `polymarket-mert-sniper` — Sniping mispriced markets
 - `polymarket-signal-sniper` — Signal-based sniper
+- `polymarket-dca-eval-trader` — Three-tranche Polymarket DCA eval-envelope planner
 - `polymarket-fast-scaler` — Position scaling on conviction
 - `polymarket-market-maker` — Two-sided GTC quoting
 - `polymarket-copytrading` — Copy top traders
