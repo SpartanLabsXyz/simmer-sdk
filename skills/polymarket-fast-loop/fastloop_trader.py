@@ -74,7 +74,7 @@ CONFIG_SCHEMA = {
                        "help": "Annualised volatility for N(d) fair-value model (default: 0.55 = 55%)"},
     "order_type": {"default": "GTC", "env": "SIMMER_FASTLOOP_ORDER_TYPE", "type": str,
                    "help": "Order type for Polymarket trades: GTC (default, waits for fill) or FAK (cancel if not filled immediately)"},
-    "enable_news_veto": {"default": True, "env": "SIMMER_FASTLOOP_ENABLE_NEWS_VETO", "type": bool,
+    "enable_news_veto": {"default": False, "env": "SIMMER_FASTLOOP_ENABLE_NEWS_VETO", "type": bool,
                          "help": "Block news-resolution trades within 30s after scheduled macro/news releases"},
 }
 
@@ -675,7 +675,7 @@ def get_positions():
         return []
 
 
-def execute_trade(market_id, side, amount, signal_data=None):
+def execute_trade(market_id, side, amount, signal_data=None, market_context=None):
     """Execute a trade on Simmer."""
     try:
         client = get_client()
@@ -685,6 +685,17 @@ def execute_trade(market_id, side, amount, signal_data=None):
                 blockers = ", ".join(pf.blockers)
                 print(f"  ⛔ Preflight blocked: {blockers}")
                 return {"error": f"preflight_blocked: {blockers}"}
+        if ENABLE_NEWS_VETO:
+            vetoed, event = news_window_match(market_context or {"id": market_id}, load_macro_news_schedule())
+            if vetoed:
+                event_id = event.get("id") or event.get("name") or event.get("category") or "scheduled-news"
+                print(json.dumps({
+                    "event": "news_recency_veto",
+                    "market_id": market_id,
+                    "news_event_id": event_id,
+                    "skill": SKILL_SLUG,
+                }))
+                return {"error": "news_recency_veto", "event_id": event_id, "retryable": False}
         result = client.trade(
             market_id=market_id,
             side=side,
@@ -1224,7 +1235,13 @@ def run_fast_market_strategy(dry_run=True, positions_only=False, show_config=Fal
     }
     if USE_FAIR_VALUE and 'fair_yes' in locals():
         _signal_data["fair_value"] = round(fair_yes, 4)
-    result = execute_trade(market_id, side, position_size, signal_data=_signal_data)
+    result = execute_trade(
+        market_id,
+        side,
+        position_size,
+        signal_data=_signal_data,
+        market_context=market_for_veto if ENABLE_NEWS_VETO else None,
+    )
 
     if result and result.get("success"):
         shares = result.get("shares_bought") or result.get("shares") or 0

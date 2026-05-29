@@ -102,6 +102,26 @@ class TestPreflightGateFastLoop(unittest.TestCase):
         mock_client.trade.assert_called_once()
         self.assertTrue(result["success"])
 
+    def test_news_veto_blocks_order_after_preflight(self):
+        mock_client = MagicMock()
+        mock_client.live = True
+        mock_client.venue = "polymarket"
+        mock_client.preflight.return_value = _make_preflight(ok=True)
+
+        with patch.object(ft, "get_client", return_value=mock_client), \
+             patch.object(ft, "news_window_match", return_value=(True, {"id": "cpi-2026-06"})), \
+             patch("builtins.print") as mock_print:
+            result = ft.execute_trade(
+                "mkt_cpi",
+                "yes",
+                5.0,
+                market_context={"id": "mkt_cpi", "question": "Will CPI be above 3%?"},
+            )
+
+        self.assertEqual(result, {"error": "news_recency_veto", "event_id": "cpi-2026-06", "retryable": False})
+        mock_client.trade.assert_not_called()
+        self.assertIn('"event": "news_recency_veto"', mock_print.call_args[0][0])
+
     def test_preflight_called_with_cap_zero(self):
         mock_client = MagicMock()
         mock_client.live = True

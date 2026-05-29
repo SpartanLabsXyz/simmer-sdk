@@ -13,7 +13,7 @@ import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 
 DEFAULT_LOOKBACK_S = 30
@@ -23,24 +23,45 @@ DEFAULT_SCHEDULE_PATHS = (
     Path.home() / "Documents" / "code" / "active" / "kozy" / "simmer-labs" / "shared-knowledge" / "data" / "macro-news-schedule.json",
 )
 
-NEWS_KEYWORDS = (
-    "cpi",
-    "consumer price index",
-    "inflation",
-    "fomc",
-    "fed decision",
-    "federal reserve",
-    "interest rate decision",
-    "unemployment",
-    "jobs report",
-    "nonfarm payroll",
-    "non-farm payroll",
-    "payrolls",
-    "bls",
-    "earnings",
-    "eps",
-    "revenue",
-)
+EVENT_CATEGORY_PATTERNS = {
+    "CPI": (
+        re.compile(r"\bcpi\b", re.I),
+        re.compile(r"\bconsumer\s+price\s+index\b", re.I),
+        re.compile(r"\binflation\b", re.I),
+    ),
+    "FOMC": (
+        re.compile(r"\bfomc\b", re.I),
+        re.compile(r"\bfed(?:eral\s+reserve)?\s+(?:decision|rates?|meeting)\b", re.I),
+        re.compile(r"\binterest\s+rate\s+decision\b", re.I),
+    ),
+    "BLS_JOBS": (
+        re.compile(r"\bbls\b", re.I),
+        re.compile(r"\bunemployment\b", re.I),
+        re.compile(r"\bjobs\s+report\b", re.I),
+        re.compile(r"\bnon-?farm\s+payrolls?\b", re.I),
+        re.compile(r"\bpayrolls\b", re.I),
+    ),
+    "EARNINGS": (
+        re.compile(r"\bearnings\b", re.I),
+        re.compile(r"\beps\b", re.I),
+        re.compile(r"\bquarterly\s+results\b", re.I),
+    ),
+}
+
+SCHEDULE_CATEGORY_ALIASES = {
+    "CPI": {"CPI", "CONSUMER_PRICE_INDEX", "INFLATION"},
+    "FOMC": {"FOMC", "FED", "FEDERAL_RESERVE", "INTEREST_RATE_DECISION"},
+    "BLS_JOBS": {
+        "BLS",
+        "BLS_UNEMPLOYMENT",
+        "BLS_UNEMPLOYMENT_NONFARM_PAYROLLS",
+        "JOBS_REPORT",
+        "NONFARM_PAYROLLS",
+        "NON_FARM_PAYROLLS",
+        "UNEMPLOYMENT",
+    },
+    "EARNINGS": {"EARNINGS", "QUARTERLY_EARNINGS", "EPS", "QUARTERLY_RESULTS"},
+}
 
 CONTINUOUS_FEED_PATTERNS = (
     re.compile(r"\b(btc|bitcoin|eth|ethereum|sol|solana|xrp)\s+up\s+or\s+down\b", re.I),
@@ -73,19 +94,10 @@ def load_macro_news_schedule(path: Optional[str] = None) -> Dict[str, Any]:
 def is_news_resolution_market(market_id: Any) -> bool:
     """Return True when a market descriptor looks tied to a scheduled news drop."""
 
-    text_parts: List[str] = []
-    if isinstance(market_id, dict):
-        for key in ("id", "market_id", "question", "title", "slug", "category", "description"):
-            value = market_id.get(key)
-            if value:
-                text_parts.append(str(value))
-    else:
-        text_parts.append(str(market_id or ""))
-
-    text = " ".join(text_parts).lower()
+    text = _market_text(market_id)
     if any(pattern.search(text) for pattern in CONTINUOUS_FEED_PATTERNS):
         return False
-    return any(keyword in text for keyword in NEWS_KEYWORDS)
+    return bool(_market_event_categories(market_id))
 
 
 def is_within_news_window(
@@ -111,8 +123,14 @@ def news_window_match(
     if lookback_s <= 0 or not is_news_resolution_market(market_id):
         return False, None
 
-    current = _coerce_aware_datetime(now) or datetime.now(timezone.utc)
+    market_categories = _market_event_categories(market_id)
+    if not market_categories:
+        return False, None
+
+    current = _coerce_aware_datetime(now, allow_naive=True) or datetime.now(timezone.utc)
     for event in _iter_events(schedule):
+        if not (market_categories & _event_categories(event)):
+            continue
         event_dt = _parse_event_time(event)
         if not event_dt:
             continue
@@ -145,11 +163,11 @@ def _parse_event_time(event: Dict[str, Any]) -> Optional[datetime]:
     for key in ("timestamp", "datetime", "time", "released_at", "release_time"):
         value = event.get(key)
         if value:
-            return _coerce_aware_datetime(value)
+            return _coerce_aware_datetime(value, allow_naive=False)
     return None
 
 
-def _coerce_aware_datetime(value: Any) -> Optional[datetime]:
+def _coerce_aware_datetime(value: Any, *, allow_naive: bool = True) -> Optional[datetime]:
     if value is None:
         return None
     if isinstance(value, datetime):
@@ -161,6 +179,46 @@ def _coerce_aware_datetime(value: Any) -> Optional[datetime]:
             return None
 
     if dt.tzinfo is None:
+        if not allow_naive:
+            return None
         return dt.replace(tzinfo=timezone.utc)
     return dt.astimezone(timezone.utc)
 
+
+def _market_text(market_id: Any) -> str:
+    text_parts: List[str] = []
+    if isinstance(market_id, dict):
+        for key in ("id", "market_id", "question", "title", "slug", "category", "description"):
+            value = market_id.get(key)
+            if value:
+                text_parts.append(str(value))
+    else:
+        text_parts.append(str(market_id or ""))
+    return " ".join(text_parts)
+
+
+def _market_event_categories(market_id: Any) -> Set[str]:
+    text = _market_text(market_id)
+    if any(pattern.search(text) for pattern in CONTINUOUS_FEED_PATTERNS):
+        return set()
+    return {
+        category
+        for category, patterns in EVENT_CATEGORY_PATTERNS.items()
+        if any(pattern.search(text) for pattern in patterns)
+    }
+
+
+def _event_categories(event: Dict[str, Any]) -> Set[str]:
+    categories: Set[str] = set()
+    for key in ("category", "type", "name", "id"):
+        value = event.get(key)
+        if not value:
+            continue
+        normalized = re.sub(r"[^A-Za-z0-9]+", "_", str(value)).strip("_").upper()
+        for category, aliases in SCHEDULE_CATEGORY_ALIASES.items():
+            if normalized in aliases:
+                categories.add(category)
+        for category, patterns in EVENT_CATEGORY_PATTERNS.items():
+            if any(pattern.search(str(value)) for pattern in patterns):
+                categories.add(category)
+    return categories

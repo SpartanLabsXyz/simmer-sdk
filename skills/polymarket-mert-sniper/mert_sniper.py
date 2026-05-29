@@ -46,7 +46,7 @@ CONFIG_SCHEMA = {
     "order_type": {"env": "SIMMER_MERT_ORDER_TYPE", "default": "GTC", "type": str},
     "fee_buffer": {"env": "SIMMER_MERT_FEE_BUFFER", "default": 0.02, "type": float},
     "min_edge": {"env": "SIMMER_MERT_MIN_EDGE", "default": 0.0, "type": float},
-    "enable_news_veto": {"env": "SIMMER_MERT_ENABLE_NEWS_VETO", "default": True, "type": bool},
+    "enable_news_veto": {"env": "SIMMER_MERT_ENABLE_NEWS_VETO", "default": False, "type": bool},
 }
 
 _config = load_config(CONFIG_SCHEMA, __file__, slug="polymarket-mert-sniper")
@@ -172,7 +172,7 @@ def check_context_safeguards(context):
     return True, reasons
 
 
-def execute_trade(market_id, side, amount, reasoning=""):
+def execute_trade(market_id, side, amount, reasoning="", market_context=None):
     try:
         client = get_client()
         if client.live:
@@ -181,6 +181,17 @@ def execute_trade(market_id, side, amount, reasoning=""):
                 blockers = ", ".join(pf.blockers)
                 print(f"  ⛔ Preflight blocked: {blockers}")
                 return {"error": f"preflight_blocked: {blockers}"}
+        if ENABLE_NEWS_VETO:
+            vetoed, event = news_window_match(market_context or {"id": market_id}, load_macro_news_schedule())
+            if vetoed:
+                event_id = event.get("id") or event.get("name") or event.get("category") or "scheduled-news"
+                print(json.dumps({
+                    "event": "news_recency_veto",
+                    "market_id": market_id,
+                    "news_event_id": event_id,
+                    "skill": SKILL_SLUG,
+                }))
+                return {"error": "news_recency_veto", "event_id": event_id, "retryable": False}
         result = client.trade(
             market_id=market_id,
             side=side,
@@ -631,7 +642,13 @@ def run_mert_strategy(dry_run=True, positions_only=False, show_config=False,
 
         tag = "SIMULATED" if dry_run else "LIVE"
         print(f"     Executing trade ({tag})...")
-        result = execute_trade(market_id, side, position_size, reasoning=reasoning)
+        result = execute_trade(
+            market_id,
+            side,
+            position_size,
+            reasoning=reasoning,
+            market_context=market_for_veto if ENABLE_NEWS_VETO else None,
+        )
 
         if result.get("success"):
             trades_executed += 1
