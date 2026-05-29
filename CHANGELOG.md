@@ -11,6 +11,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.17.24] — 2026-05-29
+
+### Added
+
+- **Bulk top-of-book quote fields on `Market` and `Position` (SIM-2641).** `client.get_markets()` and `client.get_positions()` now expose `best_bid`, `best_ask`, `best_bid_size`, `best_ask_size`, `spread`, and `quote_ts` on the returned objects (Polymarket only; `None` for sim/kalshi or when the live book is unavailable). On positions these are held-side aware — pure NO-side holders get the NO outcome's `best_bid` (their exit price). Use for scanning candidates and monitoring held positions without a per-market `executable-price` call each; `quote_ts` (~30s freshness) lets you detect stale quotes.
+
 ### Fixed
 
 - **`polymarket-mil-aircraft-tracker`: gate auto-trading on market category.** Markets are now classified as `strike_activity` (trade as before) or `invasion_tail_risk` (alert-only, no trade). Keyword matching on the question/description — invasion/invade/regime change/annex/declare war → tail-risk; strike/attack/airstrike/bomb → activity. Tail-risk markets emit a `[mil-tracker] Tail-risk market detected, alert-only: {question}` log line and are counted separately in the `tail_risk_alerts` field of the automaton output. Eliminates erroneous entry into long-horizon geopolitical markets (e.g. "Will North Korea invade South Korea before 2027?") triggered by routine ADS-B patrol activity.

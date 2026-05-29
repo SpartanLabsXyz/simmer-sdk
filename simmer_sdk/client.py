@@ -51,6 +51,13 @@ class Market:
     spread_cents: Optional[float] = None  # Bid-ask spread in cents (fast markets only)
     liquidity_tier: Optional[str] = None  # "tight", "moderate", or "wide" (fast markets only)
     resolution_criteria: Optional[str] = None  # Opt-in via include="resolution_criteria"
+    # SIM-2641: live top-of-book quotes (Polymarket only; null when book unavailable/empty)
+    best_bid: Optional[float] = None  # Top-of-book bid, YES outcome (0–1)
+    best_ask: Optional[float] = None  # Top-of-book ask, YES outcome (0–1)
+    best_bid_size: Optional[float] = None  # Shares available at best_bid
+    best_ask_size: Optional[float] = None  # Shares available at best_ask
+    spread: Optional[float] = None  # best_ask - best_bid; null if either side null
+    quote_ts: Optional[float] = None  # Epoch-second snapshot time (~30s freshness)
 
 
 @dataclass
@@ -79,6 +86,13 @@ class Position:
     # sig-type-0 (EOA) or sig-type-3 (POLY_1271 / DW). None for sim venue
     # or when connected to a server that predates SIM-1646.
     holder_address: Optional[str] = None
+    # SIM-2641: live top-of-book quotes, held-side aware (Polymarket only; null for sim/kalshi)
+    best_bid: Optional[float] = None  # Held-side exit-bid (NO-only holders get NO book)
+    best_ask: Optional[float] = None  # Held-side ask
+    best_bid_size: Optional[float] = None  # Shares available at best_bid
+    best_ask_size: Optional[float] = None  # Shares available at best_ask
+    spread: Optional[float] = None  # best_ask - best_bid for the held side
+    quote_ts: Optional[float] = None  # Epoch-second snapshot time (~30s freshness)
 
 
 @dataclass
@@ -1470,6 +1484,12 @@ class SimmerClient:
             spread_cents=m.get("spread_cents"),
             liquidity_tier=m.get("liquidity_tier"),
             resolution_criteria=m.get("resolution_criteria"),
+            best_bid=m.get("best_bid"),
+            best_ask=m.get("best_ask"),
+            best_bid_size=m.get("best_bid_size"),
+            best_ask_size=m.get("best_ask_size"),
+            spread=m.get("spread"),
+            quote_ts=m.get("quote_ts"),
         )
 
     def trade(
@@ -2110,6 +2130,12 @@ class SimmerClient:
                 current_price=p.get("current_price"),
                 sources=p.get("sources"),
                 holder_address=p.get("holder_address"),  # SIM-1646: on-chain token holder
+                best_bid=p.get("best_bid"),  # SIM-2641: held-side top-of-book (Polymarket only)
+                best_ask=p.get("best_ask"),
+                best_bid_size=p.get("best_bid_size"),
+                best_ask_size=p.get("best_ask_size"),
+                spread=p.get("spread"),
+                quote_ts=p.get("quote_ts"),
             )
             positions.append(pos)
             # SIM-1646: update holder cache for trade() sell routing
