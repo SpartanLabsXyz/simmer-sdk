@@ -28,7 +28,7 @@ Usage:
         txs = get_missing_approval_transactions(approvals)
         for tx in txs:
             print(f"Approve {tx['description']}")
-            # Sign and send tx using your wallet/clawbot
+            # Sign and send tx using your wallet or agent runtime
 """
 
 from typing import List, Dict, Any
@@ -204,7 +204,7 @@ def get_required_approvals() -> List[Dict[str, Any]]:
 def get_approval_transactions() -> List[Dict[str, Any]]:
     """Get transaction data for all required Polymarket approvals.
 
-    These transactions can be executed by a wallet or clawbot to set up
+    These transactions can be executed by a wallet or agent runtime to set up
     all necessary approvals for trading. Selected token set + spender
     set depend on exchange version (V1 or V2).
 
