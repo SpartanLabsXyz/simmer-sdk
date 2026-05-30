@@ -1,11 +1,11 @@
 ---
 name: simmer-wallet-setup
-version: "0.3.1"
+version: "0.3.2"
 published: true
 description: Self-custody wallet setup for Simmer agents. Choose OWS (recommended), external raw key, or connect an existing dashboard-registered agent to your local runtime. Skip this skill if you use a managed wallet — managed setup is a one-time dashboard flow, not an agent task.
 metadata:
   author: "Simmer (@simmer_markets)"
-  version: "0.3.1"
+  version: "0.3.2"
   displayName: Simmer Wallet Setup
   difficulty: beginner
   primaryEnv: SIMMER_API_KEY
@@ -63,11 +63,12 @@ client = SimmerClient(
     ows_wallet="my-agent-wallet",   # name from `ows wallet create`
 )
 
-client.register_agent_wallet()  # one-time, Elite-tier gated, fully headless
-client.set_approvals()          # one-time per chain — signs locally via OWS, fully headless
+wallet = client.register_agent_wallet()  # one-time, Elite-tier gated, fully headless
+client.activate_polymarket_dw(agent_id=wallet["agent_id"])   # sets on-chain CLOB approvals on the agent's deposit wallet — signs via OWS, gasless relay, headless
+client.update_agent_wallet_creds(ows_wallet_name="my-agent-wallet")  # caches CLOB API creds server-side
 ```
 
-> Both calls are fully headless — they authenticate with your SDK API key, no dashboard session or browser required. `register_agent_wallet()` requires Elite tier. After both run once, all trading is API-only.
+> All three calls are fully headless — they authenticate with your SDK API key, no dashboard session or browser required. `register_agent_wallet()` requires Elite tier. `activate_polymarket_dw(agent_id=...)` sets the deposit-wallet approvals; `update_agent_wallet_creds()` then caches CLOB creds. Both are required before trading — caching creds alone does not set on-chain allowances. (Don't use `set_approvals()` here — that's the user-primary EOA path and a no-op for per-agent deposit wallets.) After all three run once, all trading is API-only.
 >
 > Elite users can alternatively register a per-agent wallet through the dashboard's agent-creation wizard (My Agents → Create agent → optional "Link dedicated wallet" step) or retrofit an existing agent via its Wallet tab. The SDK path and the dashboard path produce the same `user_agent_wallets` row — pick whichever fits your workflow.
 
@@ -182,7 +183,7 @@ You already created an agent in the dashboard and have its API key. Now wire it 
 
 1. **Install packages**
    ```bash
-   pip install simmer-sdk[ows] open-wallet-standard
+   pip install 'simmer-sdk[ows]'
    ```
 
 2. **Import wallet key into OWS**
@@ -198,13 +199,14 @@ You already created an agent in the dashboard and have its API key. Now wire it 
    export OWS_WALLET=<name>
    ```
 
-4. **Cache CLOB credentials (one-time)**
+4. **Activate trading: on-chain approvals + CLOB credentials (one-time)**
    ```bash
    python -c "from simmer_sdk import SimmerClient; \
      c = SimmerClient.from_env(venue='polymarket'); \
+     c.activate_polymarket_dw(agent_id='<agent_id>'); \
      c.update_agent_wallet_creds(ows_wallet_name='<name>')"
    ```
-   This signs an EIP-712 message via OWS, derives CLOB creds, persists server-side. Required before any Polymarket trades.
+   First sets the deposit wallet's on-chain CLOB approvals (OWS-signed EIP-712 batch, relayed gasless), then derives + caches CLOB creds server-side. **Both** are required before any Polymarket trades — approvals alone or creds alone is not enough. Get `<agent_id>` from `client.get_agent_wallets()`.
 
 5. **Verify**
    ```bash
@@ -215,7 +217,7 @@ You already created an agent in the dashboard and have its API key. Now wire it 
 
 ### Anti-patterns
 - Don't paste your private key from clipboard into a pipe — use `read -s` (per SIM-2118).
-- Don't use `client.activate_polymarket_dw()` — that's user-primary only. Use `update_agent_wallet_creds(ows_wallet_name)` for per-agent.
+- Don't skip `activate_polymarket_dw(agent_id=...)` — `update_agent_wallet_creds` alone caches creds without setting on-chain approvals, so trades fail at the relayer. Run both, approvals first.
 
 ## Risk monitor
 
@@ -224,7 +226,7 @@ The auto risk monitor (stop-loss, take-profit) is configured at simmer.markets/d
 ## Troubleshooting
 
 - **"External wallet requires a pre-signed order"** → key not configured. For OWS: `ows wallet list` to verify the wallet exists. For external: confirm `WALLET_PRIVATE_KEY` is set.
-- **"insufficient allowance"** → run `client.set_approvals()` once per wallet.
+- **"insufficient allowance"** → set approvals once per wallet: `client.activate_polymarket_dw(agent_id=...)` for a per-agent OWS/deposit-wallet, or `client.set_approvals()` for a raw-key/user-primary EOA wallet.
 - **Balance shows $0 but funds visible elsewhere** → check chain (Polygon vs Solana) and token (pUSD vs USDC.e). See dashboard migration tool for V2 conversion.
 - **API key format wrong / 401 with a key that "looks set"** → inspect the raw value: `printenv SIMMER_API_KEY | cut -c1-20`. Must start with `sk_live_`. A common silent failure: install commands that use `pbpaste` or similar clipboard-read primitives write the *install command text itself* as the key value when the user copies the command after copying the key. Fix: get a fresh key from simmer.markets/dashboard, then `export SIMMER_API_KEY="sk_live_..."` (type/paste the key directly, never pipe from clipboard into the variable assignment).
 
