@@ -5162,8 +5162,10 @@ class SimmerClient:
         """Register an OWS wallet for this agent. Elite-only (beta).
 
         Creates a per-agent wallet record on the server. After registration,
-        set on-chain approvals via set_approvals(), then call
-        update_agent_wallet_creds() to cache CLOB credentials server-side.
+        set on-chain approvals via activate_polymarket_dw(agent_id=...), then
+        call update_agent_wallet_creds(ows_wallet_name=...) to cache CLOB
+        credentials server-side. Both are required before trading. (set_approvals()
+        is the user-primary EOA path and is a no-op for per-agent deposit wallets.)
 
         Args:
             ows_wallet_name: Name of the OWS wallet (e.g. "agent-mybot")
