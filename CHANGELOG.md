@@ -3,13 +3,18 @@
 All notable changes to `simmer-sdk` are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.17.23] — 2026-05-26
+## [Unreleased]
+
+## [0.17.25] — 2026-05-30
+
+### Added
+
+- **News-recency veto guard for fast Polymarket skills (SIM-2617).** New `simmer_sdk.guards.news_recency_veto` exposing an `is_within_news_window(...)` predicate that refuses a fill on short-dated news-resolution markets when a known macro-news event (CPI / FOMC / nonfarm payrolls / earnings) fired within the last 30s — the window where ~95% of capturable edge has already decayed. Wired into `polymarket-fast-loop` and `polymarket-mert-sniper` behind an `enable_news_veto` config knob (default on; set false to override). Defensive only — it does not trade *into* the window.
+- **New bundled skill `polymarket-dca-eval-trader` (SIM-2623).** A staged-entry (3-tranche) DCA template with configurable per-market / daily exposure caps, a dynamic SL/TP model, and an eval-envelope simulator that reports whether proposed sizing stays inside a prop-firm-shaped constraint set (10% target, 6% static / 3% daily drawdown). Paper-safe by default (`--live` required); ships via the SDK and ClawHub. Carries explicit disclaimers — no claim of passing any prop challenge.
 
 ### Fixed
 
-- **`dw_redeem.prepare_dw_redeem` handles 422 `not_redeemable` responses.** Server now returns HTTP 422 (not 200) when on-chain payout is not finalized. The SDK's error handler preserves the `not_redeemable`, `reason`, and `detail` flags so `client.redeem()` and `auto_redeem()` skip cleanly instead of retrying.
-
-## [Unreleased]
+- **`register_agent_wallet` docstring activation sequence corrected (SIM-2688).** The docstring described the wrong per-agent OWS activation order; updated to match the actual deploy → approvals → cache-creds flow so agents following the inline guidance don't misconfigure.
 
 ## [0.17.24] — 2026-05-29
 
@@ -77,6 +82,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **`kalshi-weather-trader` now gates every trade with `preflight()` and skips the run on empty wallets.** Matches the balance-check behaviour already present in `polymarket-weather-trader`: `client.preflight()` blocks each individual trade when the wallet is insufficient, and `client.ensure_can_trade(min_usd=1.0)` exits the run cleanly before the market scan when there is less than $1 available.
 
 - **Exit scan `sources=None` guard.** Skills with no configured signal sources no longer crash on the exit scan. (#130)
+
+## [0.17.23] — 2026-05-26
+
+### Fixed
+
+- **`dw_redeem.prepare_dw_redeem` handles 422 `not_redeemable` responses.** Server now returns HTTP 422 (not 200) when on-chain payout is not finalized. The SDK's error handler preserves the `not_redeemable`, `reason`, and `detail` flags so `client.redeem()` and `auto_redeem()` skip cleanly instead of retrying.
 
 ## simmer-mcp v3.3.0 — 2026-05-24
 

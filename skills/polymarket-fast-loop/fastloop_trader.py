@@ -74,6 +74,8 @@ CONFIG_SCHEMA = {
                        "help": "Annualised volatility for N(d) fair-value model (default: 0.55 = 55%)"},
     "order_type": {"default": "GTC", "env": "SIMMER_FASTLOOP_ORDER_TYPE", "type": str,
                    "help": "Order type for Polymarket trades: GTC (default, waits for fill) or FAK (cancel if not filled immediately)"},
+    "enable_news_veto": {"default": False, "env": "SIMMER_FASTLOOP_ENABLE_NEWS_VETO", "type": bool,
+                         "help": "Block news-resolution trades within 30s after scheduled macro/news releases"},
 }
 
 TRADE_SOURCE = "sdk:fastloop"
@@ -103,6 +105,7 @@ ASSET_PATTERNS = {
 
 
 from simmer_sdk.skill import load_config, update_config, get_config_path
+from simmer_sdk.guards.news_recency_veto import load_macro_news_schedule, news_window_match
 
 # Load config
 cfg = load_config(CONFIG_SCHEMA, __file__, slug="polymarket-fast-loop")
@@ -135,6 +138,7 @@ USE_FAIR_VALUE = cfg["use_fair_value"]
 FAIR_VALUE_MIN_EDGE = cfg["fair_value_min_edge"]
 BTC_ANNUAL_VOL = cfg["btc_annual_vol"]
 ORDER_TYPE = cfg["order_type"].upper() if cfg["order_type"] else "GTC"
+ENABLE_NEWS_VETO = cfg["enable_news_veto"]
 SECONDS_PER_YEAR = 31_536_000
 
 # Polymarket crypto taker fee formula (docs.polymarket.com/trading/fees)
@@ -671,7 +675,7 @@ def get_positions():
         return []
 
 
-def execute_trade(market_id, side, amount, signal_data=None):
+def execute_trade(market_id, side, amount, signal_data=None, market_context=None):
     """Execute a trade on Simmer."""
     try:
         client = get_client()
@@ -681,6 +685,17 @@ def execute_trade(market_id, side, amount, signal_data=None):
                 blockers = ", ".join(pf.blockers)
                 print(f"  ⛔ Preflight blocked: {blockers}")
                 return {"error": f"preflight_blocked: {blockers}"}
+        if ENABLE_NEWS_VETO:
+            vetoed, event = news_window_match(market_context or {"id": market_id}, load_macro_news_schedule())
+            if vetoed:
+                event_id = event.get("id") or event.get("name") or event.get("category") or "scheduled-news"
+                print(json.dumps({
+                    "event": "news_recency_veto",
+                    "market_id": market_id,
+                    "news_event_id": event_id,
+                    "skill": SKILL_SLUG,
+                }))
+                return {"error": "news_recency_veto", "event_id": event_id, "retryable": False}
         result = client.trade(
             market_id=market_id,
             side=side,
@@ -1192,6 +1207,22 @@ def run_fast_market_strategy(dry_run=True, positions_only=False, show_config=Fal
             return
         log(f"  ✅ Market ID: {market_id[:16]}...", force=True)
 
+    if ENABLE_NEWS_VETO:
+        market_for_veto = {
+            "id": market_id,
+            "question": best.get("question"),
+            "slug": best.get("slug"),
+        }
+        vetoed, event = news_window_match(market_for_veto, load_macro_news_schedule())
+        if vetoed:
+            event_id = event.get("id") or event.get("name") or event.get("category") or "scheduled-news"
+            log(f"  ⏸️  News-recency veto: {event_id} fired within the last 30s — skip", force=True)
+            if not quiet:
+                print("📊 Summary: No trade (news-recency veto)")
+            skip_reasons.append("news-recency veto")
+            _emit_skip_report()
+            return
+
     execution_error = None
     tag = "SIMULATED" if dry_run else "LIVE"
     log(f"  Executing {side.upper()} trade for ${position_size:.2f} ({tag})...", force=True)
@@ -1204,7 +1235,13 @@ def run_fast_market_strategy(dry_run=True, positions_only=False, show_config=Fal
     }
     if USE_FAIR_VALUE and 'fair_yes' in locals():
         _signal_data["fair_value"] = round(fair_yes, 4)
-    result = execute_trade(market_id, side, position_size, signal_data=_signal_data)
+    result = execute_trade(
+        market_id,
+        side,
+        position_size,
+        signal_data=_signal_data,
+        market_context=market_for_veto if ENABLE_NEWS_VETO else None,
+    )
 
     if result and result.get("success"):
         shares = result.get("shares_bought") or result.get("shares") or 0

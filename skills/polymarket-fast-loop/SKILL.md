@@ -19,6 +19,8 @@ Trade Polymarket's 5-minute crypto fast markets using real-time price signals. D
 
 > ⚠️ **Risk monitoring does not apply to sub-15-minute markets.** Simmer's stop-loss and take-profit monitors check positions every 15 minutes — which means they will never fire on 5m or 15m markets before resolution. Any risk settings you configure in the Simmer dashboard have no effect on these positions. Size accordingly and do not rely on automated stop-losses for fast market trades.
 
+> **News-recency veto.** Optional guard that checks Simmer's macro-news schedule before order placement and skips matching news-resolution markets inside the first 30 seconds after CPI, BLS jobs/unemployment, FOMC, nonfarm payrolls, or quarterly earnings events. Continuous-feed crypto Up/Down markets are not blocked by this veto. Default is off until internal positive backfill coverage exists; set `enable_news_veto=true` to enable it.
+
 ## How It Finds Markets
 
 - Queries **Polymarket directly** (Gamma API) for live fast markets — doesn't depend on Simmer's market inventory
@@ -140,6 +142,7 @@ python fastloop_trader.py --set min_momentum_pct=0.3 --set max_position=10
 | `asset` | BTC | `SIMMER_SPRINT_ASSET` | Asset to trade (BTC, ETH, SOL) |
 | `window` | 5m | `SIMMER_SPRINT_WINDOW` | Market window duration (5m or 15m) |
 | `volume_confidence` | true | `SIMMER_SPRINT_VOL_CONF` | Weight signal by Binance volume |
+| `enable_news_veto` | false | `SIMMER_FASTLOOP_ENABLE_NEWS_VETO` | Skip matching news-resolution markets within 30s of scheduled macro/news releases |
 
 ### Example config.json
 
@@ -150,7 +153,8 @@ python fastloop_trader.py --set min_momentum_pct=0.3 --set max_position=10
   "max_position": 10.0,
   "asset": "BTC",
   "window": "5m",
-  "signal_source": "binance"
+  "signal_source": "binance",
+  "enable_news_veto": false
 }
 ```
 

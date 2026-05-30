@@ -18,6 +18,8 @@ Near-expiry conviction trading on Polymarket. The skill scans markets in their f
 
 > Strategy attribution: [@mert](https://x.com/mert/status/2020216613279060433) — see source thread for the original methodology (topic filter, near-expiry timing, strong-split entry).
 
+> **News-recency veto.** Optional guard that checks Simmer's macro-news schedule before order placement and skips matching news-resolution markets inside the first 30 seconds after CPI, BLS jobs/unemployment, FOMC, nonfarm payrolls, or quarterly earnings events. Continuous-feed crypto Up/Down markets are not blocked by this veto. Default is off until internal positive backfill coverage exists; set `enable_news_veto=true` to enable it.
+
 ## When to Use This Skill
 
 Use this skill when the user wants to:
@@ -63,6 +65,7 @@ Use this skill when the user wants to:
 | Smart sizing % | `SIMMER_MERT_SIZING_PCT` | 0.05 | % of balance per trade |
 | Fee buffer | `SIMMER_MERT_FEE_BUFFER` | 0.02 | Extra alpha required above entry fee; only applies when `SIMMER_MERT_MIN_EDGE` is set |
 | Declared edge | `SIMMER_MERT_MIN_EDGE` | 0.00 | Your signal's claimed edge above market price (probability units). At 0 (default): fee is logged but gate is advisory only. Set to X to block trades where entry fee > X — e.g. `0.05` requires your signal to clear at least 5¢ above market after fees |
+| News-recency veto | `SIMMER_MERT_ENABLE_NEWS_VETO` | false | Skip matching news-resolution markets within 30s of scheduled macro/news releases |
 
 ## Quick Commands
 
