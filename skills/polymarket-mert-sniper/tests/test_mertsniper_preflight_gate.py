@@ -22,14 +22,22 @@ _mock_cfg = {
     "market_filter": "", "max_bet_usd": 10.00, "expiry_window_mins": 8,
     "min_split": 0.60, "max_trades_per_run": 5, "sizing_pct": 0.05,
     "order_type": "GTC", "fee_buffer": 0.02, "min_edge": 0.0,
+    "enable_news_veto": True,
 }
 
 _skill_stub = types.ModuleType("simmer_sdk.skill")
 _skill_stub.load_config = lambda schema, file, slug=None: _mock_cfg.copy()
 _skill_stub.update_config = lambda updates, file, slug=None: None
 _skill_stub.get_config_path = lambda file: "/tmp/config.json"
+_guards_stub = types.ModuleType("simmer_sdk.guards.news_recency_veto")
+_guards_stub.load_macro_news_schedule = lambda path=None: {"events": []}
+_guards_stub.news_window_match = lambda market_id, schedule, lookback_s=30, now=None: (False, None)
 
-with patch.dict(sys.modules, {"simmer_sdk": MagicMock(), "simmer_sdk.skill": _skill_stub}):
+with patch.dict(sys.modules, {
+    "simmer_sdk": MagicMock(),
+    "simmer_sdk.skill": _skill_stub,
+    "simmer_sdk.guards.news_recency_veto": _guards_stub,
+}):
     import mert_sniper as ms  # noqa: E402
 
 
@@ -90,6 +98,26 @@ class TestPreflightGateMertSniper(unittest.TestCase):
 
         mock_client.trade.assert_called_once()
         self.assertTrue(result["success"])
+
+    def test_news_veto_blocks_order_after_preflight(self):
+        mock_client = MagicMock()
+        mock_client.live = True
+        mock_client.venue = "polymarket"
+        mock_client.preflight.return_value = _make_preflight(ok=True)
+
+        with patch.object(ms, "get_client", return_value=mock_client), \
+             patch.object(ms, "news_window_match", return_value=(True, {"id": "cpi-2026-06"})), \
+             patch("builtins.print") as mock_print:
+            result = ms.execute_trade(
+                "mkt_cpi",
+                "yes",
+                5.0,
+                market_context={"id": "mkt_cpi", "question": "Will CPI be above 3%?"},
+            )
+
+        self.assertEqual(result, {"error": "news_recency_veto", "event_id": "cpi-2026-06", "retryable": False})
+        mock_client.trade.assert_not_called()
+        self.assertIn('"event": "news_recency_veto"', mock_print.call_args[0][0])
 
     def test_preflight_called_with_cap_zero(self):
         mock_client = MagicMock()

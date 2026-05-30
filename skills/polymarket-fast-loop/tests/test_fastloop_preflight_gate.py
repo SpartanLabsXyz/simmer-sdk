@@ -25,15 +25,22 @@ _mock_cfg = {
     "signal_source": "binance", "lookback_minutes": 5, "min_time_remaining": 0,
     "asset": "BTC", "window": "5m", "volume_confidence": True, "daily_budget": 10.0,
     "use_fair_value": False, "fair_value_min_edge": 0.05, "btc_annual_vol": 0.55,
-    "order_type": "GTC",
+    "order_type": "GTC", "enable_news_veto": True,
 }
 
 _skill_stub = types.ModuleType("simmer_sdk.skill")
 _skill_stub.load_config = lambda schema, file, slug=None: _mock_cfg.copy()
 _skill_stub.update_config = lambda updates, file, slug=None: None
 _skill_stub.get_config_path = lambda file: "/tmp/config.json"
+_guards_stub = types.ModuleType("simmer_sdk.guards.news_recency_veto")
+_guards_stub.load_macro_news_schedule = lambda path=None: {"events": []}
+_guards_stub.news_window_match = lambda market_id, schedule, lookback_s=30, now=None: (False, None)
 
-with patch.dict(sys.modules, {"simmer_sdk": MagicMock(), "simmer_sdk.skill": _skill_stub}):
+with patch.dict(sys.modules, {
+    "simmer_sdk": MagicMock(),
+    "simmer_sdk.skill": _skill_stub,
+    "simmer_sdk.guards.news_recency_veto": _guards_stub,
+}):
     import fastloop_trader as ft  # noqa: E402
 
 
@@ -94,6 +101,26 @@ class TestPreflightGateFastLoop(unittest.TestCase):
 
         mock_client.trade.assert_called_once()
         self.assertTrue(result["success"])
+
+    def test_news_veto_blocks_order_after_preflight(self):
+        mock_client = MagicMock()
+        mock_client.live = True
+        mock_client.venue = "polymarket"
+        mock_client.preflight.return_value = _make_preflight(ok=True)
+
+        with patch.object(ft, "get_client", return_value=mock_client), \
+             patch.object(ft, "news_window_match", return_value=(True, {"id": "cpi-2026-06"})), \
+             patch("builtins.print") as mock_print:
+            result = ft.execute_trade(
+                "mkt_cpi",
+                "yes",
+                5.0,
+                market_context={"id": "mkt_cpi", "question": "Will CPI be above 3%?"},
+            )
+
+        self.assertEqual(result, {"error": "news_recency_veto", "event_id": "cpi-2026-06", "retryable": False})
+        mock_client.trade.assert_not_called()
+        self.assertIn('"event": "news_recency_veto"', mock_print.call_args[0][0])
 
     def test_preflight_called_with_cap_zero(self):
         mock_client = MagicMock()
