@@ -29,6 +29,23 @@ function copyDir(src: string, dest: string): void {
   }
 }
 
+function shouldBundleSkill(skillDir: string, slug: string): boolean {
+  const manifestPath = path.join(skillDir, 'clawhub.json');
+  if (!fs.existsSync(manifestPath)) return false;
+
+  try {
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    if (manifest?.published === false) {
+      console.log(`[bundle-skills] skipping ${slug}: published=false`);
+      return false;
+    }
+  } catch {
+    return false;
+  }
+
+  return true;
+}
+
 // Validate source exists
 if (!fs.existsSync(skillsDir)) {
   console.error(`skills dir not found: ${skillsDir}`);
@@ -43,8 +60,9 @@ let count = 0;
 for (const entry of fs.readdirSync(skillsDir, { withFileTypes: true })) {
   if (!entry.isDirectory()) continue;
   if (SKIP.has(entry.name)) continue;
-  if (!fs.existsSync(path.join(skillsDir, entry.name, 'clawhub.json'))) continue;
-  copyDir(path.join(skillsDir, entry.name), path.join(outDir, entry.name));
+  const skillDir = path.join(skillsDir, entry.name);
+  if (!shouldBundleSkill(skillDir, entry.name)) continue;
+  copyDir(skillDir, path.join(outDir, entry.name));
   count++;
 }
 
