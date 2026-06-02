@@ -172,10 +172,10 @@ print(f"Balance: ${summary['balance']:.2f}, P&L: ${summary['total_pnl']:.2f}")
 | `get_settings()` / `update_settings()` | Configure trade limits and notifications |
 | `link_wallet()` | Link external EVM wallet for Polymarket |
 | `set_approvals()` | Set Polymarket token approvals |
-| `activate_polymarket_dw()` | Activate Polymarket Deposit Wallet signing (user-primary only — see note) |
+| `activate_polymarket_dw()` | Activate Polymarket Deposit Wallet signing for the user-primary wallet or a per-agent wallet via `agent_id` |
 | `troubleshoot()` | Look up any error and get a fix (no auth required) |
 
-> **Per-agent wallets (Elite tier):** `activate_polymarket_dw()` is user-primary only. For per-agent wallets (Elite tier dedicated wallets), use `update_agent_wallet_creds(ows_wallet_name)` instead. The per-agent path requires OWS-Python (`pip install simmer-sdk[ows] open-wallet-standard`).
+> **Per-agent wallets (Elite tier):** For dedicated per-agent wallets, first register the wallet, then run `activate_polymarket_dw(agent_id=...)` to set the deposit-wallet approvals, and then run `update_agent_wallet_creds(ows_wallet_name=...)` to cache CLOB creds. Both activation and credential caching are required before trading; caching creds alone does not set on-chain allowances. The per-agent path requires OWS-Python (`pip install simmer-sdk[ows] open-wallet-standard`). See [`skills/simmer-wallet-setup/SKILL.md`](skills/simmer-wallet-setup/SKILL.md) for the full setup flow.
 
 **Tip — don't pre-round prices.** simmer-sdk ≥ 0.17.1 automatically rounds the price to each Polymarket market's tick grid. Pass your raw computed price to `client.trade(..., price=p)` and the SDK handles the rest. Pre-rounding with a hardcoded tick (e.g. `round(price, 3)`) will silently produce wrong values for markets at different tick sizes.
 
