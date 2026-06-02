@@ -29,6 +29,20 @@ function copyDir(src: string, dest: string): void {
   }
 }
 
+function getSkipReason(skillDir: string): string | null {
+  const manifestPath = path.join(skillDir, 'clawhub.json');
+  if (!fs.existsSync(manifestPath)) return 'missing clawhub.json';
+
+  try {
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    if (manifest?.published === false) return 'published=false';
+  } catch {
+    return 'invalid clawhub.json';
+  }
+
+  return null;
+}
+
 // Validate source exists
 if (!fs.existsSync(skillsDir)) {
   console.error(`skills dir not found: ${skillsDir}`);
@@ -40,12 +54,19 @@ if (fs.existsSync(outDir)) fs.rmSync(outDir, { recursive: true });
 fs.mkdirSync(outDir, { recursive: true });
 
 let count = 0;
+let skipped = 0;
 for (const entry of fs.readdirSync(skillsDir, { withFileTypes: true })) {
   if (!entry.isDirectory()) continue;
   if (SKIP.has(entry.name)) continue;
-  if (!fs.existsSync(path.join(skillsDir, entry.name, 'clawhub.json'))) continue;
-  copyDir(path.join(skillsDir, entry.name), path.join(outDir, entry.name));
+  const skillDir = path.join(skillsDir, entry.name);
+  const skipReason = getSkipReason(skillDir);
+  if (skipReason !== null) {
+    console.log(`[bundle-skills] skipping ${entry.name}: ${skipReason}`);
+    skipped++;
+    continue;
+  }
+  copyDir(skillDir, path.join(outDir, entry.name));
   count++;
 }
 
-console.log(`bundled ${count} skills → ${path.relative(process.cwd(), outDir)}`);
+console.log(`bundled ${count} skills, skipped ${skipped} → ${path.relative(process.cwd(), outDir)}`);
