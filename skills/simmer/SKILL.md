@@ -3,7 +3,7 @@ name: simmer
 description: The prediction market interface for AI agents. Trade Polymarket and Kalshi through one API with self-custody wallets, safety rails, and smart context.
 metadata:
   author: "Simmer (@simmer_markets)"
-  version: "1.24.2"
+  version: "1.24.3"
   displayName: Simmer
   difficulty: beginner
   homepage: "https://simmer.markets"
@@ -100,7 +100,7 @@ Documentation references — open when the situation matches.
 ## Trade behavior (defaults at a glance)
 
 - **Default venue**: `sim` (paper trading at real prices). Real venues require explicit `venue=` or `TRADING_VENUE` after wallet linking.
-- **Order behavior**: `client.trade()` is FAK (fill-as-much, kill-rest) on Polymarket — `result.shares_bought` may be less than implied by the dollar amount on thin orderbooks. Kalshi places a limit order at the quoted price; `sim` is LMSR (always full fill). Override slippage tolerance with `slippage_tolerance=0.02`.
+- **Order behavior**: `client.trade()` is FAK (fill-as-much, kill-rest) on Polymarket — `result.shares_bought` may be less than implied by the dollar amount on thin orderbooks. Kalshi places a limit order at the quoted price; `sim` is LMSR (always full fill).
 - **Auto-redeem** (managed wallets only): ON by default. Winning Polymarket positions are claimed automatically. Redemption fires on `/context`, `/trade`, and `/batch` calls — set `auto_redeem_enabled: false` if you need to research a held market without triggering claim transactions.
 - **Edge vs costs**: real venues have 1-5% spreads plus venue fees. Don't trade unless your edge clears ~5% net of costs. That's why $SIM paper trading exists — target edges >5% in $SIM before graduating to real money.
 - **Tiers**: Free / Pro (3× rate limits) / Elite (10× + per-agent OWS wallets). Pricing at [simmer.markets/pricing](https://simmer.markets/pricing).
