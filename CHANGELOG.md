@@ -5,6 +5,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.17.26] - 2026-06-05
+
+### Added
+
+- **Raw-key per-agent wallet CLOB credential caching (SIM-2899).** `client.update_agent_wallet_creds(agent_id=...)` now supports browser-backed per-agent wallets that use `WALLET_PRIVATE_KEY` instead of OWS. The SDK derives Polymarket CLOB API credentials locally against the EOA signer with `py-clob-client` and uploads them through the existing `/api/sdk/agent-wallet/update-creds` endpoint. Existing `update_agent_wallet_creds("ows-wallet-name")` callers are unchanged.
+
 ## [0.17.25] — 2026-05-30
 
 ### Added
