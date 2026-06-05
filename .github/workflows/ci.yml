@@ -6,6 +6,18 @@ on:
   pull_request:
 
 jobs:
+  skill-governance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check skill governance
+        run: python3 scripts/check-skill-governance.py
+
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 10
