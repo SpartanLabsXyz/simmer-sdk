@@ -5242,22 +5242,60 @@ class SimmerClient:
             resp["unrealized_pnl"] = 0.0
         return resp
 
-    def update_agent_wallet_creds(self, ows_wallet_name: str) -> dict:
-        """Derive CLOB credentials via OWS and cache them server-side.
+    def update_agent_wallet_creds(
+        self,
+        ows_wallet_name: Optional[str] = None,
+        *,
+        agent_id: Optional[str] = None,
+        private_key: Optional[str] = None,
+    ) -> dict:
+        """Derive CLOB credentials and cache them for a per-agent wallet.
 
         Call this after setting on-chain approvals for an agent wallet.
-        Derives Polymarket CLOB API credentials using OWS signing (no private
-        key needed) and uploads them encrypted to the server.
+        Derives Polymarket CLOB API credentials using OWS signing or a raw EOA
+        private key, then uploads them encrypted to the server.
 
         Args:
-            ows_wallet_name: Name of the OWS wallet
+            ows_wallet_name: Name of the OWS wallet. Positional usage remains
+                supported for existing callers.
+            agent_id: SDK agent ID from the dashboard. Required for raw-key
+                calls so callers make the per-agent target explicit.
+            private_key: Optional raw EOA private key. Defaults to this
+                client's configured private key / WALLET_PRIVATE_KEY.
 
         Returns:
             dict with updated wallet record
         """
-        from simmer_sdk.ows_utils import get_ows_wallet_address, ows_derive_clob_creds
-        wallet_address = get_ows_wallet_address(ows_wallet_name)
-        creds = ows_derive_clob_creds(ows_wallet_name)
+        if ows_wallet_name and private_key:
+            raise ValueError("Pass either ows_wallet_name or private_key, not both")
+
+        if ows_wallet_name:
+            from simmer_sdk.ows_utils import get_ows_wallet_address, ows_derive_clob_creds
+            wallet_address = get_ows_wallet_address(ows_wallet_name)
+            creds = ows_derive_clob_creds(ows_wallet_name)
+        else:
+            if not agent_id:
+                raise ValueError("agent_id is required when updating agent wallet creds with a raw private key")
+
+            key = private_key or self._private_key
+            if not key:
+                raise RuntimeError(
+                    "WALLET_PRIVATE_KEY is required for raw-key agent wallet creds. "
+                    "Pass private_key=... or set WALLET_PRIVATE_KEY."
+                )
+
+            from .signing import get_wallet_address
+            from py_clob_client.client import ClobClient
+
+            wallet_address = get_wallet_address(key)
+            client = ClobClient(
+                host="https://clob.polymarket.com",
+                key=key,
+                chain_id=137,
+                signature_type=0,  # EOA signer; the DW is maker/funder, not the CLOB credential signer.
+                funder=wallet_address,
+            )
+            creds = client.create_or_derive_api_creds()
 
         return self._request("POST", "/api/sdk/agent-wallet/update-creds", json={
             "wallet_address": wallet_address,

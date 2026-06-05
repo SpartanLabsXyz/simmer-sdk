@@ -140,7 +140,7 @@ class TestUpdateAgentWalletCreds:
 
     @patch("simmer_sdk.ows_utils.ows_derive_clob_creds")
     @patch("simmer_sdk.ows_utils.get_ows_wallet_address")
-    def test_derives_creds_and_posts(self, mock_addr, mock_creds):
+    def test_ows_derives_creds_and_posts_unchanged(self, mock_addr, mock_creds):
         mock_addr.return_value = "0xabcdef1234567890abcdef1234567890abcdef12"
         mock_creds_obj = MagicMock()
         mock_creds_obj.api_key = "key123"
@@ -167,6 +167,79 @@ class TestUpdateAgentWalletCreds:
                 "approvals_set": True,
             }
         )
+
+    @patch("py_clob_client.client.ClobClient")
+    @patch("simmer_sdk.signing.get_wallet_address")
+    def test_raw_key_derives_creds_and_posts_existing_endpoint_contract(self, mock_addr, mock_clob_client):
+        mock_addr.return_value = "0xf129000000000000000000000000000000000000"
+        mock_creds_obj = MagicMock()
+        mock_creds_obj.api_key = "raw-key"
+        mock_creds_obj.api_secret = "raw-secret"
+        mock_creds_obj.api_passphrase = "raw-passphrase"
+        mock_clob_client.return_value.create_or_derive_api_creds.return_value = mock_creds_obj
+
+        client = _make_client(private_key="0x" + "1" * 64)
+        client._request.return_value = {
+            "agent_id": "agent-118aca87",
+            "wallet_address": "0xf129000000000000000000000000000000000000",
+            "approvals_set": True,
+        }
+
+        result = client.update_agent_wallet_creds(agent_id="agent-118aca87")
+
+        mock_addr.assert_called_once_with("0x" + "1" * 64)
+        mock_clob_client.assert_called_once_with(
+            host="https://clob.polymarket.com",
+            key="0x" + "1" * 64,
+            chain_id=137,
+            signature_type=0,
+            funder="0xf129000000000000000000000000000000000000",
+        )
+        mock_clob_client.return_value.create_or_derive_api_creds.assert_called_once_with()
+        client._request.assert_called_once_with(
+            "POST", "/api/sdk/agent-wallet/update-creds",
+            json={
+                "wallet_address": "0xf129000000000000000000000000000000000000",
+                "clob_api_creds": {
+                    "api_key": "raw-key",
+                    "api_secret": "raw-secret",
+                    "api_passphrase": "raw-passphrase",
+                },
+                "approvals_set": True,
+            }
+        )
+        assert result["agent_id"] == "agent-118aca87"
+
+    def test_raw_key_requires_agent_id(self):
+        client = _make_client(private_key="0x" + "1" * 64)
+
+        with pytest.raises(ValueError, match="agent_id is required"):
+            client.update_agent_wallet_creds()
+
+    def test_raw_key_requires_private_key(self):
+        client = _make_client()
+
+        with pytest.raises(RuntimeError, match="WALLET_PRIVATE_KEY"):
+            client.update_agent_wallet_creds(agent_id="agent-118aca87")
+
+    @patch("py_clob_client.client.ClobClient")
+    @patch("simmer_sdk.signing.get_wallet_address")
+    def test_raw_key_accepts_explicit_private_key(self, mock_addr, mock_clob_client):
+        mock_addr.return_value = "0xf129000000000000000000000000000000000000"
+        mock_creds_obj = MagicMock()
+        mock_creds_obj.api_key = "raw-key"
+        mock_creds_obj.api_secret = "raw-secret"
+        mock_creds_obj.api_passphrase = "raw-passphrase"
+        mock_clob_client.return_value.create_or_derive_api_creds.return_value = mock_creds_obj
+
+        client = _make_client()
+        client.update_agent_wallet_creds(
+            agent_id="agent-118aca87",
+            private_key="0x" + "2" * 64,
+        )
+
+        mock_addr.assert_called_once_with("0x" + "2" * 64)
+        assert mock_clob_client.call_args.kwargs["key"] == "0x" + "2" * 64
 
 
 class TestTradeWalletAddress:

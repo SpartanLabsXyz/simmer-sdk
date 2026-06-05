@@ -63,7 +63,7 @@ client = SimmerClient(
     ows_wallet="my-agent-wallet",   # name from `ows wallet create`
 )
 
-wallet = client.register_agent_wallet()  # one-time, Elite-tier gated, fully headless
+wallet = client.register_agent_wallet(ows_wallet_name="my-agent-wallet")  # one-time, Elite-tier gated, fully headless
 client.activate_polymarket_dw(agent_id=wallet["agent_id"])   # sets on-chain CLOB approvals on the agent's deposit wallet — signs via OWS, gasless relay, headless
 client.update_agent_wallet_creds(ows_wallet_name="my-agent-wallet")  # caches CLOB API creds server-side
 ```
@@ -140,6 +140,8 @@ Both calls work without a browser session. `link_wallet()` signs a challenge wit
 
 > **Using a Deposit Wallet?** If your account has been upgraded to a Polymarket Deposit Wallet (DW), run `client.activate_polymarket_dw()` after `set_approvals()` — it signs the EIP-712 activation batch headlessly with your local key. Alternatively, use the dashboard browser flow at [simmer.markets/dashboard](https://simmer.markets/dashboard) → Wallets → Activate Trading.
 
+> **Browser-backed per-agent wallet?** If the dashboard created a dedicated wallet for an agent and your bot has that wallet's `WALLET_PRIVATE_KEY`, run `client.activate_polymarket_dw(agent_id="<agent_id>")` first, then `client.update_agent_wallet_creds(agent_id="<agent_id>")`. The second call derives CLOB API creds locally from the EOA signer and caches them on the existing per-agent wallet row.
+
 > **Stranded USDC.e on your DW?** Run `client.wrap_on_dw()` to convert it to pUSD headlessly. Idempotent — safe to call on every startup; returns immediately if nothing is stranded. Returns `{"wrapped": bool, "amount_units": int, "calls_count": int, "success": bool}`. Requires the same key as `activate_polymarket_dw()` (WALLET_PRIVATE_KEY or OWS wallet). Added in SDK 0.17.7.
 
 ### Migrating to OWS when ready
@@ -207,6 +209,8 @@ You already created an agent in the dashboard and have its API key. Now wire it 
      c.update_agent_wallet_creds(ows_wallet_name='<name>')"
    ```
    First sets the deposit wallet's on-chain CLOB approvals (OWS-signed EIP-712 batch, relayed gasless), then derives + caches CLOB creds server-side. **Both** are required before any Polymarket trades — approvals alone or creds alone is not enough. Get `<agent_id>` from `client.get_agent_wallets()`.
+
+   For browser-backed raw-key per-agent wallets, keep the same approvals call and replace the final line with `c.update_agent_wallet_creds(agent_id='<agent_id>')`.
 
 5. **Verify**
    ```bash
