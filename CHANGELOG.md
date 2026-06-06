@@ -5,7 +5,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
-## [0.17.26] - 2026-06-05
+## [0.17.27] - 2026-06-06
+
+### Fixed
+
+- **Truthful venue logging — `TRADING_VENUE` no longer falsely implied (SIM-2932).** The client init logged *"TRADING_VENUE not set, using venue='…'. Set TRADING_VENUE=sim for paper trading"*, which implied the `TRADING_VENUE` env var controlled the trading venue. It never did — `venue` is set only by the `venue=` argument (or `from_env(venue=…)`) and defaults to `"sim"`. The misleading log led an operator to believe live trades were active while orders were going to the simulated `$SIM` venue. The env-var read is removed; the client now logs the active mode truthfully — a clear PAPER warning on `venue='sim'` (with the exact way to go live) and a LIVE warning on real-funds venues. **No behavior change:** `sim` remains the default; live trading still requires explicit `venue="polymarket"`.
 
 ### Added
 

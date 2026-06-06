@@ -294,12 +294,19 @@ class SimmerClient:
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
         self.venue = venue
-        if not os.environ.get("TRADING_VENUE"):
-            logger.info(
-                "TRADING_VENUE not set, using venue='%s'. "
-                "Set TRADING_VENUE=sim for paper trading with $SIM.",
-                venue
+        # venue is set explicitly via the `venue=` arg (or from_env(venue=...))
+        # and defaults to "sim" (paper). NOTE: the TRADING_VENUE env var is
+        # intentionally NOT read here — do not reintroduce a log that implies
+        # an env var controls the venue. Surface the active mode truthfully so
+        # callers never mistake paper ($SIM) trades for live ones, or vice versa.
+        if venue == "sim":
+            logger.warning(
+                "venue='sim' — PAPER trading with virtual $SIM (no real money). "
+                "For LIVE trading pass venue='polymarket' per trade, or "
+                "SimmerClient.from_env(venue='polymarket')."
             )
+        else:
+            logger.warning("venue='%s' — LIVE trading with real funds.", venue)
         self._private_key: Optional[str] = None  # EVM private key (Polymarket)
         self._wallet_address: Optional[str] = None  # EVM wallet address
         self._wallet_linked: Optional[bool] = None  # Cached linking status
