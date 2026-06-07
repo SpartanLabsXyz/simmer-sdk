@@ -44,7 +44,7 @@
       "type": "string",
       "default": "polymarket",
       "enum": ["polymarket", "sim"],
-      "label": "Venue — polymarket (real ladder). sim = plumbing smoke test only (LMSR has no order book)."
+      "label": "Venue. polymarket = real ladder. sim = plumbing smoke test only (LMSR has no order book)."
     }
   ]
 }
