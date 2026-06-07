@@ -859,6 +859,15 @@ def _poll_reactor_once(client) -> int:
         return 0
 
     signals = resp.get("reactor_signals", []) if isinstance(resp, dict) else []
+    # The Pro reactor feed is shared across strategies. Ignore signals tagged for
+    # another strategy (e.g. "shock_ladder") — copytrading only mirrors whale
+    # signals (type absent or "copytrade"). Without this, a foreign signal looks
+    # malformed here, posts a "failed" reaction, and can trip the circuit breaker.
+    # We do NOT delete foreign signals; their owning skill consumes them (or they TTL).
+    _foreign = [s for s in signals if s.get("type") not in (None, "copytrade")]
+    if _foreign:
+        print(f"[reactor] ignoring {len(_foreign)} non-copytrade signal(s) on the shared feed")
+    signals = [s for s in signals if s.get("type") in (None, "copytrade")]
     if not signals:
         print("[reactor] 0 pending signals")
         return 0
