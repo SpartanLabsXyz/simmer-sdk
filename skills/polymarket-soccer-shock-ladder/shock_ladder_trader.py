@@ -43,8 +43,8 @@ from shock_ladder import (
     plan_from_signal,
 )
 
-SKILL_SLUG = "polymarket-shock-ladder"
-TRADE_SOURCE = "sdk:shock-ladder:reactor"
+SKILL_SLUG = "polymarket-soccer-shock-ladder"
+TRADE_SOURCE = "sdk:soccer-shock-ladder:reactor"
 
 # --- config (env + CLI; CLI wins) ---
 

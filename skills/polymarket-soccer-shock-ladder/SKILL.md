@@ -1,13 +1,13 @@
 ---
-name: polymarket-shock-ladder
-description: Fade sharp price shocks on World Cup markets with a laddered limit-buy strategy. Pro skill. Simmer's server detects in-play price shocks in real time and emits pre-sized signals; this skill places the recovery ladder and manages the exit.
+name: polymarket-soccer-shock-ladder
+description: Fade sharp in-play price shocks on Polymarket soccer markets with a laddered limit-buy strategy (Roan's FIFA-quant framework). Pro skill. Currently scoped to 2026 World Cup markets. Simmer's server detects shocks in real time and emits pre-sized signals; this skill places the recovery ladder and manages the exit.
 metadata:
   author: Simmer (@simmer_markets)
   version: "0.1.0"
-  displayName: Polymarket Shock Ladder
+  displayName: World Cup Shock Ladder
   difficulty: intermediate
 ---
-# Polymarket Shock Ladder
+# World Cup Shock Ladder
 
 Fade sharp price shocks on Polymarket World Cup markets. When a market's price
 drops hard during a match, this skill places a laddered set of limit buys below
