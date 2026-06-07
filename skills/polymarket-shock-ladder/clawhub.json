@@ -13,7 +13,7 @@
     {
       "name": "SIMMER_API_KEY",
       "required": true,
-      "description": "Your Simmer SDK API key — get from simmer.markets/dashboard → SDK tab. Requires a Pro plan (reactor signals are Pro-gated)."
+      "description": "Your Simmer SDK API key, from simmer.markets/dashboard (SDK tab). Requires a Pro plan (reactor signals are Pro-gated)."
     },
     {
       "name": "WALLET_PRIVATE_KEY",
