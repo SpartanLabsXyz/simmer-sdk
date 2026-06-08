@@ -244,11 +244,14 @@ Customize:
 
 ### Step 5: Validate
 
-Run the validator against the generated skill:
+Run the validator against the generated skill. The validator ships **inside this skill** at `scripts/validate_skill.py`, co-located with this `SKILL.md` — when the skill is installed (e.g. `npx simmer-mcp install-skill`) it lands in your runtime's skill directory alongside the instructions. Resolve the path relative to this file:
 
 ```bash
-python /path/to/simmer-skill-builder/scripts/validate_skill.py /path/to/generated-skill/
+# from the simmer-skill-builder skill directory:
+python scripts/validate_skill.py /path/to/generated-skill/
 ```
+
+If you're unsure where the skill installed, locate it with `find ~ -name validate_skill.py -path '*simmer-skill-builder*' 2>/dev/null`.
 
 Fix any FAIL results before delivering to your human.
 
