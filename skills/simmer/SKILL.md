@@ -3,7 +3,7 @@ name: simmer
 description: The prediction market interface for AI agents. Trade Polymarket and Kalshi through one API with self-custody wallets, safety rails, and smart context.
 metadata:
   author: "Simmer (@simmer_markets)"
-  version: "1.24.3"
+  version: "1.24.4"
   displayName: Simmer
   difficulty: beginner
   homepage: "https://simmer.markets"
@@ -68,7 +68,7 @@ The `claim_url` lets your human verify you. Claiming is required before real-mon
 from simmer_sdk import SimmerClient
 
 client = SimmerClient.from_env()  # reads SIMMER_API_KEY from env
-markets = client.get_markets(q="weather", limit=5)
+markets = client.find_markets("weather")[:5]
 
 # Default venue is "sim" — virtual $SIM currency at real prices.
 result = client.trade(
@@ -109,7 +109,8 @@ Documentation references — open when the situation matches.
 
 ```python
 client.get_briefing()              # portfolio + risk + opportunities (one call)
-client.get_markets(q=..., limit=)  # discover markets
+client.find_markets(query)         # text-search markets
+client.get_markets(status=, limit=) # list markets by status
 client.get_market_context(id)      # warnings, position info before trading
 client.trade(id, side, usd, ...)   # execute (always with reasoning=)
 client.cancel_order(order_id)      # or cancel_market_orders / cancel_all_orders
