@@ -5,6 +5,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.17.28] - 2026-06-08
+
+### Added
+
+- **`get_markets(q=...)` keyword search.** `client.get_markets()` now accepts a `q` keyword-search argument that filters by market question (min 2 chars, case-insensitive), matching the documented `get_markets(q="bitcoin", limit=5)` example in the quickstart and trading guide. The backend `/api/sdk/markets` endpoint already supported `q`; the SDK method simply never exposed it, so callers were forced to fetch all active markets and filter client-side. Surfaced during World Cup skill dogfooding.
+
 ## [0.17.27] - 2026-06-06
 
 ### Fixed

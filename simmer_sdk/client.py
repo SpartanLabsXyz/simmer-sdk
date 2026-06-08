@@ -1415,6 +1415,7 @@ class SimmerClient:
         import_source: Optional[str] = None,
         limit: int = 50,
         include: Optional[str] = None,
+        q: Optional[str] = None,
     ) -> List[Market]:
         """
         Get available markets.
@@ -1424,15 +1425,21 @@ class SimmerClient:
             import_source: Filter by source ('polymarket', 'kalshi', or None for all)
             limit: Maximum number of markets to return
             include: Opt-in extra fields, e.g. "resolution_criteria"
+            q: Keyword search on market question (min 2 chars, case-insensitive)
 
         Returns:
             List of Market objects
+
+        Example:
+            markets = client.get_markets(q="bitcoin", limit=5)
         """
         params = {"status": status, "limit": limit}
         if import_source:
             params["import_source"] = import_source
         if include:
             params["include"] = include
+        if q:
+            params["q"] = q
 
         data = self._request("GET", "/api/sdk/markets", params=params)
 
