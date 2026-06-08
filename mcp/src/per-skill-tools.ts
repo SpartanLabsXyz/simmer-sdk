@@ -5,6 +5,7 @@
 
 import { z, ZodType } from "zod";
 import * as path from "node:path";
+import * as fs from "node:fs/promises";
 import type { Skill, Tunable } from "./core/types.js";
 import { filterBlockedFlags } from "./blocked-flags.js";
 import { buildEnv, envToArgName } from "./env-translation.js";
@@ -94,10 +95,38 @@ export async function invokeSkillTool(
   options: InvokeSkillOptions = {}
 ): Promise<InvokeSkillResponse> {
   if (!skill.entrypoint) {
-    return {
-      content: [{ type: "text", text: `Skill ${skill.slug} has no entrypoint (Tier A, instruction-only).` }],
-      isError: true,
-    };
+    // Tier-A skills are instruction-only — they have no runnable entrypoint.
+    // Rather than dead-ending an agent that reasonably tried to "call" the
+    // skill with an opaque error, return the SKILL.md playbook so the agent
+    // can read and follow it directly. This matches how the docs treat these
+    // skills: conversational, not executable.
+    const skillMdPath = path.join(skill.skillDir, "SKILL.md");
+    try {
+      const instructions = await fs.readFile(skillMdPath, "utf8");
+      return {
+        content: [
+          {
+            type: "text",
+            text:
+              `${skill.slug} is an instruction-only skill (Tier A) — there is nothing to execute. ` +
+              `Read and follow these instructions directly:\n\n${instructions}`,
+          },
+        ],
+        isError: false,
+      };
+    } catch {
+      return {
+        content: [
+          {
+            type: "text",
+            text:
+              `${skill.slug} is an instruction-only skill (Tier A) with no runnable entrypoint. ` +
+              `Its instructions live in SKILL.md at ${skillMdPath} — locate and follow that file directly.`,
+          },
+        ],
+        isError: false,
+      };
+    }
   }
 
   const skillPath = path.join(skill.skillDir, skill.entrypoint);

@@ -65,3 +65,39 @@ test("invokeSkillTool passes arbitrary sanitized extra_args when explicitly enab
   assert.equal(resp.isError, false, resp.content[0]?.text);
   assert.deepEqual(resultArgv(resp), ["--positions-only", "--config"]);
 });
+
+test("invokeSkillTool returns SKILL.md instructions for a Tier-A instruction-only skill", async () => {
+  const instructionOnlySkill: Skill = {
+    ...fixtureSkill,
+    slug: "fixture-instruction-only",
+    toolName: "simmer_fixture_instruction_only",
+    tier: "instruction",
+    entrypoint: undefined,
+  };
+
+  const resp = await invokeSkillTool(instructionOnlySkill, {}, { processEnv });
+
+  // Must NOT dead-end with an error — it returns the playbook instead.
+  assert.equal(resp.isError, false, resp.content[0]?.text);
+  const text = resp.content[0]?.text ?? "";
+  assert.match(text, /instruction-only skill \(Tier A\)/);
+  assert.match(text, /UNIQUE_FIXTURE_MARKER_4815162342/);
+});
+
+test("invokeSkillTool gives a locate-the-file fallback when a Tier-A skill has no SKILL.md", async () => {
+  const missingMdSkill: Skill = {
+    ...fixtureSkill,
+    slug: "fixture-no-md",
+    toolName: "simmer_fixture_no_md",
+    tier: "instruction",
+    entrypoint: undefined,
+    skillDir: path.join(__dirname, "fixtures", "does-not-exist"),
+  };
+
+  const resp = await invokeSkillTool(missingMdSkill, {}, { processEnv });
+
+  assert.equal(resp.isError, false, resp.content[0]?.text);
+  const text = resp.content[0]?.text ?? "";
+  assert.match(text, /instruction-only skill \(Tier A\)/);
+  assert.match(text, /SKILL\.md/);
+});
