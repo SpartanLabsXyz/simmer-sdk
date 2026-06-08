@@ -70,10 +70,17 @@ By default the skill only acts on **moderate-favorite** markets (pre-shock price
    ```
    The SDK signs orders locally. External and OWS wallets work with no extra setup.
 
-4. **Get armed for shock signals.** Shock-ladder delivery is opt-in. Until the
-   self-serve toggle ships, ask Simmer support (or your Simmer contact) to enable
-   `shock_ladder_enabled` on your account. Once armed, the server fans WC shocks to
-   you and they appear on the reactor pending feed.
+4. **Arm for shock signals** (self-serve, Pro required). Shock-ladder delivery is
+   opt-in. Turn it on for your account:
+   ```bash
+   curl -X PATCH https://api.simmer.markets/api/sdk/shock-ladder/config \
+     -H "Authorization: Bearer $SIMMER_API_KEY" \
+     -H "Content-Type: application/json" \
+     -d '{"enabled": true}'
+   ```
+   You get `{"shock_ladder_enabled": true}` back. The server starts fanning World Cup
+   shocks to your reactor pending feed within ~5 minutes. Check your state anytime with
+   a `GET` to the same URL, and disarm with `{"enabled": false}`.
 
 ## Running it
 
@@ -156,7 +163,9 @@ python shock_ladder_trader.py --once --live --buckets moderate,slight
 
 **"0 pending shock signals" every run**
 - Normal between shocks. Shocks are rare and only fire during live matches.
-- Confirm you are armed (`shock_ladder_enabled` on your account) and on a Pro plan.
+- Confirm you are armed: a `GET https://api.simmer.markets/api/sdk/shock-ladder/config`
+  (with your `SIMMER_API_KEY`) should return `{"shock_ladder_enabled": true}`. If not, re-run
+  Setup step 4. Pro plan required.
 - Pre-tournament there are no in-play shocks; expect signals once matches start.
 
 **402 on connect**
