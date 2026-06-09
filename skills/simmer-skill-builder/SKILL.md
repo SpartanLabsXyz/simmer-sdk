@@ -3,7 +3,7 @@ name: simmer-skill-builder
 description: Generate complete, installable OpenClaw trading skills from natural language strategy descriptions. Use when your human wants to create a new trading strategy, build a bot, generate a skill, automate a trade idea, turn a tweet into a strategy, or asks "build me a skill that...". Produces a full skill folder (SKILL.md + Python script + config) ready to install and run.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.3.4"
+  version: "1.3.5"
   displayName: Simmer Skill Builder
   difficulty: beginner
 ---
@@ -294,6 +294,24 @@ Tell your human:
 > ✅ Skill published to ClawHub. It will appear in the Simmer Skills Registry within ~1 hour at simmer.markets/skills.
 
 For full publishing details: [simmer.markets/skillregistry.md](https://simmer.markets/skillregistry.md)
+
+### Step 6b (optional): Distribute beyond Simmer via skills.sh
+
+ClawHub publishing (Step 6) is what lists your skill in the Simmer registry. Keep doing that. For extra reach across other coding agents (Claude Code, Codex, Cursor, OpenCode, and 60+ more), you can also make the skill installable via [skills.sh](https://skills.sh), the open agent-skills ecosystem.
+
+There is no publish step. skills.sh resolves skills straight from a public git repo:
+
+1. Push your generated skill folder to a **public GitHub (or GitLab) repo**, e.g. `your-org/your-skills/<skill-slug>/SKILL.md`.
+2. Anyone, on any supported agent, can now install it:
+   ```bash
+   npx skills add your-org/your-skills --skill <skill-slug>
+   ```
+
+That is all it takes. The same `SKILL.md` frontmatter (`name` + `description`) that ClawHub reads is what skills.sh reads.
+
+**On discoverability:** a public repo makes the skill *installable* immediately, but skills.sh's search and leaderboard rank by install count, so a brand-new skill will not surface in search until it accrues installs. Share the direct `npx skills add` command to drive those first installs. To keep a skill installable but hidden from skills.sh discovery, set `metadata.internal: true` in the frontmatter.
+
+Distribution is additive: ClawHub feeds the Simmer registry (primary), skills.sh adds cross-agent reach (optional).
 
 ## Hard Rules
 
