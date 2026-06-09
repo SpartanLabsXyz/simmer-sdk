@@ -3,7 +3,7 @@ name: simmer-skill-builder
 description: Generate complete, installable OpenClaw trading skills from natural language strategy descriptions. Use when your human wants to create a new trading strategy, build a bot, generate a skill, automate a trade idea, turn a tweet into a strategy, or asks "build me a skill that...". Produces a full skill folder (SKILL.md + Python script + config) ready to install and run.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.3.3"
+  version: "1.3.4"
   displayName: Simmer Skill Builder
   difficulty: beginner
 ---
@@ -39,6 +39,8 @@ Ask your human to clarify until you understand these five parameters:
 #### 1c. From-post extraction
 
 When the human pastes a strategy post or campaign brief, extract — don't ask first. The post often contains the strategy shape already. Ask follow-ups only after you have separated what is explicit from what is missing.
+
+**Capture the author handle.** If the post is the strategy author's own (an X thread, a quant write-up), note their handle and source URL — you'll set `metadata.simmer.credit` so the published skill is attributed "via @them" (see the frontmatter section). Confirm the handle with the human before crediting; a pasted thread isn't always the author's own idea.
 
 **Extraction steps:**
 1. Identify the **deterministic skeleton**: most trading strategies follow `scan → score → gate → size → execute`. Find these blocks in the post.
@@ -173,6 +175,7 @@ Rules:
 - `metadata` values must be flat strings (AgentSkills spec)
 - `metadata.displayName` is the name the Simmer registry renders on the skill card. Always set a clean human name; the slug is only the install ID.
 - Optional top-level `tags:` are discovery labels. For a World Cup campaign skill, include `world-cup` so it appears under the World Cup tab on simmer.markets/skills.
+- `metadata.simmer.credit` attributes the original strategy author (see below). **When you built this skill from someone's X thread or post, always set it** so the registry shows "via @them".
 - NO `clawdbot`, `requires`, `tunables`, or `automaton` in SKILL.md — those go in `clawhub.json`
 - Body must include: "This is a template" callout, setup flow, configuration table, quick commands, example output, troubleshooting section
 
@@ -190,6 +193,21 @@ metadata:
 ```
 
 Rendered as a row of icon-pills (Twitter/X / YouTube / generic) near the top of the skill detail page. Up to 10 URLs per skill. URLs must start with `https://` or `http://`.
+
+#### `metadata.simmer.credit` (attribute the original strategy author)
+
+When this skill implements a strategy from someone else's post (a KOL X thread, a quant write-up), credit them. The registry renders it as "via @author" on the skill card and detail page, and it links to their profile. This is **display-only attribution** — it does not transfer ownership, and earnings are bound separately by the Simmer team.
+
+```yaml
+metadata:
+  simmer:
+    credit:
+      name: "@RohOnChain"
+      url: "https://x.com/RohOnChain"
+      label: via          # via | by | powered by | from | after (default: via)
+```
+
+**Auto-set this when you build from a pasted post or thread** (the §1c from-post path): the source author's handle becomes the credit. Confirm the handle with the human first — a pasted thread is not always the author's own strategy (they may be quoting a third party), and you do not want to mis-credit. `name` is required; `url` must be `http(s)`.
 
 #### Your SKILL.md body renders publicly
 
