@@ -246,16 +246,16 @@ Pre-built trading strategies are published on [ClawHub](https://clawhub.ai) and 
 clawhub install polymarket-weather-trader
 ```
 
-Skills in this repo (`skills/`) are the official Simmer-maintained strategies. See [simmer.markets/skillregistry.md](https://simmer.markets/skillregistry.md) for the full guide to building, remixing, and publishing your own.
+Skills in this repo (`skills/`) are the official Simmer-maintained strategies. See [docs.simmer.markets/skills/building](https://docs.simmer.markets/skills/building) for the full guide to building, remixing, and publishing your own.
 
 ## Resources
 
 | | |
 |--|--|
 | **Platform** | [simmer.markets](https://simmer.markets) |
-| **API Reference** | [simmer.markets/docs.md](https://simmer.markets/docs.md) |
+| **API Reference** | [docs.simmer.markets](https://docs.simmer.markets) |
 | **Onboarding Guide** | [simmer.markets/skill.md](https://simmer.markets/skill.md) |
-| **Skills Registry** | [simmer.markets/skillregistry.md](https://simmer.markets/skillregistry.md) |
+| **Skills Registry** | [docs.simmer.markets/skills](https://docs.simmer.markets/skills/overview) |
 | **ClawHub** | [clawhub.ai](https://clawhub.ai) |
 | **MCP Server** | `pip install simmer-mcp` — docs + error troubleshooting as MCP resources ([PyPI](https://pypi.org/project/simmer-mcp/)) |
 | **Telegram** | [t.me/+m7sN0OLM_780M2Fl](https://t.me/+m7sN0OLM_780M2Fl) |
@@ -264,7 +264,7 @@ Skills in this repo (`skills/`) are the official Simmer-maintained strategies. S
 
 SDK improvements and bug fixes are welcome. If you've hit an edge case with `SimmerClient` or have a useful addition, open a PR.
 
-- **Skills** belong on [ClawHub](https://clawhub.ai), not this repo — see [skillregistry.md](https://simmer.markets/skillregistry.md)
+- **Skills** belong on [ClawHub](https://clawhub.ai), not this repo — see [docs.simmer.markets/skills/building](https://docs.simmer.markets/skills/building)
 - **API bugs or feature requests** → open an issue first
 - **AI-assisted PRs welcome** — just note it in the PR description
 - Keep PRs focused on one thing
