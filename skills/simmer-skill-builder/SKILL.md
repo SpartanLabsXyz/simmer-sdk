@@ -3,7 +3,7 @@ name: simmer-skill-builder
 description: Generate complete, installable OpenClaw trading skills from natural language strategy descriptions. Use when your human wants to create a new trading strategy, build a bot, generate a skill, automate a trade idea, turn a tweet into a strategy, or asks "build me a skill that...". Produces a full skill folder (SKILL.md + Python script + config) ready to install and run.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.2.6"
+  version: "1.3.3"
   displayName: Simmer Skill Builder
   difficulty: beginner
 ---
