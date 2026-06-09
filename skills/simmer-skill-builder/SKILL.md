@@ -3,7 +3,7 @@ name: simmer-skill-builder
 description: Generate complete, installable OpenClaw trading skills from natural language strategy descriptions. Use when your human wants to create a new trading strategy, build a bot, generate a skill, automate a trade idea, turn a tweet into a strategy, or asks "build me a skill that...". Produces a full skill folder (SKILL.md + Python script + config) ready to install and run.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.3.6"
+  version: "1.3.7"
   displayName: Simmer Skill Builder
   difficulty: beginner
 ---
@@ -111,7 +111,8 @@ Keep the first version narrow. A skill that does one World Cup signal well is mo
 **Make it discoverable.** A World Cup campaign skill should surface under the World Cup tab at simmer.markets/skills and carry a real name. In the SKILL.md frontmatter:
 
 - Set `metadata.displayName` to a human name (e.g. "World Cup Shock Ladder"). The registry shows this; the slug is only the install ID, so the displayName is what builders and traders read on the card.
-- Add a `world-cup` tag, and keep "World Cup", "FIFA", or "soccer" in the displayName or description. Either the tag or one of those keywords makes the skill appear under the World Cup tab. Without one, it only shows under its auto-assigned Sports / Multi-market category.
+- **Declare `category: world-cup` as a top-level frontmatter key. This is the lever** — the World Cup tab and the /markets featured-skill banner both filter on the `category` column being exactly `world-cup`. An author-declared category wins over auto-detection. A `world-cup` tag alone does NOT surface the skill (tags are not used by the filter), so don't rely on it. Note this becomes the skill's single category for the campaign — a WC-scoped skill belongs under World Cup now; generalize to `sports` / `multi-market` after the tournament.
+- Still add a `world-cup` tag (and keep "World Cup", "FIFA", or "soccer" in the displayName/description) as supplementary discovery labels, but the `category` declaration is what makes it appear.
 
 ### Step 2: Load References
 
@@ -174,7 +175,8 @@ Rules:
 - `description` is required. AgentSkills spec allows up to 1024 chars, **but keep it ≤160 chars** — ClawHub truncates longer descriptions when generating the skill's `summary`, and that truncated value is what renders as the one-line description on `simmer.markets/skills/<owner>/<slug>` and in social-share cards. Write a complete sentence that fits.
 - `metadata` values must be flat strings (AgentSkills spec)
 - `metadata.displayName` is the name the Simmer registry renders on the skill card. Always set a clean human name; the slug is only the install ID.
-- Optional top-level `tags:` are discovery labels. For a World Cup campaign skill, include `world-cup` so it appears under the World Cup tab on simmer.markets/skills.
+- Top-level `category:` is the registry taxonomy bucket and the lever for tab/banner filters. Declare `category: world-cup` for a World Cup campaign skill (see the World Cup section) — it appears under the World Cup tab only when this is set.
+- Optional top-level `tags:` are supplementary discovery labels. Include `world-cup`, but the `tags` are not used by the tab filter — `category` is.
 - `metadata.simmer.credit` attributes the original strategy author (see below). **When you built this skill from someone's X thread or post, always set it** so the registry shows "via @them".
 - NO `clawdbot`, `requires`, `tunables`, or `automaton` in SKILL.md — those go in `clawhub.json`
 - Body must include: "This is a template" callout, setup flow, configuration table, quick commands, example output, troubleshooting section
