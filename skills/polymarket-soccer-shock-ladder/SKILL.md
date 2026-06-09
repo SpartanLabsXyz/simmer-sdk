@@ -6,9 +6,14 @@ tags:
   - soccer
 metadata:
   author: Simmer (@simmer_markets)
-  version: "0.1.1"
+  version: "0.1.2"
   displayName: World Cup Shock Ladder
   difficulty: intermediate
+  simmer:
+    credit:
+      name: "@RohOnChain"
+      url: "https://x.com/RohOnChain"
+      label: via
 ---
 # World Cup Shock Ladder
 
