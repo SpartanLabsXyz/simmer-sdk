@@ -40,7 +40,21 @@ FAKE_TYPED_DATA = {
     "message": {"calls": [], "nonce": "1", "deadline": 9999999999},
 }
 
-FAKE_CALLS = [{"target": "0xOnramp", "value": "0", "data": "0x12345678"}]
+# A realistically-encoded valid wrap call — Onramp.wrap(USDC.e, DW, amount),
+# recipient = our own deposit wallet. Client-side batch validation (0.17.29)
+# runs before signing, so the fixture must pass the same guard the server
+# applies. `eth_abi` ships with `eth-account` (an SDK dependency).
+from eth_abi import encode as _abi_encode  # noqa: E402
+from simmer_sdk.polymarket_contracts import (  # noqa: E402
+    COLLATERAL_ONRAMP as _ONRAMP,
+    USDC_E as _USDCE,
+)
+
+FAKE_DW = "0x" + "11" * 20
+_WRAP_DATA = "0x62355638" + _abi_encode(
+    ["address", "address", "uint256"], [_USDCE, FAKE_DW, 5_000_000]
+).hex()
+FAKE_CALLS = [{"target": _ONRAMP, "value": "0", "data": _WRAP_DATA}]
 
 PREPARE_RESPONSE = {
     "wrapped": False,
@@ -51,7 +65,7 @@ PREPARE_RESPONSE = {
     "amount_units": 5_000_000,  # $5.00
     "amount_usd": 5.0,
     "needs_approve": False,
-    "deposit_wallet_address": "0xDW",
+    "deposit_wallet_address": FAKE_DW,
     "eoa_address": "0xEOA",
 }
 
