@@ -75,6 +75,14 @@
       "range": [1, 10],
       "step": 1,
       "label": "Minimum curated leaders required to trade — below this the run exits cleanly (degraded curation cache guard)"
+    },
+    {
+      "env": "WC_COPYTRADER_MAX_SLIPPAGE",
+      "type": "number",
+      "default": 0.02,
+      "range": [0.005, 0.1],
+      "step": 0.005,
+      "label": "Max slippage vs plan price (fraction) — live Polymarket FAK orders are price-capped at estimated_price × (1 ± this); out-of-range values are clamped"
     }
   ]
 }

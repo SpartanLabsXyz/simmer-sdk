@@ -48,6 +48,7 @@ CONFIG_SCHEMA = {
     "buy_only":        {"env": "WC_COPYTRADER_BUY_ONLY",         "default": "true",     "type": str},
     "detect_exits":    {"env": "WC_COPYTRADER_DETECT_EXITS",     "default": "true",     "type": str},
     "min_leaders":     {"env": "WC_COPYTRADER_MIN_LEADERS",      "default": 5,          "type": int},
+    "max_slippage":    {"env": "WC_COPYTRADER_MAX_SLIPPAGE",     "default": 0.02,       "type": float},
 }
 
 _config = load_config(CONFIG_SCHEMA, __file__, slug=SKILL_SLUG)
@@ -63,6 +64,62 @@ if _automaton_max:
               f"using ${MAX_USD:.2f}")
 
 MAX_TRADES = _config["max_trades"]
+
+# Marketable-limit slippage tolerance for live polymarket FAK orders, as a
+# FRACTION of the plan's estimated_price (matches the base
+# polymarket-copytrading skill's REACTOR_PRICE_BUFFER convention: buys bid
+# est*(1+tol), sells ask est*(1-tol)). Range-clamped so a fat-fingered env
+# var can't silently disable the price bound (codex pass-4 P1).
+_SLIPPAGE_DEFAULT = 0.02
+_SLIPPAGE_FLOOR = 0.005
+_SLIPPAGE_CEIL = 0.10
+
+
+def _resolve_max_slippage(raw) -> float:
+    """Parse + clamp WC_COPYTRADER_MAX_SLIPPAGE into [_SLIPPAGE_FLOOR, _SLIPPAGE_CEIL]."""
+    try:
+        val = float(raw)
+    except (TypeError, ValueError):
+        print(f"⚠️  Ignoring malformed WC_COPYTRADER_MAX_SLIPPAGE={raw!r}; "
+              f"using {_SLIPPAGE_DEFAULT}")
+        return _SLIPPAGE_DEFAULT
+    if val < _SLIPPAGE_FLOOR or val > _SLIPPAGE_CEIL:
+        clamped = min(max(val, _SLIPPAGE_FLOOR), _SLIPPAGE_CEIL)
+        print(f"⚠️  WC_COPYTRADER_MAX_SLIPPAGE={val} outside "
+              f"[{_SLIPPAGE_FLOOR}, {_SLIPPAGE_CEIL}]; clamping to {clamped}")
+        return clamped
+    return val
+
+
+MAX_SLIPPAGE = _resolve_max_slippage(_config.get("max_slippage", _SLIPPAGE_DEFAULT))
+
+
+def _bounded_price(action: str, estimated_price):
+    """Marketable-limit price cap for a live polymarket FAK order.
+
+    Without a price, a FAK fills at whatever the book offers at execution
+    time — if the market moved between the copytrading plan and this loop,
+    the order fills at the worse price while still spending estimated_cost.
+    Bounding at the plan's own estimated_price ± MAX_SLIPPAGE turns the FAK
+    into a marketable limit: fill up to the cap, kill the rest. A capped FAK
+    that can't fill is recorded server-side as a failed trade ("no liquidity
+    at this price") — it never rests on the book.
+
+    Returns None when estimated_price is missing/invalid; the caller must
+    SKIP that trade rather than send an unbounded live order. Clamps stay
+    inside the SDK's accepted price range (0.001–0.999); the SDK rounds to
+    the market's tick grid before signing, so no pre-rounding beyond 4dp.
+    """
+    try:
+        est = float(estimated_price)
+    except (TypeError, ValueError):
+        return None
+    if not (0.0 < est < 1.0):
+        return None
+    if action == "buy":
+        return min(round(est * (1 + MAX_SLIPPAGE), 4), 0.999)
+    return max(round(est * (1 - MAX_SLIPPAGE), 4), 0.001)
+
 
 _automaton_reported = False
 
@@ -410,6 +467,18 @@ def run(dry_run: bool = True, venue: str = None) -> None:
             t["success"] = False
             t["error"] = "exceeds_per_position_cap"
             continue
+        # Price bound: live polymarket FAK orders must be marketable limits,
+        # never unbounded market orders (codex pass-4 P1). The SDK's price
+        # param is polymarket-only (sim is LMSR — no book to cap against).
+        trade_price = None
+        if effective_venue == "polymarket":
+            trade_price = _bounded_price(action, t.get("estimated_price"))
+            if trade_price is None:
+                print(f"  ⚠️  Skipping {title[:40]} — plan has no usable "
+                      f"estimated_price; refusing unbounded live order")
+                t["success"] = False
+                t["error"] = "no_price_bound"
+                continue
         source_wallet = t.get("whale_wallet") or t.get("source_wallet") or ""
         signal_data = {
             "signal_source": "wc_copytrader",
@@ -432,6 +501,10 @@ def run(dry_run: bool = True, venue: str = None) -> None:
                 # POSITIONS (not open orders), so a stale GTC could
                 # double-fill later and bypass MAX_USD / MAX_TRADES.
                 order_type="FAK",
+                # Marketable limit: fill up to the plan's estimated_price ±
+                # MAX_SLIPPAGE, kill the rest. None on sim (SDK rejects price
+                # for non-polymarket venues).
+                price=trade_price,
                 reasoning=(
                     f"WC Copytrader: {action} {shares:.1f} {side} to mirror WC leaders"
                     f" on {title}"

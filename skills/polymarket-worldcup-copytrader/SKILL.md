@@ -111,6 +111,7 @@ openclaw cron add --name "wc-copytrader" --cron "0 3 * * *" --tz UTC \
 | `WC_COPYTRADER_BUY_ONLY` | `true` | Buy-only mode. Set `false` for full rebalance. |
 | `WC_COPYTRADER_DETECT_EXITS` | `true` | Sell when leaders exit. |
 | `WC_COPYTRADER_MIN_LEADERS` | `5` | Minimum curated leaders required to trade. Below this the run exits cleanly (degraded-cache guard). |
+| `WC_COPYTRADER_MAX_SLIPPAGE` | `0.02` | Max slippage vs the plan price, as a fraction. Live Polymarket orders are price-capped at `estimated_price × (1 ± this)`. Clamped to [0.005, 0.10]. |
 | `WALLET_PRIVATE_KEY` | — | External / self-custody Polymarket key (Polymarket venue only). |
 
 ## Options
@@ -135,6 +136,12 @@ automation — each run recomputes its plan from current *positions*, not open o
 so a resting GTC from a previous run could double-fill later and silently bypass the
 `WC_COPYTRADER_MAX_USD` / `WC_COPYTRADER_MAX_TRADES` caps. The cost of FAK is that
 thin books may give partial fills; the next daily run simply tops up.
+
+Live Polymarket orders are also **price-bounded**: each FAK carries a limit price of
+the plan's `estimated_price` ± `WC_COPYTRADER_MAX_SLIPPAGE` (default 2%), so a market
+that moved between planning and execution can't fill at an arbitrarily worse price —
+the unfillable remainder is killed (recorded as a failed trade, nothing rests). A
+planned trade with no usable `estimated_price` is skipped rather than sent unbounded.
 
 ## Cold-start note
 

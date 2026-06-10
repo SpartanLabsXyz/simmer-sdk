@@ -49,6 +49,7 @@ def _make_skill_module(leaders_response, plan_response=None, trade_success=True,
         "buy_only": "true",
         "detect_exits": "true",
         "min_leaders": 1,
+        "max_slippage": 0.02,
     }
     if config_overrides:
         base_config.update(config_overrides)
@@ -647,6 +648,136 @@ class TestAutoRedeemGate(unittest.TestCase):
         mod, mock_client = _make_skill_module(leaders_response=_leaders_response())
         mod.run(dry_run=False, venue="sim")
         mock_client.auto_redeem.assert_not_called()
+
+
+class TestLivePriceBound(unittest.TestCase):
+    """Live FAK orders must carry a price bound (codex pass-4 P1).
+
+    A FAK without a price fills at whatever the book offers at execution
+    time — if the market moved between the copytrading plan and this loop,
+    the order fills at the worse price while still spending estimated_cost.
+    The fix bounds each live polymarket order at the plan's own
+    estimated_price ± MAX_SLIPPAGE (fractional, matching the base
+    polymarket-copytrading skill's REACTOR_PRICE_BUFFER convention),
+    turning the FAK into a marketable limit: fill up to the cap, kill the
+    rest. A capped FAK that can't fill records a failed trade server-side
+    ("no liquidity at this price") — it never rests.
+    """
+
+    @staticmethod
+    def _plan(action="buy", estimated_price=0.6, include_price=True):
+        trade = {
+            "market_id": "mkt-abc",
+            "action": action,
+            "side": "yes",
+            "shares": 5.0,
+            "estimated_cost": 3.0,
+            "market_title": "Will Brazil win the 2026 WC?",
+        }
+        if include_price:
+            trade["estimated_price"] = estimated_price
+        return {"success": True, "wallets_analyzed": 1, "positions_found": 1,
+                "conflicts_skipped": 0, "trades": [trade]}
+
+    def test_live_polymarket_buy_carries_bounded_price(self):
+        mod, mock_client = _make_skill_module(leaders_response=_leaders_response())
+        mod.run(dry_run=False, venue="polymarket")
+        mock_client.trade.assert_called_once()
+        kwargs = mock_client.trade.call_args[1]
+        # default plan: estimated_price 0.6, tol 2% → 0.612 cap
+        self.assertEqual(kwargs.get("price"), round(0.6 * 1.02, 4))
+        self.assertEqual(kwargs.get("order_type"), "FAK")
+
+    def test_buy_price_capped_at_0999(self):
+        mod, mock_client = _make_skill_module(
+            leaders_response=_leaders_response(),
+            plan_response=self._plan(estimated_price=0.995))
+        mod.run(dry_run=False, venue="polymarket")
+        self.assertEqual(mock_client.trade.call_args[1].get("price"), 0.999)
+
+    def test_live_polymarket_sell_carries_mirrored_bound(self):
+        mod, mock_client = _make_skill_module(
+            leaders_response=_leaders_response(),
+            plan_response=self._plan(action="sell", estimated_price=0.6))
+        mod.run(dry_run=False, venue="polymarket")
+        mock_client.trade.assert_called_once()
+        kwargs = mock_client.trade.call_args[1]
+        self.assertEqual(kwargs.get("price"), round(0.6 * 0.98, 4))
+
+    def test_sell_price_floored_at_0001(self):
+        mod, mock_client = _make_skill_module(
+            leaders_response=_leaders_response(),
+            plan_response=self._plan(action="sell", estimated_price=0.001))
+        mod.run(dry_run=False, venue="polymarket")
+        self.assertEqual(mock_client.trade.call_args[1].get("price"), 0.001)
+
+    def test_missing_estimated_price_skips_trade(self):
+        """Never send an unbounded live order — skip with error=no_price_bound."""
+        plan = self._plan(include_price=False)
+        mod, mock_client = _make_skill_module(
+            leaders_response=_leaders_response(), plan_response=plan)
+        lines, _ = _run_capturing(mod, dry_run=False, venue="polymarket")
+        mock_client.trade.assert_not_called()
+        self.assertEqual(plan["trades"][0].get("error"), "no_price_bound")
+        self.assertIs(plan["trades"][0].get("success"), False)
+        data = json.loads(lines[0])
+        self.assertEqual(data["automaton"]["trades_executed"], 0)
+
+    def test_zero_estimated_price_skips_trade(self):
+        plan = self._plan(estimated_price=0)
+        mod, mock_client = _make_skill_module(
+            leaders_response=_leaders_response(), plan_response=plan)
+        mod.run(dry_run=False, venue="polymarket")
+        mock_client.trade.assert_not_called()
+        self.assertEqual(plan["trades"][0].get("error"), "no_price_bound")
+
+    def test_slippage_tunable_widens_bound(self):
+        mod, mock_client = _make_skill_module(
+            leaders_response=_leaders_response(),
+            config_overrides={"max_slippage": 0.05})
+        mod.run(dry_run=False, venue="polymarket")
+        self.assertEqual(mock_client.trade.call_args[1].get("price"),
+                         round(0.6 * 1.05, 4))
+
+    def test_slippage_out_of_range_clamped(self):
+        """A fat-fingered tunable can't disable the price bound."""
+        mod, _ = _make_skill_module(
+            leaders_response=_leaders_response(),
+            config_overrides={"max_slippage": 0.5})
+        self.assertEqual(mod.MAX_SLIPPAGE, 0.10)
+        mod_lo, _ = _make_skill_module(
+            leaders_response=_leaders_response(),
+            config_overrides={"max_slippage": 0.0})
+        self.assertEqual(mod_lo.MAX_SLIPPAGE, 0.005)
+
+    def test_slippage_malformed_falls_back_to_default(self):
+        mod, _ = _make_skill_module(
+            leaders_response=_leaders_response(),
+            config_overrides={"max_slippage": "banana"})
+        self.assertEqual(mod.MAX_SLIPPAGE, 0.02)
+
+    def test_sim_live_trade_has_no_price(self):
+        """SDK rejects price on venue='sim' (LMSR — no book to cap against)."""
+        mod, mock_client = _make_skill_module(leaders_response=_leaders_response())
+        mod.run(dry_run=False, venue="sim")
+        mock_client.trade.assert_called_once()
+        self.assertIsNone(mock_client.trade.call_args[1].get("price"))
+
+    def test_dry_run_unaffected_by_missing_estimated_price(self):
+        plan = self._plan(include_price=False)
+        mod, mock_client = _make_skill_module(
+            leaders_response=_leaders_response(), plan_response=plan)
+        _, captured = _run_capturing(mod, dry_run=True, venue="polymarket")
+        mock_client.trade.assert_not_called()
+        self.assertNotIn("no_price_bound", str(plan["trades"][0].get("error")))
+        self.assertTrue(any("Dry-run complete" in l for l in captured))
+
+    def test_clawhub_manifest_has_slippage_tunable(self):
+        manifest = os.path.join(os.path.dirname(__file__), "..", "clawhub.json")
+        with open(manifest) as f:
+            data = json.load(f)
+        envs = {t["env"] for t in data.get("tunables", [])}
+        self.assertIn("WC_COPYTRADER_MAX_SLIPPAGE", envs)
 
 
 class TestAutomatonEmission(unittest.TestCase):
