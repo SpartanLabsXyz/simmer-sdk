@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 import parlay_roller_trader as trader
-from parlay_roller import RollerConfig, StreakState
+from parlay_roller import Action, RollerConfig, StreakState
 
 UTC = timezone.utc
 NOW = datetime(2026, 6, 12, 12, 0, tzinfo=UTC)
@@ -240,6 +240,76 @@ def test_dry_run_places_nothing(tmp_path):
     state = run_tick(tmp_path, client, live=False)
     assert client.trades == []
     assert state.phase in ("CONFIGURED", "LEG_OPEN")
+
+
+def test_dry_run_cancel_entry_keeps_order_state(tmp_path, capsys):
+    """A dry-run cancel must NEVER clear order-tracking state - the order is
+    (or may be) live on-venue and only a venue-confirmed cancel may clear it."""
+    cfg = RollerConfig.from_dict(example_config_dict())
+    state = resting_entry_state(cfg)
+    client = FakeClient(FakeMarket(mid=0.40))
+    action = Action("cancel_entry", order_id="ord-1", reason="entry TTL expired")
+    trader.execute(client, action, state, cfg, 0, live=False, venue="polymarket", now=NOW)
+    assert state.entry_order_id == "ord-1"
+    assert state.entry_placed_at is not None
+    assert state.entry_price == pytest.approx(0.41)
+    assert state.entry_amount == pytest.approx(25.0)
+    assert client.cancelled == []
+    assert "DRY-RUN would cancel" in capsys.readouterr().out
+
+
+def test_dry_tick_on_live_streak_is_read_only(tmp_path, capsys):
+    """live_streak=True + live=False: decide-only. State file stays
+    byte-identical, no reconcile fills, no orders, no cancels."""
+    cfg = RollerConfig.from_dict(example_config_dict())
+    state = resting_entry_state(cfg, placed_at=NOW - timedelta(seconds=300))
+    state.live_streak = True
+    cfg_path = tmp_path / "roller_config.json"
+    cfg_path.write_text(json.dumps(example_config_dict()))
+    state_path = tmp_path / "roller_state.json"
+    trader.save_state(state, str(state_path))
+    before = state_path.read_text()
+    client = FakeClient(FakeMarket(mid=0.40))
+    client.open_orders = {"orders": []}  # reconcile would normally infer a fill
+    new_state = trader.tick(
+        client, str(cfg_path), str(state_path), str(tmp_path / "roller.lock"),
+        live=False, now=NOW,
+    )
+    assert state_path.read_text() == before  # byte-identical
+    assert client.trades == []
+    assert client.cancelled == []
+    assert new_state.entry_order_id == "ord-1"  # reconcile did not run
+    assert new_state.shares == 0.0
+    out = capsys.readouterr().out
+    assert "read-only" in out
+    assert "would cancel_entry" in out  # the decision is still printed
+
+
+def test_live_tick_flips_live_streak_flag_and_persists(tmp_path):
+    client = FakeClient(FakeMarket(mid=0.40))
+    state = run_tick(tmp_path, client, live=True)
+    assert state.live_streak is True
+    loaded = trader.load_state(str(tmp_path / "roller_state.json"))
+    assert loaded.live_streak is True
+
+
+def test_dry_streak_keeps_simulating_and_saving(tmp_path):
+    """A never-live streak (live_streak=False) keeps current dry-run behavior:
+    its own simulated state may mutate and save."""
+    client = FakeClient(FakeMarket(mid=0.40))
+    state = run_tick(tmp_path, client, live=False)
+    assert state.live_streak is False
+    loaded = trader.load_state(str(tmp_path / "roller_state.json"))
+    assert loaded is not None  # dry streak still saves
+    assert loaded.live_streak is False
+    assert client.trades == []
+
+
+def test_live_abort_marks_streak_live(tmp_path):
+    cfg = RollerConfig.from_dict(example_config_dict())
+    client = FakeClient(FakeMarket(mid=0.6, bid=0.58))
+    new_state = run_abort(tmp_path, client, abort_state(cfg, entry_order_id=None))
+    assert new_state.live_streak is True
 
 
 def test_post_match_sell_and_roll(tmp_path):

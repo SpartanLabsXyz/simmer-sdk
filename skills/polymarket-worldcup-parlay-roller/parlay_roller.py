@@ -171,6 +171,11 @@ class StreakState:
     exit_price: Optional[float] = None
     cancel_failures: int = 0
     banked: float = 0.0
+    # True once a LIVE tick has created or mutated this streak. A dry-run tick
+    # on a live streak must be read-only: it may decide and print, but never
+    # mutate order-tracking state (order ids, shares, cash, phase) or save.
+    # Defaults False for fresh states and for state files predating the field.
+    live_streak: bool = False
     history: List[dict] = field(default_factory=list)
 
     @classmethod

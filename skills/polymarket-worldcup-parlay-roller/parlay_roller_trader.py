@@ -339,25 +339,33 @@ def execute(
         return
 
     if action.kind == "cancel_entry":
-        if live:
-            confirmed, detail = cancel_confirmed(client, action.order_id)
-            if not confirmed:
-                # Keep the order id: the next tick's reconcile decides
-                # filled-vs-still-open. Clearing here could double-spend.
-                state.cancel_failures += 1
-                print(
-                    f"[parlay-roller] warn: cancel unconfirmed ({detail}); keeping order "
-                    f"for reconciliation ({state.cancel_failures}/{MAX_CANCEL_FAILURES})"
+        if not live:
+            # Order-tracking state may only change when the venue confirms the
+            # outcome. A dry-run never talks to the venue, so it must not clear
+            # the order id - the order may still be live (or filled) on-venue.
+            print(
+                f"[parlay-roller] DRY-RUN would cancel entry order "
+                f"{action.order_id} ({action.reason}); state unchanged"
+            )
+            return
+        confirmed, detail = cancel_confirmed(client, action.order_id)
+        if not confirmed:
+            # Keep the order id: the next tick's reconcile decides
+            # filled-vs-still-open. Clearing here could double-spend.
+            state.cancel_failures += 1
+            print(
+                f"[parlay-roller] warn: cancel unconfirmed ({detail}); keeping order "
+                f"for reconciliation ({state.cancel_failures}/{MAX_CANCEL_FAILURES})"
+            )
+            if state.cancel_failures >= MAX_CANCEL_FAILURES:
+                state.phase = "PAUSED"
+                state.log(
+                    f"PAUSED: cancel unconfirmed {MAX_CANCEL_FAILURES}x - order may "
+                    "still be live, manual review",
+                    now,
                 )
-                if state.cancel_failures >= MAX_CANCEL_FAILURES:
-                    state.phase = "PAUSED"
-                    state.log(
-                        f"PAUSED: cancel unconfirmed {MAX_CANCEL_FAILURES}x - order may "
-                        "still be live, manual review",
-                        now,
-                    )
-                return
-            state.cancel_failures = 0  # confirmed cancel
+            return
+        state.cancel_failures = 0  # confirmed cancel
         state.entry_order_id = None
         state.entry_placed_at = None
         state.entry_price = None
@@ -467,20 +475,38 @@ def tick(
         if state is None:
             state = StreakState.fresh(cfg)
             print_combo_comparison(client, cfg)
+        # A non-live tick must NEVER mutate state belonging to a live streak:
+        # decide-and-print only, no reconcile, no execute, no save.
+        read_only = (not live) and state.live_streak
+        if live:
+            state.live_streak = True
         if state.phase in ("COMPLETE", "BUSTED", "BANKED", "PAUSED"):
             print(f"[parlay-roller] terminal phase {state.phase} - nothing to do")
             return state
-        reconcile(client, state, cfg, now)
+        if read_only:
+            print(
+                "[parlay-roller] !! live streak detected - dry-run tick is "
+                "read-only (decide-only; no state changes, no orders)"
+            )
+        else:
+            reconcile(client, state, cfg, now)
         if state.leg_index >= len(cfg.legs):
             print(
                 f"[parlay-roller] state leg_index {state.leg_index} outside config "
                 f"({len(cfg.legs)} legs) - config/state mismatch, nothing to do"
             )
-            save_state(state, state_path)
+            if not read_only:
+                save_state(state, state_path)
             return state
         leg = cfg.legs[state.leg_index]
         snap = snap_market(client, leg.market_id, leg.side)
         action = decide(state, cfg, snap, now)
+        if read_only:
+            print(
+                f"[parlay-roller] DRY-RUN (read-only) leg {state.leg_index + 1}/"
+                f"{len(cfg.legs)} ({leg.label}): would {action.kind} - {action.reason}"
+            )
+            return state
         execute(client, action, state, cfg, state.leg_index, live, venue, now)
         if action.kind == "cancel_entry":
             action2 = decide(state, cfg, snap, now)
@@ -528,6 +554,8 @@ def abort(client, config_path: str, state_path: str, live: bool, venue: str) -> 
             print(f"[parlay-roller] abort DRY-RUN: would sell {state.shares:.2f} sh at bid")
         print("[parlay-roller] abort DRY-RUN: state unchanged; re-run with --live to abort")
         return state
+
+    state.live_streak = True  # live abort mutates the streak
 
     failed_cancels = []
     if state.entry_order_id:
