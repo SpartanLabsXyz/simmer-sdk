@@ -1,5 +1,8 @@
 {
   "emoji": "🌍",
+  "sensitivity": "sensitive",
+  "sensitivity_reason": "Novel-risk automation: the skill executes trades without per-trade approval by mirroring a curated set of external wallets. Copyability screening reduces slippage risk; it does not remove market risk. Scope approved 2026-06-10.",
+  "sensitivity_approved": true,
   "primaryEnv": "SIMMER_API_KEY",
   "requires": {
     "env": [

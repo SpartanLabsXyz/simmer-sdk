@@ -31,7 +31,7 @@ from unittest.mock import MagicMock, patch
 # ---------------------------------------------------------------------------
 
 def _make_skill_module(leaders_response, plan_response=None, trade_success=True,
-                       config_overrides=None):
+                       config_overrides=None, markets_response=None):
     """Return a fresh copytrader module with mocked SimmerClient."""
     # Stub simmer_sdk.skill so the import succeeds without the real package
     skill_stub = types.ModuleType("simmer_sdk.skill")
@@ -91,11 +91,23 @@ def _make_skill_module(leaders_response, plan_response=None, trade_success=True,
             ],
         }
 
+    # Default WC allowlist response: covers every market in the plan so
+    # existing live-path tests execute unchanged. Override markets_response
+    # (dict or Exception) to exercise the WC-scope filter.
+    if markets_response is None:
+        markets_response = {"markets": [
+            {"id": t["market_id"]} for t in plan_response.get("trades", [])
+        ]}
+
     def _request(method, path, **kwargs):
         if "wc/copy-leaders" in path:
             return leaders_response
         if "copytrading/execute" in path:
             return plan_response
+        if "/api/sdk/markets" in path:
+            if isinstance(markets_response, Exception):
+                raise markets_response
+            return markets_response
         return {}
 
     mock_client._request.side_effect = _request
@@ -455,6 +467,125 @@ class TestClientSideCaps(unittest.TestCase):
         self.assertEqual(traded, ["mkt-0", "mkt-2"])
 
 
+class TestWorldCupScope(unittest.TestCase):
+    """Live execution is scoped to World Cup markets only (codex pass-2 P1).
+
+    Curated WC leaders can hold non-WC positions; the plan endpoint has no
+    market/category scope param (SDKCopytradingRequest), so the skill must
+    filter client-side against the tags=world-cup allowlist.
+    """
+
+    @staticmethod
+    def _mixed_plan():
+        return {
+            "success": True,
+            "wallets_analyzed": 1,
+            "positions_found": 3,
+            "conflicts_skipped": 0,
+            "trades": [
+                {"market_id": "mkt-wc-1", "action": "buy", "side": "yes",
+                 "shares": 5.0, "estimated_price": 0.6, "estimated_cost": 3.0,
+                 "market_title": "Will Brazil win the 2026 World Cup?"},
+                {"market_id": "mkt-btc", "action": "buy", "side": "yes",
+                 "shares": 5.0, "estimated_price": 0.5, "estimated_cost": 2.5,
+                 "market_title": "Will Bitcoin hit $200k in 2026?"},
+                {"market_id": "mkt-wc-2", "action": "buy", "side": "no",
+                 "shares": 4.0, "estimated_price": 0.4, "estimated_cost": 1.6,
+                 "market_title": "Will France reach the WC final?"},
+            ],
+        }
+
+    def test_non_wc_trade_skipped_wc_trades_execute(self):
+        plan = self._mixed_plan()
+        mod, mock_client = _make_skill_module(
+            leaders_response=_leaders_response(),
+            plan_response=plan,
+            markets_response={"markets": [{"id": "mkt-wc-1"}, {"id": "mkt-wc-2"}]},
+        )
+        json_lines, captured = _run_capturing(mod, dry_run=False)
+        traded = [c[1]["market_id"] for c in mock_client.trade.call_args_list]
+        self.assertEqual(traded, ["mkt-wc-1", "mkt-wc-2"])
+        # The skipped trade is recorded with the structured error (plan dict
+        # is mutated in place) and a warning is printed
+        btc = next(t for t in plan["trades"] if t["market_id"] == "mkt-btc")
+        self.assertFalse(btc["success"])
+        self.assertEqual(btc["error"], "non_wc_market_skipped")
+        self.assertTrue(any("non-WC" in l or "non_wc_market_skipped" in l
+                            for l in captured))
+
+    def test_skipped_trade_records_error_and_automaton_count(self):
+        plan = self._mixed_plan()
+        # All trades non-WC → 0 executed, automaton reports the skips
+        mod, mock_client = _make_skill_module(
+            leaders_response=_leaders_response(),
+            plan_response=plan,
+            markets_response={"markets": []},
+        )
+        json_lines, _ = _run_capturing(mod, dry_run=False)
+        mock_client.trade.assert_not_called()
+        for t in plan["trades"]:
+            self.assertFalse(t["success"])
+            self.assertEqual(t["error"], "non_wc_market_skipped")
+        self.assertEqual(len(json_lines), 1)
+        data = json.loads(json_lines[0])
+        self.assertEqual(data["automaton"]["trades_executed"], 0)
+        self.assertEqual(data["automaton"]["non_wc_skipped"], 3)
+        self.assertIn("non_wc_market_skipped", data["automaton"].get("skip_reason", ""))
+
+    def test_allowlist_fetch_failure_live_fails_closed(self):
+        """Live run with no WC allowlist must execute NOTHING."""
+        mod, mock_client = _make_skill_module(
+            leaders_response=_leaders_response(),
+            plan_response=self._mixed_plan(),
+            markets_response=Exception("markets endpoint down"),
+        )
+        json_lines, _ = _run_capturing(mod, dry_run=False)
+        mock_client.trade.assert_not_called()
+        self.assertEqual(len(json_lines), 1)
+        data = json.loads(json_lines[0])
+        self.assertEqual(data["automaton"]["skip_reason"], "wc_scope_unavailable")
+        self.assertEqual(data["automaton"]["trades_executed"], 0)
+
+    def test_empty_allowlist_live_fails_closed(self):
+        """An empty WC allowlist mid-campaign means the fetch is broken — fail closed."""
+        mod, mock_client = _make_skill_module(
+            leaders_response=_leaders_response(),
+            plan_response=self._mixed_plan(),
+            markets_response={"markets": []},
+        )
+        # Empty allowlist → every trade skipped as non-WC (none executed).
+        # (Distinct from fetch *failure*; both end with zero spend.)
+        json_lines, _ = _run_capturing(mod, dry_run=False)
+        mock_client.trade.assert_not_called()
+
+    def test_dry_run_unaffected_by_allowlist_failure(self):
+        """Dry-run places nothing, so it must not fetch (or die on) the allowlist."""
+        mod, mock_client = _make_skill_module(
+            leaders_response=_leaders_response(),
+            plan_response=self._mixed_plan(),
+            markets_response=Exception("markets endpoint down"),
+        )
+        mod.run(dry_run=True)
+        mock_client.trade.assert_not_called()
+        # The plan is still requested and shown
+        paths_called = [str(c) for c in mock_client._request.call_args_list]
+        self.assertTrue(any("copytrading/execute" in p for p in paths_called))
+
+    def test_allowlist_uses_world_cup_tag(self):
+        """The allowlist must come from the structured tags=world-cup surface."""
+        mod, mock_client = _make_skill_module(
+            leaders_response=_leaders_response(),
+            plan_response=self._mixed_plan(),
+            markets_response={"markets": [{"id": "mkt-wc-1"}, {"id": "mkt-wc-2"}]},
+        )
+        mod.run(dry_run=False)
+        markets_calls = [c for c in mock_client._request.call_args_list
+                         if "/api/sdk/markets" in str(c)]
+        self.assertEqual(len(markets_calls), 1)
+        params = markets_calls[0][1].get("params") or {}
+        self.assertEqual(params.get("tags"), "world-cup")
+
+
 class TestAutomatonEmission(unittest.TestCase):
     """Automaton JSON emitted correctly."""
 
@@ -537,6 +668,18 @@ class TestClawhubManifest(unittest.TestCase):
 
 class TestSensitivityManifest(unittest.TestCase):
     """SKILL.md carries sensitivity marker."""
+
+    def test_clawhub_json_has_machine_readable_sensitivity(self):
+        """The publish governance gate (scripts/check-skill-governance.py, PR #184)
+        reads sensitivity fields from clawhub.json — not SKILL.md frontmatter."""
+        manifest = os.path.join(os.path.dirname(__file__), "..", "clawhub.json")
+        with open(manifest) as f:
+            data = json.load(f)  # also asserts clawhub.json stays valid JSON
+        self.assertEqual(data.get("sensitivity"), "sensitive")
+        self.assertTrue(str(data.get("sensitivity_reason") or "").strip(),
+                        "sensitive skill must carry a non-empty sensitivity_reason")
+        self.assertIs(data.get("sensitivity_approved"), True,
+                      "gate requires sensitivity_approved === true (Adrian approval, SIM-3044)")
 
     def test_skill_md_has_sensitivity_sensitive(self):
         skill_md = os.path.join(os.path.dirname(__file__), "..", "SKILL.md")
