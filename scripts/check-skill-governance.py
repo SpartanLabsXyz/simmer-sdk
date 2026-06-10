@@ -8,6 +8,8 @@ import json
 import os
 import subprocess
 import sys
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Any
 
@@ -84,8 +86,43 @@ def pr_has_sensitive_approval_marker() -> bool:
     if labels & APPROVAL_MARKERS:
         return True
 
+    if current_pr_has_sensitive_approval_marker(event):
+        return True
+
     body = str(pr.get("body") or "").lower()
     return any(f"{marker}:" in body or f"{marker}=true" in body for marker in APPROVAL_MARKERS)
+
+
+def current_pr_has_sensitive_approval_marker(event: dict[str, Any]) -> bool:
+    """Fetch current labels because rerun pull_request payloads can be stale."""
+    token = os.environ.get("GITHUB_TOKEN")
+    repo = os.environ.get("GITHUB_REPOSITORY")
+    pr = event.get("pull_request") or {}
+    number = pr.get("number")
+    if not token or not repo or not number:
+        return False
+
+    request = urllib.request.Request(
+        f"https://api.github.com/repos/{repo}/issues/{number}/labels",
+        headers={
+            "Accept": "application/vnd.github+json",
+            "Authorization": f"Bearer {token}",
+            "X-GitHub-Api-Version": "2022-11-28",
+            "User-Agent": "simmer-sdk-skill-governance",
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            labels = json.load(response)
+    except (OSError, urllib.error.URLError, json.JSONDecodeError):
+        return False
+
+    current_labels = {
+        str(label.get("name", "")).strip().lower()
+        for label in labels
+        if isinstance(label, dict)
+    }
+    return bool(current_labels & APPROVAL_MARKERS)
 
 
 def manifest_env_names(manifest: dict[str, Any]) -> set[str]:

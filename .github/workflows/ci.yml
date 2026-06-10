@@ -16,6 +16,8 @@ jobs:
           fetch-depth: 0
 
       - name: Check skill governance
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: python3 scripts/check-skill-governance.py
 
   build:
