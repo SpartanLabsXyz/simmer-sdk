@@ -11,6 +11,15 @@ from parlay_roller import RollerConfig, StreakState
 UTC = timezone.utc
 NOW = datetime(2026, 6, 12, 12, 0, tzinfo=UTC)
 
+# Captured pre-patch so test_combo_compare_degrades can exercise the real function.
+ORIG_FETCH_COMBO = trader.fetch_combo_comparison
+
+
+@pytest.fixture(autouse=True)
+def _no_combo_network(monkeypatch):
+    """Keep ticks offline: the streak-start combo lookup must never hit the API."""
+    monkeypatch.setattr(trader, "fetch_combo_comparison", lambda market_ids: None)
+
 
 def example_config_dict(start=None):
     start_dt = start or datetime(2026, 6, 12, 15, 0, tzinfo=UTC)
@@ -381,7 +390,7 @@ def test_combo_compare_degrades(monkeypatch):
         "get",
         lambda *a, **k: (_ for _ in ()).throw(OSError("down")),
     )
-    assert trader.fetch_combo_comparison(["m0", "m1"]) is None
+    assert ORIG_FETCH_COMBO(["m0", "m1"]) is None
 
 
 def test_first_tick_prints_combo_implied_price(tmp_path, capsys, monkeypatch):
