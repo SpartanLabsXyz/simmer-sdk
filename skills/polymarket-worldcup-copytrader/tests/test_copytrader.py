@@ -210,6 +210,59 @@ class TestVenueRouting(unittest.TestCase):
         mock_client.ensure_can_trade.assert_not_called()
 
 
+class TestSellOnlyExitsWithLowCollateral(unittest.TestCase):
+    """Low free collateral must block BUYS only — sell exits need no USDC
+    and skipping them strands open exposure after leaders exit (codex
+    pass-8 P2). A preflight ERROR still aborts everything (fail-closed)."""
+
+    def _mixed_plan(self):
+        return {"trades": [
+            {"market_id": "mkt-wc-1", "action": "buy", "side": "yes",
+             "shares": 5.0, "estimated_price": 0.6, "estimated_cost": 3.0,
+             "market_title": "WC buy"},
+            {"market_id": "mkt-wc-2", "action": "sell", "side": "yes",
+             "shares": 4.0, "estimated_price": 0.7, "estimated_cost": 2.8,
+             "market_title": "WC sell exit"},
+        ]}
+
+    def test_low_balance_executes_sells_skips_buys(self):
+        plan = self._mixed_plan()
+        mod, mock_client = _make_skill_module(
+            leaders_response=_leaders_response(), plan_response=plan)
+        mock_client.ensure_can_trade.return_value = {
+            "ok": False, "balance": 0.4, "collateral": "USDC",
+            "reason": "insufficient_balance"}
+        mod._config["buy_only"] = "false"
+        mod.run(dry_run=False, venue="polymarket")
+        executed = [c[1] for c in mock_client.trade.call_args_list]
+        self.assertEqual(len(executed), 1)
+        self.assertEqual(executed[0]["action"], "sell")
+        self.assertEqual(plan["trades"][0].get("error"),
+                         "insufficient_balance_buy_skipped")
+
+    def test_low_balance_buy_only_skips_run(self):
+        plan = self._mixed_plan()
+        mod, mock_client = _make_skill_module(
+            leaders_response=_leaders_response(), plan_response=plan)
+        mock_client.ensure_can_trade.return_value = {
+            "ok": False, "balance": 0.4, "collateral": "USDC",
+            "reason": "insufficient_balance"}
+        # buy_only defaults to true — whole run skips, plan never requested
+        mod.run(dry_run=False, venue="polymarket")
+        mock_client.trade.assert_not_called()
+        plan_calls = [c for c in mock_client._request.call_args_list
+                      if "copytrading/execute" in str(c)]
+        self.assertEqual(plan_calls, [])
+
+    def test_preflight_error_still_aborts_sells_too(self):
+        plan = self._mixed_plan()
+        mod, mock_client = _make_skill_module(
+            leaders_response=_leaders_response(), plan_response=plan)
+        mock_client.ensure_can_trade.side_effect = Exception("api down")
+        mod.run(dry_run=False, venue="polymarket")
+        mock_client.trade.assert_not_called()
+
+
 class TestPreflightFailClosed(unittest.TestCase):
     """LIVE polymarket runs abort when the balance preflight raises (codex P1)."""
 

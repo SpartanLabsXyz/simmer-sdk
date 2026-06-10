@@ -376,23 +376,34 @@ def run(dry_run: bool = True, venue: str = None) -> None:
         print("\n  [DRY RUN] Showing trade plan only.  Pass --live to execute.")
 
     # --- balance pre-flight (live polymarket only) ---
+    # Low collateral blocks BUYS only: exit/rebalance plans are sell orders
+    # and need no USDC — skipping the whole run would strand open positions
+    # after leaders exit (codex pass-8 P2). A preflight ERROR still aborts
+    # everything (fail-closed, pass-2 P1): no signal means no trading.
+    buys_blocked = False
     if not dry_run and effective_venue == "polymarket":
         try:
             preflight = client.ensure_can_trade(min_usd=1.0, venue=effective_venue)
             if not preflight["ok"]:
+                if buy_only:
+                    print(f"\n  ⏸️  insufficient_balance: ${preflight['balance']:.2f} "
+                          f"{preflight['collateral']} (need ≥ $1.00) — skip (buy-only)")
+                    if os.environ.get("AUTOMATON_MANAGED"):
+                        print(json.dumps({"automaton": {
+                            "signals": 0, "trades_attempted": 0, "trades_executed": 0,
+                            "skip_reason": preflight["reason"],
+                            "balance_usd": round(preflight["balance"], 2),
+                        }}))
+                        _automaton_reported = True
+                    return
+                buys_blocked = True
                 print(f"\n  ⏸️  insufficient_balance: ${preflight['balance']:.2f} "
-                      f"{preflight['collateral']} (need ≥ $1.00) — skip")
-                if os.environ.get("AUTOMATON_MANAGED"):
-                    print(json.dumps({"automaton": {
-                        "signals": 0, "trades_attempted": 0, "trades_executed": 0,
-                        "skip_reason": preflight["reason"],
-                        "balance_usd": round(preflight["balance"], 2),
-                    }}))
-                    _automaton_reported = True
-                return
-            effective_max = min(MAX_USD, preflight["max_safe_size"])
-            if effective_max < MAX_USD:
-                print(f"  💰 Capping max per trade ${MAX_USD:.2f} → ${effective_max:.2f}")
+                      f"{preflight['collateral']} (need ≥ $1.00) — buys blocked, "
+                      f"continuing for sell-only exits")
+            else:
+                effective_max = min(MAX_USD, preflight["max_safe_size"])
+                if effective_max < MAX_USD:
+                    print(f"  💰 Capping max per trade ${MAX_USD:.2f} → ${effective_max:.2f}")
         except Exception as e:
             # Fail closed: with no balance/safe-size signal we must not fall
             # back to full MAX_USD on a live polymarket run.
@@ -405,6 +416,8 @@ def run(dry_run: bool = True, venue: str = None) -> None:
                 }}))
                 _automaton_reported = True
             return
+        if buys_blocked:
+            effective_max = MAX_USD  # buys are skipped client-side below
     else:
         effective_max = MAX_USD
 
@@ -512,6 +525,12 @@ def run(dry_run: bool = True, venue: str = None) -> None:
                   f"({market_id}); this skill only trades World Cup markets")
             t["success"] = False
             t["error"] = "non_wc_market_skipped"
+            continue
+        if action == "buy" and buys_blocked:
+            print(f"  ⚠️  Skipping {title[:40]} — buys blocked "
+                  f"(insufficient collateral); sell-only run")
+            t["success"] = False
+            t["error"] = "insufficient_balance_buy_skipped"
             continue
         if action == "buy" and cost > effective_max:
             print(f"  ⚠️  Skipping {title[:40]} — cost ${cost:.2f} exceeds "
