@@ -333,6 +333,81 @@ def test_cancel_order_failure_retains_entry_order_id(tmp_path):
     assert client.trades == []  # must not re-enter while order may be live
 
 
+def test_cancel_nonsuccess_result_retains_entry_order_id(tmp_path):
+    """cancel_order returning {"success": False} (no exception) is NOT a confirmed cancel."""
+    cfg = RollerConfig.from_dict(example_config_dict())
+    state = resting_entry_state(cfg, placed_at=NOW - timedelta(seconds=300))
+
+    class CancelNotOkClient(FakeClient):
+        def cancel_order(self, order_id):
+            self.cancelled.append(order_id)
+            return {"success": False, "warning": "order likely already filled"}
+
+    client = CancelNotOkClient(FakeMarket(mid=0.40))
+    client.open_orders = {"orders": [{"order_id": "ord-1"}]}  # still on the book
+    new_state = run_tick(tmp_path, client, state=state)
+    assert new_state.entry_order_id == "ord-1"  # kept for reconcile
+    assert new_state.cancel_failures == 1
+    assert new_state.phase == "LEG_OPEN"  # not paused yet
+    assert client.trades == []  # must not re-enter while order may be live
+
+
+def test_cancel_unconfirmed_three_strikes_pauses(tmp_path):
+    cfg = RollerConfig.from_dict(example_config_dict())
+    state = resting_entry_state(cfg, placed_at=NOW - timedelta(seconds=300))
+    state.cancel_failures = 2  # two prior consecutive failures
+
+    class CancelNotOkClient(FakeClient):
+        def cancel_order(self, order_id):
+            return {"success": False}
+
+    client = CancelNotOkClient(FakeMarket(mid=0.40))
+    client.open_orders = {"orders": [{"order_id": "ord-1"}]}
+    new_state = run_tick(tmp_path, client, state=state)
+    assert new_state.cancel_failures == 3
+    assert new_state.phase == "PAUSED"
+    assert new_state.entry_order_id == "ord-1"  # order may still be live; keep it
+    assert client.trades == []
+
+
+def test_confirmed_cancel_resets_cancel_failures(tmp_path):
+    cfg = RollerConfig.from_dict(example_config_dict())
+    state = resting_entry_state(cfg, placed_at=NOW - timedelta(seconds=300))
+    state.cancel_failures = 2
+    client = FakeClient(FakeMarket(mid=0.40))  # cancel_order returns {"success": True}
+    client.open_orders = {"orders": [{"order_id": "ord-1"}]}
+    new_state = run_tick(tmp_path, client, state=state)
+    assert new_state.cancel_failures == 0
+    assert new_state.phase != "PAUSED"
+    assert "ord-1" in client.cancelled
+
+
+def test_cancel_exception_increments_cancel_failures(tmp_path):
+    cfg = RollerConfig.from_dict(example_config_dict())
+    state = resting_entry_state(cfg, placed_at=NOW - timedelta(seconds=300))
+
+    class CancelFailClient(FakeClient):
+        def cancel_order(self, order_id):
+            raise OSError("cancel failed")
+
+    client = CancelFailClient(FakeMarket(mid=0.40))
+    client.open_orders = {"orders": [{"order_id": "ord-1"}]}
+    new_state = run_tick(tmp_path, client, state=state)
+    assert new_state.cancel_failures == 1
+    assert new_state.entry_order_id == "ord-1"
+
+
+def test_reconciled_entry_fill_resets_cancel_failures(tmp_path):
+    cfg = RollerConfig.from_dict(example_config_dict())
+    state = resting_entry_state(cfg)
+    state.cancel_failures = 2
+    client = FakeClient(FakeMarket(mid=0.40))
+    client.open_orders = {"orders": []}  # ord-1 left the book -> reconciled fill
+    new_state = run_tick(tmp_path, client, state=state)
+    assert new_state.shares > 0
+    assert new_state.cancel_failures == 0
+
+
 def test_reconcile_treats_absent_exit_order_as_filled(tmp_path):
     cfg_dict = example_config_dict()
     cfg = RollerConfig.from_dict(cfg_dict)

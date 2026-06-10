@@ -189,6 +189,26 @@ def print_combo_comparison(client, cfg: RollerConfig) -> None:
         print(f"[parlay-roller] combo comparison skipped: {e}")
 
 
+MAX_CANCEL_FAILURES = 3
+
+
+def cancel_confirmed(client, order_id: str):
+    """Attempt a cancel and report whether the venue CONFIRMED it.
+
+    The SDK's cancel_order() reports failure two ways: raising, or returning a
+    dict with "success": False (e.g. the CLOB answered not_canceled because the
+    order was already matched). Only "no exception AND not success=False" counts
+    as confirmed. Returns (confirmed: bool, detail: str).
+    """
+    try:
+        res = client.cancel_order(order_id)
+    except Exception as e:
+        return False, str(e)
+    if isinstance(res, dict) and res.get("success") is False:
+        return False, str(res.get("error") or res.get("warning") or res)
+    return True, ""
+
+
 def _open_order_ids(open_orders) -> set:
     """Normalize a get_open_orders() response into a set of order id strings."""
     if isinstance(open_orders, dict):
@@ -302,13 +322,24 @@ def execute(
 
     if action.kind == "cancel_entry":
         if live:
-            try:
-                client.cancel_order(action.order_id)
-            except Exception as e:
+            confirmed, detail = cancel_confirmed(client, action.order_id)
+            if not confirmed:
                 # Keep the order id: the next tick's reconcile decides
                 # filled-vs-still-open. Clearing here could double-spend.
-                print(f"[parlay-roller] warn: cancel failed: {e}; keeping order for reconciliation")
+                state.cancel_failures += 1
+                print(
+                    f"[parlay-roller] warn: cancel unconfirmed ({detail}); keeping order "
+                    f"for reconciliation ({state.cancel_failures}/{MAX_CANCEL_FAILURES})"
+                )
+                if state.cancel_failures >= MAX_CANCEL_FAILURES:
+                    state.phase = "PAUSED"
+                    state.log(
+                        f"PAUSED: cancel unconfirmed {MAX_CANCEL_FAILURES}x - order may "
+                        "still be live, manual review",
+                        now,
+                    )
                 return
+            state.cancel_failures = 0  # confirmed cancel
         state.entry_order_id = None
         state.entry_placed_at = None
         state.entry_price = None

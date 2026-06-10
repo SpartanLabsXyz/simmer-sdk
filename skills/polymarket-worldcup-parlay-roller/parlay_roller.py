@@ -169,6 +169,7 @@ class StreakState:
     entry_amount: Optional[float] = None
     exit_order_id: Optional[str] = None
     exit_price: Optional[float] = None
+    cancel_failures: int = 0
     banked: float = 0.0
     history: List[dict] = field(default_factory=list)
 
@@ -288,6 +289,7 @@ def apply_entry_fill(state: StreakState, shares_bought: float, spent: float, now
     state.entry_placed_at = None
     state.entry_price = None
     state.entry_amount = None
+    state.cancel_failures = 0  # reconciled fill: the order is no longer live
     state.phase = "LEG_OPEN"
     state.log(f"leg {state.leg_index + 1} entry filled: {shares_bought:.2f} sh for ${spent:.2f}", now)
 
