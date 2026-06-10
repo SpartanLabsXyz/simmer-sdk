@@ -263,6 +263,36 @@ class TestSellOnlyExitsWithLowCollateral(unittest.TestCase):
         mock_client.trade.assert_not_called()
 
 
+class TestPlanCapIsConfiguredNotCashDerived(unittest.TestCase):
+    """The plan payload must carry the CONFIGURED per-position cap — the
+    server planner uses max_usd_per_position as a rebalance target, so a
+    cash-lowered cap would generate sell-downs of healthy positions
+    (codex pass-9 P1). The cash-derived cap applies client-side to buys."""
+
+    def test_payload_carries_configured_cap_when_cash_is_low(self):
+        plan = {"trades": [
+            {"market_id": "mkt-wc-1", "action": "buy", "side": "yes",
+             "shares": 30.0, "estimated_price": 0.6, "estimated_cost": 18.0,
+             "market_title": "WC big buy"},
+            {"market_id": "mkt-wc-2", "action": "buy", "side": "yes",
+             "shares": 5.0, "estimated_price": 0.6, "estimated_cost": 3.0,
+             "market_title": "WC small buy"},
+        ]}
+        mod, mock_client = _make_skill_module(
+            leaders_response=_leaders_response(), plan_response=plan)
+        mock_client.ensure_can_trade.return_value = {
+            "ok": True, "max_safe_size": 5.0, "balance": 5.5}
+        mod.run(dry_run=False, venue="polymarket")
+        plan_calls = [c for c in mock_client._request.call_args_list
+                      if "copytrading/execute" in str(c)]
+        payload = plan_calls[0][1]["json"]
+        self.assertEqual(payload["max_usd_per_position"], mod.MAX_USD)
+        # cash-derived cap still enforced client-side: $18 buy skipped, $3 executes
+        executed = [c[1] for c in mock_client.trade.call_args_list]
+        self.assertEqual(len(executed), 1)
+        self.assertEqual(plan["trades"][0].get("error"), "exceeds_per_position_cap")
+
+
 class TestPreflightFailClosed(unittest.TestCase):
     """LIVE polymarket runs abort when the balance preflight raises (codex P1)."""
 

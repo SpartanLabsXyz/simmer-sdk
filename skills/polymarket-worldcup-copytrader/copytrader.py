@@ -401,6 +401,7 @@ def run(dry_run: bool = True, venue: str = None) -> None:
                       f"{preflight['collateral']} (need ≥ $1.00) — buys blocked, "
                       f"continuing for sell-only exits")
             else:
+                # client-side BUY cap only — never sent to the planner
                 effective_max = min(MAX_USD, preflight["max_safe_size"])
                 if effective_max < MAX_USD:
                     print(f"  💰 Capping max per trade ${MAX_USD:.2f} → ${effective_max:.2f}")
@@ -441,7 +442,12 @@ def run(dry_run: bool = True, venue: str = None) -> None:
     print("\n📡 Requesting trade plan…")
     payload = {
         "wallets": wallets,
-        "max_usd_per_position": effective_max,
+        # CONFIGURED cap, never the cash-derived effective_max: the planner
+        # treats this as a rebalance TARGET per position (min(target,
+        # max_position_usd) -> negative diff -> SELL), so a low-cash cap
+        # would sell down healthy positions (codex pass-9 P1). The
+        # cash-derived effective_max still caps BUYS client-side below.
+        "max_usd_per_position": MAX_USD,
         "dry_run": True,
         "buy_only": buy_only,
         "detect_whale_exits": detect_exits,
