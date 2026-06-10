@@ -394,8 +394,63 @@ def test_abort_cancels_and_sells(tmp_path):
     cfg_path = tmp_path / "roller_config.json"
     cfg_path.write_text(json.dumps(cfg_dict))
     client = FakeClient(FakeMarket(mid=0.6, bid=0.58))
-    new_state = trader.abort(client, str(cfg_path), str(tmp_path / "roller_state.json"), live=True)
+    new_state = trader.abort(
+        client, str(cfg_path), str(tmp_path / "roller_state.json"), live=True, venue="polymarket"
+    )
     assert "ord-x" in client.cancelled
     sells = [trade for trade in client.trades if trade["action"] == "sell"]
     assert sells and sells[0]["price"] == pytest.approx(0.58)
     assert new_state.phase == "BANKED"
+
+
+def test_abort_dry_run_does_not_terminalize_state(tmp_path):
+    cfg_dict = example_config_dict()
+    cfg = RollerConfig.from_dict(cfg_dict)
+    state = StreakState.fresh(cfg)
+    state.phase = "LEG_OPEN"
+    state.shares = 40.0
+    state.cash = 0.0
+    state.entry_order_id = "ord-x"
+    state_path = tmp_path / "roller_state.json"
+    trader.save_state(state, str(state_path))
+    before = state_path.read_text()
+    cfg_path = tmp_path / "roller_config.json"
+    cfg_path.write_text(json.dumps(cfg_dict))
+
+    class CountingClient(FakeClient):
+        def __init__(self, market=None):
+            super().__init__(market)
+            self.market_lookups = 0
+
+        def get_market_by_id(self, market_id):
+            self.market_lookups += 1
+            return super().get_market_by_id(market_id)
+
+    client = CountingClient(FakeMarket(mid=0.6, bid=0.58))
+    new_state = trader.abort(
+        client, str(cfg_path), str(state_path), live=False, venue="polymarket"
+    )
+    assert new_state.phase == "LEG_OPEN"  # not mutated
+    assert new_state.entry_order_id == "ord-x"
+    assert state_path.read_text() == before  # state file untouched
+    assert client.trades == []
+    assert client.cancelled == []
+    assert client.market_lookups == 0
+
+
+def test_abort_uses_cli_venue(tmp_path):
+    cfg_dict = example_config_dict()
+    cfg = RollerConfig.from_dict(cfg_dict)
+    state = StreakState.fresh(cfg)
+    state.phase = "LEG_OPEN"
+    state.shares = 40.0
+    state.cash = 0.0
+    trader.save_state(state, str(tmp_path / "roller_state.json"))
+    cfg_path = tmp_path / "roller_config.json"
+    cfg_path.write_text(json.dumps(cfg_dict))
+    client = FakeClient(FakeMarket(mid=0.6, bid=0.58))
+    trader.abort(
+        client, str(cfg_path), str(tmp_path / "roller_state.json"), live=True, venue="sim"
+    )
+    sells = [trade for trade in client.trades if trade["action"] == "sell"]
+    assert sells and sells[0]["venue"] == "sim"

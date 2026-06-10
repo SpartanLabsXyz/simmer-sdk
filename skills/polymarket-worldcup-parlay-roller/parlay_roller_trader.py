@@ -386,34 +386,51 @@ def print_status(state_path: str) -> None:
         print(f"  {item['at']}  {item['msg']}")
 
 
-def abort(client, config_path: str, state_path: str, live: bool) -> StreakState:
-    """Cancel working orders, sell held shares at the bid, and mark BANKED."""
+def abort(client, config_path: str, state_path: str, live: bool, venue: str) -> StreakState:
+    """Cancel working orders, sell held shares at the bid, and mark BANKED.
+
+    Dry-run (live=False) only PRINTS what would happen - it never mutates or
+    saves state, so a later live abort (or tick) still sees the real picture.
+    """
     cfg = load_config(config_path, now=None)
     state = load_state(state_path)
     if state is None:
         raise SystemExit("[parlay-roller] nothing to abort - no state file")
     now = now_utc()
 
+    if not live:
+        for kind, order_id in (("entry", state.entry_order_id), ("exit", state.exit_order_id)):
+            if order_id:
+                print(f"[parlay-roller] abort DRY-RUN: would cancel {kind} order {order_id}")
+        if state.shares > 0:
+            print(f"[parlay-roller] abort DRY-RUN: would sell {state.shares:.2f} sh at bid")
+        print("[parlay-roller] abort DRY-RUN: state unchanged; re-run with --live to abort")
+        return state
+
     for order_id in (state.entry_order_id, state.exit_order_id):
-        if order_id and live:
+        if order_id:
             try:
                 client.cancel_order(order_id)
             except Exception as e:
                 print(f"[parlay-roller] warn: cancel {order_id} failed: {e}")
     state.entry_order_id = None
+    state.entry_placed_at = None
+    state.entry_price = None
+    state.entry_amount = None
     state.exit_order_id = None
+    state.exit_price = None
 
     if state.shares > 0:
         leg = cfg.legs[state.leg_index]
         snap = snap_market(client, leg.market_id, leg.side)
         bid = snap.best_bid
-        if bid and live:
+        if bid:
             res = client.trade(
                 market_id=leg.market_id,
                 side=leg.side,
                 action="sell",
                 shares=state.shares,
-                venue=cfg.venue,
+                venue=venue,
                 order_type="GTC",
                 price=round(bid, 3),
                 source=TRADE_SOURCE,
@@ -424,8 +441,6 @@ def abort(client, config_path: str, state_path: str, live: bool) -> StreakState:
             state.cash += round(sold * bid, 6)
             state.shares = max(0.0, state.shares - sold)
             state.log(f"abort: sold {sold:.2f} sh @ {bid:.3f}", now)
-        elif not live:
-            state.log(f"abort DRY-RUN: would sell {state.shares:.2f} sh at bid", now)
         else:
             state.log("abort: no bid available - shares left to resolution", now)
 
@@ -460,7 +475,7 @@ def main() -> None:
 
     client = get_client()
     if args.abort:
-        abort(client, args.config, args.state, live=args.live)
+        abort(client, args.config, args.state, live=args.live, venue=args.venue)
         return
     if not args.once:
         print("[parlay-roller] tip: run with --once from cron; looping mode is not needed for v1.")
