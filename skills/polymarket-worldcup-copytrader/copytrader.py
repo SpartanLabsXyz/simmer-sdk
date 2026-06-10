@@ -29,6 +29,7 @@ import argparse
 import json
 import os
 import sys
+from decimal import Decimal, ROUND_CEILING, ROUND_FLOOR
 
 sys.stdout.reconfigure(line_buffering=True)
 
@@ -94,6 +95,19 @@ def _resolve_max_slippage(raw) -> float:
 MAX_SLIPPAGE = _resolve_max_slippage(_config.get("max_slippage", _SLIPPAGE_DEFAULT))
 
 
+# Coarsest Polymarket tick. The SDK rounds the limit price to the market's
+# NEAREST tick before signing (simmer_sdk/signing.py round_price_to_tick,
+# tick_size ∈ {0.0001, 0.001, 0.01, 0.1} fetched per market) — so a
+# non-tick-aligned cap can sign OUTSIDE the slippage bound (a buy cap of
+# 0.126 on a 1¢-tick market signs at 0.13). The copytrading plan response
+# carries no tick_size and fetching it costs a per-trade market lookup, so
+# we round the cap directionally to the COARSEST tick instead: buys floor,
+# sells ceil — the signed price can then never cross the configured bound
+# on ANY market. On finer-tick markets this gives up <1¢ of headroom,
+# acceptable for a once-daily copytrader (codex pass-5 P1).
+_COARSE_TICK = Decimal("0.01")
+
+
 def _bounded_price(action: str, estimated_price):
     """Marketable-limit price cap for a live polymarket FAK order.
 
@@ -105,10 +119,15 @@ def _bounded_price(action: str, estimated_price):
     that can't fill is recorded server-side as a failed trade ("no liquidity
     at this price") — it never rests on the book.
 
-    Returns None when estimated_price is missing/invalid; the caller must
-    SKIP that trade rather than send an unbounded live order. Clamps stay
-    inside the SDK's accepted price range (0.001–0.999); the SDK rounds to
-    the market's tick grid before signing, so no pre-rounding beyond 4dp.
+    The cap is rounded DIRECTIONALLY to _COARSE_TICK (buys floor, sells
+    ceil) so the SDK's nearest-tick rounding at signing time can never push
+    the signed price outside the bound — see _COARSE_TICK comment. The
+    legacy [0.001, 0.999] clamps apply after rounding, keeping the value
+    inside the SDK's accepted price range.
+
+    Returns None when estimated_price is missing/invalid, or when a buy cap
+    floors below one tick (no expressible tick-safe bound); the caller must
+    SKIP that trade rather than send an unbounded/zero-priced live order.
     """
     try:
         est = float(estimated_price)
@@ -117,8 +136,14 @@ def _bounded_price(action: str, estimated_price):
     if not (0.0 < est < 1.0):
         return None
     if action == "buy":
-        return min(round(est * (1 + MAX_SLIPPAGE), 4), 0.999)
-    return max(round(est * (1 - MAX_SLIPPAGE), 4), 0.001)
+        cap = Decimal(str(round(est * (1 + MAX_SLIPPAGE), 4)))
+        floored = cap.quantize(_COARSE_TICK, rounding=ROUND_FLOOR)
+        if floored < _COARSE_TICK:
+            return None  # cap below one tick — caller skips (no_price_bound)
+        return float(min(floored, Decimal("0.999")))
+    cap = Decimal(str(round(est * (1 - MAX_SLIPPAGE), 4)))
+    ceiled = cap.quantize(_COARSE_TICK, rounding=ROUND_CEILING)
+    return float(max(ceiled, Decimal("0.001")))
 
 
 _automaton_reported = False
@@ -474,8 +499,9 @@ def run(dry_run: bool = True, venue: str = None) -> None:
         if effective_venue == "polymarket":
             trade_price = _bounded_price(action, t.get("estimated_price"))
             if trade_price is None:
-                print(f"  ⚠️  Skipping {title[:40]} — plan has no usable "
-                      f"estimated_price; refusing unbounded live order")
+                print(f"  ⚠️  Skipping {title[:40]} — no usable price bound "
+                      f"(missing estimated_price or cap below one tick); "
+                      f"refusing unbounded live order")
                 t["success"] = False
                 t["error"] = "no_price_bound"
                 continue

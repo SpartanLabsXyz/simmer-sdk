@@ -684,9 +684,44 @@ class TestLivePriceBound(unittest.TestCase):
         mod.run(dry_run=False, venue="polymarket")
         mock_client.trade.assert_called_once()
         kwargs = mock_client.trade.call_args[1]
-        # default plan: estimated_price 0.6, tol 2% → 0.612 cap
-        self.assertEqual(kwargs.get("price"), round(0.6 * 1.02, 4))
+        # default plan: estimated_price 0.6, tol 2% → 0.612 cap, floored to
+        # the coarsest tick (0.01) → 0.61 (codex pass-5 P1: the SDK rounds
+        # to the NEAREST market tick before signing, so a non-tick-aligned
+        # cap could otherwise sign ABOVE the configured bound)
+        self.assertEqual(kwargs.get("price"), 0.61)
         self.assertEqual(kwargs.get("order_type"), "FAK")
+
+    def test_buy_cap_floors_to_coarse_tick(self):
+        """Buy cap 0.126 must floor to 0.12, never round up to 0.13.
+
+        The SDK signs at the NEAREST market tick (round_price_to_tick in
+        simmer_sdk/signing.py); a 0.126 cap on a 1¢-tick market would sign
+        at 0.13 — outside WC_COPYTRADER_MAX_SLIPPAGE. Flooring buys to the
+        coarsest tick (0.01) keeps the signed price inside the bound on
+        ANY market.
+        """
+        mod, _ = _make_skill_module(leaders_response=_leaders_response())
+        # round(0.12353 * 1.02, 4) == 0.126 — the exact cap from the P1 report
+        self.assertEqual(mod._bounded_price("buy", 0.12353), 0.12)
+
+    def test_sell_floor_ceils_to_coarse_tick(self):
+        """Sell floor 0.574 must ceil to 0.58, never round down to 0.57."""
+        mod, _ = _make_skill_module(leaders_response=_leaders_response())
+        # round(0.58571 * 0.98, 4) == 0.574
+        self.assertEqual(mod._bounded_price("sell", 0.58571), 0.58)
+
+    def test_buy_cap_below_one_cent_skips_trade(self):
+        """A buy cap that floors below 0.01 has no expressible tick-safe
+        bound — skip with error=no_price_bound, never send a zero/unbounded
+        price."""
+        plan = self._plan(estimated_price=0.005)
+        mod, mock_client = _make_skill_module(
+            leaders_response=_leaders_response(), plan_response=plan)
+        self.assertIsNone(mod._bounded_price("buy", 0.005))
+        mod.run(dry_run=False, venue="polymarket")
+        mock_client.trade.assert_not_called()
+        self.assertEqual(plan["trades"][0].get("error"), "no_price_bound")
+        self.assertIs(plan["trades"][0].get("success"), False)
 
     def test_buy_price_capped_at_0999(self):
         mod, mock_client = _make_skill_module(
@@ -702,14 +737,18 @@ class TestLivePriceBound(unittest.TestCase):
         mod.run(dry_run=False, venue="polymarket")
         mock_client.trade.assert_called_once()
         kwargs = mock_client.trade.call_args[1]
-        self.assertEqual(kwargs.get("price"), round(0.6 * 0.98, 4))
+        # 0.6 * 0.98 = 0.588, ceiled to the coarsest tick → 0.59
+        self.assertEqual(kwargs.get("price"), 0.59)
 
-    def test_sell_price_floored_at_0001(self):
+    def test_sell_floor_never_below_one_cent(self):
+        """Ceiling to the coarsest tick makes 0.01 the lowest sell bound
+        (more conservative than the old 0.001 clamp — the order is killed
+        rather than filled below a cent)."""
         mod, mock_client = _make_skill_module(
             leaders_response=_leaders_response(),
             plan_response=self._plan(action="sell", estimated_price=0.001))
         mod.run(dry_run=False, venue="polymarket")
-        self.assertEqual(mock_client.trade.call_args[1].get("price"), 0.001)
+        self.assertEqual(mock_client.trade.call_args[1].get("price"), 0.01)
 
     def test_missing_estimated_price_skips_trade(self):
         """Never send an unbounded live order — skip with error=no_price_bound."""
@@ -736,8 +775,8 @@ class TestLivePriceBound(unittest.TestCase):
             leaders_response=_leaders_response(),
             config_overrides={"max_slippage": 0.05})
         mod.run(dry_run=False, venue="polymarket")
-        self.assertEqual(mock_client.trade.call_args[1].get("price"),
-                         round(0.6 * 1.05, 4))
+        # 0.6 * 1.05 = 0.63 — already tick-aligned, floor is a no-op
+        self.assertEqual(mock_client.trade.call_args[1].get("price"), 0.63)
 
     def test_slippage_out_of_range_clamped(self):
         """A fat-fingered tunable can't disable the price bound."""
