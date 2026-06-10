@@ -710,6 +710,21 @@ class TestLivePriceBound(unittest.TestCase):
         # round(0.58571 * 0.98, 4) == 0.574
         self.assertEqual(mod._bounded_price("sell", 0.58571), 0.58)
 
+    def test_buy_cap_boundary_hop_via_intermediate_rounding(self):
+        """round(x, 4) pre-rounding must not hop a cent boundary before the
+        directional floor (codex pass-6 P2): est 0.12745 has a true 2% cap
+        of 0.129999 — flooring must give 0.12, but a 4dp pre-round turns it
+        into 0.1300 and signs at 0.13, one tick outside the bound."""
+        mod, _ = _make_skill_module(leaders_response=_leaders_response())
+        self.assertEqual(mod._bounded_price("buy", 0.12745), 0.12)
+
+    def test_sell_floor_boundary_hop_via_intermediate_rounding(self):
+        """Mirror of the buy boundary hop: est 0.58168 has a true 2% floor
+        of 0.5700464 — ceiling must give 0.58, but a 4dp pre-round of
+        0.5700 would send 0.57, one tick below the bound."""
+        mod, _ = _make_skill_module(leaders_response=_leaders_response())
+        self.assertEqual(mod._bounded_price("sell", 0.58168), 0.58)
+
     def test_buy_cap_below_one_cent_skips_trade(self):
         """A buy cap that floors below 0.01 has no expressible tick-safe
         bound — skip with error=no_price_bound, never send a zero/unbounded

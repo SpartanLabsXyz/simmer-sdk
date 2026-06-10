@@ -135,13 +135,16 @@ def _bounded_price(action: str, estimated_price):
         return None
     if not (0.0 < est < 1.0):
         return None
+    # No intermediate rounding before the directional quantize: round(x, 4)
+    # can hop a cent boundary (0.129999 -> 0.1300) BEFORE the floor/ceil,
+    # leaking one tick past the slippage bound.
     if action == "buy":
-        cap = Decimal(str(round(est * (1 + MAX_SLIPPAGE), 4)))
+        cap = Decimal(str(est)) * (Decimal("1") + Decimal(str(MAX_SLIPPAGE)))
         floored = cap.quantize(_COARSE_TICK, rounding=ROUND_FLOOR)
         if floored < _COARSE_TICK:
             return None  # cap below one tick — caller skips (no_price_bound)
         return float(min(floored, Decimal("0.999")))
-    cap = Decimal(str(round(est * (1 - MAX_SLIPPAGE), 4)))
+    cap = Decimal(str(est)) * (Decimal("1") - Decimal(str(MAX_SLIPPAGE)))
     ceiled = cap.quantize(_COARSE_TICK, rounding=ROUND_CEILING)
     return float(max(ceiled, Decimal("0.001")))
 
