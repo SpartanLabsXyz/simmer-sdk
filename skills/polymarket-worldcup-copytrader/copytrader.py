@@ -68,7 +68,13 @@ _automaton_reported = False
 _client = None
 
 
-def get_client():
+def get_client(venue: str = None):
+    """Return the cached SimmerClient, pinned to the requested venue.
+
+    The CLI --venue flag is authoritative: if the cached singleton was created
+    with a different venue (e.g. fetch_leaders ran before run() resolved the
+    CLI override), re-pin it so client-default venue paths can't drift.
+    """
     global _client
     if _client is None:
         try:
@@ -80,8 +86,9 @@ def get_client():
         if not api_key:
             print("Error: SIMMER_API_KEY not set.  Get yours at simmer.markets/dashboard → SDK tab.")
             sys.exit(1)
-        venue = _resolve_venue()
-        _client = SimmerClient(api_key=api_key, venue=venue)
+        _client = SimmerClient(api_key=api_key, venue=_resolve_venue(venue))
+    elif venue and getattr(_client, "venue", None) != venue:
+        _client.venue = venue
     return _client
 
 
@@ -155,6 +162,9 @@ def run(dry_run: bool = True, venue: str = None) -> None:
     buy_only = str(_config.get("buy_only", "true")).lower() not in ("false", "0", "no")
     detect_exits = str(_config.get("detect_exits", "true")).lower() not in ("false", "0", "no")
 
+    # Pin the client singleton to the effective venue before any client use.
+    client = get_client(effective_venue)
+
     print("\n🌍 World Cup Copytrader — Regular mode")
     print("=" * 50)
 
@@ -196,10 +206,9 @@ def run(dry_run: bool = True, venue: str = None) -> None:
         print("\n  [DRY RUN] Showing trade plan only.  Pass --live to execute.")
 
     # --- balance pre-flight (live polymarket only) ---
-    client = get_client()
     if not dry_run and effective_venue == "polymarket":
         try:
-            preflight = client.ensure_can_trade(min_usd=1.0)
+            preflight = client.ensure_can_trade(min_usd=1.0, venue=effective_venue)
             if not preflight["ok"]:
                 print(f"\n  ⏸️  insufficient_balance: ${preflight['balance']:.2f} "
                       f"{preflight['collateral']} (need ≥ $1.00) — skip")
@@ -302,6 +311,7 @@ def run(dry_run: bool = True, venue: str = None) -> None:
                 action=action,
                 amount=cost if action == "buy" else 0,
                 shares=shares if action == "sell" else 0,
+                venue=effective_venue,
                 order_type="GTC",
                 reasoning=(
                     f"WC Copytrader: {action} {shares:.1f} {side} to mirror WC leaders"

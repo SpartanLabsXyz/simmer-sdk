@@ -23,7 +23,8 @@ from unittest.mock import MagicMock, patch
 # Module loading helpers
 # ---------------------------------------------------------------------------
 
-def _make_skill_module(leaders_response, plan_response=None, trade_success=True):
+def _make_skill_module(leaders_response, plan_response=None, trade_success=True,
+                       config_overrides=None):
     """Return a fresh copytrader module with mocked SimmerClient."""
     # Stub simmer_sdk.skill so the import succeeds without the real package
     skill_stub = types.ModuleType("simmer_sdk.skill")
@@ -34,13 +35,18 @@ def _make_skill_module(leaders_response, plan_response=None, trade_success=True)
         def __str__(self):
             return "/tmp/fake-config.json"
 
-    skill_stub.load_config = lambda schema, file, slug=None: {
+    base_config = {
         "max_usd": 30.0,
         "max_trades": 10,
         "venue": "sim",
         "buy_only": "true",
         "detect_exits": "true",
+        "min_leaders": 1,
     }
+    if config_overrides:
+        base_config.update(config_overrides)
+
+    skill_stub.load_config = lambda schema, file, slug=None: dict(base_config)
     skill_stub.get_config_path = lambda file: FakeConfigPath()
     skill_stub.update_config = lambda updates, file: {}
 
@@ -111,9 +117,69 @@ def _make_skill_module(leaders_response, plan_response=None, trade_success=True)
     return mod, mock_client
 
 
+def _leaders_response(n=1):
+    """Valid copy-leaders response with n leader wallets."""
+    return {
+        "refreshed_at": "2026-06-10T02:00:00+00:00",
+        "leaders": [
+            {"wallet": f"0xwallet{i}", "backtest_copy_pnl_usdc": 50.0,
+             "slippage_cost_rate_pct": 1.0, "trade_count": 12}
+            for i in range(n)
+        ],
+    }
+
+
+def _run_capturing(mod, automaton=True, **run_kwargs):
+    """Run mod.run() capturing printed lines; return the automaton JSON lines."""
+    env = {"SIMMER_API_KEY": "sk_test"}
+    if automaton:
+        env["AUTOMATON_MANAGED"] = "1"
+    with patch.dict(os.environ, env):
+        mod._automaton_reported = False
+        captured = []
+        original_print = print
+
+        def capturing_print(*args, **kwargs):
+            line = " ".join(str(a) for a in args)
+            captured.append(line)
+            original_print(*args, **kwargs)
+
+        with patch("builtins.print", side_effect=capturing_print):
+            mod.run(**run_kwargs)
+
+    json_lines = [l for l in captured if l.strip().startswith('{"automaton"')]
+    return json_lines, captured
+
+
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
+class TestVenueRouting(unittest.TestCase):
+    """--venue must be authoritative end-to-end (codex P1)."""
+
+    def test_cli_polymarket_overrides_sim_default(self):
+        """Config venue sim + --venue polymarket → trade + preflight on polymarket."""
+        mod, mock_client = _make_skill_module(leaders_response=_leaders_response())
+        mod.run(dry_run=False, venue="polymarket")
+        mock_client.trade.assert_called_once()
+        self.assertEqual(mock_client.trade.call_args[1].get("venue"), "polymarket")
+        mock_client.ensure_can_trade.assert_called_once()
+        self.assertEqual(
+            mock_client.ensure_can_trade.call_args[1].get("venue"), "polymarket")
+
+    def test_cli_sim_overrides_polymarket_env(self):
+        """Config/env venue polymarket + --venue sim → trade executes on sim."""
+        mod, mock_client = _make_skill_module(
+            leaders_response=_leaders_response(),
+            config_overrides={"venue": "polymarket"},
+        )
+        mod.run(dry_run=False, venue="sim")
+        mock_client.trade.assert_called_once()
+        self.assertEqual(mock_client.trade.call_args[1].get("venue"), "sim")
+        # sim runs must not be gated by the polymarket balance preflight
+        mock_client.ensure_can_trade.assert_not_called()
+
 
 class TestFetchLeaders(unittest.TestCase):
     """fetch_leaders() response parsing."""
