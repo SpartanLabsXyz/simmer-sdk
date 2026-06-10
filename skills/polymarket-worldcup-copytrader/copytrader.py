@@ -56,7 +56,11 @@ _config = load_config(CONFIG_SCHEMA, __file__, slug=SKILL_SLUG)
 _automaton_max = os.environ.get("AUTOMATON_MAX_BET")
 MAX_USD = _config["max_usd"]
 if _automaton_max:
-    MAX_USD = min(MAX_USD, float(_automaton_max))
+    try:
+        MAX_USD = min(MAX_USD, float(_automaton_max))
+    except (TypeError, ValueError):
+        print(f"⚠️  Ignoring malformed AUTOMATON_MAX_BET={_automaton_max!r}; "
+              f"using ${MAX_USD:.2f}")
 
 MAX_TRADES = _config["max_trades"]
 

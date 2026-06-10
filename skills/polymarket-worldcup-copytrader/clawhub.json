@@ -59,6 +59,13 @@
       "label": "Buy-only mode — 'true' accumulates positions only; 'false' fully rebalances (includes sells)"
     },
     {
+      "env": "WC_COPYTRADER_DETECT_EXITS",
+      "type": "string",
+      "default": "true",
+      "enum": ["true", "false"],
+      "label": "Leader-exit detection — 'true' sells when leaders exit a market; 'false' holds"
+    },
+    {
       "env": "WC_COPYTRADER_MIN_LEADERS",
       "type": "number",
       "default": 5,

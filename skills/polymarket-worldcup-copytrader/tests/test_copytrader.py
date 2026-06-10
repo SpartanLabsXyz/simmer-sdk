@@ -2,12 +2,19 @@
 
 Covers:
 - fetch_leaders parses a valid copy-leaders response
-- fetch_leaders returns [] on cache_empty (503)
-- fetch_leaders returns [] on exception containing '503'
+- fetch_leaders returns [] on the real HTTP 503 (cache not yet computed);
+  unrelated errors re-raise
 - run() exits cleanly when fetch_leaders returns []
 - run() emits automaton JSON on exit when AUTOMATON_MANAGED is set
 - run() calls copytrading/execute with wallets from the leader set
 - automaton block emitted when dry_run + positions found
+- --venue is authoritative end-to-end (trade + preflight venue kwargs)
+- live polymarket preflight failure aborts fail-closed
+- --dry-run overrides --live
+- client-side MAX_TRADES truncation + per-position cap skip
+- WC_COPYTRADER_MIN_LEADERS partial-leader-set gate
+- malformed AUTOMATON_MAX_BET falls back safely
+- clawhub.json tunables cover documented env knobs
 """
 
 import importlib
@@ -500,6 +507,32 @@ class TestAutomatonEmission(unittest.TestCase):
         data = json.loads(lines[0])
         self.assertIn("automaton", data)
         self.assertEqual(data["automaton"]["trades_executed"], 0)
+
+
+class TestAutomatonMaxBetParse(unittest.TestCase):
+    """Malformed AUTOMATON_MAX_BET must not crash the skill at import time."""
+
+    def test_malformed_value_falls_back_to_config_default(self):
+        with patch.dict(os.environ, {"AUTOMATON_MAX_BET": "banana"}):
+            mod, _ = _make_skill_module(leaders_response={})
+        self.assertEqual(mod.MAX_USD, 30.0)
+
+    def test_valid_value_caps_max_usd(self):
+        with patch.dict(os.environ, {"AUTOMATON_MAX_BET": "5"}):
+            mod, _ = _make_skill_module(leaders_response={})
+        self.assertEqual(mod.MAX_USD, 5.0)
+
+
+class TestClawhubManifest(unittest.TestCase):
+    """clawhub.json tunables cover the documented env knobs."""
+
+    def test_tunables_include_documented_envs(self):
+        manifest = os.path.join(os.path.dirname(__file__), "..", "clawhub.json")
+        with open(manifest) as f:
+            data = json.load(f)
+        envs = {t["env"] for t in data.get("tunables", [])}
+        self.assertIn("WC_COPYTRADER_DETECT_EXITS", envs)
+        self.assertIn("WC_COPYTRADER_MIN_LEADERS", envs)
 
 
 class TestSensitivityManifest(unittest.TestCase):
