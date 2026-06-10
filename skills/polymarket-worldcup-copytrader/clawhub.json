@@ -57,6 +57,14 @@
       "default": "true",
       "enum": ["true", "false"],
       "label": "Buy-only mode — 'true' accumulates positions only; 'false' fully rebalances (includes sells)"
+    },
+    {
+      "env": "WC_COPYTRADER_MIN_LEADERS",
+      "type": "number",
+      "default": 5,
+      "range": [1, 10],
+      "step": 1,
+      "label": "Minimum curated leaders required to trade — below this the run exits cleanly (degraded curation cache guard)"
     }
   ]
 }

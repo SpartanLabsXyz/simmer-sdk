@@ -110,6 +110,7 @@ openclaw cron add --name "wc-copytrader" --cron "0 3 * * *" --tz UTC \
 | `WC_COPYTRADER_MAX_TRADES` | `10` | Max trades per run. |
 | `WC_COPYTRADER_BUY_ONLY` | `true` | Buy-only mode. Set `false` for full rebalance. |
 | `WC_COPYTRADER_DETECT_EXITS` | `true` | Sell when leaders exit. |
+| `WC_COPYTRADER_MIN_LEADERS` | `5` | Minimum curated leaders required to trade. Below this the run exits cleanly (degraded-cache guard). |
 | `WALLET_PRIVATE_KEY` | — | External / self-custody Polymarket key (Polymarket venue only). |
 
 ## Options

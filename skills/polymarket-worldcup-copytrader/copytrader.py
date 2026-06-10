@@ -47,6 +47,7 @@ CONFIG_SCHEMA = {
     "venue":           {"env": "TRADING_VENUE",                   "default": "sim",     "type": str},
     "buy_only":        {"env": "WC_COPYTRADER_BUY_ONLY",         "default": "true",     "type": str},
     "detect_exits":    {"env": "WC_COPYTRADER_DETECT_EXITS",     "default": "true",     "type": str},
+    "min_leaders":     {"env": "WC_COPYTRADER_MIN_LEADERS",      "default": 5,          "type": int},
 }
 
 _config = load_config(CONFIG_SCHEMA, __file__, slug=SKILL_SLUG)
@@ -188,6 +189,21 @@ def run(dry_run: bool = True, venue: str = None) -> None:
             print(json.dumps({"automaton": {
                 "signals": 0, "trades_attempted": 0, "trades_executed": 0,
                 "skip_reason": "leaders_cache_empty",
+            }}))
+            _automaton_reported = True
+        return
+
+    # Partial leader set = the curation cache looks degraded (cold-start or a
+    # broken curation run). Don't copy a thin set — exit and retry next run.
+    min_leaders = int(_config.get("min_leaders") or 5)
+    if 0 < len(wallets) < min_leaders:
+        print(f"⚠️  Only {len(wallets)} leader(s) in the curated set "
+              f"(min {min_leaders}) — the curation cache looks degraded. "
+              "Exiting cleanly; will retry on the next scheduled run.")
+        if os.environ.get("AUTOMATON_MANAGED"):
+            print(json.dumps({"automaton": {
+                "signals": 0, "trades_attempted": 0, "trades_executed": 0,
+                "skip_reason": "partial_leader_set",
             }}))
             _automaton_reported = True
         return

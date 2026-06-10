@@ -348,6 +348,36 @@ class TestRunLive(unittest.TestCase):
         self.assertEqual(kwargs["skill_slug"], "polymarket-worldcup-copytrader")
 
 
+class TestPartialLeaderSetGate(unittest.TestCase):
+    """WC_COPYTRADER_MIN_LEADERS gates degraded curation caches (codex P2)."""
+
+    def test_partial_leader_set_exits_cleanly(self):
+        mod, mock_client = _make_skill_module(
+            leaders_response=_leaders_response(2),
+            config_overrides={"min_leaders": 5},
+        )
+        json_lines, captured = _run_capturing(mod, dry_run=True)
+        # No trade plan requested, no trades
+        for call in mock_client._request.call_args_list:
+            self.assertNotIn("copytrading/execute", str(call))
+        mock_client.trade.assert_not_called()
+        # Automaton skip block with the right reason
+        self.assertEqual(len(json_lines), 1)
+        data = json.loads(json_lines[0])
+        self.assertEqual(data["automaton"]["skip_reason"], "partial_leader_set")
+        # Message mentions the degraded curation cache
+        self.assertTrue(any("degraded" in l for l in captured))
+
+    def test_full_leader_set_proceeds(self):
+        mod, mock_client = _make_skill_module(
+            leaders_response=_leaders_response(5),
+            config_overrides={"min_leaders": 5},
+        )
+        mod.run(dry_run=True)
+        paths_called = [str(c) for c in mock_client._request.call_args_list]
+        self.assertTrue(any("copytrading/execute" in p for p in paths_called))
+
+
 class TestClientSideCaps(unittest.TestCase):
     """Belt-and-braces client-side enforcement of MAX_TRADES + per-position cap (codex P2)."""
 
