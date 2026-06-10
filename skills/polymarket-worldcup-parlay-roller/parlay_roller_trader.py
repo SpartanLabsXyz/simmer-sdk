@@ -404,6 +404,17 @@ def execute(
                 now=now,
             )
         else:
+            if not order_id:
+                # Accepted, zero fill, no order id: the order may be live
+                # on-venue but cannot be tracked. Re-placing next tick could
+                # double-buy - PAUSE for manual review.
+                state.phase = "PAUSED"
+                state.log(
+                    "PAUSED: entry accepted with no fill and no order id - "
+                    "untrackable; manual review",
+                    now,
+                )
+                return
             state.entry_order_id = order_id
             state.entry_placed_at = now
             state.entry_price = action.price
@@ -483,24 +494,49 @@ def execute(
             print(f"[parlay-roller] exit rejected: {getattr(res, 'error', None)}")
             return
         sold = getattr(res, "shares_sold", 0.0) or 0.0
+        order_id = getattr(res, "order_id", None)
         if sold >= action.shares - 1e-6 and sold > 0:
             apply_exit_proceeds(state, cfg, proceeds=round(sold * action.price, 6), now=now)
         elif sold > 1e-6:
             # Partial fill: bank the sold portion, keep settling the remainder.
             # The leg only advances when the LAST fill lands (apply_exit_proceeds
-            # accumulates into cash). The resting remainder keeps its order id so
-            # reconcile owns it - re-placing here could double-sell.
+            # accumulates into cash). With an order id the resting remainder is
+            # reconcile's to own - re-placing here could double-sell. Without
+            # one the remainder is untrackable -> PAUSED (mirror of the
+            # partial-entry path).
             state.shares = round(state.shares - sold, 6)
             state.cash = round(state.cash + sold * action.price, 6)
-            state.exit_order_id = getattr(res, "order_id", None)
-            state.exit_price = action.price
-            state.log(
-                f"exit partial fill: {sold:.2f} sh @ {action.price:.3f}; "
-                f"{state.shares:.2f} sh remaining",
-                now,
-            )
+            if order_id:
+                state.exit_order_id = order_id
+                state.exit_price = action.price
+                state.log(
+                    f"exit partial fill: {sold:.2f} sh @ {action.price:.3f}; "
+                    f"{state.shares:.2f} sh remaining",
+                    now,
+                )
+            else:
+                state.exit_order_id = None
+                state.exit_price = None
+                state.phase = "PAUSED"
+                state.log(
+                    f"PAUSED: exit partial fill ({sold:.2f} sh @ {action.price:.3f}) "
+                    f"with untrackable remainder ({state.shares:.2f} sh, no order id) "
+                    "- manual review",
+                    now,
+                )
         else:
-            state.exit_order_id = getattr(res, "order_id", None)
+            if not order_id:
+                # Same hazard as the entry side: an accepted sell with no fill
+                # and no order id cannot be tracked; re-selling next tick could
+                # double-sell. PAUSE for manual review.
+                state.phase = "PAUSED"
+                state.log(
+                    "PAUSED: exit accepted with no fill and no order id - "
+                    "untrackable; manual review",
+                    now,
+                )
+                return
+            state.exit_order_id = order_id
             state.exit_price = action.price
             state.log(f"exit resting: {action.shares:.2f} sh @ {action.price:.3f}", now)
         return

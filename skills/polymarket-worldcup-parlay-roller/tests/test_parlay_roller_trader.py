@@ -692,6 +692,87 @@ def test_partial_exit_fill_accumulates_and_keeps_settling(tmp_path):
     assert new_state.exit_price == pytest.approx(0.975)
 
 
+def settling_state(cfg, shares=50.0):
+    state = StreakState.fresh(cfg)
+    state.phase = "LEG_OPEN"
+    state.cash = 0.0
+    state.shares = shares
+    return state
+
+
+class SellResultClient(FakeClient):
+    """Sell returns a fixed result; buys behave like FakeClient."""
+
+    def __init__(self, market=None, sell_result=None):
+        super().__init__(market)
+        self.sell_result = sell_result
+
+    def trade(self, **kw):
+        self.trades.append(kw)
+        if kw.get("action") == "sell":
+            return self.sell_result
+        return FakeResult(shares_bought=round(kw["amount"] / kw["price"], 2))
+
+
+def test_partial_exit_fill_without_order_id_pauses(tmp_path):
+    """0 < sold < requested AND no order id for the remainder: mirror the
+    entry path - credit the partial proceeds, then PAUSE (untrackable)."""
+    cfg_dict = example_config_dict()
+    cfg = RollerConfig.from_dict(cfg_dict)
+    state = settling_state(cfg)
+    at = cfg.legs[0].expected_end + timedelta(minutes=10)
+    client = SellResultClient(
+        FakeMarket(mid=0.98, bid=0.975),
+        sell_result=FakeResult(order_id=None, shares_sold=20.0),
+    )
+    new_state = run_tick(tmp_path, client, cfg_dict=cfg_dict, state=state, at=at)
+    assert new_state.phase == "PAUSED"
+    assert new_state.shares == pytest.approx(30.0)
+    assert new_state.cash == pytest.approx(20.0 * 0.975)  # partial proceeds kept
+    assert new_state.exit_order_id is None
+    assert new_state.leg_index == 0  # never advanced
+    assert "untrackable" in new_state.history[-1]["msg"]
+
+
+def test_exit_zero_fill_without_order_id_pauses(tmp_path):
+    """success=True, zero fill, no order id: the sell may be live on-venue but
+    cannot be tracked - PAUSE instead of re-selling next tick (double-sell)."""
+    cfg_dict = example_config_dict()
+    cfg = RollerConfig.from_dict(cfg_dict)
+    state = settling_state(cfg)
+    at = cfg.legs[0].expected_end + timedelta(minutes=10)
+    client = SellResultClient(
+        FakeMarket(mid=0.98, bid=0.975),
+        sell_result=FakeResult(order_id=None, shares_sold=0.0),
+    )
+    new_state = run_tick(tmp_path, client, cfg_dict=cfg_dict, state=state, at=at)
+    assert new_state.phase == "PAUSED"
+    assert new_state.shares == pytest.approx(50.0)
+    assert new_state.cash == pytest.approx(0.0)
+    assert new_state.exit_order_id is None
+    assert "untrackable" in new_state.history[-1]["msg"]
+
+
+def test_entry_zero_fill_without_order_id_pauses(tmp_path):
+    """Same hazard on the buy side: an accepted-but-unfilled entry with no
+    order id would be re-placed next tick (double-buy). PAUSE instead."""
+
+    class BuyNoIdClient(FakeClient):
+        def trade(self, **kw):
+            self.trades.append(kw)
+            if kw.get("action") == "buy":
+                return FakeResult(order_id=None, shares_bought=0.0)
+            return FakeResult(shares_sold=kw.get("shares", 0.0))
+
+    client = BuyNoIdClient(FakeMarket(mid=0.40))
+    state = run_tick(tmp_path, client)
+    assert state.phase == "PAUSED"
+    assert state.shares == 0.0
+    assert state.cash == pytest.approx(25.0)  # nothing debited
+    assert state.entry_order_id is None
+    assert "untrackable" in state.history[-1]["msg"]
+
+
 def test_followup_full_fill_advances_with_total_proceeds(tmp_path):
     """After a partial, the resting remainder filling advances with TOTAL proceeds."""
     cfg_dict = example_config_dict()
