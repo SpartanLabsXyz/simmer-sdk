@@ -621,6 +621,34 @@ class TestOrderType(unittest.TestCase):
         self.assertNotIn('order_type="GTD"', src)
 
 
+class TestAutoRedeemGate(unittest.TestCase):
+    """auto_redeem() broadcasts real Polymarket redemption txs — it must run
+    only on LIVE polymarket runs (codex pass-3 P2). Dry-run announces what it
+    would do; sim venue skips entirely (no on-chain redemption exists there).
+    """
+
+    def test_dry_run_polymarket_never_calls_auto_redeem(self):
+        mod, mock_client = _make_skill_module(leaders_response=_leaders_response())
+        _, captured = _run_capturing(mod, dry_run=True, venue="polymarket")
+        mock_client.auto_redeem.assert_not_called()
+        self.assertTrue(any("would auto-redeem" in l for l in captured))
+
+    def test_dry_run_sim_never_calls_auto_redeem(self):
+        mod, mock_client = _make_skill_module(leaders_response=_leaders_response())
+        mod.run(dry_run=True, venue="sim")
+        mock_client.auto_redeem.assert_not_called()
+
+    def test_live_polymarket_calls_auto_redeem(self):
+        mod, mock_client = _make_skill_module(leaders_response=_leaders_response())
+        mod.run(dry_run=False, venue="polymarket")
+        mock_client.auto_redeem.assert_called_once()
+
+    def test_live_sim_does_not_call_auto_redeem(self):
+        mod, mock_client = _make_skill_module(leaders_response=_leaders_response())
+        mod.run(dry_run=False, venue="sim")
+        mock_client.auto_redeem.assert_not_called()
+
+
 class TestAutomatonEmission(unittest.TestCase):
     """Automaton JSON emitted correctly."""
 

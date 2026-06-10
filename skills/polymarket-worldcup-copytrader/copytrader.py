@@ -299,14 +299,21 @@ def run(dry_run: bool = True, venue: str = None) -> None:
     else:
         effective_max = MAX_USD
 
-    # --- redeem winning positions ---
-    try:
-        redeemed = client.auto_redeem()
-        for r in redeemed:
-            if r.get("success"):
-                print(f"  💰 Redeemed {r['market_id'][:8]}… ({r.get('side', '?')})")
-    except Exception:
-        pass
+    # --- redeem winning positions (LIVE polymarket only) ---
+    # auto_redeem() broadcasts real Polymarket redemption transactions, so it
+    # must never run in dry-run mode or against the sim venue (sim has no
+    # on-chain redemption — winnings settle automatically).
+    if effective_venue == "polymarket":
+        if dry_run:
+            print("\n  💤 DRY-RUN: would auto-redeem resolved positions")
+        else:
+            try:
+                redeemed = client.auto_redeem()
+                for r in redeemed:
+                    if r.get("success"):
+                        print(f"  💰 Redeemed {r['market_id'][:8]}… ({r.get('side', '?')})")
+            except Exception:
+                pass
 
     # --- build trade plan (server-side copytrading engine) ---
     print("\n📡 Requesting trade plan…")
