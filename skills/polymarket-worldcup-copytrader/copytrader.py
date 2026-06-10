@@ -385,9 +385,10 @@ def run(dry_run: bool = True, venue: str = None) -> None:
         try:
             preflight = client.ensure_can_trade(min_usd=1.0, venue=effective_venue)
             if not preflight["ok"]:
-                if buy_only:
+                if buy_only and not detect_exits:
                     print(f"\n  ⏸️  insufficient_balance: ${preflight['balance']:.2f} "
-                          f"{preflight['collateral']} (need ≥ $1.00) — skip (buy-only)")
+                          f"{preflight['collateral']} (need ≥ $1.00) — skip "
+                          f"(buy-only, exit detection off)")
                     if os.environ.get("AUTOMATON_MANAGED"):
                         print(json.dumps({"automaton": {
                             "signals": 0, "trades_attempted": 0, "trades_executed": 0,

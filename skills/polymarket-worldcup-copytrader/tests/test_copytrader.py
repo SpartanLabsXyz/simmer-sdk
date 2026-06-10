@@ -247,12 +247,30 @@ class TestSellOnlyExitsWithLowCollateral(unittest.TestCase):
         mock_client.ensure_can_trade.return_value = {
             "ok": False, "balance": 0.4, "collateral": "USDC",
             "reason": "insufficient_balance"}
-        # buy_only defaults to true — whole run skips, plan never requested
+        # whole-run skip requires buy_only AND exit detection off — with
+        # detect_exits on (the default), exit sells must still be planned
+        mod._config["detect_exits"] = "false"
         mod.run(dry_run=False, venue="polymarket")
         mock_client.trade.assert_not_called()
         plan_calls = [c for c in mock_client._request.call_args_list
                       if "copytrading/execute" in str(c)]
         self.assertEqual(plan_calls, [])
+
+    def test_default_config_low_balance_still_plans_exit_sells(self):
+        """buy_only=true + detect_exits=true (BOTH defaults): low collateral
+        must still request the plan and execute exit sells (codex pass-10
+        P1) — buy_only governs entry mirroring, not exit sells."""
+        plan = self._mixed_plan()
+        mod, mock_client = _make_skill_module(
+            leaders_response=_leaders_response(), plan_response=plan)
+        mock_client.ensure_can_trade.return_value = {
+            "ok": False, "balance": 0.4, "collateral": "USDC",
+            "reason": "insufficient_balance"}
+        # defaults: buy_only true, detect_exits true — touch nothing
+        mod.run(dry_run=False, venue="polymarket")
+        executed = [c[1] for c in mock_client.trade.call_args_list]
+        self.assertEqual(len(executed), 1)
+        self.assertEqual(executed[0]["action"], "sell")
 
     def test_preflight_error_still_aborts_sells_too(self):
         plan = self._mixed_plan()
