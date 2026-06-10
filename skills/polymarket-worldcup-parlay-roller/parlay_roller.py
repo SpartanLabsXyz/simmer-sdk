@@ -131,7 +131,14 @@ PHASES = ("CONFIGURED", "LEG_OPEN", "SETTLING", "COMPLETE", "BUSTED", "BANKED", 
 
 @dataclass
 class MarketSnap:
-    """What the trader observed about the current leg's market this tick."""
+    """What the trader observed about the current leg's market this tick.
+
+    mid/best_bid/best_ask are SIDE-RELATIVE: the trader converts YES-outcome
+    SDK quotes to the configured leg side's prices before building the snap
+    (for a "no" leg: no_mid = 1 - yes_mid, no_bid = 1 - yes_ask,
+    no_ask = 1 - yes_bid). resolved_yes stays ABSOLUTE; decide() maps it
+    through leg.side.
+    """
 
     mid: Optional[float]
     best_bid: Optional[float]

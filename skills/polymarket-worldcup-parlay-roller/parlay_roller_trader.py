@@ -98,24 +98,46 @@ def get_client():
     return SimmerClient(api_key=api_key)
 
 
-def snap_market(client, market_id: str) -> MarketSnap:
+def _invert_price(p: Optional[float]) -> Optional[float]:
+    """YES-side price -> NO-side price. None propagates."""
+    if p is None:
+        return None
+    return max(0.0, min(1.0, round(1.0 - p, 6)))
+
+
+def snap_market(client, market_id: str, side: str) -> MarketSnap:
+    """Snapshot a market in the configured side's terms.
+
+    SDK quotes (current_probability / best_bid / best_ask) are YES-outcome
+    values. For a "no" leg the returned mid/best_bid/best_ask are converted to
+    NO-side prices (no_mid = 1 - yes_mid, no_bid = 1 - yes_ask,
+    no_ask = 1 - yes_bid). resolved_yes stays ABSOLUTE - decide() maps it
+    through leg.side.
+    """
     market = client.get_market_by_id(market_id)
     if market is None:
         return MarketSnap(mid=None, best_bid=None, best_ask=None, status="missing", resolved_yes=None)
 
-    mid = getattr(market, "current_probability", None)
+    yes_mid = getattr(market, "current_probability", None)
+    yes_bid = getattr(market, "best_bid", None)
+    yes_ask = getattr(market, "best_ask", None)
     status = (getattr(market, "status", "") or "").lower()
     resolved_yes = getattr(market, "resolved_yes", None)
     if resolved_yes is None and status in ("resolved", "settled"):
-        if mid is not None and mid >= 0.99:
+        if yes_mid is not None and yes_mid >= 0.99:
             resolved_yes = True
-        elif mid is not None and mid <= 0.01:
+        elif yes_mid is not None and yes_mid <= 0.01:
             resolved_yes = False
+
+    if side == "no":
+        mid, best_bid, best_ask = _invert_price(yes_mid), _invert_price(yes_ask), _invert_price(yes_bid)
+    else:
+        mid, best_bid, best_ask = yes_mid, yes_bid, yes_ask
 
     return MarketSnap(
         mid=mid,
-        best_bid=getattr(market, "best_bid", None),
-        best_ask=getattr(market, "best_ask", None),
+        best_bid=best_bid,
+        best_ask=best_ask,
         status=status,
         resolved_yes=resolved_yes,
     )
@@ -274,7 +296,8 @@ def tick(
         if state.phase in ("COMPLETE", "BUSTED", "BANKED", "PAUSED"):
             print(f"[parlay-roller] terminal phase {state.phase} - nothing to do")
             return state
-        snap = snap_market(client, cfg.legs[state.leg_index].market_id)
+        leg = cfg.legs[state.leg_index]
+        snap = snap_market(client, leg.market_id, leg.side)
         action = decide(state, cfg, snap, now)
         execute(client, action, state, cfg, state.leg_index, live, venue, now)
         if action.kind == "cancel_entry":
@@ -317,7 +340,7 @@ def abort(client, config_path: str, state_path: str, live: bool) -> StreakState:
 
     if state.shares > 0:
         leg = cfg.legs[state.leg_index]
-        snap = snap_market(client, leg.market_id)
+        snap = snap_market(client, leg.market_id, leg.side)
         bid = snap.best_bid
         if bid and live:
             res = client.trade(
