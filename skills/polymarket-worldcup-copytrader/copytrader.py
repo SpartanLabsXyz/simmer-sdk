@@ -467,7 +467,8 @@ def main() -> None:
         print_leaders()
         return
 
-    dry_run = not args.live
+    # --dry-run is authoritative: `--live --dry-run` runs DRY.
+    dry_run = args.dry_run or not args.live
     run(dry_run=dry_run, venue=args.venue)
 
     if os.environ.get("AUTOMATON_MANAGED") and not _automaton_reported:

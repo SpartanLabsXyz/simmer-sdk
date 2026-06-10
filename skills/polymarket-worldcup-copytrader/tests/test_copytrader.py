@@ -311,6 +311,25 @@ class TestRunDryRun(unittest.TestCase):
                 break
 
 
+class TestDryRunFlag(unittest.TestCase):
+    """--dry-run is authoritative even when combined with --live (codex P2)."""
+
+    def test_live_plus_dry_run_runs_dry(self):
+        mod, mock_client = _make_skill_module(leaders_response=_leaders_response())
+        with patch.object(sys, "argv", ["copytrader.py", "--live", "--dry-run"]):
+            mod.main()
+        mock_client.trade.assert_not_called()
+        # The dry-run plan is still requested
+        paths_called = [str(c) for c in mock_client._request.call_args_list]
+        self.assertTrue(any("copytrading/execute" in p for p in paths_called))
+
+    def test_live_alone_executes(self):
+        mod, mock_client = _make_skill_module(leaders_response=_leaders_response())
+        with patch.object(sys, "argv", ["copytrader.py", "--live"]):
+            mod.main()
+        mock_client.trade.assert_called_once()
+
+
 class TestRunLive(unittest.TestCase):
     """run() in live mode."""
 
