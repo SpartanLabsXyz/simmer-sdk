@@ -228,6 +228,68 @@ def held_position_shares(positions, market_id: str, side: str) -> float:
     return total
 
 
+def _verify_cancelled_entry_fills(client, state: StreakState, leg, venue: str, now: datetime):
+    """Credit any shares that filled while a now-cancelled ENTRY order rested.
+
+    A venue-confirmed cancel kills only the RESIDUAL of a resting order: the
+    order can partially fill while it sits in the open book (where reconcile
+    skips it), so clearing tracking blind would discard the filled shares -
+    re-entering with already-spent funds, or abort BANKing while still holding.
+    Compare venue-held shares against what state already credited and credit
+    the excess at the order's resting limit price (limit fills cannot be worse
+    than the limit). Works on sim too - get_positions is venue-parameterized.
+
+    Returns (verified, detail). verified=False (get_positions failed, or a
+    fill was detected but the resting price is missing from state) means
+    holdings are UNKNOWN and the caller must NOT clear order tracking.
+    """
+    try:
+        positions = client.get_positions(venue=venue)
+    except Exception as e:
+        return False, str(e)
+    held = held_position_shares(positions, leg.market_id, leg.side)
+    delta = round(held - state.shares, 6)
+    if delta > 1e-6:
+        if state.entry_price is None:
+            return False, f"{delta:.2f} sh filled while resting but entry_price missing from state"
+        spent = round(delta * state.entry_price, 6)
+        state.shares = round(held, 6)
+        state.cash = max(0.0, round(state.cash - spent, 6))
+        state.log(
+            f"entry filled {delta:.2f} sh while resting (venue-verified at cancel): "
+            f"debited ${spent:.2f} @ {state.entry_price:.3f}",
+            now,
+        )
+    return True, ""
+
+
+def _verify_cancelled_exit_fills(client, state: StreakState, leg, venue: str, now: datetime):
+    """Mirror of _verify_cancelled_entry_fills for a cancelled EXIT order.
+
+    A partial sell while the exit rested leaves venue-held shares BELOW
+    state.shares: reduce shares to the venue's count and credit the proceeds
+    at the resting exit price. Same (verified, detail) contract.
+    """
+    try:
+        positions = client.get_positions(venue=venue)
+    except Exception as e:
+        return False, str(e)
+    held = held_position_shares(positions, leg.market_id, leg.side)
+    delta = round(state.shares - held, 6)
+    if delta > 1e-6:
+        if state.exit_price is None:
+            return False, f"{delta:.2f} sh sold while resting but exit_price missing from state"
+        proceeds = round(delta * state.exit_price, 6)
+        state.shares = max(0.0, round(held, 6))
+        state.cash = round(state.cash + proceeds, 6)
+        state.log(
+            f"exit sold {delta:.2f} sh while resting (venue-verified at cancel): "
+            f"credited ${proceeds:.2f} @ {state.exit_price:.3f}",
+            now,
+        )
+    return True, ""
+
+
 def _open_order_ids(open_orders) -> set:
     """Normalize a get_open_orders() response into a set of order id strings."""
     if isinstance(open_orders, dict):
@@ -380,6 +442,18 @@ def execute(
                     "still be live, manual review",
                     now,
                 )
+            return
+        # A confirmed cancel kills only the RESIDUAL: the order may have
+        # partially filled while it rested (its id stayed in the open book,
+        # so reconcile never saw a fill). Verify holdings against the venue
+        # before clearing tracking - clearing blind would lose the filled
+        # shares and re-enter with already-spent funds.
+        verified, vdetail = _verify_cancelled_entry_fills(client, state, leg, venue, now)
+        if not verified:
+            print(
+                f"[parlay-roller] warn: cancel confirmed but fill verification "
+                f"unavailable ({vdetail}); keeping order for next tick"
+            )
             return
         state.cancel_failures = 0  # confirmed cancel
         state.entry_order_id = None
@@ -555,6 +629,14 @@ def abort(client, config_path: str, state_path: str, live: bool, venue: str) -> 
     streak goes PAUSED with the order id(s) kept - terminalizing while shares
     or an unknown order may be live would lie about the streak's exposure.
 
+    A CONFIRMED cancel only kills the order's residual: fills that landed
+    while it rested are detected by verifying holdings against the venue
+    (entry: held > state.shares -> credit the delta at the resting limit;
+    exit: held < state.shares -> reduce shares, credit proceeds at the
+    resting exit price) BEFORE clearing tracking. If that verification is
+    unavailable, the streak goes PAUSED with tracking kept - selling or
+    BANKing on unverified holdings could mis-dispose.
+
     Dry-run (live=False) only PRINTS what would happen - it never mutates or
     saves state, so a later live abort (or tick) still sees the real picture.
     """
@@ -576,33 +658,58 @@ def abort(client, config_path: str, state_path: str, live: bool, venue: str) -> 
     state.live_streak = True  # live abort mutates the streak
 
     failed_cancels = []
+    verify_failures = []
+
+    def _verify(kind: str, order_id: str, verify_fn) -> bool:
+        """Run post-cancel fill verification for the current leg. False means
+        holdings are unknown and the order's tracking must be kept."""
+        if state.leg_index >= len(cfg.legs):
+            verify_failures.append((kind, order_id, "state leg_index outside config"))
+            return False
+        ok, vdetail = verify_fn(client, state, cfg.legs[state.leg_index], venue, now)
+        if not ok:
+            verify_failures.append((kind, order_id, vdetail))
+        return ok
+
     if state.entry_order_id:
         confirmed, detail = cancel_confirmed(client, state.entry_order_id)
-        if confirmed:
+        if not confirmed:
+            failed_cancels.append(("entry", state.entry_order_id, detail))
+        elif _verify("entry", state.entry_order_id, _verify_cancelled_entry_fills):
             state.entry_order_id = None
             state.entry_placed_at = None
             state.entry_price = None
             state.entry_amount = None
-        else:
-            failed_cancels.append(("entry", state.entry_order_id, detail))
     if state.exit_order_id:
         confirmed, detail = cancel_confirmed(client, state.exit_order_id)
-        if confirmed:
+        if not confirmed:
+            failed_cancels.append(("exit", state.exit_order_id, detail))
+        elif _verify("exit", state.exit_order_id, _verify_cancelled_exit_fills):
             state.exit_order_id = None
             state.exit_price = None
-        else:
-            failed_cancels.append(("exit", state.exit_order_id, detail))
 
-    if failed_cancels:
-        # Verify-or-pause: an order we could not confirm cancelled may still be
-        # live. Selling held shares now could double-dispose, and BANKED would
-        # be a lie. Pause and hand it to the operator.
+    if failed_cancels or verify_failures:
+        # Verify-or-pause: an order we could not confirm cancelled may still
+        # be live, and a confirmed cancel with unverifiable fills leaves the
+        # real holding unknown. Selling now could mis-dispose, and BANKED
+        # would be a lie. Pause and hand it to the operator.
         for kind, order_id, detail in failed_cancels:
             print(f"[parlay-roller] !! abort: {kind} order {order_id} cancel UNCONFIRMED: {detail}")
-        reason = (
-            "abort incomplete: working order(s) could not be cancelled - "
-            "verify on-venue before re-running --abort"
-        )
+        for kind, order_id, detail in verify_failures:
+            print(
+                f"[parlay-roller] !! abort: {kind} order {order_id} cancel confirmed "
+                f"but fill verification unavailable: {detail}"
+            )
+        if failed_cancels:
+            reason = (
+                "abort incomplete: working order(s) could not be cancelled - "
+                "verify on-venue before re-running --abort"
+            )
+        else:
+            reason = (
+                "abort incomplete: cancel confirmed but fill verification "
+                "unavailable - verify holdings on-venue before re-running --abort"
+            )
         state.phase = "PAUSED"
         state.log(f"PAUSED: {reason}", now)
         print(f"[parlay-roller] !! {reason}")

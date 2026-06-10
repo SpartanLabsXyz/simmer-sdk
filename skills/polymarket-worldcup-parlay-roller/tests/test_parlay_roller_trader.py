@@ -562,6 +562,71 @@ def test_partial_entry_then_window_close_cancels_residual_only(tmp_path):
     assert client.trades == []  # no re-entry, no sell
 
 
+class PositionsDownClient(FakeClient):
+    """cancel_order confirms, but get_positions is unavailable."""
+
+    def get_positions(self, venue=None, source=None):
+        raise OSError("positions api down")
+
+
+def test_ttl_cancel_credits_fill_that_landed_while_resting(tmp_path):
+    """An entry can PARTIALLY fill while it rests (id still in the open book,
+    so reconcile skips it). A confirmed TTL cancel kills only the residual -
+    the filled shares must be venue-verified and credited, cash debited once
+    at the resting limit, and no re-entry placed with the spent funds."""
+    cfg = RollerConfig.from_dict(example_config_dict())
+    state = resting_entry_state(cfg, placed_at=NOW - timedelta(seconds=300))
+    client = FakeClient(FakeMarket(mid=0.40))
+    client.open_orders = {"orders": [{"order_id": "ord-1"}]}  # still on the book
+    client.positions = [{"market_id": "m0", "shares_yes": 12.0, "shares_no": 0.0}]
+    new_state = run_tick(tmp_path, client, state=state)
+    assert "ord-1" in client.cancelled
+    assert new_state.shares == pytest.approx(12.0)
+    assert new_state.cash == pytest.approx(25.0 - 12.0 * 0.41)  # debited once
+    assert new_state.entry_order_id is None
+    assert new_state.phase == "LEG_OPEN"
+    assert client.trades == []  # no re-entry overspend
+
+
+def test_ttl_cancel_after_partial_credits_only_the_delta(tmp_path):
+    """Partial already credited 20 sh; 6 more filled while the residual rested.
+    The confirmed cancel must credit ONLY the 6-share delta."""
+    cfg = RollerConfig.from_dict(example_config_dict())
+    state = StreakState.fresh(cfg)
+    state.phase = "LEG_OPEN"
+    state.shares = 20.0
+    state.cash = 16.8
+    state.entry_order_id = "ord-2"
+    state.entry_placed_at = NOW - timedelta(seconds=300)  # past TTL
+    state.entry_price = 0.41
+    state.entry_amount = 16.8
+    client = FakeClient(FakeMarket(mid=0.40))
+    client.open_orders = {"orders": [{"order_id": "ord-2"}]}
+    client.positions = [{"market_id": "m0", "shares_yes": 26.0, "shares_no": 0.0}]
+    new_state = run_tick(tmp_path, client, state=state)
+    assert new_state.shares == pytest.approx(26.0)
+    assert new_state.cash == pytest.approx(round(16.8 - 6.0 * 0.41, 6))
+    assert new_state.entry_order_id is None
+    assert client.trades == []
+
+
+def test_ttl_cancel_verification_failure_keeps_order_id(tmp_path, capsys):
+    """Cancel confirmed but get_positions down: holdings are UNKNOWN, so
+    tracking must NOT be cleared - the next tick retries."""
+    cfg = RollerConfig.from_dict(example_config_dict())
+    state = resting_entry_state(cfg, placed_at=NOW - timedelta(seconds=300))
+    client = PositionsDownClient(FakeMarket(mid=0.40))
+    client.open_orders = {"orders": [{"order_id": "ord-1"}]}
+    new_state = run_tick(tmp_path, client, state=state)
+    assert "ord-1" in client.cancelled  # the cancel itself was confirmed
+    assert new_state.entry_order_id == "ord-1"  # kept: fill unknown
+    assert new_state.shares == 0.0
+    assert new_state.cash == pytest.approx(25.0)
+    assert new_state.phase == "LEG_OPEN"  # not terminal; next tick retries
+    assert client.trades == []
+    assert "fill verification unavailable" in capsys.readouterr().out
+
+
 def test_reconcile_treats_absent_exit_order_as_filled(tmp_path):
     cfg_dict = example_config_dict()
     cfg = RollerConfig.from_dict(cfg_dict)
@@ -991,6 +1056,86 @@ def test_abort_full_fill_banks(tmp_path):
     assert new_state.shares == 0.0
     assert new_state.cash == pytest.approx(round(40.0 * 0.58, 6))
     assert new_state.exit_order_id is None
+
+
+def test_abort_entry_cancel_credits_resting_fill_before_sell(tmp_path):
+    """12 sh filled while the entry rested; the confirmed abort-cancel must
+    credit them (and debit their cost) BEFORE selling, so the abort disposes
+    the REAL holding instead of banking while still holding shares."""
+    cfg = RollerConfig.from_dict(example_config_dict())
+    state = abort_state(cfg, entry_order_id="ord-x", shares=40.0)
+    state.cash = 16.8
+    state.entry_price = 0.41
+    client = FakeClient(FakeMarket(mid=0.6, bid=0.58))
+    client.positions = [{"market_id": "m0", "shares_yes": 52.0, "shares_no": 0.0}]
+    new_state = run_abort(tmp_path, client, state)
+    assert "ord-x" in client.cancelled
+    sells = [trade for trade in client.trades if trade["action"] == "sell"]
+    assert sells and sells[0]["shares"] == pytest.approx(52.0)  # delta included
+    assert new_state.phase == "BANKED"
+    assert new_state.shares == 0.0
+    # cash: 16.8 - 12 sh * 0.41 (fill debit) + 52 sh * 0.58 (abort sell)
+    assert new_state.cash == pytest.approx(round(16.8 - 12.0 * 0.41 + 52.0 * 0.58, 6))
+
+
+def test_abort_entry_cancel_verification_failure_pauses(tmp_path):
+    """Cancel confirmed but holdings unverifiable: BANKED would lie about
+    exposure and selling state.shares could under-dispose - PAUSE, keep id."""
+    cfg = RollerConfig.from_dict(example_config_dict())
+    state = abort_state(cfg, entry_order_id="ord-x")
+    state.entry_price = 0.41
+    client = PositionsDownClient(FakeMarket(mid=0.6, bid=0.58))
+    new_state = run_abort(tmp_path, client, state)
+    assert new_state.phase == "PAUSED"
+    assert new_state.entry_order_id == "ord-x"  # tracking kept for retry
+    assert new_state.shares == pytest.approx(40.0)
+    assert client.trades == []  # no sell on unverified holdings
+    assert "fill verification" in new_state.history[-1]["msg"]
+
+
+def test_abort_exit_cancel_credits_partial_sell_before_continuing(tmp_path):
+    """12 sh sold while the exit rested (venue holds 28 < state's 40): reduce
+    shares to the venue count, credit proceeds at the resting exit price, then
+    abort-sell only what is actually held."""
+    cfg = RollerConfig.from_dict(example_config_dict())
+    state = abort_state(cfg, entry_order_id=None, exit_order_id="ord-exit", shares=40.0)
+    state.exit_price = 0.975
+    client = FakeClient(FakeMarket(mid=0.6, bid=0.58))
+    client.positions = [{"market_id": "m0", "shares_yes": 28.0, "shares_no": 0.0}]
+    new_state = run_abort(tmp_path, client, state)
+    assert "ord-exit" in client.cancelled
+    sells = [trade for trade in client.trades if trade["action"] == "sell"]
+    assert sells and sells[0]["shares"] == pytest.approx(28.0)  # real holding only
+    assert new_state.phase == "BANKED"
+    # cash: 12 sh * 0.975 (resting-sell credit) + 28 sh * 0.58 (abort sell)
+    assert new_state.cash == pytest.approx(round(12.0 * 0.975 + 28.0 * 0.58, 6))
+
+
+def test_abort_exit_cancel_detects_full_resting_fill_banks_without_sell(tmp_path):
+    """All 40 sh sold while the exit rested (venue holds 0): credit the full
+    proceeds and BANK without placing another sell."""
+    cfg = RollerConfig.from_dict(example_config_dict())
+    state = abort_state(cfg, entry_order_id=None, exit_order_id="ord-exit", shares=40.0)
+    state.exit_price = 0.975
+    client = FakeClient(FakeMarket(mid=0.6, bid=0.58))
+    client.positions = []  # fully sold while resting
+    new_state = run_abort(tmp_path, client, state)
+    assert new_state.phase == "BANKED"
+    assert new_state.shares == 0.0
+    assert new_state.cash == pytest.approx(round(40.0 * 0.975, 6))
+    assert client.trades == []  # nothing left to sell
+
+
+def test_abort_exit_cancel_verification_failure_pauses(tmp_path):
+    cfg = RollerConfig.from_dict(example_config_dict())
+    state = abort_state(cfg, entry_order_id=None, exit_order_id="ord-exit", shares=40.0)
+    state.exit_price = 0.975
+    client = PositionsDownClient(FakeMarket(mid=0.6, bid=0.58))
+    new_state = run_abort(tmp_path, client, state)
+    assert new_state.phase == "PAUSED"
+    assert new_state.exit_order_id == "ord-exit"  # kept for retry
+    assert new_state.shares == pytest.approx(40.0)
+    assert client.trades == []
 
 
 def test_abort_uses_cli_venue(tmp_path):
