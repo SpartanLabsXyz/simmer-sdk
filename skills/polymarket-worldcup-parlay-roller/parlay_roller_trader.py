@@ -451,6 +451,11 @@ def print_status(state_path: str) -> None:
 def abort(client, config_path: str, state_path: str, live: bool, venue: str) -> StreakState:
     """Cancel working orders, sell held shares at the bid, and mark BANKED.
 
+    Only the all-cancels-confirmed path proceeds to the sell + BANKED. If any
+    cancel is unconfirmed (exception OR success=False result) the streak goes
+    PAUSED with the failed order id(s) kept - selling while an unknown order
+    is live could double-dispose.
+
     Dry-run (live=False) only PRINTS what would happen - it never mutates or
     saves state, so a later live abort (or tick) still sees the real picture.
     """
@@ -469,18 +474,40 @@ def abort(client, config_path: str, state_path: str, live: bool, venue: str) -> 
         print("[parlay-roller] abort DRY-RUN: state unchanged; re-run with --live to abort")
         return state
 
-    for order_id in (state.entry_order_id, state.exit_order_id):
-        if order_id:
-            try:
-                client.cancel_order(order_id)
-            except Exception as e:
-                print(f"[parlay-roller] warn: cancel {order_id} failed: {e}")
-    state.entry_order_id = None
-    state.entry_placed_at = None
-    state.entry_price = None
-    state.entry_amount = None
-    state.exit_order_id = None
-    state.exit_price = None
+    failed_cancels = []
+    if state.entry_order_id:
+        confirmed, detail = cancel_confirmed(client, state.entry_order_id)
+        if confirmed:
+            state.entry_order_id = None
+            state.entry_placed_at = None
+            state.entry_price = None
+            state.entry_amount = None
+        else:
+            failed_cancels.append(("entry", state.entry_order_id, detail))
+    if state.exit_order_id:
+        confirmed, detail = cancel_confirmed(client, state.exit_order_id)
+        if confirmed:
+            state.exit_order_id = None
+            state.exit_price = None
+        else:
+            failed_cancels.append(("exit", state.exit_order_id, detail))
+
+    if failed_cancels:
+        # Verify-or-pause: an order we could not confirm cancelled may still be
+        # live. Selling held shares now could double-dispose, and BANKED would
+        # be a lie. Pause and hand it to the operator.
+        for kind, order_id, detail in failed_cancels:
+            print(f"[parlay-roller] !! abort: {kind} order {order_id} cancel UNCONFIRMED: {detail}")
+        reason = (
+            "abort incomplete: working order(s) could not be cancelled - "
+            "verify on-venue before re-running --abort"
+        )
+        state.phase = "PAUSED"
+        state.log(f"PAUSED: {reason}", now)
+        print(f"[parlay-roller] !! {reason}")
+        save_state(state, state_path)
+        print_status(state_path)
+        return state
 
     if state.shares > 0:
         leg = cfg.legs[state.leg_index]

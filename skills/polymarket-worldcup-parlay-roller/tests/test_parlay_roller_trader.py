@@ -573,6 +573,76 @@ def test_abort_dry_run_does_not_terminalize_state(tmp_path):
     assert client.market_lookups == 0
 
 
+def abort_state(cfg, entry_order_id="ord-x", exit_order_id=None, shares=40.0):
+    state = StreakState.fresh(cfg)
+    state.phase = "LEG_OPEN"
+    state.shares = shares
+    state.cash = 0.0
+    state.entry_order_id = entry_order_id
+    state.exit_order_id = exit_order_id
+    return state
+
+
+def run_abort(tmp_path, client, state, cfg_dict=None):
+    cfg_dict = cfg_dict or example_config_dict()
+    state_path = tmp_path / "roller_state.json"
+    trader.save_state(state, str(state_path))
+    cfg_path = tmp_path / "roller_config.json"
+    cfg_path.write_text(json.dumps(cfg_dict))
+    return trader.abort(client, str(cfg_path), str(state_path), live=True, venue="polymarket")
+
+
+def test_abort_cancel_exception_pauses_and_skips_sell(tmp_path):
+    """A raising cancel must not terminalize to BANKED nor sell held shares."""
+    cfg = RollerConfig.from_dict(example_config_dict())
+
+    class CancelFailClient(FakeClient):
+        def cancel_order(self, order_id):
+            raise OSError("cancel api down")
+
+    client = CancelFailClient(FakeMarket(mid=0.6, bid=0.58))
+    new_state = run_abort(tmp_path, client, abort_state(cfg))
+    assert new_state.phase == "PAUSED"
+    assert new_state.entry_order_id == "ord-x"  # kept: order may still be live
+    assert new_state.shares == pytest.approx(40.0)
+    assert client.trades == []  # no sell while an unknown order is live
+
+
+def test_abort_cancel_nonsuccess_result_pauses_and_skips_sell(tmp_path):
+    """cancel_order returning success=False (no exception) is also a failed cancel."""
+    cfg = RollerConfig.from_dict(example_config_dict())
+
+    class CancelNotOkClient(FakeClient):
+        def cancel_order(self, order_id):
+            return {"success": False, "warning": "not_canceled"}
+
+    client = CancelNotOkClient(FakeMarket(mid=0.6, bid=0.58))
+    new_state = run_abort(tmp_path, client, abort_state(cfg))
+    assert new_state.phase == "PAUSED"
+    assert new_state.entry_order_id == "ord-x"
+    assert client.trades == []
+
+
+def test_abort_partial_cancel_failure_keeps_only_failed_order(tmp_path):
+    """Entry cancel confirmed, exit cancel failed -> entry id cleared, exit kept, PAUSED."""
+    cfg = RollerConfig.from_dict(example_config_dict())
+
+    class ExitCancelFailClient(FakeClient):
+        def cancel_order(self, order_id):
+            self.cancelled.append(order_id)
+            if order_id == "ord-exit":
+                return {"success": False}
+            return {"success": True}
+
+    client = ExitCancelFailClient(FakeMarket(mid=0.6, bid=0.58))
+    state = abort_state(cfg, entry_order_id="ord-x", exit_order_id="ord-exit")
+    new_state = run_abort(tmp_path, client, state)
+    assert new_state.phase == "PAUSED"
+    assert new_state.entry_order_id is None  # confirmed cancelled
+    assert new_state.exit_order_id == "ord-exit"  # unconfirmed: kept
+    assert client.trades == []
+
+
 def test_abort_uses_cli_venue(tmp_path):
     cfg_dict = example_config_dict()
     cfg = RollerConfig.from_dict(cfg_dict)
