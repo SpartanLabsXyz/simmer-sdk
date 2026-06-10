@@ -1,6 +1,6 @@
 {
   "name": "simmer-mcp",
-  "version": "3.4.1",
+  "version": "3.4.2",
   "description": "MCP server for Simmer — skill discovery, execution, autoresearch, and AI market tools",
   "type": "module",
   "bin": {
