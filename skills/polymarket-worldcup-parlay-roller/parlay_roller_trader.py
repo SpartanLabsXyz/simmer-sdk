@@ -26,6 +26,7 @@ from parlay_roller import (
     apply_entry_fill,
     apply_exit_proceeds,
     decide,
+    streak_implied_price,
     validate_config,
 )
 
@@ -166,6 +167,26 @@ def fetch_combo_comparison(market_ids) -> Optional[float]:
     except Exception:
         return None
     return None
+
+
+def print_combo_comparison(client, cfg: RollerConfig) -> None:
+    """One-line combo-vs-streak price comparison at streak start. Never raises."""
+    try:
+        mids = [snap_market(client, leg.market_id, leg.side).mid for leg in cfg.legs]
+        product = streak_implied_price(mids)
+        combo = fetch_combo_comparison([leg.market_id for leg in cfg.legs])
+        if combo is not None:
+            print(
+                f"[parlay-roller] combo-implied price {combo} vs streak leg-product "
+                f"{product if product is not None else 'n/a'}"
+            )
+        else:
+            print(
+                f"[parlay-roller] streak leg-product price "
+                f"{product if product is not None else 'n/a'} (combo comparison unavailable)"
+            )
+    except Exception as e:
+        print(f"[parlay-roller] combo comparison skipped: {e}")
 
 
 def _open_order_ids(open_orders) -> set:
@@ -356,7 +377,10 @@ def tick(
     state_missing = not os.path.exists(state_path)
     cfg = load_config(config_path, now=now if state_missing else None)
     with tick_lock(lock_path):
-        state = load_state(state_path) or StreakState.fresh(cfg)
+        state = load_state(state_path)
+        if state is None:
+            state = StreakState.fresh(cfg)
+            print_combo_comparison(client, cfg)
         if state.phase in ("COMPLETE", "BUSTED", "BANKED", "PAUSED"):
             print(f"[parlay-roller] terminal phase {state.phase} - nothing to do")
             return state

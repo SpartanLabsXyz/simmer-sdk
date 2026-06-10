@@ -72,8 +72,8 @@ transition is appended to the streak log.
 
 ## Combo Comparison
 
-At config and each roll, the skill can fetch Polymarket's public combo catalog
-and show the combo-implied price next to the streak's naive leg-product price.
-Correlated legs make the product an approximation. If the catalog is
-unreachable, comparison is simply unavailable. When Polymarket ships the combo
-taker API, v2 can route through real combos when cheaper.
+At setup (the first tick of a fresh streak), the skill fetches Polymarket's
+public combo catalog and prints the combo-implied price next to the streak's
+naive leg-product price. Correlated legs make the product an approximation. If
+the catalog is unreachable, comparison is simply unavailable. When Polymarket
+ships the combo taker API, v2 can route through real combos when cheaper.

@@ -384,6 +384,45 @@ def test_combo_compare_degrades(monkeypatch):
     assert trader.fetch_combo_comparison(["m0", "m1"]) is None
 
 
+def test_first_tick_prints_combo_implied_price(tmp_path, capsys, monkeypatch):
+    monkeypatch.setattr(trader, "fetch_combo_comparison", lambda market_ids: 0.18)
+    client = FakeClient(FakeMarket(mid=0.40))
+    run_tick(tmp_path, client, live=False)
+    out = capsys.readouterr().out
+    assert "combo-implied" in out
+    assert "0.18" in out
+
+
+def test_first_tick_prints_product_when_combo_unavailable(tmp_path, capsys, monkeypatch):
+    monkeypatch.setattr(trader, "fetch_combo_comparison", lambda market_ids: None)
+    client = FakeClient(FakeMarket(mid=0.40))
+    run_tick(tmp_path, client, live=False)
+    out = capsys.readouterr().out
+    assert "combo comparison unavailable" in out
+    assert "0.16" in out  # 0.40 * 0.40 leg-product
+
+
+def test_combo_comparison_runs_only_at_streak_start(tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(trader, "fetch_combo_comparison", lambda market_ids: calls.append(1) or None)
+    client = FakeClient(FakeMarket(mid=0.40))
+    run_tick(tmp_path, client, live=False)
+    assert len(calls) == 1
+    # second tick: state file exists now, no re-fetch
+    run_tick(tmp_path, client, live=False)
+    assert len(calls) == 1
+
+
+def test_combo_comparison_never_breaks_the_tick(tmp_path, monkeypatch):
+    def boom(market_ids):
+        raise OSError("combo api down")
+
+    monkeypatch.setattr(trader, "fetch_combo_comparison", boom)
+    client = FakeClient(FakeMarket(mid=0.40))
+    state = run_tick(tmp_path, client, live=False)  # must not raise
+    assert state is not None
+
+
 def test_status_prints_history(tmp_path, capsys):
     cfg = RollerConfig.from_dict(example_config_dict())
     state = StreakState.fresh(cfg)
