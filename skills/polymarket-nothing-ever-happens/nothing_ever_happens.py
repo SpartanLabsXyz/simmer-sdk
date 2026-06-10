@@ -113,6 +113,11 @@ SPORTS_CATEGORIES = {
 _client = None
 
 
+def resolve_venue() -> str:
+    """Effective trading venue. TRADING_VENUE=sim is the $SIM paper switch."""
+    return os.environ.get("TRADING_VENUE", "polymarket")
+
+
 def get_client(live=True):
     """Lazy-init SimmerClient singleton."""
     global _client
@@ -127,8 +132,36 @@ def get_client(live=True):
             print("Error: SIMMER_API_KEY environment variable not set")
             print("Get your API key from: simmer.markets/dashboard -> SDK tab")
             sys.exit(1)
-        _client = SimmerClient(api_key=api_key, venue="polymarket", live=live)
+        _client = SimmerClient(api_key=api_key, venue=resolve_venue(), live=live)
     return _client
+
+
+def resolve_effective_dry_run(dry_run: bool, client_venue) -> bool:
+    """
+    Compute the effective dry_run flag.
+
+    TRADING_VENUE=sim is documented paper mode: trades execute against the
+    Simmer venue with $SIM, so dry_run is disabled (sim IS the paper layer).
+    Belt-and-braces: that branch may only disable dry_run when the client's
+    effective venue really is "sim" — if the client would hit a real venue,
+    abort loudly instead of live-firing (SIM-3058).
+    """
+    is_paper_venue = resolve_venue() == "sim"
+    effective = dry_run and not is_paper_venue
+    if dry_run and not effective and client_venue != "sim":
+        print(
+            f"FATAL: TRADING_VENUE=sim disabled dry-run, but the client venue is "
+            f"{client_venue!r} (not 'sim') — refusing to live-fire a real venue.",
+            flush=True,
+        )
+        sys.exit(1)
+    return effective
+
+
+def should_run_balance_preflight(dry_run: bool) -> bool:
+    """USDC/pUSD balance preflight applies to live runs on real venues only —
+    the sim venue trades $SIM and has no collateral preflight."""
+    return not dry_run and resolve_venue() != "sim"
 
 
 # =============================================================================
@@ -323,10 +356,10 @@ def get_market_context(market_id: str) -> dict | None:
 
 
 def get_positions() -> list:
-    """Get current positions, filtered to polymarket venue."""
+    """Get current positions, filtered to the effective trading venue."""
     try:
         client = get_client()
-        positions = client.get_positions(venue="polymarket")
+        positions = client.get_positions(venue=resolve_venue())
         from dataclasses import asdict
         return [asdict(p) for p in positions]
     except Exception:
@@ -579,10 +612,10 @@ def main():
 
     # Balance pre-flight: skip cleanly when wallet is underfunded instead of
     # looping on rejected trades. Helper is collateral-agnostic — checks pUSD
-    # on V2, USDC.e on V1 per server's exchange_version.
+    # on V2, USDC.e on V1 per server's exchange_version. Sim venue ($SIM paper
+    # mode) has no collateral preflight — see should_run_balance_preflight().
     global MAX_BET_USD, _automaton_reported
-    is_paper_venue_pre = os.environ.get("TRADING_VENUE", "polymarket") == "sim"
-    if not dry_run and not is_paper_venue_pre:
+    if should_run_balance_preflight(dry_run):
         _preflight = get_client().ensure_can_trade(min_usd=1.0)
         if not _preflight["ok"]:
             print(f"  ⏸️  insufficient_balance: ${_preflight['balance']:.2f} {_preflight['collateral']} "
@@ -611,10 +644,12 @@ def main():
     if args.scan:
         return
 
-    is_paper_venue = os.environ.get("TRADING_VENUE", "polymarket") == "sim"
+    effective_dry_run = resolve_effective_dry_run(
+        dry_run, getattr(get_client(), "venue", None)
+    )
     signals, attempted, executed, skip_reasons, total_usd, execution_errors = run_trades(
         candidates,
-        dry_run=dry_run and not is_paper_venue,
+        dry_run=effective_dry_run,
         quiet=args.quiet,
     )
 

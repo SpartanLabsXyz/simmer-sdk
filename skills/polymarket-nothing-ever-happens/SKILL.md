@@ -3,7 +3,7 @@ name: polymarket-nothing-ever-happens
 description: Buy NO on standalone non-sports yes/no Polymarket markets priced below a configurable cap. Based on the "nothing-ever-happens" thesis — binary markets often resolve NO, and cheap NO shares offer asymmetric value. Scans for candidates via Gamma API, filters out sports and grouped markets, checks fees, and executes.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.0.3"
+  version: "1.0.4"
   displayName: Polymarket Nothing-Ever-Happens
   difficulty: beginner
 ---
@@ -75,6 +75,7 @@ python nothing_ever_happens.py --set price_cap=0.03
 
 | Key | Env Var | Default | Description |
 |-----|---------|---------|-------------|
+| — | `TRADING_VENUE` | polymarket | Venue to trade on. Set `sim` for $SIM paper trading on the Simmer venue (no wallet, no USDC). |
 | `price_cap` | `SIMMER_NEH_PRICE_CAP` | 0.05 | Max NO price to buy (0.05 = 5¢) |
 | `max_bet_usd` | `SIMMER_NEH_MAX_BET_USD` | 5.0 | USDC per trade |
 | `max_trades_per_run` | `SIMMER_NEH_MAX_TRADES_PER_RUN` | 3 | Max trades per execution |
