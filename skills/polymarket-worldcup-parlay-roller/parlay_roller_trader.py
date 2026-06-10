@@ -548,10 +548,12 @@ def print_status(state_path: str) -> None:
 def abort(client, config_path: str, state_path: str, live: bool, venue: str) -> StreakState:
     """Cancel working orders, sell held shares at the bid, and mark BANKED.
 
-    Only the all-cancels-confirmed path proceeds to the sell + BANKED. If any
-    cancel is unconfirmed (exception OR success=False result) the streak goes
-    PAUSED with the failed order id(s) kept - selling while an unknown order
-    is live could double-dispose.
+    Only the all-cancels-confirmed path proceeds to the sell. BANKED requires
+    venue-confirmed FULL disposal: no shares held and no working orders. If
+    any cancel is unconfirmed (exception OR success=False result), or the sell
+    is rejected / rests / partially fills / can't be priced (no bid), the
+    streak goes PAUSED with the order id(s) kept - terminalizing while shares
+    or an unknown order may be live would lie about the streak's exposure.
 
     Dry-run (live=False) only PRINTS what would happen - it never mutates or
     saves state, so a later live abort (or tick) still sees the real picture.
@@ -608,29 +610,68 @@ def abort(client, config_path: str, state_path: str, live: bool, venue: str) -> 
         print_status(state_path)
         return state
 
+    # BANKED is reserved for: no shares held AND no working orders. The sell
+    # must CONFIRM full disposal before terminalizing - anything less pauses
+    # with state still tracking whatever the venue says we hold.
     if state.shares > 0:
         leg = cfg.legs[state.leg_index]
         snap = snap_market(client, leg.market_id, leg.side)
         bid = snap.best_bid
-        if bid:
-            res = client.trade(
-                market_id=leg.market_id,
-                side=leg.side,
-                action="sell",
-                shares=state.shares,
-                venue=venue,
-                order_type="GTC",
-                price=round(bid, 3),
-                source=TRADE_SOURCE,
-                skill_slug=SKILL_SLUG,
-                reasoning="parlay-roller --abort",
+        if not bid:
+            state.phase = "PAUSED"
+            state.log(
+                "PAUSED: abort: no bid available - shares still held; "
+                "re-run --abort --live later or manage manually",
+                now,
             )
-            sold = getattr(res, "shares_sold", 0.0) or 0.0
-            state.cash += round(sold * bid, 6)
-            state.shares = max(0.0, state.shares - sold)
+            save_state(state, state_path)
+            print_status(state_path)
+            return state
+        res = client.trade(
+            market_id=leg.market_id,
+            side=leg.side,
+            action="sell",
+            shares=state.shares,
+            venue=venue,
+            order_type="GTC",
+            price=round(bid, 3),
+            source=TRADE_SOURCE,
+            skill_slug=SKILL_SLUG,
+            reasoning="parlay-roller --abort",
+        )
+        if not getattr(res, "success", False):
+            state.phase = "PAUSED"
+            state.log(
+                f"PAUSED: abort sell rejected ({getattr(res, 'error', None)}) - "
+                "shares still held",
+                now,
+            )
+            save_state(state, state_path)
+            print_status(state_path)
+            return state
+        sold = getattr(res, "shares_sold", 0.0) or 0.0
+        order_id = getattr(res, "order_id", None)
+        if sold > 1e-6:
+            state.cash = round(state.cash + sold * bid, 6)
+            state.shares = max(0.0, round(state.shares - sold, 6))
             state.log(f"abort: sold {sold:.2f} sh @ {bid:.3f}", now)
-        else:
-            state.log("abort: no bid available - shares left to resolution", now)
+        if state.shares > 1e-6:
+            # Zero or partial fill: the remainder is NOT disposed. Keep
+            # tracking the resting order (if any) so a future tick/--abort
+            # can reconcile, but the user wants OUT - do not auto-manage.
+            if order_id:
+                state.exit_order_id = order_id
+                state.exit_price = round(bid, 3)
+            state.phase = "PAUSED"
+            state.log(
+                "PAUSED: abort sell working - re-run --abort --live after it "
+                "fills, or manage manually",
+                now,
+            )
+            save_state(state, state_path)
+            print_status(state_path)
+            return state
+        state.shares = 0.0  # clear sub-tolerance dust before terminalizing
 
     state.phase = "BANKED"
     state.log("ABORTED by user", now)

@@ -918,6 +918,81 @@ def test_abort_partial_cancel_failure_keeps_only_failed_order(tmp_path):
     assert client.trades == []
 
 
+class AbortSellClient(FakeClient):
+    """Sell returns a configurable result; buys behave like FakeClient."""
+
+    def __init__(self, market=None, sell_result=None):
+        super().__init__(market)
+        self.sell_result = sell_result
+
+    def trade(self, **kw):
+        self.trades.append(kw)
+        if kw.get("action") == "sell" and self.sell_result is not None:
+            return self.sell_result
+        if kw.get("action") == "buy":
+            return FakeResult(shares_bought=round(kw["amount"] / kw["price"], 2))
+        return FakeResult(shares_sold=kw.get("shares", 0.0))
+
+
+def test_abort_sell_rejected_pauses_not_banked(tmp_path):
+    cfg = RollerConfig.from_dict(example_config_dict())
+    fail = FakeResult(success=False, order_id=None)
+    fail.error = "insufficient balance"
+    client = AbortSellClient(FakeMarket(mid=0.6, bid=0.58), sell_result=fail)
+    new_state = run_abort(tmp_path, client, abort_state(cfg, entry_order_id=None))
+    assert new_state.phase == "PAUSED"
+    assert new_state.shares == pytest.approx(40.0)  # nothing credited
+    assert new_state.cash == pytest.approx(0.0)
+    assert "abort sell rejected" in new_state.history[-1]["msg"]
+
+
+def test_abort_sell_resting_records_order_and_pauses(tmp_path):
+    """success + zero fill + order_id: the sell rests - track it, PAUSE, never BANK."""
+    cfg = RollerConfig.from_dict(example_config_dict())
+    resting = FakeResult(success=True, order_id="ord-sell", shares_sold=0.0)
+    client = AbortSellClient(FakeMarket(mid=0.6, bid=0.58), sell_result=resting)
+    new_state = run_abort(tmp_path, client, abort_state(cfg, entry_order_id=None))
+    assert new_state.phase == "PAUSED"
+    assert new_state.shares == pytest.approx(40.0)
+    assert new_state.cash == pytest.approx(0.0)
+    assert new_state.exit_order_id == "ord-sell"
+    assert new_state.exit_price == pytest.approx(0.58)
+    assert "abort sell working" in new_state.history[-1]["msg"]
+
+
+def test_abort_sell_partial_fill_credits_partial_and_pauses(tmp_path):
+    cfg = RollerConfig.from_dict(example_config_dict())
+    partial = FakeResult(success=True, order_id="ord-sell", shares_sold=15.0)
+    client = AbortSellClient(FakeMarket(mid=0.6, bid=0.58), sell_result=partial)
+    new_state = run_abort(tmp_path, client, abort_state(cfg, entry_order_id=None))
+    assert new_state.phase == "PAUSED"
+    assert new_state.shares == pytest.approx(25.0)
+    assert new_state.cash == pytest.approx(round(15.0 * 0.58, 6))
+    assert new_state.exit_order_id == "ord-sell"
+
+
+def test_abort_no_bid_pauses_not_banked(tmp_path):
+    """No bid -> shares cannot be disposed; PAUSED (previously BANKED while still holding)."""
+    cfg = RollerConfig.from_dict(example_config_dict())
+    client = FakeClient(FakeMarket(mid=None, bid=None, ask=None))
+    new_state = run_abort(tmp_path, client, abort_state(cfg, entry_order_id=None))
+    assert new_state.phase == "PAUSED"
+    assert new_state.shares == pytest.approx(40.0)
+    assert client.trades == []  # no sell placed without a price
+    assert "no bid available" in new_state.history[-1]["msg"]
+
+
+def test_abort_full_fill_banks(tmp_path):
+    """Venue-confirmed full disposal: no shares, no working orders -> BANKED."""
+    cfg = RollerConfig.from_dict(example_config_dict())
+    client = FakeClient(FakeMarket(mid=0.6, bid=0.58))  # sells fill in full
+    new_state = run_abort(tmp_path, client, abort_state(cfg, entry_order_id=None))
+    assert new_state.phase == "BANKED"
+    assert new_state.shares == 0.0
+    assert new_state.cash == pytest.approx(round(40.0 * 0.58, 6))
+    assert new_state.exit_order_id is None
+
+
 def test_abort_uses_cli_venue(tmp_path):
     cfg_dict = example_config_dict()
     cfg = RollerConfig.from_dict(cfg_dict)
