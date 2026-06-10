@@ -419,7 +419,12 @@ def run(dry_run: bool = True, venue: str = None) -> None:
                 amount=cost if action == "buy" else 0,
                 shares=shares if action == "sell" else 0,
                 venue=effective_venue,
-                order_type="GTC",
+                # FAK (fill-and-kill): fill what's available now, cancel the
+                # rest. A once-daily fire-and-forget run must never leave
+                # resting orders — the next day's plan recomputes from
+                # POSITIONS (not open orders), so a stale GTC could
+                # double-fill later and bypass MAX_USD / MAX_TRADES.
+                order_type="FAK",
                 reasoning=(
                     f"WC Copytrader: {action} {shares:.1f} {side} to mirror WC leaders"
                     f" on {title}"

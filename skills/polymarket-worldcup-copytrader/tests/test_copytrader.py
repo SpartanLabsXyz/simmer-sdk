@@ -586,6 +586,41 @@ class TestWorldCupScope(unittest.TestCase):
         self.assertEqual(params.get("tags"), "world-cup")
 
 
+class TestOrderType(unittest.TestCase):
+    """Live copy orders must be non-resting (codex pass-3 P1).
+
+    This is a once-daily fire-and-forget automation: a partially/unfilled GTC
+    order rests on the book, and the next day's plan recomputes from POSITIONS
+    (not open orders), so stale resting orders can double-fill later and bypass
+    MAX_USD/MAX_TRADES. FAK (fill-and-kill) is supported end-to-end (SDK
+    ORDER_TYPES + server Literal["GTC","GTD","FOK","FAK"] validation) and
+    leaves nothing resting.
+    """
+
+    def test_live_trades_use_fak(self):
+        mod, mock_client = _make_skill_module(leaders_response=_leaders_response())
+        mod.run(dry_run=False)
+        mock_client.trade.assert_called_once()
+        self.assertEqual(mock_client.trade.call_args[1].get("order_type"), "FAK")
+
+    def test_every_trade_in_multi_trade_plan_uses_fak(self):
+        plan = TestClientSideCaps._plan(3)
+        mod, mock_client = _make_skill_module(
+            leaders_response=_leaders_response(), plan_response=plan)
+        mod.run(dry_run=False)
+        self.assertEqual(mock_client.trade.call_count, 3)
+        for c in mock_client.trade.call_args_list:
+            self.assertEqual(c[1].get("order_type"), "FAK")
+
+    def test_no_resting_order_types_in_source(self):
+        """Regression guard: the skill must not place GTC/GTD anywhere."""
+        src_path = os.path.join(os.path.dirname(__file__), "..", "copytrader.py")
+        with open(src_path) as f:
+            src = f.read()
+        self.assertNotIn('order_type="GTC"', src)
+        self.assertNotIn('order_type="GTD"', src)
+
+
 class TestAutomatonEmission(unittest.TestCase):
     """Automaton JSON emitted correctly."""
 

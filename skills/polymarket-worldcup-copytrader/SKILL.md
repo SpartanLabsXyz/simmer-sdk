@@ -126,6 +126,16 @@ openclaw cron add --name "wc-copytrader" --cron "0 3 * * *" --tz UTC \
 --no-exits         Disable leader-exit detection
 ```
 
+## Order handling
+
+All live orders are placed as **FAK** (fill-and-kill): whatever is available at the
+quoted price fills immediately and the rest is cancelled. The skill never leaves
+resting limit orders on the book. This matters for a once-daily fire-and-forget
+automation — each run recomputes its plan from current *positions*, not open orders,
+so a resting GTC from a previous run could double-fill later and silently bypass the
+`WC_COPYTRADER_MAX_USD` / `WC_COPYTRADER_MAX_TRADES` caps. The cost of FAK is that
+thin books may give partial fills; the next daily run simply tops up.
+
 ## Cold-start note
 
 At the start of the tournament, `min_trade_count` filtering means the leader set may
