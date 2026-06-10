@@ -610,21 +610,83 @@ def test_ttl_cancel_after_partial_credits_only_the_delta(tmp_path):
     assert client.trades == []
 
 
-def test_ttl_cancel_verification_failure_keeps_order_id(tmp_path, capsys):
-    """Cancel confirmed but get_positions down: holdings are UNKNOWN, so
-    tracking must NOT be cleared - the next tick retries."""
+def test_ttl_cancel_verification_failure_pauses(tmp_path):
+    """Cancel CONFIRMED but get_positions down: holdings are UNKNOWN and the
+    cancelled order will never fill again - but its id is now absent from the
+    open book, so leaving it on the reconcile path would credit a phantom full
+    fill next tick. PAUSE with tracking kept for the operator (mirror of the
+    abort path's verification-failure handling)."""
     cfg = RollerConfig.from_dict(example_config_dict())
     state = resting_entry_state(cfg, placed_at=NOW - timedelta(seconds=300))
     client = PositionsDownClient(FakeMarket(mid=0.40))
     client.open_orders = {"orders": [{"order_id": "ord-1"}]}
     new_state = run_tick(tmp_path, client, state=state)
     assert "ord-1" in client.cancelled  # the cancel itself was confirmed
-    assert new_state.entry_order_id == "ord-1"  # kept: fill unknown
+    assert new_state.phase == "PAUSED"
+    assert new_state.entry_order_id == "ord-1"  # tracking kept for the human
+    assert new_state.entry_price == pytest.approx(0.41)
     assert new_state.shares == 0.0
     assert new_state.cash == pytest.approx(25.0)
-    assert new_state.phase == "LEG_OPEN"  # not terminal; next tick retries
-    assert client.trades == []
-    assert "fill verification unavailable" in capsys.readouterr().out
+    assert client.trades == []  # no re-entry on unknown holdings
+    assert "fill verification unavailable" in new_state.history[-1]["msg"]
+    # PAUSED persists: the next tick must short-circuit (no phantom reconcile fill)
+    loaded = trader.load_state(str(tmp_path / "roller_state.json"))
+    assert loaded.phase == "PAUSED"
+
+
+class EntrySubmitRaisesClient(FakeClient):
+    """client.trade raises on buys - the submission outcome is UNKNOWN."""
+
+    def trade(self, **kw):
+        if kw.get("action") == "buy":
+            raise OSError("connection reset mid-submit")
+        return super().trade(**kw)
+
+
+def test_entry_submission_exception_pauses_and_persists(tmp_path, capsys):
+    """A raising live entry submission may have been ACCEPTED on-venue before
+    the response was lost. Re-buying next tick with the same cash would
+    double-spend - PAUSE, and the PAUSED state must reach the state file."""
+    client = EntrySubmitRaisesClient(FakeMarket(mid=0.40))
+    state = run_tick(tmp_path, client)  # must not raise out of tick()
+    assert state.phase == "PAUSED"
+    assert state.shares == 0.0
+    assert state.cash == pytest.approx(25.0)  # nothing credited or debited
+    assert state.entry_order_id is None
+    assert "submission outcome unknown" in state.history[-1]["msg"]
+    assert "connection reset mid-submit" in capsys.readouterr().out
+    loaded = trader.load_state(str(tmp_path / "roller_state.json"))
+    assert loaded.phase == "PAUSED"  # saved despite the exception
+
+
+class ExitSubmitRaisesClient(FakeClient):
+    """client.trade raises on sells - the submission outcome is UNKNOWN."""
+
+    def trade(self, **kw):
+        if kw.get("action") == "sell":
+            raise OSError("gateway timeout mid-submit")
+        return super().trade(**kw)
+
+
+def test_exit_submission_exception_pauses_and_persists(tmp_path):
+    """Same hazard on the sell side: a raising live exit submission may have
+    been accepted - re-selling next tick could double-sell. PAUSE + persist."""
+    cfg_dict = example_config_dict()
+    cfg = RollerConfig.from_dict(cfg_dict)
+    state = StreakState.fresh(cfg)
+    state.phase = "LEG_OPEN"
+    state.cash = 0.0
+    state.shares = 50.0
+    at = cfg.legs[0].expected_end + timedelta(minutes=10)
+    client = ExitSubmitRaisesClient(FakeMarket(mid=0.98, bid=0.975))
+    new_state = run_tick(tmp_path, client, cfg_dict=cfg_dict, state=state, at=at)
+    assert new_state.phase == "PAUSED"
+    assert new_state.shares == pytest.approx(50.0)  # nothing disposed in state
+    assert new_state.cash == pytest.approx(0.0)
+    assert new_state.exit_order_id is None
+    assert "submission outcome unknown" in new_state.history[-1]["msg"]
+    loaded = trader.load_state(str(tmp_path / "roller_state.json"))
+    assert loaded.phase == "PAUSED"
 
 
 def test_reconcile_treats_absent_exit_order_as_filled(tmp_path):
@@ -1090,6 +1152,26 @@ def test_abort_sell_rejected_pauses_not_banked(tmp_path):
     assert new_state.shares == pytest.approx(40.0)  # nothing credited
     assert new_state.cash == pytest.approx(0.0)
     assert "abort sell rejected" in new_state.history[-1]["msg"]
+
+
+def test_abort_sell_exception_pauses_not_banked(tmp_path):
+    """A raising abort sell has an UNKNOWN outcome - the venue may have
+    accepted it. PAUSE (persisted) with shares still tracked; never BANK."""
+    cfg = RollerConfig.from_dict(example_config_dict())
+
+    class SellRaisesClient(FakeClient):
+        def trade(self, **kw):
+            self.trades.append(kw)
+            raise OSError("relay dropped mid-submit")
+
+    client = SellRaisesClient(FakeMarket(mid=0.6, bid=0.58))
+    new_state = run_abort(tmp_path, client, abort_state(cfg, entry_order_id=None))
+    assert new_state.phase == "PAUSED"
+    assert new_state.shares == pytest.approx(40.0)  # still tracked as held
+    assert new_state.cash == pytest.approx(0.0)
+    assert "submission outcome unknown" in new_state.history[-1]["msg"]
+    loaded = trader.load_state(str(tmp_path / "roller_state.json"))
+    assert loaded.phase == "PAUSED"  # saved despite the exception
 
 
 def test_abort_sell_resting_records_order_and_pauses(tmp_path):

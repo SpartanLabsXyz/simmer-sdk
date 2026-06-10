@@ -370,18 +370,32 @@ def execute(
         if not live:
             state.log(f"DRY-RUN would BUY {leg.side.upper()} ${action.amount:.2f} @ {action.price:.3f}", now)
             return
-        res = client.trade(
-            market_id=leg.market_id,
-            side=leg.side,
-            action="buy",
-            amount=action.amount,
-            venue=venue,
-            order_type="GTC",
-            price=action.price,
-            source=TRADE_SOURCE,
-            skill_slug=SKILL_SLUG,
-            reasoning=f"parlay-roller leg {leg_index + 1}: {leg.label}",
-        )
+        try:
+            res = client.trade(
+                market_id=leg.market_id,
+                side=leg.side,
+                action="buy",
+                amount=action.amount,
+                venue=venue,
+                order_type="GTC",
+                price=action.price,
+                source=TRADE_SOURCE,
+                skill_slug=SKILL_SLUG,
+                reasoning=f"parlay-roller leg {leg_index + 1}: {leg.label}",
+            )
+        except Exception as e:
+            # A raising LIVE submission has an UNKNOWN outcome: the venue may
+            # have accepted the order before the response was lost. Letting
+            # the exception escape would skip save_state and re-buy next tick
+            # with the same cash - PAUSE (caught here so tick() still saves).
+            state.phase = "PAUSED"
+            state.log(
+                f"PAUSED: entry order submission outcome unknown ({e}) - "
+                "check open orders/positions on-venue before resuming",
+                now,
+            )
+            print(f"[parlay-roller] !! entry submission raised: {e}; PAUSED")
+            return
         if not getattr(res, "success", False):
             print(f"[parlay-roller] entry rejected: {getattr(res, 'error', None)}")
             return
@@ -461,9 +475,21 @@ def execute(
         # shares and re-enter with already-spent funds.
         verified, vdetail = _verify_cancelled_entry_fills(client, state, leg, venue, now)
         if not verified:
+            # The cancel IS confirmed: the order will never fill again, but its
+            # id has already left the open book, so the normal reconcile path
+            # would credit a phantom full fill next tick. Holdings are unknown
+            # -> PAUSE with all tracking kept for the operator (mirror of the
+            # abort path's verification-failure handling).
+            state.phase = "PAUSED"
+            state.log(
+                f"PAUSED: entry cancel confirmed but fill verification "
+                f"unavailable ({vdetail}) - verify position on-venue, then "
+                "edit state or restart streak",
+                now,
+            )
             print(
-                f"[parlay-roller] warn: cancel confirmed but fill verification "
-                f"unavailable ({vdetail}); keeping order for next tick"
+                f"[parlay-roller] !! cancel confirmed but fill verification "
+                f"unavailable ({vdetail}); PAUSED for manual review"
             )
             return
         state.cancel_failures = 0  # confirmed cancel
@@ -478,18 +504,30 @@ def execute(
         if not live:
             state.log(f"DRY-RUN would SELL {action.shares:.2f} sh @ {action.price:.3f}", now)
             return
-        res = client.trade(
-            market_id=leg.market_id,
-            side=leg.side,
-            action="sell",
-            shares=action.shares,
-            venue=venue,
-            order_type="GTC",
-            price=action.price,
-            source=TRADE_SOURCE,
-            skill_slug=SKILL_SLUG,
-            reasoning=f"parlay-roller exit leg {leg_index + 1} @ bid",
-        )
+        try:
+            res = client.trade(
+                market_id=leg.market_id,
+                side=leg.side,
+                action="sell",
+                shares=action.shares,
+                venue=venue,
+                order_type="GTC",
+                price=action.price,
+                source=TRADE_SOURCE,
+                skill_slug=SKILL_SLUG,
+                reasoning=f"parlay-roller exit leg {leg_index + 1} @ bid",
+            )
+        except Exception as e:
+            # Same unknown-outcome hazard as the entry side: the sell may be
+            # live on-venue. Re-selling next tick could double-sell - PAUSE.
+            state.phase = "PAUSED"
+            state.log(
+                f"PAUSED: exit order submission outcome unknown ({e}) - "
+                "check open orders/positions on-venue before resuming",
+                now,
+            )
+            print(f"[parlay-roller] !! exit submission raised: {e}; PAUSED")
+            return
         if not getattr(res, "success", False):
             print(f"[parlay-roller] exit rejected: {getattr(res, 'error', None)}")
             return
@@ -770,18 +808,32 @@ def abort(client, config_path: str, state_path: str, live: bool, venue: str) -> 
             save_state(state, state_path)
             print_status(state_path)
             return state
-        res = client.trade(
-            market_id=leg.market_id,
-            side=leg.side,
-            action="sell",
-            shares=state.shares,
-            venue=venue,
-            order_type="GTC",
-            price=round(bid, 3),
-            source=TRADE_SOURCE,
-            skill_slug=SKILL_SLUG,
-            reasoning="parlay-roller --abort",
-        )
+        try:
+            res = client.trade(
+                market_id=leg.market_id,
+                side=leg.side,
+                action="sell",
+                shares=state.shares,
+                venue=venue,
+                order_type="GTC",
+                price=round(bid, 3),
+                source=TRADE_SOURCE,
+                skill_slug=SKILL_SLUG,
+                reasoning="parlay-roller --abort",
+            )
+        except Exception as e:
+            # Unknown submission outcome: the sell may be live on-venue.
+            # BANKED would lie and a retry could double-sell - PAUSE.
+            state.phase = "PAUSED"
+            state.log(
+                f"PAUSED: abort sell submission outcome unknown ({e}) - "
+                "check open orders/positions on-venue before resuming",
+                now,
+            )
+            print(f"[parlay-roller] !! abort sell raised: {e}; PAUSED")
+            save_state(state, state_path)
+            print_status(state_path)
+            return state
         if not getattr(res, "success", False):
             state.phase = "PAUSED"
             state.log(
