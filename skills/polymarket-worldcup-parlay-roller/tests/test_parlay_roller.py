@@ -313,6 +313,16 @@ def test_apply_exit_proceeds_rolls_to_next_leg():
     assert st.shares == 0.0
 
 
+def test_apply_exit_proceeds_adds_to_existing_cash():
+    """Partial-fill support: proceeds ACCUMULATE into cash, never overwrite."""
+    cfg = mk_config(2)
+    st = held_state(cfg, leg_index=0, shares=30.0)
+    st.cash = 19.5  # accumulated from an earlier partial exit fill
+    apply_exit_proceeds(st, cfg, proceeds=29.25, now=NOW)
+    assert st.cash == pytest.approx(48.75)
+    assert st.leg_index == 1
+
+
 def test_apply_exit_proceeds_on_last_leg_completes():
     cfg = mk_config(2)
     st = held_state(cfg, leg_index=1, shares=80.0)

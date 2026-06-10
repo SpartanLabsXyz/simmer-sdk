@@ -451,6 +451,54 @@ def test_resting_exit_is_not_replaced(tmp_path):
     assert new_state.leg_index == 0
 
 
+def test_partial_exit_fill_accumulates_and_keeps_settling(tmp_path):
+    """0 < sold < requested: reduce shares, bank proceeds, do NOT advance the leg."""
+    cfg_dict = example_config_dict()
+    cfg = RollerConfig.from_dict(cfg_dict)
+    state = StreakState.fresh(cfg)
+    state.phase = "LEG_OPEN"
+    state.cash = 0.0
+    state.shares = 50.0
+    at = cfg.legs[0].expected_end + timedelta(minutes=10)
+
+    class PartialFillClient(FakeClient):
+        def trade(self, **kw):
+            self.trades.append(kw)
+            if kw.get("action") == "sell":
+                return FakeResult(order_id="ord-7", shares_sold=20.0)
+            return FakeResult(shares_bought=round(kw["amount"] / kw["price"], 2))
+
+    client = PartialFillClient(FakeMarket(mid=0.98, bid=0.975))
+    new_state = run_tick(tmp_path, client, cfg_dict=cfg_dict, state=state, at=at)
+    assert new_state.shares == pytest.approx(30.0)
+    assert new_state.cash == pytest.approx(20.0 * 0.975)
+    assert new_state.leg_index == 0  # remainder still settling
+    assert new_state.exit_order_id == "ord-7"  # remainder rests; reconcile owns it
+    assert new_state.exit_price == pytest.approx(0.975)
+
+
+def test_followup_full_fill_advances_with_total_proceeds(tmp_path):
+    """After a partial, the resting remainder filling advances with TOTAL proceeds."""
+    cfg_dict = example_config_dict()
+    cfg = RollerConfig.from_dict(cfg_dict)
+    state = StreakState.fresh(cfg)
+    state.phase = "LEG_OPEN"
+    state.cash = round(20.0 * 0.975, 6)  # accumulated partial proceeds
+    state.shares = 30.0
+    state.exit_order_id = "ord-7"
+    state.exit_price = 0.975
+    at = cfg.legs[0].expected_end + timedelta(minutes=20)
+    client = FakeClient(FakeMarket(mid=0.98, bid=0.975))
+    client.open_orders = {"orders": []}  # ord-7 left the book -> remainder filled
+    new_state = run_tick(tmp_path, client, cfg_dict=cfg_dict, state=state, at=at)
+    assert new_state.leg_index == 1
+    assert new_state.exit_order_id is None
+    # The same tick then enters leg 2, so TOTAL proceeds show up as the entry size.
+    buys = [trade for trade in client.trades if trade["action"] == "buy"]
+    assert buys and buys[0]["amount"] == pytest.approx(round(50.0 * 0.975, 2))
+    assert buys[0]["market_id"] == "m1"
+
+
 def won_resolution_setup(cfg_dict=None):
     """Held leg 1, market resolved in our favor."""
     cfg = RollerConfig.from_dict(cfg_dict or example_config_dict())

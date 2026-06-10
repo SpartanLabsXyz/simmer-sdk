@@ -295,12 +295,18 @@ def apply_entry_fill(state: StreakState, shares_bought: float, spent: float, now
 
 
 def apply_exit_proceeds(state: StreakState, cfg: RollerConfig, proceeds: float, now: datetime) -> None:
-    """A won leg's proceeds landed. Roll to the next leg or complete."""
+    """A won leg's (final) proceeds landed. Roll to the next leg or complete.
+
+    Proceeds ADD to existing cash: a partial exit fill banks its proceeds into
+    state.cash while the remainder keeps settling, so the closing fill must
+    accumulate rather than overwrite. Full-fill behavior is unchanged (cash is
+    0 while holding).
+    """
     leg_no = state.leg_index + 1
     state.shares = 0.0
     state.exit_order_id = None
     state.exit_price = None
-    cash = round(proceeds, 6)
+    cash = round(state.cash + proceeds, 6)
     if cfg.bank_half_after is not None and leg_no >= cfg.bank_half_after and state.banked == 0.0:
         half = round(cash / 2, 6)
         state.banked = half

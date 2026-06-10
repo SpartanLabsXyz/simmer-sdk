@@ -385,8 +385,22 @@ def execute(
             print(f"[parlay-roller] exit rejected: {getattr(res, 'error', None)}")
             return
         sold = getattr(res, "shares_sold", 0.0) or 0.0
-        if sold > 0:
+        if sold >= action.shares - 1e-6 and sold > 0:
             apply_exit_proceeds(state, cfg, proceeds=round(sold * action.price, 6), now=now)
+        elif sold > 1e-6:
+            # Partial fill: bank the sold portion, keep settling the remainder.
+            # The leg only advances when the LAST fill lands (apply_exit_proceeds
+            # accumulates into cash). The resting remainder keeps its order id so
+            # reconcile owns it - re-placing here could double-sell.
+            state.shares = round(state.shares - sold, 6)
+            state.cash = round(state.cash + sold * action.price, 6)
+            state.exit_order_id = getattr(res, "order_id", None)
+            state.exit_price = action.price
+            state.log(
+                f"exit partial fill: {sold:.2f} sh @ {action.price:.3f}; "
+                f"{state.shares:.2f} sh remaining",
+                now,
+            )
         else:
             state.exit_order_id = getattr(res, "order_id", None)
             state.exit_price = action.price
