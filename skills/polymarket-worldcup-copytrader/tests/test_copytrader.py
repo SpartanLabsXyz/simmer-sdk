@@ -348,6 +348,44 @@ class TestRunLive(unittest.TestCase):
         self.assertEqual(kwargs["skill_slug"], "polymarket-worldcup-copytrader")
 
 
+class TestClientSideCaps(unittest.TestCase):
+    """Belt-and-braces client-side enforcement of MAX_TRADES + per-position cap (codex P2)."""
+
+    @staticmethod
+    def _plan(n, cost=3.0):
+        return {
+            "success": True,
+            "wallets_analyzed": 1,
+            "positions_found": n,
+            "conflicts_skipped": 0,
+            "trades": [
+                {"market_id": f"mkt-{i}", "action": "buy", "side": "yes",
+                 "shares": 5.0, "estimated_price": 0.6, "estimated_cost": cost,
+                 "market_title": f"Market {i}"}
+                for i in range(n)
+            ],
+        }
+
+    def test_truncates_plan_to_max_trades(self):
+        """Server returning MAX_TRADES+3 trades executes only MAX_TRADES."""
+        plan = self._plan(13)  # MAX_TRADES (10) + 3
+        mod, mock_client = _make_skill_module(
+            leaders_response=_leaders_response(), plan_response=plan)
+        mod.run(dry_run=False)
+        self.assertEqual(mock_client.trade.call_count, 10)
+
+    def test_skips_oversized_trade_and_executes_rest(self):
+        """A trade whose cost exceeds the per-position cap is skipped, not placed."""
+        plan = self._plan(3)
+        plan["trades"][1]["estimated_cost"] = 999.0  # > effective cap of 30
+        mod, mock_client = _make_skill_module(
+            leaders_response=_leaders_response(), plan_response=plan)
+        mod.run(dry_run=False)
+        self.assertEqual(mock_client.trade.call_count, 2)
+        traded = [c[1]["market_id"] for c in mock_client.trade.call_args_list]
+        self.assertEqual(traded, ["mkt-0", "mkt-2"])
+
+
 class TestAutomatonEmission(unittest.TestCase):
     """Automaton JSON emitted correctly."""
 

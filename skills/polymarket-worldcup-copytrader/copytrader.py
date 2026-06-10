@@ -297,6 +297,12 @@ def run(dry_run: bool = True, venue: str = None) -> None:
         return
 
     # --- execute trades client-side ---
+    # Belt-and-braces: server-side params already request these limits, but
+    # enforce them client-side too so a server bug can't oversize the run.
+    if len(trades) > MAX_TRADES:
+        print(f"\n⚠️  Plan has {len(trades)} trades > max_trades={MAX_TRADES} — truncating.")
+        trades = trades[:MAX_TRADES]
+        plan["trades"] = trades  # keep automaton trades_attempted accurate
     print(f"\n⚡ Executing {len(trades)} trade(s)…")
     executed = 0
     for t in trades:
@@ -306,6 +312,12 @@ def run(dry_run: bool = True, venue: str = None) -> None:
         shares = t.get("shares", 0)
         cost = t.get("estimated_cost", 0)
         title = t.get("market_title", market_id[:20] if market_id else "?")
+        if action == "buy" and cost > effective_max:
+            print(f"  ⚠️  Skipping {title[:40]} — cost ${cost:.2f} exceeds "
+                  f"per-position cap ${effective_max:.2f}")
+            t["success"] = False
+            t["error"] = "exceeds_per_position_cap"
+            continue
         source_wallet = t.get("whale_wallet") or t.get("source_wallet") or ""
         signal_data = {
             "signal_source": "wc_copytrader",
