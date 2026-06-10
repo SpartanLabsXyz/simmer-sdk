@@ -57,6 +57,7 @@ External Wallet Trading (BYOW):
 from .client import (
     SimmerClient,
     TradeResult,
+    MakerRewardsStatus,
     RealTradeResult,
     PolymarketOrderParams,
     PreflightResult,
@@ -88,6 +89,7 @@ except ImportError:
 __all__ = [
     "SimmerClient",
     "TradeResult",
+    "MakerRewardsStatus",
     "RealTradeResult",
     "PolymarketOrderParams",
     "PreflightResult",

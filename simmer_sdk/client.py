@@ -13,6 +13,7 @@ import requests
 from typing import Optional, List, Dict, Any
 from dataclasses import dataclass
 from urllib.parse import urlparse
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +95,22 @@ class Position:
     best_ask_size: Optional[float] = None  # Shares available at best_ask
     spread: Optional[float] = None  # best_ask - best_bid for the held side
     quote_ts: Optional[float] = None  # Epoch-second snapshot time (~30s freshness)
+
+
+@dataclass
+class MakerRewardsStatus:
+    """Polymarket liquidity-rewards configuration for one market."""
+    market_id: str
+    condition_id: str
+    eligible: bool
+    v: Optional[float] = None  # Max qualifying spread, from rewards_max_spread
+    b: Optional[float] = None  # In-game multiplier when exposed by CLOB
+    c: float = 3.0  # Polymarket docs: single-sided divisor is currently 3.0
+    daily_pool: float = 0.0
+    min_size: Optional[float] = None
+    market_competitiveness: Optional[float] = None
+    reward_configs: Optional[List[Dict[str, Any]]] = None
+    raw: Optional[Dict[str, Any]] = None
 
 
 @dataclass
@@ -210,6 +227,7 @@ class SimmerClient:
     VENUES = ("sim", "simmer", "sandbox", "polymarket", "kalshi")
     # Valid order types for Polymarket CLOB
     ORDER_TYPES = ("GTC", "GTD", "FOK", "FAK")
+    POLYMARKET_CLOB_API = "https://clob.polymarket.com"
     # Private key format: 0x + 64 hex characters (EVM)
     PRIVATE_KEY_LENGTH = 66
     # Environment variable for EVM private key auto-detection (Polymarket)
@@ -2638,6 +2656,125 @@ class SimmerClient:
                 })
         holders.sort(key=lambda x: x["amount"], reverse=True)
         return holders[:limit]
+
+    @staticmethod
+    def _looks_like_polymarket_condition_id(value: str) -> bool:
+        return isinstance(value, str) and value.startswith("0x") and len(value) == 66
+
+    def _resolve_polymarket_condition_id(self, market_id: str) -> str:
+        """Resolve a Simmer market id to a Polymarket condition id."""
+        if self._looks_like_polymarket_condition_id(market_id):
+            return market_id
+
+        market = self.get_market_by_id(market_id)
+        if market and market.polymarket_condition_id:
+            return market.polymarket_condition_id
+
+        ctx = self.get_market_context(market_id)
+        ctx_market = (ctx or {}).get("market") or {}
+        condition_id = (
+            ctx_market.get("polymarket_condition_id")
+            or ctx_market.get("polymarket_id")
+            or ctx_market.get("condition_id")
+        )
+        if condition_id:
+            return condition_id
+
+        raise ValueError(
+            "maker_rewards_status requires a Polymarket condition_id or a "
+            "Simmer market_id whose metadata includes polymarket_id"
+        )
+
+    @staticmethod
+    def _parse_reward_date(value: Optional[str]):
+        if not value:
+            return None
+        try:
+            return datetime.fromisoformat(value[:10]).date()
+        except ValueError:
+            return None
+
+    @classmethod
+    def _active_reward_configs(cls, configs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        today = datetime.now(timezone.utc).date()
+        active = []
+        for cfg in configs:
+            start = cls._parse_reward_date(cfg.get("start_date"))
+            end = cls._parse_reward_date(cfg.get("end_date"))
+            if start and today < start:
+                continue
+            if end and today > end:
+                continue
+            active.append(cfg)
+        return active
+
+    @staticmethod
+    def _first_present(data: Dict[str, Any], keys: List[str]):
+        for key in keys:
+            if key in data and data[key] is not None:
+                return data[key]
+        return None
+
+    def maker_rewards_status(
+        self,
+        market_id: str,
+        *,
+        sponsored: bool = False,
+        timeout: int = 10,
+    ) -> MakerRewardsStatus:
+        """
+        Fetch Polymarket maker-rewards configuration for a market.
+
+        This calls Polymarket's public CLOB rewards endpoint directly:
+        ``GET /rewards/markets/{condition_id}``. Pass either a Polymarket
+        condition id or a Simmer market id with Polymarket metadata.
+
+        The public market endpoint exposes ``v`` via ``rewards_max_spread`` and
+        the active daily reward pool via ``rewards_config.rate_per_day``. The
+        single-sided divisor ``c`` is documented by Polymarket as 3.0. As of
+        2026-06-10 the public endpoint does not consistently expose an explicit
+        ``b`` multiplier field; when no explicit multiplier is present, ``b`` is
+        returned as ``None`` and ``market_competitiveness`` is preserved.
+        """
+        condition_id = self._resolve_polymarket_condition_id(market_id)
+        params = {"sponsored": "true"} if sponsored else None
+        response = requests.get(
+            f"{self.POLYMARKET_CLOB_API}/rewards/markets/{condition_id}",
+            params=params,
+            headers={"Accept": "application/json"},
+            timeout=timeout,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        rows = payload.get("data") or []
+        if not rows:
+            return MakerRewardsStatus(
+                market_id=market_id,
+                condition_id=condition_id,
+                eligible=False,
+                raw=payload,
+            )
+
+        row = rows[0]
+        configs = row.get("rewards_config") or []
+        active_configs = self._active_reward_configs(configs)
+        daily_pool = sum(float(cfg.get("rate_per_day") or 0) for cfg in active_configs)
+        explicit_b = self._first_present(
+            row,
+            ["b", "rewards_multiplier", "market_reward_weight", "in_game_multiplier"],
+        )
+        return MakerRewardsStatus(
+            market_id=row.get("market_id") or market_id,
+            condition_id=row.get("condition_id") or condition_id,
+            eligible=bool(active_configs and daily_pool > 0),
+            v=row.get("rewards_max_spread"),
+            b=float(explicit_b) if explicit_b is not None else None,
+            daily_pool=daily_pool,
+            min_size=row.get("rewards_min_size"),
+            market_competitiveness=row.get("market_competitiveness"),
+            reward_configs=configs,
+            raw=payload,
+        )
 
     def get_trades(
         self,

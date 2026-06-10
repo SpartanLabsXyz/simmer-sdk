@@ -152,6 +152,7 @@ print(f"Balance: ${summary['balance']:.2f}, P&L: ${summary['total_pnl']:.2f}")
 | `get_held_markets()` | Map of market_id → source tags for held positions |
 | `check_conflict()` | Check if another skill holds a position on a market |
 | `get_open_orders()` | Open GTC/GTD orders on the CLOB |
+| `maker_rewards_status(market_id)` | Polymarket liquidity-rewards config: max spread, daily pool, eligibility |
 | `get_portfolio(venue="all")` | Portfolio summary with per-venue buckets (sim/polymarket/kalshi/total) |
 | `get_market_context(market_id, venue="all")` | Per-venue positions + trading safeguards |
 | `get_trades(venue="all")` | Trade history merged across venues, each row tagged with venue |
