@@ -102,6 +102,17 @@ def _resolve_venue(cli_venue: str = None) -> str:
 # Leader fetch
 # ---------------------------------------------------------------------------
 
+def _is_cache_not_ready_error(e: Exception) -> bool:
+    """True only for the server's not-yet-computed signal.
+
+    The endpoint raises HTTP 503 ("leader set not yet computed") when the
+    daily curation cache isn't populated — it never returns cache_empty:true
+    on a 200. Anything else is a real error and must propagate.
+    """
+    err = str(e)
+    return "503" in err or "not yet computed" in err.lower()
+
+
 def fetch_leaders() -> list:
     """GET /api/sdk/wc/copy-leaders → list of leader wallet strings.
 
@@ -113,13 +124,9 @@ def fetch_leaders() -> list:
     try:
         resp = client._request("GET", "/api/sdk/wc/copy-leaders")
     except Exception as e:
-        err = str(e)
-        if "503" in err or "cache" in err.lower():
+        if _is_cache_not_ready_error(e):
             return []
         raise
-
-    if isinstance(resp, dict) and resp.get("cache_empty"):
-        return []
 
     leaders = resp.get("leaders") or []
     return [str(entry["wallet"]) for entry in leaders if entry.get("wallet")]
@@ -131,11 +138,10 @@ def print_leaders():
     try:
         resp = client._request("GET", "/api/sdk/wc/copy-leaders")
     except Exception as e:
-        print(f"❌ Error fetching leaders: {e}")
-        return
-
-    if isinstance(resp, dict) and resp.get("cache_empty"):
-        print("⏳ Leader cache not yet populated (job runs at 02:00 UTC).")
+        if _is_cache_not_ready_error(e):
+            print("⏳ Leader cache not yet populated (job runs at 02:00 UTC).")
+        else:
+            print(f"❌ Error fetching leaders: {e}")
         return
 
     leaders = resp.get("leaders") or []

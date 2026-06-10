@@ -226,13 +226,23 @@ class TestFetchLeaders(unittest.TestCase):
         wallets = mod.fetch_leaders()
         self.assertEqual(wallets, ["0xabc", "0xdef"])
 
-    def test_returns_empty_on_cache_empty(self):
-        response = {"cache_empty": True, "refreshed_at": None, "leaders": []}
-        mod, _ = _make_skill_module(leaders_response=response)
+    def test_returns_empty_on_503_http_error(self):
+        """The real endpoint raises HTTP 503 when the cache isn't populated
+        (simmer_v3/api/routers/wc.py) — there is no cache_empty:true on 200."""
+        mod, mock_client = _make_skill_module(leaders_response={})
+
+        def _raise_503(method, path, **kwargs):
+            if "wc/copy-leaders" in path:
+                raise Exception(
+                    "503 Server Error: Service Unavailable for url: "
+                    "https://api.simmer.markets/api/sdk/wc/copy-leaders")
+            return {}
+
+        mock_client._request.side_effect = _raise_503
         wallets = mod.fetch_leaders()
         self.assertEqual(wallets, [])
 
-    def test_returns_empty_on_503_exception(self):
+    def test_returns_empty_on_not_yet_computed_message(self):
         mod, mock_client = _make_skill_module(leaders_response={})
 
         def _raise_503(method, path, **kwargs):
@@ -243,6 +253,19 @@ class TestFetchLeaders(unittest.TestCase):
         mock_client._request.side_effect = _raise_503
         wallets = mod.fetch_leaders()
         self.assertEqual(wallets, [])
+
+    def test_does_not_swallow_unrelated_cache_errors(self):
+        """Only 503 / not-yet-computed is a clean skip; other errors re-raise."""
+        mod, mock_client = _make_skill_module(leaders_response={})
+
+        def _raise_other(method, path, **kwargs):
+            if "wc/copy-leaders" in path:
+                raise Exception("connection cache poisoned: upstream DNS failure")
+            return {}
+
+        mock_client._request.side_effect = _raise_other
+        with self.assertRaises(Exception):
+            mod.fetch_leaders()
 
     def test_drops_entries_without_wallet(self):
         response = {
@@ -262,8 +285,17 @@ class TestRunDryRun(unittest.TestCase):
     """run() in dry-run mode."""
 
     def test_exits_cleanly_on_empty_leaders(self):
-        response = {"cache_empty": True, "refreshed_at": None, "leaders": []}
-        mod, mock_client = _make_skill_module(leaders_response=response)
+        """Unpopulated cache = real HTTP 503 from the server → clean exit."""
+        mod, mock_client = _make_skill_module(leaders_response={})
+
+        def _raise_503(method, path, **kwargs):
+            if "wc/copy-leaders" in path:
+                raise Exception(
+                    "503 Server Error: Service Unavailable for url: "
+                    "https://api.simmer.markets/api/sdk/wc/copy-leaders")
+            return {}
+
+        mock_client._request.side_effect = _raise_503
         mod.run(dry_run=True)
         mock_client._request.assert_any_call("GET", "/api/sdk/wc/copy-leaders")
         # copytrading/execute must NOT be called
@@ -441,8 +473,18 @@ class TestAutomatonEmission(unittest.TestCase):
         return json_lines
 
     def test_emits_automaton_on_empty_leaders(self):
-        response = {"cache_empty": True, "refreshed_at": None, "leaders": []}
-        lines = self._run_with_automaton(response)
+        """Unpopulated cache = real HTTP 503 → automaton skip block emitted."""
+        mod, mock_client = _make_skill_module(leaders_response={})
+
+        def _raise_503(method, path, **kwargs):
+            if "wc/copy-leaders" in path:
+                raise Exception(
+                    "503 Server Error: Service Unavailable for url: "
+                    "https://api.simmer.markets/api/sdk/wc/copy-leaders")
+            return {}
+
+        mock_client._request.side_effect = _raise_503
+        lines, _ = _run_capturing(mod, dry_run=True)
         self.assertEqual(len(lines), 1)
         data = json.loads(lines[0])
         self.assertEqual(data["automaton"]["skip_reason"], "leaders_cache_empty")
