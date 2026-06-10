@@ -1,0 +1,62 @@
+{
+  "emoji": "🌍",
+  "primaryEnv": "SIMMER_API_KEY",
+  "requires": {
+    "env": [
+      "SIMMER_API_KEY"
+    ],
+    "pip": [
+      "simmer-sdk>=0.17.27"
+    ]
+  },
+  "envVars": [
+    {
+      "name": "SIMMER_API_KEY",
+      "required": true,
+      "description": "Your Simmer SDK API key — get from simmer.markets/dashboard (SDK tab)."
+    },
+    {
+      "name": "WALLET_PRIVATE_KEY",
+      "required": false,
+      "description": "Your Polymarket wallet private key. Only needed for --venue polymarket --live with an external wallet. Not required for $SIM or managed wallets."
+    }
+  ],
+  "cron": null,
+  "autostart": false,
+  "automaton": {
+    "managed": true,
+    "entrypoint": "copytrader.py"
+  },
+  "tunables": [
+    {
+      "env": "TRADING_VENUE",
+      "type": "string",
+      "default": "sim",
+      "enum": ["sim", "polymarket"],
+      "label": "Venue — sim ($SIM, default) or polymarket (real USDC). Always validate on sim first."
+    },
+    {
+      "env": "WC_COPYTRADER_MAX_USD",
+      "type": "number",
+      "default": 30,
+      "range": [1, 200],
+      "step": 5,
+      "label": "Max bet per trade (USDC / $SIM)"
+    },
+    {
+      "env": "WC_COPYTRADER_MAX_TRADES",
+      "type": "number",
+      "default": 10,
+      "range": [1, 50],
+      "step": 1,
+      "label": "Max trades per run"
+    },
+    {
+      "env": "WC_COPYTRADER_BUY_ONLY",
+      "type": "string",
+      "default": "true",
+      "enum": ["true", "false"],
+      "label": "Buy-only mode — 'true' accumulates positions only; 'false' fully rebalances (includes sells)"
+    }
+  ]
+}
