@@ -5,6 +5,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+
+- **`polymarket-fast-scaler` skill published to ClawHub at v1.0.0.** Magnitude-gated BTC 5-minute fast-market strategy. Fires only when |1m BTC momentum| ≥ 0.10% — the EV-positive regime validated by backtest. Position sizes across 3 conviction tiers ($3/$5/$10). Live-tested for 48h on a real Polymarket wallet; trades filled and budget cap honored. Available via `clawhub install polymarket-fast-scaler`.
+
 ## [0.17.29] - 2026-06-10
 
 ### Security
