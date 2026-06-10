@@ -111,12 +111,19 @@ SPORTS_CATEGORIES = {
 # =============================================================================
 
 _client = None
+_client_venue = None
 
 
-def get_client(live=True):
+def _resolve_venue(venue: Optional[str] = None) -> str:
+    """Resolve the execution venue once so paper/live gates and trades agree."""
+    return venue or os.environ.get("TRADING_VENUE", "polymarket")
+
+
+def get_client(live=True, venue: Optional[str] = None):
     """Lazy-init SimmerClient singleton."""
-    global _client
-    if _client is None:
+    global _client, _client_venue
+    effective_venue = _resolve_venue(venue)
+    if _client is None or _client_venue != effective_venue:
         try:
             from simmer_sdk import SimmerClient
         except ImportError:
@@ -127,7 +134,8 @@ def get_client(live=True):
             print("Error: SIMMER_API_KEY environment variable not set")
             print("Get your API key from: simmer.markets/dashboard -> SDK tab")
             sys.exit(1)
-        _client = SimmerClient(api_key=api_key, venue="polymarket", live=live)
+        _client = SimmerClient(api_key=api_key, venue=effective_venue, live=live)
+        _client_venue = effective_venue
     return _client
 
 
@@ -314,19 +322,21 @@ def import_market(slug: str) -> tuple:
     return None, f"Unexpected import status: {status}"
 
 
-def get_market_context(market_id: str) -> dict | None:
+def get_market_context(market_id: str, venue: Optional[str] = None) -> Optional[dict]:
     """Fetch market context (fees, safeguards) from Simmer."""
     try:
-        return get_client().get_market_context(market_id)
+        effective_venue = _resolve_venue(venue)
+        return get_client(venue=effective_venue).get_market_context(market_id, venue=effective_venue)
     except Exception:
         return None
 
 
-def get_positions() -> list:
-    """Get current positions, filtered to polymarket venue."""
+def get_positions(venue: Optional[str] = None) -> list:
+    """Get current positions, filtered to the resolved execution venue."""
     try:
-        client = get_client()
-        positions = client.get_positions(venue="polymarket")
+        effective_venue = _resolve_venue(venue)
+        client = get_client(venue=effective_venue)
+        positions = client.get_positions(venue=effective_venue)
         from dataclasses import asdict
         return [asdict(p) for p in positions]
     except Exception:
@@ -337,13 +347,20 @@ def get_positions() -> list:
 # Trade execution
 # =============================================================================
 
-def execute_trade(market_id: str, amount: float, signal_data: dict | None = None) -> dict:
+def execute_trade(
+    market_id: str,
+    amount: float,
+    signal_data: Optional[dict] = None,
+    venue: Optional[str] = None,
+) -> dict:
     """Buy NO on a market via Simmer SDK."""
+    effective_venue = _resolve_venue(venue)
     try:
-        result = get_client().trade(
+        result = get_client(venue=effective_venue).trade(
             market_id=market_id,
             side="no",
             amount=amount,
+            venue=effective_venue,
             source=TRADE_SOURCE,
             skill_slug=SKILL_SLUG,
             reasoning="nothing-ever-happens: buying NO on standalone market below price cap",
@@ -392,7 +409,12 @@ def print_candidates(candidates: list) -> None:
 # Main trading loop
 # =============================================================================
 
-def run_trades(candidates: list, dry_run: bool = True, quiet: bool = False) -> tuple:
+def run_trades(
+    candidates: list,
+    dry_run: bool = True,
+    quiet: bool = False,
+    venue: Optional[str] = None,
+) -> tuple:
     """
     Import and buy NO on candidate markets.
     Returns (signals, attempted, executed, skip_reasons, total_usd, errors).
@@ -413,7 +435,8 @@ def run_trades(candidates: list, dry_run: bool = True, quiet: bool = False) -> t
         return signals, 0, 0, ["daily budget exhausted"], 0.0, []
 
     # Skip markets where we already hold a position
-    positions = get_positions()
+    effective_venue = _resolve_venue(venue)
+    positions = get_positions(venue=effective_venue)
     held_market_ids = {
         p.get("market_id")
         for p in positions
@@ -455,7 +478,7 @@ def run_trades(candidates: list, dry_run: bool = True, quiet: bool = False) -> t
             continue
 
         # Get context for fees and safeguards
-        context = get_market_context(market_id)
+        context = get_market_context(market_id, venue=effective_venue)
         if not context:
             log(f"  Context fetch failed for {question[:40]}...")
             skip_reasons.append("context fetch failed")
@@ -495,7 +518,7 @@ def run_trades(candidates: list, dry_run: bool = True, quiet: bool = False) -> t
             "liquidity": round(m["liquidity"], 2),
             "volume_24h": round(m["volume_24h"], 2),
         }
-        result = execute_trade(market_id, position_size, signal_data=_signal_data)
+        result = execute_trade(market_id, position_size, signal_data=_signal_data, venue=effective_venue)
 
         if result and result.get("success"):
             executed += 1
@@ -566,11 +589,12 @@ def main():
         return
 
     dry_run = not args.live
-    get_client(live=not dry_run)  # Validate API key early
+    effective_venue = _resolve_venue()
+    get_client(live=not dry_run, venue=effective_venue)  # Validate API key early
 
     # Redeem any winning positions
     try:
-        redeemed = get_client().auto_redeem()
+        redeemed = get_client(venue=effective_venue).auto_redeem()
         for r in redeemed:
             if r.get("success"):
                 print(f"  Redeemed {r['market_id'][:8]}... (NO)")
@@ -581,9 +605,12 @@ def main():
     # looping on rejected trades. Helper is collateral-agnostic — checks pUSD
     # on V2, USDC.e on V1 per server's exchange_version.
     global MAX_BET_USD, _automaton_reported
-    is_paper_venue_pre = os.environ.get("TRADING_VENUE", "polymarket") == "sim"
+    is_paper_venue_pre = effective_venue == "sim"
     if not dry_run and not is_paper_venue_pre:
-        _preflight = get_client().ensure_can_trade(min_usd=1.0)
+        _preflight = get_client(venue=effective_venue).ensure_can_trade(
+            min_usd=1.0,
+            venue=effective_venue,
+        )
         if not _preflight["ok"]:
             print(f"  ⏸️  insufficient_balance: ${_preflight['balance']:.2f} {_preflight['collateral']} "
                   f"(need ≥ $1.00) — skip")
@@ -611,11 +638,12 @@ def main():
     if args.scan:
         return
 
-    is_paper_venue = os.environ.get("TRADING_VENUE", "polymarket") == "sim"
+    is_paper_venue = effective_venue == "sim"
     signals, attempted, executed, skip_reasons, total_usd, execution_errors = run_trades(
         candidates,
         dry_run=dry_run and not is_paper_venue,
         quiet=args.quiet,
+        venue=effective_venue,
     )
 
     if os.environ.get("AUTOMATON_MANAGED"):
