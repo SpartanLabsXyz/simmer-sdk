@@ -13,12 +13,13 @@ import argparse
 import contextlib
 import json
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import requests
 
 from parlay_roller import (
+    STALE_RESOLUTION_HOURS,
     Action,
     MarketSnap,
     RollerConfig,
@@ -209,6 +210,23 @@ def cancel_confirmed(client, order_id: str):
     return True, ""
 
 
+def held_position_shares(positions, market_id: str, side: str) -> float:
+    """Sum the held side's shares for market_id across a get_positions() result."""
+    total = 0.0
+    for pos in positions or []:
+        if isinstance(pos, dict):
+            pid = pos.get("market_id")
+            shares_yes = pos.get("shares_yes", 0.0) or 0.0
+            shares_no = pos.get("shares_no", 0.0) or 0.0
+        else:
+            pid = getattr(pos, "market_id", None)
+            shares_yes = getattr(pos, "shares_yes", 0.0) or 0.0
+            shares_no = getattr(pos, "shares_no", 0.0) or 0.0
+        if str(pid) == str(market_id):
+            total += shares_no if side == "no" else shares_yes
+    return total
+
+
 def _open_order_ids(open_orders) -> set:
     """Normalize a get_open_orders() response into a set of order id strings."""
     if isinstance(open_orders, dict):
@@ -376,7 +394,30 @@ def execute(
         return
 
     if action.kind == "settle_won":
-        apply_exit_proceeds(state, cfg, proceeds=round(state.shares * 1.0, 6), now=now)
+        # Verify-or-pause: resolution alone is not cash. Only credit once the
+        # venue no longer shows the position (i.e. redemption actually landed).
+        prev_shares = state.shares
+        try:
+            positions = client.get_positions(venue=venue)
+        except Exception as e:
+            print(f"[parlay-roller] warn: get_positions failed ({e}); cannot verify redemption - waiting")
+            return
+        still_held = held_position_shares(positions, leg.market_id, leg.side)
+        if still_held > 1e-6:
+            if now > leg.expected_end + timedelta(hours=STALE_RESOLUTION_HOURS):
+                state.phase = "PAUSED"
+                state.log(
+                    f"PAUSED: resolved in our favor but unredeemed "
+                    f"{STALE_RESOLUTION_HOURS}h past expected end; manual review",
+                    now,
+                )
+                return
+            print(
+                f"[parlay-roller] leg {leg_index + 1} resolved in our favor - "
+                f"awaiting redemption ({still_held:.2f} sh still on venue)"
+            )
+            return
+        apply_exit_proceeds(state, cfg, proceeds=round(prev_shares * 1.0, 6), now=now)
         return
 
     if action.kind == "mark_busted":

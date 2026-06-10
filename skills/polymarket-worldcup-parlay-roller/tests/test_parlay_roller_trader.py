@@ -108,6 +108,7 @@ class FakeClient:
         self.trades = []
         self.cancelled = []
         self.open_orders = {"orders": []}
+        self.positions = []
 
     def get_market_by_id(self, market_id):
         return self.market
@@ -124,6 +125,9 @@ class FakeClient:
 
     def get_open_orders(self):
         return self.open_orders
+
+    def get_positions(self, venue=None, source=None):
+        return self.positions
 
 
 def run_tick(tmp_path, client, cfg_dict=None, state=None, live=True, at=None):
@@ -445,6 +449,79 @@ def test_resting_exit_is_not_replaced(tmp_path):
     assert client.trades == []  # decide waits; reconcile owns the fill
     assert new_state.exit_order_id == "ord-9"
     assert new_state.leg_index == 0
+
+
+def won_resolution_setup(cfg_dict=None):
+    """Held leg 1, market resolved in our favor."""
+    cfg = RollerConfig.from_dict(cfg_dict or example_config_dict())
+    state = StreakState.fresh(cfg)
+    state.phase = "LEG_OPEN"
+    state.cash = 0.0
+    state.shares = 50.0
+    at = cfg.legs[0].expected_end + timedelta(minutes=10)
+    client = FakeClient(FakeMarket(mid=None, bid=None, ask=None, status="resolved", resolved_yes=True))
+    return cfg, state, client, at
+
+
+def test_settle_won_waits_while_position_unredeemed(tmp_path, capsys):
+    """Resolution alone must not credit cash - the venue still shows the position."""
+    cfg, state, client, at = won_resolution_setup()
+    client.positions = [{"market_id": "m0", "shares_yes": 50.0, "shares_no": 0.0}]
+    new_state = run_tick(tmp_path, client, state=state, at=at)
+    assert new_state.cash == pytest.approx(0.0)  # no phantom credit
+    assert new_state.shares == pytest.approx(50.0)
+    assert new_state.leg_index == 0
+    assert new_state.phase == "LEG_OPEN"
+    assert "awaiting redemption" in capsys.readouterr().out
+
+
+def test_settle_won_credits_once_position_redeemed(tmp_path):
+    cfg, state, client, at = won_resolution_setup()
+    client.positions = []  # position gone -> redeemed
+    new_state = run_tick(tmp_path, client, state=state, at=at)
+    assert new_state.cash == pytest.approx(50.0)  # shares * 1.0
+    assert new_state.shares == 0.0
+    assert new_state.leg_index == 1
+    assert new_state.phase == "LEG_OPEN"
+
+
+def test_settle_won_checks_held_side_shares(tmp_path):
+    """A NO leg: shares_yes lingering at 0 but shares_no still held -> wait."""
+    cfg_dict = no_leg_config_dict()
+    cfg, state, client, at = won_resolution_setup(cfg_dict)
+    client.market.resolved_yes = False  # NO leg won
+    client.positions = [{"market_id": "m0", "shares_yes": 0.0, "shares_no": 50.0}]
+    new_state = run_tick(tmp_path, client, cfg_dict=cfg_dict, state=state, at=at)
+    assert new_state.cash == pytest.approx(0.0)
+    assert new_state.leg_index == 0
+
+
+def test_settle_won_waits_when_get_positions_raises(tmp_path, capsys):
+    cfg, state, client, at = won_resolution_setup()
+
+    class RaisingPositionsClient(FakeClient):
+        def get_positions(self, venue=None, source=None):
+            raise OSError("positions api down")
+
+    client = RaisingPositionsClient(
+        FakeMarket(mid=None, bid=None, ask=None, status="resolved", resolved_yes=True)
+    )
+    new_state = run_tick(tmp_path, client, state=state, at=at)
+    assert new_state.cash == pytest.approx(0.0)
+    assert new_state.shares == pytest.approx(50.0)
+    assert new_state.leg_index == 0
+    assert "warn" in capsys.readouterr().out
+
+
+def test_settle_won_unredeemed_stale_pauses(tmp_path):
+    """Resolved in our favor but unredeemed >STALE_RESOLUTION_HOURS -> PAUSED, not forever-wait."""
+    cfg, state, client, at = won_resolution_setup()
+    client.positions = [{"market_id": "m0", "shares_yes": 50.0, "shares_no": 0.0}]
+    stale_at = cfg.legs[0].expected_end + timedelta(hours=6, minutes=1)
+    new_state = run_tick(tmp_path, client, state=state, at=stale_at)
+    assert new_state.phase == "PAUSED"
+    assert new_state.cash == pytest.approx(0.0)  # still no phantom credit
+    assert new_state.shares == pytest.approx(50.0)
 
 
 def test_tick_guards_leg_index_out_of_range(tmp_path, capsys):
