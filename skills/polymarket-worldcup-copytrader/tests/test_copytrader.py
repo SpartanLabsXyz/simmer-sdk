@@ -23,6 +23,7 @@ import os
 import sys
 import types
 import unittest
+from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
 
@@ -31,7 +32,7 @@ from unittest.mock import MagicMock, patch
 # ---------------------------------------------------------------------------
 
 def _make_skill_module(leaders_response, plan_response=None, trade_success=True,
-                       config_overrides=None, markets_response=None):
+                       config_overrides=None, markets_response=None, tick_size=0.01):
     """Return a fresh copytrader module with mocked SimmerClient."""
     # Stub simmer_sdk.skill so the import succeeds without the real package
     skill_stub = types.ModuleType("simmer_sdk.skill")
@@ -105,12 +106,20 @@ def _make_skill_module(leaders_response, plan_response=None, trade_success=True,
             return leaders_response
         if "copytrading/execute" in path:
             return plan_response
+        if "/api/sdk/markets/" in path:  # per-market detail (tick_size)
+            if isinstance(tick_size, Exception):
+                raise tick_size
+            mid = path.rsplit("/", 1)[-1]
+            if tick_size is None:
+                return {"id": mid}
+            return {"id": mid, "tick_size": tick_size}
         if "/api/sdk/markets" in path:
             if isinstance(markets_response, Exception):
                 raise markets_response
             return markets_response
         return {}
 
+    mock_client._market_data_cache = {}
     mock_client._request.side_effect = _request
 
     class MockSimmerClient:
@@ -581,7 +590,7 @@ class TestWorldCupScope(unittest.TestCase):
         )
         mod.run(dry_run=False)
         markets_calls = [c for c in mock_client._request.call_args_list
-                         if "/api/sdk/markets" in str(c)]
+                         if len(c[0]) > 1 and c[0][1] == "/api/sdk/markets"]
         self.assertEqual(len(markets_calls), 1)
         params = markets_calls[0][1].get("params") or {}
         self.assertEqual(params.get("tags"), "world-cup")
@@ -702,13 +711,13 @@ class TestLivePriceBound(unittest.TestCase):
         """
         mod, _ = _make_skill_module(leaders_response=_leaders_response())
         # round(0.12353 * 1.02, 4) == 0.126 — the exact cap from the P1 report
-        self.assertEqual(mod._bounded_price("buy", 0.12353), 0.12)
+        self.assertEqual(mod._bounded_price("buy", 0.12353, Decimal("0.01")), 0.12)
 
     def test_sell_floor_ceils_to_coarse_tick(self):
         """Sell floor 0.574 must ceil to 0.58, never round down to 0.57."""
         mod, _ = _make_skill_module(leaders_response=_leaders_response())
         # round(0.58571 * 0.98, 4) == 0.574
-        self.assertEqual(mod._bounded_price("sell", 0.58571), 0.58)
+        self.assertEqual(mod._bounded_price("sell", 0.58571, Decimal("0.01")), 0.58)
 
     def test_buy_cap_boundary_hop_via_intermediate_rounding(self):
         """round(x, 4) pre-rounding must not hop a cent boundary before the
@@ -716,14 +725,60 @@ class TestLivePriceBound(unittest.TestCase):
         of 0.129999 — flooring must give 0.12, but a 4dp pre-round turns it
         into 0.1300 and signs at 0.13, one tick outside the bound."""
         mod, _ = _make_skill_module(leaders_response=_leaders_response())
-        self.assertEqual(mod._bounded_price("buy", 0.12745), 0.12)
+        self.assertEqual(mod._bounded_price("buy", 0.12745, Decimal("0.01")), 0.12)
 
     def test_sell_floor_boundary_hop_via_intermediate_rounding(self):
         """Mirror of the buy boundary hop: est 0.58168 has a true 2% floor
         of 0.5700464 — ceiling must give 0.58, but a 4dp pre-round of
         0.5700 would send 0.57, one tick below the bound."""
         mod, _ = _make_skill_module(leaders_response=_leaders_response())
-        self.assertEqual(mod._bounded_price("sell", 0.58168), 0.58)
+        self.assertEqual(mod._bounded_price("sell", 0.58168, Decimal("0.01")), 0.58)
+
+    def test_buy_cap_on_dime_tick_market_floors_to_dime(self):
+        """0.1-tick markets exist (py-clob-client TickSize enum; SDK 0.16.1
+        regression-tests all four sizes). A 1-cent-floored cap of 0.16 would
+        nearest-round to 0.20 at signing — the cap must floor to the
+        market's OWN tick (codex pass-7 P1)."""
+        mod, _ = _make_skill_module(leaders_response=_leaders_response())
+        # est 0.157 * 1.02 = 0.16014 -> floor to 0.1 grid -> 0.1
+        self.assertEqual(mod._bounded_price("buy", 0.157, Decimal("0.1")), 0.1)
+
+    def test_sell_floor_on_dime_tick_market_ceils_to_dime(self):
+        mod, _ = _make_skill_module(leaders_response=_leaders_response())
+        # est 0.157 * 0.98 = 0.15386 -> ceil to 0.1 grid -> 0.2
+        self.assertEqual(mod._bounded_price("sell", 0.157, Decimal("0.1")), 0.2)
+
+    def test_fine_tick_market_keeps_finer_cap(self):
+        """0.001-tick markets keep the tighter bound instead of giving up
+        headroom to a coarse guess."""
+        mod, _ = _make_skill_module(leaders_response=_leaders_response())
+        # est 0.12745 * 1.02 = 0.129999 -> floor to 0.001 grid -> 0.129
+        self.assertEqual(mod._bounded_price("buy", 0.12745, Decimal("0.001")), 0.129)
+
+    def test_missing_or_invalid_tick_returns_none(self):
+        mod, _ = _make_skill_module(leaders_response=_leaders_response())
+        self.assertIsNone(mod._bounded_price("buy", 0.5, None))
+        self.assertIsNone(mod._bounded_price("buy", 0.5, Decimal("0.005")))
+
+    def test_tick_fetch_failure_skips_trade_no_tick_size(self):
+        """Live run with an unfetchable tick must skip that trade — never
+        guess a quantization grid for a real-money price bound."""
+        plan = self._plan(estimated_price=0.6)
+        mod, mock_client = _make_skill_module(
+            leaders_response=_leaders_response(), plan_response=plan,
+            tick_size=RuntimeError("markets endpoint down"))
+        mod.run(dry_run=False, venue="polymarket")
+        mock_client.trade.assert_not_called()
+        self.assertEqual(plan["trades"][0].get("error"), "no_tick_size")
+
+    def test_tick_missing_from_payload_skips_trade(self):
+        plan = self._plan(estimated_price=0.6)
+        mod, mock_client = _make_skill_module(
+            leaders_response=_leaders_response(), plan_response=plan,
+            tick_size=None)
+        mod.run(dry_run=False, venue="polymarket")
+        mock_client.trade.assert_not_called()
+        self.assertEqual(plan["trades"][0].get("error"), "no_tick_size")
 
     def test_buy_cap_below_one_cent_skips_trade(self):
         """A buy cap that floors below 0.01 has no expressible tick-safe
@@ -732,7 +787,7 @@ class TestLivePriceBound(unittest.TestCase):
         plan = self._plan(estimated_price=0.005)
         mod, mock_client = _make_skill_module(
             leaders_response=_leaders_response(), plan_response=plan)
-        self.assertIsNone(mod._bounded_price("buy", 0.005))
+        self.assertIsNone(mod._bounded_price("buy", 0.005, Decimal("0.01")))
         mod.run(dry_run=False, venue="polymarket")
         mock_client.trade.assert_not_called()
         self.assertEqual(plan["trades"][0].get("error"), "no_price_bound")

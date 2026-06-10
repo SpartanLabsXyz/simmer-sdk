@@ -142,9 +142,10 @@ the plan's `estimated_price` ± `WC_COPYTRADER_MAX_SLIPPAGE` (default 2%), so a 
 that moved between planning and execution can't fill at an arbitrarily worse price —
 the unfillable remainder is killed (recorded as a failed trade, nothing rests). A
 planned trade with no usable `estimated_price` is skipped rather than sent unbounded.
-The cap is rounded directionally to the coarsest Polymarket tick (1¢ — buys floor,
-sells ceil) so tick rounding at signing time can never push the price outside the
-bound; on finer-tick markets this gives up under a cent of headroom.
+The cap is rounded directionally to the **market's own tick size** (buys floor,
+sells ceil; tick fetched once per market via the SDK's cached market data) so tick
+rounding at signing time can never push the price outside the bound. A market whose
+tick size can't be fetched or validated is skipped (`no_tick_size`) — never guessed.
 
 ## Cold-start note
 
