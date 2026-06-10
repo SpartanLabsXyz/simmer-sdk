@@ -181,6 +181,34 @@ class TestVenueRouting(unittest.TestCase):
         mock_client.ensure_can_trade.assert_not_called()
 
 
+class TestPreflightFailClosed(unittest.TestCase):
+    """LIVE polymarket runs abort when the balance preflight raises (codex P1)."""
+
+    def test_live_polymarket_aborts_when_preflight_raises(self):
+        mod, mock_client = _make_skill_module(leaders_response=_leaders_response())
+        mock_client.ensure_can_trade.side_effect = Exception("status fetch timed out")
+        json_lines, _ = _run_capturing(mod, dry_run=False, venue="polymarket")
+        # Zero trades executed, no fallback to full MAX_USD
+        mock_client.trade.assert_not_called()
+        # No trade plan should even be requested
+        for call in mock_client._request.call_args_list:
+            self.assertNotIn("copytrading/execute", str(call))
+        # Automaton skip block emitted with the right reason
+        self.assertEqual(len(json_lines), 1)
+        data = json.loads(json_lines[0])
+        self.assertEqual(data["automaton"]["skip_reason"], "preflight_unavailable")
+        self.assertEqual(data["automaton"]["trades_executed"], 0)
+
+    def test_dry_run_proceeds_when_preflight_unavailable(self):
+        """Dry-run places nothing, so it may proceed without the preflight."""
+        mod, mock_client = _make_skill_module(leaders_response=_leaders_response())
+        mock_client.ensure_can_trade.side_effect = Exception("status fetch timed out")
+        mod.run(dry_run=True, venue="polymarket")
+        mock_client.trade.assert_not_called()
+        paths_called = [str(c) for c in mock_client._request.call_args_list]
+        self.assertTrue(any("copytrading/execute" in p for p in paths_called))
+
+
 class TestFetchLeaders(unittest.TestCase):
     """fetch_leaders() response parsing."""
 

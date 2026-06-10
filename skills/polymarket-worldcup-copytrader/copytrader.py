@@ -223,8 +223,18 @@ def run(dry_run: bool = True, venue: str = None) -> None:
             effective_max = min(MAX_USD, preflight["max_safe_size"])
             if effective_max < MAX_USD:
                 print(f"  💰 Capping max per trade ${MAX_USD:.2f} → ${effective_max:.2f}")
-        except Exception:
-            effective_max = MAX_USD
+        except Exception as e:
+            # Fail closed: with no balance/safe-size signal we must not fall
+            # back to full MAX_USD on a live polymarket run.
+            print(f"\n❌ Balance preflight unavailable ({e}) — aborting live run (fail-closed).")
+            print("   Retry on the next scheduled run.")
+            if os.environ.get("AUTOMATON_MANAGED"):
+                print(json.dumps({"automaton": {
+                    "signals": 0, "trades_attempted": 0, "trades_executed": 0,
+                    "skip_reason": "preflight_unavailable",
+                }}))
+                _automaton_reported = True
+            return
     else:
         effective_max = MAX_USD
 
