@@ -36,6 +36,9 @@ function getSkipReason(skillDir: string): string | null {
   try {
     const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
     if (manifest?.published === false) return 'published=false';
+    if (manifest?.sensitivity === 'sensitive' && manifest?.sensitivity_approved !== true) {
+      return 'sensitive skill without approval';
+    }
   } catch {
     return 'invalid clawhub.json';
   }

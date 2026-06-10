@@ -2,6 +2,8 @@
   "emoji": "🪜",
   "status": "scaffold",
   "published": false,
+  "sensitivity": "sensitive",
+  "sensitivity_reason": "Prop-firm/Propr-shaped evaluation constraints and automated strategy defaults can be read as partnership or performance claims; requires Adrian approval before publication.",
   "primaryEnv": "SIMMER_API_KEY",
   "requires": {
     "env": [
