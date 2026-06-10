@@ -165,7 +165,10 @@ class StreakState:
     shares: float
     entry_order_id: Optional[str] = None
     entry_placed_at: Optional[datetime] = None
+    entry_price: Optional[float] = None
+    entry_amount: Optional[float] = None
     exit_order_id: Optional[str] = None
+    exit_price: Optional[float] = None
     banked: float = 0.0
     history: List[dict] = field(default_factory=list)
 
@@ -283,6 +286,8 @@ def apply_entry_fill(state: StreakState, shares_bought: float, spent: float, now
     state.cash = max(0.0, round(state.cash - spent, 6))
     state.entry_order_id = None
     state.entry_placed_at = None
+    state.entry_price = None
+    state.entry_amount = None
     state.phase = "LEG_OPEN"
     state.log(f"leg {state.leg_index + 1} entry filled: {shares_bought:.2f} sh for ${spent:.2f}", now)
 
@@ -292,6 +297,7 @@ def apply_exit_proceeds(state: StreakState, cfg: RollerConfig, proceeds: float, 
     leg_no = state.leg_index + 1
     state.shares = 0.0
     state.exit_order_id = None
+    state.exit_price = None
     cash = round(proceeds, 6)
     if cfg.bank_half_after is not None and leg_no >= cfg.bank_half_after and state.banked == 0.0:
         half = round(cash / 2, 6)

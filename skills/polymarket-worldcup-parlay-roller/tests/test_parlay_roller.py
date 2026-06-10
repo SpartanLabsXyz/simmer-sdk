@@ -210,6 +210,51 @@ def test_post_match_floor_busts():
     assert act.kind == "mark_busted"
 
 
+def test_state_roundtrip_preserves_resting_order_prices():
+    cfg = mk_config(2)
+    st = fresh_state(cfg)
+    st.entry_order_id = "ord-1"
+    st.entry_price = 0.41
+    st.entry_amount = 25.0
+    st.exit_price = 0.975
+    st2 = StreakState.from_dict(st.to_dict())
+    assert st2.entry_price == pytest.approx(0.41)
+    assert st2.entry_amount == pytest.approx(25.0)
+    assert st2.exit_price == pytest.approx(0.975)
+
+
+def test_state_from_dict_defaults_missing_price_fields():
+    cfg = mk_config(2)
+    d = fresh_state(cfg).to_dict()
+    for key in ("entry_price", "entry_amount", "exit_price"):
+        d.pop(key, None)
+    st = StreakState.from_dict(d)
+    assert st.entry_price is None
+    assert st.entry_amount is None
+    assert st.exit_price is None
+
+
+def test_apply_entry_fill_clears_entry_price_fields():
+    cfg = mk_config(2)
+    st = StreakState.fresh(cfg)
+    st.entry_order_id = "ord-1"
+    st.entry_price = 0.41
+    st.entry_amount = 25.0
+    apply_entry_fill(st, shares_bought=60.0, spent=25.0, now=NOW)
+    assert st.entry_price is None
+    assert st.entry_amount is None
+
+
+def test_apply_exit_proceeds_clears_exit_price():
+    cfg = mk_config(2)
+    st = held_state(cfg, leg_index=0, shares=50.0)
+    st.exit_order_id = "ord-9"
+    st.exit_price = 0.975
+    apply_exit_proceeds(st, cfg, proceeds=48.5, now=NOW)
+    assert st.exit_order_id is None
+    assert st.exit_price is None
+
+
 def test_post_match_middle_price_holds_to_resolution():
     cfg = mk_config(2)
     act = decide(held_state(cfg), cfg, snap(mid=0.6, bid=0.55), now=after_end(cfg))

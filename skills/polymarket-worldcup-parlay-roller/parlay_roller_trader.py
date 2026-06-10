@@ -168,6 +168,62 @@ def fetch_combo_comparison(market_ids) -> Optional[float]:
     return None
 
 
+def _open_order_ids(open_orders) -> set:
+    """Normalize a get_open_orders() response into a set of order id strings."""
+    if isinstance(open_orders, dict):
+        open_orders = open_orders.get("orders") or open_orders.get("data") or []
+    ids = set()
+    for order in open_orders or []:
+        if isinstance(order, dict):
+            order_id = order.get("order_id") or order.get("id")
+        else:
+            order_id = getattr(order, "order_id", None) or getattr(order, "id", None)
+        if order_id:
+            ids.add(str(order_id))
+    return ids
+
+
+def reconcile(client, state: StreakState, cfg: RollerConfig, now: datetime) -> None:
+    """Resolve resting orders against the open-order book before deciding.
+
+    Shock-ladder heuristic: a resting order whose id is no longer in the open
+    list is treated as filled at its limit price. If the open-orders call
+    fails, skip reconciliation this tick - decide() will just wait.
+    """
+    if not state.entry_order_id and not state.exit_order_id:
+        return
+    try:
+        open_ids = _open_order_ids(client.get_open_orders())
+    except Exception as e:
+        print(f"[parlay-roller] warn: get_open_orders failed ({e}); skipping reconciliation this tick")
+        return
+
+    if state.entry_order_id and str(state.entry_order_id) not in open_ids:
+        if state.entry_price and state.entry_amount:
+            apply_entry_fill(
+                state,
+                shares_bought=round(state.entry_amount / state.entry_price, 2),
+                spent=state.entry_amount,
+                now=now,
+            )
+        else:
+            print(
+                "[parlay-roller] warn: entry order left the book but entry_price/entry_amount "
+                "missing from state; cannot infer fill - manual review"
+            )
+
+    if state.exit_order_id and str(state.exit_order_id) not in open_ids:
+        if state.exit_price is not None:
+            apply_exit_proceeds(
+                state, cfg, proceeds=round(state.shares * state.exit_price, 6), now=now
+            )
+        else:
+            print(
+                "[parlay-roller] warn: exit order left the book but exit_price missing "
+                "from state; cannot infer proceeds - manual review"
+            )
+
+
 def execute(
     client,
     action: Action,
@@ -213,6 +269,8 @@ def execute(
         else:
             state.entry_order_id = getattr(res, "order_id", None)
             state.entry_placed_at = now
+            state.entry_price = action.price
+            state.entry_amount = action.amount
             state.phase = "LEG_OPEN"
             state.log(
                 f"entry resting: ${action.amount:.2f} @ {action.price:.3f} "
@@ -226,9 +284,14 @@ def execute(
             try:
                 client.cancel_order(action.order_id)
             except Exception as e:
-                print(f"[parlay-roller] warn: cancel failed: {e}")
+                # Keep the order id: the next tick's reconcile decides
+                # filled-vs-still-open. Clearing here could double-spend.
+                print(f"[parlay-roller] warn: cancel failed: {e}; keeping order for reconciliation")
+                return
         state.entry_order_id = None
         state.entry_placed_at = None
+        state.entry_price = None
+        state.entry_amount = None
         state.log(f"entry cancelled ({action.reason})", now)
         return
 
@@ -256,6 +319,7 @@ def execute(
             apply_exit_proceeds(state, cfg, proceeds=round(sold * action.price, 6), now=now)
         else:
             state.exit_order_id = getattr(res, "order_id", None)
+            state.exit_price = action.price
             state.log(f"exit resting: {action.shares:.2f} sh @ {action.price:.3f}", now)
         return
 
@@ -296,6 +360,7 @@ def tick(
         if state.phase in ("COMPLETE", "BUSTED", "BANKED", "PAUSED"):
             print(f"[parlay-roller] terminal phase {state.phase} - nothing to do")
             return state
+        reconcile(client, state, cfg, now)
         leg = cfg.legs[state.leg_index]
         snap = snap_market(client, leg.market_id, leg.side)
         action = decide(state, cfg, snap, now)

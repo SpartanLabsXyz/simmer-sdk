@@ -259,6 +259,110 @@ def test_busted_terminal(tmp_path):
     assert client.trades == []
 
 
+def resting_entry_state(cfg, order_id="ord-1", price=0.41, amount=25.0, placed_at=None):
+    state = StreakState.fresh(cfg)
+    state.phase = "LEG_OPEN"
+    state.entry_order_id = order_id
+    state.entry_placed_at = placed_at or NOW
+    state.entry_price = price
+    state.entry_amount = amount
+    return state
+
+
+def test_reconcile_treats_absent_entry_order_as_filled(tmp_path):
+    """Resting entry gone from the book -> filled: shares held, cash debited once."""
+    cfg = RollerConfig.from_dict(example_config_dict())
+    state = resting_entry_state(cfg)
+    client = FakeClient(FakeMarket(mid=0.40))
+    client.open_orders = {"orders": []}  # ord-1 left the book
+    new_state = run_tick(tmp_path, client, state=state)
+    assert new_state.shares == pytest.approx(round(25.0 / 0.41, 2))
+    assert new_state.cash == pytest.approx(0.0)
+    assert new_state.entry_order_id is None
+    assert client.trades == []  # no second buy
+
+
+def test_reconcile_leaves_open_entry_order_alone(tmp_path):
+    cfg = RollerConfig.from_dict(example_config_dict())
+    state = resting_entry_state(cfg)
+    client = FakeClient(FakeMarket(mid=0.40))
+    client.open_orders = {"orders": [{"order_id": "ord-1"}]}
+    new_state = run_tick(tmp_path, client, state=state)
+    assert new_state.shares == 0.0
+    assert new_state.entry_order_id == "ord-1"
+    assert client.trades == []
+
+
+def test_reconcile_skipped_when_get_open_orders_raises(tmp_path):
+    cfg = RollerConfig.from_dict(example_config_dict())
+    state = resting_entry_state(cfg)
+
+    class RaisingClient(FakeClient):
+        def get_open_orders(self):
+            raise OSError("api down")
+
+    client = RaisingClient(FakeMarket(mid=0.40))
+    new_state = run_tick(tmp_path, client, state=state)
+    assert new_state.shares == 0.0  # no fill assumed
+    assert new_state.entry_order_id == "ord-1"
+    assert client.trades == []
+
+
+def test_cancel_order_failure_retains_entry_order_id(tmp_path):
+    cfg = RollerConfig.from_dict(example_config_dict())
+    # placed long enough ago that decide() wants to cancel
+    state = resting_entry_state(cfg, placed_at=NOW - timedelta(seconds=300))
+
+    class CancelFailClient(FakeClient):
+        def cancel_order(self, order_id):
+            raise OSError("cancel failed")
+
+    client = CancelFailClient(FakeMarket(mid=0.40))
+    client.open_orders = {"orders": [{"order_id": "ord-1"}]}  # still on the book
+    new_state = run_tick(tmp_path, client, state=state)
+    assert new_state.entry_order_id == "ord-1"  # kept for next tick's reconcile
+    assert client.trades == []  # must not re-enter while order may be live
+
+
+def test_reconcile_treats_absent_exit_order_as_filled(tmp_path):
+    cfg_dict = example_config_dict()
+    cfg = RollerConfig.from_dict(cfg_dict)
+    state = StreakState.fresh(cfg)
+    state.phase = "LEG_OPEN"
+    state.cash = 0.0
+    state.shares = 50.0
+    state.exit_order_id = "ord-9"
+    state.exit_price = 0.975
+    at = cfg.legs[0].expected_end + timedelta(minutes=10)
+    client = FakeClient(FakeMarket(mid=None, bid=None, ask=None))
+    client.open_orders = {"orders": []}  # ord-9 left the book
+    new_state = run_tick(tmp_path, client, cfg_dict=cfg_dict, state=state, at=at)
+    assert new_state.leg_index == 1  # proceeds applied, leg advanced
+    assert new_state.cash == pytest.approx(round(50.0 * 0.975, 6))
+    assert new_state.shares == 0.0
+    assert new_state.exit_order_id is None
+    assert client.trades == []
+
+
+def test_resting_exit_is_not_replaced(tmp_path):
+    """Working exit order + bid still above threshold -> no second sell."""
+    cfg_dict = example_config_dict()
+    cfg = RollerConfig.from_dict(cfg_dict)
+    state = StreakState.fresh(cfg)
+    state.phase = "LEG_OPEN"
+    state.cash = 0.0
+    state.shares = 50.0
+    state.exit_order_id = "ord-9"
+    state.exit_price = 0.975
+    at = cfg.legs[0].expected_end + timedelta(minutes=10)
+    client = FakeClient(FakeMarket(mid=0.98, bid=0.975))
+    client.open_orders = {"orders": [{"order_id": "ord-9"}]}  # still working
+    new_state = run_tick(tmp_path, client, cfg_dict=cfg_dict, state=state, at=at)
+    assert client.trades == []  # decide waits; reconcile owns the fill
+    assert new_state.exit_order_id == "ord-9"
+    assert new_state.leg_index == 0
+
+
 def test_combo_compare_degrades(monkeypatch):
     monkeypatch.setattr(
         trader.requests,
