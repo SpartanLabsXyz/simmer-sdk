@@ -361,6 +361,13 @@ def tick(
             print(f"[parlay-roller] terminal phase {state.phase} - nothing to do")
             return state
         reconcile(client, state, cfg, now)
+        if state.leg_index >= len(cfg.legs):
+            print(
+                f"[parlay-roller] state leg_index {state.leg_index} outside config "
+                f"({len(cfg.legs)} legs) - config/state mismatch, nothing to do"
+            )
+            save_state(state, state_path)
+            return state
         leg = cfg.legs[state.leg_index]
         snap = snap_market(client, leg.market_id, leg.side)
         action = decide(state, cfg, snap, now)

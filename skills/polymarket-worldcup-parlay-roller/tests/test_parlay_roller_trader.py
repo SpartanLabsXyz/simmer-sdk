@@ -363,6 +363,18 @@ def test_resting_exit_is_not_replaced(tmp_path):
     assert new_state.leg_index == 0
 
 
+def test_tick_guards_leg_index_out_of_range(tmp_path, capsys):
+    cfg = RollerConfig.from_dict(example_config_dict())
+    state = StreakState.fresh(cfg)
+    state.phase = "LEG_OPEN"
+    state.leg_index = 5  # beyond the 2-leg config
+    client = FakeClient(FakeMarket(mid=0.40))
+    new_state = run_tick(tmp_path, client, state=state)  # must not traceback
+    assert new_state.leg_index == 5
+    assert client.trades == []
+    assert "leg_index" in capsys.readouterr().out
+
+
 def test_combo_compare_degrades(monkeypatch):
     monkeypatch.setattr(
         trader.requests,
