@@ -101,6 +101,12 @@ _config = load_config(CONFIG_SCHEMA, __file__, slug="polymarket-copytrading")
 # SimmerClient singleton
 _client = None
 
+def _resolve_effective_venue(venue: str = None) -> Optional[str]:
+    """Resolve explicit venue overrides before falling back to env/config."""
+    resolved = venue or _config.get("venue") or os.environ.get("TRADING_VENUE")
+    return resolved or None
+
+
 def get_client():
     """Lazy-init SimmerClient singleton."""
     global _client
@@ -115,7 +121,7 @@ def get_client():
             print("Error: SIMMER_API_KEY environment variable not set")
             print("Get your API key from: simmer.markets/dashboard -> SDK tab")
             sys.exit(1)
-        venue = _config.get("venue") or os.environ.get("TRADING_VENUE") or "polymarket"
+        venue = _resolve_effective_venue() or "polymarket"
         _client = SimmerClient(api_key=api_key, venue=venue)
     return _client
 
@@ -307,9 +313,7 @@ def execute_copytrading(wallets: list, top_n: int = None, max_usd: float = 50.0,
     - 'polymarket': Execute on Polymarket with real USDC
     - None: Fall back to TRADING_VENUE env var, then server auto-detect
     """
-    # Default to TRADING_VENUE env var so automaton/cron venue choice propagates
-    if venue is None:
-        venue = os.environ.get("TRADING_VENUE")
+    effective_venue = _resolve_effective_venue(venue)
 
     data = {
         "wallets": wallets,
@@ -325,8 +329,8 @@ def execute_copytrading(wallets: list, top_n: int = None, max_usd: float = 50.0,
     if max_trades is not None:
         data["max_trades"] = max_trades
 
-    if venue is not None:
-        data["venue"] = venue
+    if effective_venue is not None:
+        data["venue"] = effective_venue
 
     result = get_client()._request("POST", "/api/sdk/copytrading/execute", json=data, timeout=60)
 
@@ -361,6 +365,7 @@ def execute_copytrading(wallets: list, top_n: int = None, max_usd: float = 50.0,
                 amount=estimated_cost if action == "buy" else 0,
                 shares=shares if action == "sell" else 0,
                 order_type=ORDER_TYPE,
+                venue=effective_venue,
                 reasoning=f"Copytrading: {action} {shares:.1f} {side} to mirror whale positions on {market_title}",
                 source=TRADE_SOURCE,
                 skill_slug=SKILL_SLUG,
@@ -417,7 +422,8 @@ def run_copytrading(wallets: list, top_n: int = None, max_usd: float = 50.0, dry
     print(f"  Top N: {top_n if top_n else 'auto (based on balance)'}")
     print(f"  Max per position: ${max_usd:.2f}")
     print(f"  Max trades/run:  {MAX_TRADES_PER_RUN}  (cadence: {_cadence_mode})")
-    venue_label = venue or "auto-detect"
+    effective_venue = _resolve_effective_venue(venue)
+    venue_label = effective_venue or "auto-detect"
     print(f"  Venue: {venue_label}")
     print(f"  Mode: {'Buy only (accumulate)' if buy_only else 'Full rebalance (buy + sell)'}")
     print(f"  Whale exits: {'Enabled (sell when whale exits)' if detect_whale_exits else 'Disabled'}")
@@ -438,8 +444,8 @@ def run_copytrading(wallets: list, top_n: int = None, max_usd: float = 50.0, dry
     # looping on rejected trades. Helper is collateral-agnostic — checks pUSD
     # on V2, USDC.e on V1 per server's exchange_version.
     global _automaton_reported
-    if not dry_run and (venue or "polymarket") == "polymarket":
-        _preflight = get_client().ensure_can_trade(min_usd=1.0)
+    if not dry_run and (effective_venue or "polymarket") == "polymarket":
+        _preflight = get_client().ensure_can_trade(min_usd=1.0, venue=effective_venue)
         if not _preflight["ok"]:
             print(f"\n  ⏸️  insufficient_balance: ${_preflight['balance']:.2f} {_preflight['collateral']} "
                   f"(need ≥ $1.00) — skip")
@@ -459,7 +465,7 @@ def run_copytrading(wallets: list, top_n: int = None, max_usd: float = 50.0, dry
     # Execute copytrading via SDK
     print("\n📡 Calling Simmer API...")
     try:
-        result = execute_copytrading(wallets, top_n, max_usd, dry_run, buy_only, detect_whale_exits, MAX_TRADES_PER_RUN, venue=venue)
+        result = execute_copytrading(wallets, top_n, max_usd, dry_run, buy_only, detect_whale_exits, MAX_TRADES_PER_RUN, venue=effective_venue)
     except Exception as e:
         print(f"\n❌ Error: {e}")
         return
