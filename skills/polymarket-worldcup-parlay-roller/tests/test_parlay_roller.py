@@ -195,6 +195,15 @@ def test_post_match_high_bid_sells():
     assert act.shares == pytest.approx(50.0)
 
 
+def test_no_duplicate_exit_while_order_working():
+    cfg = mk_config(2)
+    st = held_state(cfg, shares=50.0)
+    st.exit_order_id = "exit-1"
+    act = decide(st, cfg, snap(mid=0.98, bid=0.975), now=after_end(cfg))
+    assert act.kind == "wait"
+    assert act.reason == "exit order working"
+
+
 def test_post_match_floor_busts():
     cfg = mk_config(2)
     act = decide(held_state(cfg), cfg, snap(mid=0.02, bid=0.01), now=after_end(cfg))

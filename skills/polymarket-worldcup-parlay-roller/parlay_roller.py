@@ -232,6 +232,9 @@ def decide(state: StreakState, cfg: RollerConfig, snap: MarketSnap, now: datetim
 
 def _decide_settle(state: StreakState, cfg: RollerConfig, leg: Leg, snap: MarketSnap, now: datetime) -> Action:
     """Post-match decision for a held leg."""
+    if state.exit_order_id:
+        return Action("wait", reason="exit order working")
+
     if snap.status in ("voided", "cancelled"):
         return Action("pause", reason=f"market {leg.market_id} status={snap.status}; manual review")
 
