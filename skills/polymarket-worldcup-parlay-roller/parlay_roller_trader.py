@@ -26,6 +26,7 @@ from parlay_roller import (
     StreakState,
     apply_entry_fill,
     apply_exit_proceeds,
+    apply_partial_entry_fill,
     decide,
     streak_implied_price,
     validate_config,
@@ -323,10 +324,25 @@ def execute(
             print(f"[parlay-roller] entry rejected: {getattr(res, 'error', None)}")
             return
         filled = getattr(res, "shares_bought", 0.0) or 0.0
-        if filled > 0:
+        order_id = getattr(res, "order_id", None)
+        expected_shares = action.amount / action.price
+        if filled >= expected_shares - 1e-6 and filled > 0:
             apply_entry_fill(state, shares_bought=filled, spent=action.amount, now=now)
+        elif filled > 0:
+            # Partial fill: a GTC buy can fill some shares AND leave the
+            # remainder resting. Credit only what the venue confirmed;
+            # entry_amount/entry_price become the residual so reconcile +
+            # the TTL cancel-path manage the resting remainder.
+            apply_partial_entry_fill(
+                state,
+                shares_bought=filled,
+                amount=action.amount,
+                price=action.price,
+                order_id=order_id,
+                now=now,
+            )
         else:
-            state.entry_order_id = getattr(res, "order_id", None)
+            state.entry_order_id = order_id
             state.entry_placed_at = now
             state.entry_price = action.price
             state.entry_amount = action.amount

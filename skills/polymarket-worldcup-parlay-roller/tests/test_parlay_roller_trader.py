@@ -482,6 +482,86 @@ def test_reconciled_entry_fill_resets_cancel_failures(tmp_path):
     assert new_state.cancel_failures == 0
 
 
+class PartialEntryClient(FakeClient):
+    """Buy returns a partial fill (20 sh) with the remainder resting as ord-2."""
+
+    def __init__(self, market=None, order_id="ord-2"):
+        super().__init__(market)
+        self.partial_order_id = order_id
+
+    def trade(self, **kw):
+        self.trades.append(kw)
+        if kw.get("action") == "buy":
+            return FakeResult(order_id=self.partial_order_id, shares_bought=20.0)
+        return FakeResult(shares_sold=kw.get("shares", 0.0))
+
+
+def test_partial_entry_fill_tracks_residual(tmp_path):
+    """shares_bought < expected AND order_id -> partial entry: credit the fill,
+    keep the order id with entry_amount/entry_price set to the residual."""
+    client = PartialEntryClient(FakeMarket(mid=0.40))  # entry price 0.41, amount 25
+    state = run_tick(tmp_path, client)
+    assert state.phase == "LEG_OPEN"
+    assert state.shares == pytest.approx(20.0)
+    assert state.cash == pytest.approx(25.0 - 20.0 * 0.41)
+    assert state.entry_order_id == "ord-2"
+    assert state.entry_price == pytest.approx(0.41)
+    assert state.entry_amount == pytest.approx(25.0 - 8.2)  # residual, not full amount
+    assert len(client.trades) == 1  # no second buy
+
+
+def test_partial_entry_fill_without_order_id_pauses(tmp_path):
+    client = PartialEntryClient(FakeMarket(mid=0.40), order_id=None)
+    state = run_tick(tmp_path, client)
+    assert state.phase == "PAUSED"
+    assert state.shares == pytest.approx(20.0)
+    assert state.cash == pytest.approx(25.0 - 8.2)
+    assert state.entry_order_id is None
+
+
+def test_reconcile_credits_only_residual_after_partial_entry(tmp_path):
+    """When the residual order later leaves the book, reconcile adds ONLY the
+    residual shares (entry_amount/entry_price math) to the partial credit."""
+    cfg = RollerConfig.from_dict(example_config_dict())
+    state = StreakState.fresh(cfg)
+    state.phase = "LEG_OPEN"
+    state.shares = 20.0
+    state.cash = 16.8
+    state.entry_order_id = "ord-2"
+    state.entry_placed_at = NOW
+    state.entry_price = 0.41
+    state.entry_amount = 16.8  # residual exposure
+    client = FakeClient(FakeMarket(mid=0.40))
+    client.open_orders = {"orders": []}  # ord-2 left the book -> residual filled
+    new_state = run_tick(tmp_path, client, state=state)
+    assert new_state.shares == pytest.approx(20.0 + round(16.8 / 0.41, 2))
+    assert new_state.cash == pytest.approx(0.0)
+    assert new_state.entry_order_id is None
+    assert client.trades == []  # no double buy
+
+
+def test_partial_entry_then_window_close_cancels_residual_only(tmp_path):
+    """Holding partial shares + working residual past TTL: cancel the order,
+    keep the shares, and do NOT place another entry or bank_and_stop."""
+    cfg = RollerConfig.from_dict(example_config_dict())
+    state = StreakState.fresh(cfg)
+    state.phase = "LEG_OPEN"
+    state.shares = 20.0
+    state.cash = 16.8
+    state.entry_order_id = "ord-2"
+    state.entry_placed_at = NOW - timedelta(seconds=300)  # past TTL
+    state.entry_price = 0.41
+    state.entry_amount = 16.8
+    client = FakeClient(FakeMarket(mid=0.40))
+    client.open_orders = {"orders": [{"order_id": "ord-2"}]}  # still on the book
+    new_state = run_tick(tmp_path, client, state=state)
+    assert "ord-2" in client.cancelled
+    assert new_state.entry_order_id is None
+    assert new_state.shares == pytest.approx(20.0)  # held shares untouched
+    assert new_state.phase == "LEG_OPEN"
+    assert client.trades == []  # no re-entry, no sell
+
+
 def test_reconcile_treats_absent_exit_order_as_filled(tmp_path):
     cfg_dict = example_config_dict()
     cfg = RollerConfig.from_dict(cfg_dict)

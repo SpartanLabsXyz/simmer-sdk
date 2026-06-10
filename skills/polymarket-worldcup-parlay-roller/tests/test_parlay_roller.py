@@ -12,6 +12,7 @@ from parlay_roller import (
     StreakState,
     apply_entry_fill,
     apply_exit_proceeds,
+    apply_partial_entry_fill,
     decide,
     entry_price,
     streak_implied_price,
@@ -301,6 +302,78 @@ def test_apply_entry_fill_moves_cash_to_shares():
     assert st.shares == pytest.approx(60.0)
     assert st.cash == pytest.approx(0.0)
     assert st.entry_order_id is None
+
+
+def test_apply_partial_entry_fill_credits_fill_and_tracks_residual():
+    cfg = mk_config(2)
+    st = StreakState.fresh(cfg)  # cash 25.0
+    apply_partial_entry_fill(
+        st, shares_bought=20.0, amount=25.0, price=0.41, order_id="ord-2", now=NOW
+    )
+    assert st.phase == "LEG_OPEN"
+    assert st.shares == pytest.approx(20.0)
+    assert st.cash == pytest.approx(25.0 - 20.0 * 0.41)
+    assert st.entry_order_id == "ord-2"
+    assert st.entry_placed_at == NOW
+    assert st.entry_price == pytest.approx(0.41)
+    assert st.entry_amount == pytest.approx(25.0 - 8.2)  # residual exposure
+
+
+def test_apply_partial_entry_fill_without_order_id_pauses():
+    cfg = mk_config(2)
+    st = StreakState.fresh(cfg)
+    apply_partial_entry_fill(
+        st, shares_bought=20.0, amount=25.0, price=0.41, order_id=None, now=NOW
+    )
+    assert st.phase == "PAUSED"
+    assert st.shares == pytest.approx(20.0)  # confirmed fill still credited
+    assert st.cash == pytest.approx(16.8)
+    assert st.entry_order_id is None
+    assert st.entry_amount is None
+
+
+def test_apply_entry_fill_accumulates_after_partial():
+    """Residual fill via reconcile must ADD to partial-credited shares, not overwrite."""
+    cfg = mk_config(2)
+    st = StreakState.fresh(cfg)
+    apply_partial_entry_fill(
+        st, shares_bought=20.0, amount=25.0, price=0.41, order_id="ord-2", now=NOW
+    )
+    # reconcile heuristic: residual entry_amount / entry_price filled
+    residual_shares = round(st.entry_amount / st.entry_price, 2)
+    apply_entry_fill(st, shares_bought=residual_shares, spent=st.entry_amount, now=NOW)
+    assert st.shares == pytest.approx(20.0 + residual_shares)
+    assert st.cash == pytest.approx(0.0)
+    assert st.entry_order_id is None
+    assert st.entry_amount is None
+
+
+def test_decide_partial_holding_with_working_entry_waits():
+    """shares > 0 AND entry order working: no second entry, no settle action."""
+    cfg = mk_config(2)
+    st = fresh_state(cfg)
+    st.phase = "LEG_OPEN"
+    st.shares = 20.0
+    st.cash = 16.8
+    st.entry_order_id = "ord-2"
+    st.entry_placed_at = NOW
+    act = decide(st, cfg, snap(mid=0.41), now=NOW + timedelta(seconds=30))
+    assert act.kind == "wait"
+    assert act.reason == "entry order working"
+
+
+def test_decide_partial_holding_with_stale_entry_order_cancels():
+    """The TTL cancel-path manages the residual order even while holding shares."""
+    cfg = mk_config(2)
+    st = fresh_state(cfg)
+    st.phase = "LEG_OPEN"
+    st.shares = 20.0
+    st.cash = 16.8
+    st.entry_order_id = "ord-2"
+    st.entry_placed_at = NOW
+    act = decide(st, cfg, snap(mid=0.41), now=NOW + timedelta(seconds=cfg.entry_ttl_s + 1))
+    assert act.kind == "cancel_entry"
+    assert act.order_id == "ord-2"
 
 
 def test_apply_exit_proceeds_rolls_to_next_leg():

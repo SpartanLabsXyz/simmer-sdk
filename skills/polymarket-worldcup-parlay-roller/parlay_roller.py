@@ -215,14 +215,19 @@ def decide(state: StreakState, cfg: RollerConfig, snap: MarketSnap, now: datetim
 
     leg = cfg.legs[state.leg_index]
 
+    entry_deadline = leg.kickoff - timedelta(minutes=cfg.roll_buffer_min)
+
+    # A working entry order is managed first, whether or not a partial fill
+    # already credited shares: never place another entry while one is working;
+    # the TTL/window cancel-path owns the residual.
+    if state.entry_order_id:
+        age = (now - state.entry_placed_at).total_seconds() if state.entry_placed_at else 0.0
+        if age > cfg.entry_ttl_s or now >= entry_deadline:
+            reason = "entry TTL expired" if age > cfg.entry_ttl_s else "entry window closing"
+            return Action("cancel_entry", order_id=state.entry_order_id, reason=reason)
+        return Action("wait", reason="entry order working")
+
     if state.shares <= 0:
-        entry_deadline = leg.kickoff - timedelta(minutes=cfg.roll_buffer_min)
-        if state.entry_order_id:
-            age = (now - state.entry_placed_at).total_seconds() if state.entry_placed_at else 0.0
-            if age > cfg.entry_ttl_s or now >= entry_deadline:
-                reason = "entry TTL expired" if age > cfg.entry_ttl_s else "entry window closing"
-                return Action("cancel_entry", order_id=state.entry_order_id, reason=reason)
-            return Action("wait", reason="entry order working")
         if now >= entry_deadline:
             return Action(
                 "bank_and_stop",
@@ -288,7 +293,12 @@ def _decide_settle(state: StreakState, cfg: RollerConfig, leg: Leg, snap: Market
 
 
 def apply_entry_fill(state: StreakState, shares_bought: float, spent: float, now: datetime) -> None:
-    state.shares = shares_bought
+    """An entry order filled completely. ACCUMULATES into held shares: after a
+    partial entry fill, entry_amount/entry_price track only the RESIDUAL, so
+    when reconcile infers the residual's fill it must add to the shares already
+    credited by the partial, never overwrite them. (Full fill from zero shares
+    is the accumulate identity.)"""
+    state.shares = round(state.shares + shares_bought, 6)
     state.cash = max(0.0, round(state.cash - spent, 6))
     state.entry_order_id = None
     state.entry_placed_at = None
@@ -297,6 +307,53 @@ def apply_entry_fill(state: StreakState, shares_bought: float, spent: float, now
     state.cancel_failures = 0  # reconciled fill: the order is no longer live
     state.phase = "LEG_OPEN"
     state.log(f"leg {state.leg_index + 1} entry filled: {shares_bought:.2f} sh for ${spent:.2f}", now)
+
+
+def apply_partial_entry_fill(
+    state: StreakState,
+    shares_bought: float,
+    amount: float,
+    price: float,
+    order_id: Optional[str],
+    now: datetime,
+) -> None:
+    """A GTC entry filled partially (venue-confirmed shares_bought < expected).
+
+    Credits the filled shares and debits their cost. With an order_id the
+    remainder rests on the book: entry_amount/entry_price are set to the
+    RESIDUAL cash exposure at the same limit price so reconcile's fill
+    heuristic (entry_amount / entry_price) and the TTL cancel-path manage it
+    correctly. Without an order_id the remainder is untrackable -> PAUSED.
+    """
+    spent = round(shares_bought * price, 6)
+    state.shares = round(state.shares + shares_bought, 6)
+    state.cash = max(0.0, round(state.cash - spent, 6))
+    if order_id:
+        residual = max(0.0, round(amount - spent, 6))
+        state.entry_order_id = order_id
+        state.entry_placed_at = now
+        state.entry_price = price
+        state.entry_amount = residual
+        state.cancel_failures = 0
+        state.phase = "LEG_OPEN"
+        state.log(
+            f"leg {state.leg_index + 1} entry PARTIAL fill: {shares_bought:.2f} sh "
+            f"for ${spent:.2f}; ${residual:.2f} resting @ {price:.3f} "
+            f"order={str(order_id)[:12]}",
+            now,
+        )
+    else:
+        state.entry_order_id = None
+        state.entry_placed_at = None
+        state.entry_price = None
+        state.entry_amount = None
+        state.phase = "PAUSED"
+        state.log(
+            f"PAUSED: leg {state.leg_index + 1} partial fill with untrackable "
+            f"remainder ({shares_bought:.2f} sh for ${spent:.2f}, no order id) - "
+            "manual review",
+            now,
+        )
 
 
 def apply_exit_proceeds(state: StreakState, cfg: RollerConfig, proceeds: float, now: datetime) -> None:
