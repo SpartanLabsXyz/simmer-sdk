@@ -405,6 +405,12 @@ def redeem_dw_external(
         market_id=market_id,
         side=side,
     )
+    # Validate the server-supplied batch BEFORE signing it. A compromised /
+    # MITM'd server can't be relied on to run its own submit-time guard, so the
+    # client mirrors it: targets must be CTF / pinned redemption adapters,
+    # selectors must be setApprovalForAll / redeemPositions, value 0.
+    from .batch_validation import validate_redeem_calls
+    validate_redeem_calls(prepared.get("calls", []))
     if on_progress:
         on_progress("signing")
     signature = sign_dw_redeem_typed_data(

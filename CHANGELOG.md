@@ -5,6 +5,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.17.29] - 2026-06-10
+
+### Security
+
+- **Client-side validation of server-supplied signing batches (defense-in-depth).** The DW activation, redemption, and wrap flows fetch an EIP-712 batch from the server and sign it locally. Previously the SDK signed whatever the server returned after only a presence check — so a compromised, malicious, or MITM'd server could return an `approve(attacker, MAX)` (or third-party `wrap` recipient) batch and have your own key authorize draining your deposit wallet. The SDK now mirrors the server's own submit-time guards *before signing*: `activate_polymarket_dw()`, `redeem()` (external DW path), and `wrap_on_dw()` validate that every call targets a pinned Polymarket contract, uses an allowed selector (`approve`/`setApprovalForAll`/`redeemPositions`/`wrap`), names a pinned spender/operator, moves no native value, and (for wrap) pays out only to your own deposit wallet. Refuses to sign anything else. New module `simmer_sdk/batch_validation.py`. Because it mirrors the logic an honest server already applies, it cannot reject a legitimate batch.
+- **HTTPS enforced on `base_url`.** The client now rejects a non-`https://` `base_url` (which would expose your `sk_live_` API key and let a network attacker tamper with the transactions the SDK signs). Loopback hosts stay allowed for local dev; set `SIMMER_ALLOW_INSECURE_BASE_URL=1` to opt out for testing against a non-loopback dev server.
+- **Supply-chain: upper bounds on signing-critical dependencies.** `py-clob-client`, `py-clob-client-v2`, `polynode`, `solders`, and the `[ows]` extra now carry version ceilings so a breaking or compromised new release can't be pulled silently into a key-bearing environment on a fresh install. `eth-account` and `requests` are left uncapped to avoid resolver conflicts with `web3.py` and the wider ecosystem.
+
 ## [0.17.28] - 2026-06-08
 
 ### Added

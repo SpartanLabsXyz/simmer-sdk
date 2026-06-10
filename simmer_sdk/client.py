@@ -12,6 +12,7 @@ import logging
 import requests
 from typing import Optional, List, Dict, Any
 from dataclasses import dataclass
+from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
@@ -293,6 +294,23 @@ class SimmerClient:
 
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
+        # Enforce HTTPS so the API key (Authorization: Bearer) and the EIP-712
+        # batches we sign can't be read or tampered with on the wire. A plain
+        # http:// endpoint is a downgrade/MITM vector, and a MITM'd server can
+        # feed malicious typed-data to sign. Allow http only for loopback (local
+        # dev against a dev server) or an explicit, documented opt-in env flag.
+        if not self.base_url.startswith("https://"):
+            _host = urlparse(self.base_url).hostname or ""
+            _is_loopback = _host in ("localhost", "127.0.0.1", "::1") or _host.endswith(".localhost")
+            _opt_in = os.getenv("SIMMER_ALLOW_INSECURE_BASE_URL", "").strip().lower() in ("1", "true", "yes")
+            if not (_is_loopback or _opt_in):
+                raise ValueError(
+                    f"base_url must use https:// (got {self.base_url!r}). Plaintext "
+                    f"HTTP exposes your API key and lets a network attacker tamper "
+                    f"with the transactions this SDK signs. Use https://, or set "
+                    f"SIMMER_ALLOW_INSECURE_BASE_URL=1 for local/testing against a "
+                    f"non-loopback host."
+                )
         self.venue = venue
         # venue is set explicitly via the `venue=` arg (or from_env(venue=...))
         # and defaults to "sim" (paper). NOTE: the TRADING_VENUE env var is
@@ -5028,6 +5046,14 @@ class SimmerClient:
                 f"Got keys: {list(prepare.keys())}"
             )
 
+        # Validate the server-supplied batch BEFORE signing. The server's own
+        # submit-time guard protects the relayer from a malicious user; it does
+        # NOT protect this user from a malicious/compromised server. Mirror the
+        # guard client-side: approve / setApprovalForAll to pinned (token,
+        # spender) pairs at MAX only — refuse to sign anything else.
+        from .batch_validation import validate_dw_approval_calls
+        validate_dw_approval_calls(calls)
+
         # Step 2 — sign locally. Mirrors dw_redeem.sign_dw_redeem_typed_data:
         # pass the full typed_data dict via full_message so primaryType is
         # honoured. Key never leaves this process.
@@ -5137,6 +5163,15 @@ class SimmerClient:
                 f"Unexpected prepare response — missing required fields. "
                 f"Got keys: {list(prepare.keys())}"
             )
+
+        # Validate the server-supplied batch BEFORE signing — refuse a wrap
+        # whose recipient isn't our own deposit wallet, or whose calls aren't a
+        # USDC.e approve(Onramp) + Onramp.wrap pair.
+        from .batch_validation import validate_wrap_on_dw_calls
+        _dw_addr = prepare.get("deposit_wallet_address") or getattr(
+            self, "_deposit_wallet_address", None
+        )
+        validate_wrap_on_dw_calls(calls, _dw_addr)
 
         # Step 2 — sign locally. Same pattern as activate_polymarket_dw:
         # pass the full typed_data dict via full_message so primaryType is

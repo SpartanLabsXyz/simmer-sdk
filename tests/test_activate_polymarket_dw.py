@@ -38,16 +38,31 @@ FAKE_TYPED_DATA = {
     "message": {"calls": [], "nonce": "1", "deadline": 9999999999},
 }
 
-FAKE_CALLS = [{"target": "0xabc", "value": "0", "data": "0x095ea7b3"}]
+# A realistically-encoded valid approval batch — approve(spender, MAX) on pUSD,
+# where the spender is a pinned active spender. Client-side batch validation
+# (0.17.29) now runs before signing, so the fixture must pass the same guard the
+# server applies. `eth_abi` ships with `eth-account` (an SDK dependency).
+from eth_abi import encode as _abi_encode  # noqa: E402
+from simmer_sdk.polymarket_contracts import (  # noqa: E402
+    PUSD as _PUSD,
+    active_spenders as _active_spenders,
+)
+
+_MAX = (1 << 256) - 1
+_SPENDER = _active_spenders()[0]
+_APPROVE_DATA = "0x095ea7b3" + _abi_encode(["address", "uint256"], [_SPENDER, _MAX]).hex()
+FAKE_DW = "0x" + "11" * 20
+
+FAKE_CALLS = [{"target": _PUSD, "value": "0", "data": _APPROVE_DATA}]
 
 PREPARE_RESPONSE = {
     "already_set": False,
     "calls": FAKE_CALLS,
-    "calls_summary": [{"target": "0xabc", "data_prefix": "0x095ea7b"}],
+    "calls_summary": [{"target": _PUSD, "data_prefix": "0x095ea7b"}],
     "typed_data": FAKE_TYPED_DATA,
     "nonce": "42",
     "deadline": 9999999999,
-    "deposit_wallet_address": "0xDW",
+    "deposit_wallet_address": FAKE_DW,
 }
 
 PREPARE_ALREADY_SET = {

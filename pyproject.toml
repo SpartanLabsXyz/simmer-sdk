@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "simmer-sdk"
-version = "0.17.28"
+version = "0.17.29"
 description = "Python SDK for trading prediction markets with AI agents - powers installable trading skills across agent runtimes"
 readme = "README.md"
 authors = [
@@ -24,21 +24,28 @@ classifiers = [
     "Topic :: Office/Business :: Financial :: Investment",
 ]
 requires-python = ">=3.8"
+# Supply-chain note: the signing-critical Polymarket/OWS libraries below carry
+# UPPER BOUNDS so a compromised or breaking new major/minor release can't be
+# pulled silently into a key-bearing environment on a fresh install. These are
+# niche packages (low chance of co-dependency conflicts). eth-account and
+# requests are deliberately left uncapped — capping eth-account fights web3.py's
+# own pin and would break installs, and requests is the most-vetted package on
+# PyPI. Bump the ceilings deliberately when validating a new upstream release.
 dependencies = [
     "requests>=2.31.0",
-    "solders>=0.27.1",
+    "solders>=0.27.1,<0.28.0",
     "base58>=2.1.1",
     "eth-account>=0.13.0",
     "py-order-utils>=0.3.0",
-    "py-clob-client>=0.30.0",
+    "py-clob-client>=0.30.0,<1.0.0",
     # V2 CLOB client for Polymarket V2 (2026-04-28 cutover). V1 deps
     # retained for users who pin SIMMER_POLYMARKET_EXCHANGE_VERSION=v1.
-    "py-clob-client-v2>=1.0.0",
+    "py-clob-client-v2>=1.0.0,<2.0.0",
     # POLY_1271 (sig type 3) signing for Polymarket deposit-wallet users
     # (SIM-1521). Provides ERC-7739 TypedDataSign wrapping via
     # `polynode.trading.eip712.create_signed_order_v2`. Pinned to a known-
     # working release; the helper API is stable.
-    "polynode>=0.10.3",
+    "polynode>=0.10.3,<0.11.0",
 ]
 
 [project.optional-dependencies]
@@ -55,7 +62,7 @@ dependencies = [
 # users searching PyPI for `ows` find nothing. The `[ows]` extra
 # eliminates the asymmetry: one install command, no package-name lookup
 # required.
-ows = ["open-wallet-standard>=1.3.0"]
+ows = ["open-wallet-standard>=1.3.0,<2.0.0"]
 
 [project.urls]
 Homepage = "https://simmer.markets"
