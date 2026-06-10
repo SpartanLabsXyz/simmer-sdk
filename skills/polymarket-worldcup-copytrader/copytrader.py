@@ -163,6 +163,41 @@ def print_leaders():
 
 
 # ---------------------------------------------------------------------------
+# World Cup market scope
+# ---------------------------------------------------------------------------
+
+WC_MARKETS_TAG = "world-cup"
+
+
+def fetch_wc_market_ids() -> set:
+    """Build the WC market-id allowlist from the structured tag surface.
+
+    WC auto-imported markets carry tags=["polymarket", "auto-import",
+    "world-cup"] (simmer_v3 scheduler WC sync), so GET /api/sdk/markets
+    ?tags=world-cup is the structured discovery surface — no question-regex
+    fallback needed.
+
+    Curated WC leaders can hold NON-WC positions, and the copytrading plan
+    endpoint (POST /api/sdk/copytrading/execute) has no market/category scope
+    param — so this allowlist is the only thing keeping a WC-only skill from
+    spending USDC on unrelated markets.
+
+    Fetches the broadest WC set (tradeable_only=false, analytics rows
+    included) so a stale orderbook-liveness flag can't cause a false
+    non-WC skip. Raises on fetch failure; the caller fails closed on live.
+    """
+    client = get_client()
+    data = client._request("GET", "/api/sdk/markets", params={
+        "tags": WC_MARKETS_TAG,
+        "status": "active",
+        "limit": 1000,
+        "tradeable_only": "false",
+        "include_analytics_only": "true",
+    })
+    return {str(m["id"]) for m in (data.get("markets") or []) if m.get("id")}
+
+
+# ---------------------------------------------------------------------------
 # Copytrading execution  (delegates to existing SDK engine)
 # ---------------------------------------------------------------------------
 
@@ -322,6 +357,24 @@ def run(dry_run: bool = True, venue: str = None) -> None:
         _emit_automaton(plan, 0)
         return
 
+    # --- WC scope allowlist (live only) ---
+    # Leaders are WC-curated but their books are not: a leader can hold
+    # non-WC positions and the plan endpoint has no scope param, so a
+    # WC-only skill must filter client-side before spending anything.
+    try:
+        wc_market_ids = fetch_wc_market_ids()
+    except Exception as e:
+        print(f"\n❌ WC market allowlist unavailable ({e}) — aborting live run (fail-closed).")
+        print("   A WC-only skill must not execute unscoped trades. Retry next run.")
+        if os.environ.get("AUTOMATON_MANAGED"):
+            print(json.dumps({"automaton": {
+                "signals": plan.get("positions_found", 0),
+                "trades_attempted": 0, "trades_executed": 0,
+                "skip_reason": "wc_scope_unavailable",
+            }}))
+            _automaton_reported = True
+        return
+
     # --- execute trades client-side ---
     # Belt-and-braces: server-side params already request these limits, but
     # enforce them client-side too so a server bug can't oversize the run.
@@ -338,6 +391,12 @@ def run(dry_run: bool = True, venue: str = None) -> None:
         shares = t.get("shares", 0)
         cost = t.get("estimated_cost", 0)
         title = t.get("market_title", market_id[:20] if market_id else "?")
+        if str(market_id) not in wc_market_ids:
+            print(f"  ⚠️  Skipping {title[:40]} — non-WC market "
+                  f"({market_id}); this skill only trades World Cup markets")
+            t["success"] = False
+            t["error"] = "non_wc_market_skipped"
+            continue
         if action == "buy" and cost > effective_max:
             print(f"  ⚠️  Skipping {title[:40]} — cost ${cost:.2f} exceeds "
                   f"per-position cap ${effective_max:.2f}")
@@ -403,6 +462,9 @@ def _emit_automaton(plan: dict, trades_executed: int) -> None:
         "trades_executed": trades_executed,
         "amount_usd": round(total_cost, 2),
     }
+    non_wc_skipped = sum(1 for t in trades if t.get("error") == "non_wc_market_skipped")
+    if non_wc_skipped:
+        report["non_wc_skipped"] = non_wc_skipped
     if positions_found > 0 and trades_executed == 0:
         skip_reasons = []
         conflicts = plan.get("conflicts_skipped", 0)
