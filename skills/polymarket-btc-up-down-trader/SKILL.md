@@ -3,7 +3,7 @@ name: polymarket-btc-up-down-trader
 description: Trade Polymarket BTC daily and weekly UP/DOWN markets with empirically-anchored exit discipline. Enters on CEX momentum divergence; exits automatically on time cap, volume spike, or target capture. Use when the user wants to trade BTC direction markets (hours/days duration), not fast 5-minute markets.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.0.1"
+  version: "1.0.2"
   displayName: Polymarket BTC Up-Down Trader
   difficulty: intermediate
 ---

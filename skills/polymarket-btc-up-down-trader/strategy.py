@@ -661,11 +661,14 @@ def run_exit_monitor(client, live=False, quiet=False):
             print(f"  🚪 EXIT triggered: {exit_reason} | {details}")
             if live:
                 try:
-                    result = client.sell(
+                    result = client.trade(
                         market_id=market_id,
-                        side=side,
-                        quantity=quantity,
+                        side=side.lower(),
+                        action="sell",
+                        shares=quantity,
+                        venue="polymarket",
                         source=TRADE_SOURCE,
+                        skill_slug=SKILL_SLUG,
                     )
                     log_trade(
                         market_id=market_id,
@@ -779,11 +782,14 @@ def run_entry_scan(client, live=False, quiet=False):
 
         if live:
             try:
-                result = client.buy(
+                result = client.trade(
                     market_id=market_id,
-                    side=side,
-                    amount_usd=trade_size,
+                    side=side.lower(),
+                    action="buy",
+                    amount=trade_size,
+                    venue="polymarket",
                     source=TRADE_SOURCE,
+                    skill_slug=SKILL_SLUG,
                 )
                 log_trade(
                     market_id=market_id,
