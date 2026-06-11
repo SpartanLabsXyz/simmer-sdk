@@ -210,6 +210,33 @@ class TestVenueRouting(unittest.TestCase):
         kwargs = mock_client.trade.call_args[1]
         self.assertEqual(kwargs.get("venue"), "polymarket")
 
+    def test_constructor_venue_matches_cli_venue_not_env(self):
+        """Regression: when TRADING_VENUE=polymarket but --venue sim, the SimmerClient
+        constructor must receive venue='sim', not 'polymarket'. Protects against
+        Polymarket-specific __init__ side effects firing before the venue re-pin."""
+        mod, _ = _make_skill_module(config_venue="", env_venue="polymarket")
+        mod._client = None  # force re-construction on the next get_client() call
+
+        construction_venues = []
+
+        class TrackingClient:
+            def __new__(cls, api_key, venue):
+                construction_venues.append(venue)
+                return MagicMock()
+
+        sys.modules["simmer_sdk"].SimmerClient = TrackingClient
+        try:
+            with patch.dict(os.environ, {"SIMMER_API_KEY": "sk_test", "TRADING_VENUE": "polymarket"},
+                            clear=False):
+                # Mirrors the fixed main() path: resolve CLI venue BEFORE get_client()
+                mod.get_client(mod._resolve_venue("sim"))
+        finally:
+            mod._client = None  # clean up singleton so other tests are unaffected
+
+        self.assertEqual(construction_venues, ["sim"],
+                         f"Constructor received {construction_venues!r}; expected ['sim']. "
+                         "TRADING_VENUE=polymarket must not override --venue sim at construction time.")
+
 
 if __name__ == "__main__":
     unittest.main()

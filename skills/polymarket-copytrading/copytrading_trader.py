@@ -1189,8 +1189,9 @@ def main():
         run_reactor(once=args.once)
         return
 
-    # Validate API key by initializing client
-    get_client()
+    # Resolve venue BEFORE constructing the client: SimmerClient.__init__ has
+    # Polymarket-specific side effects that fire on construction, not just on trade.
+    get_client(_resolve_venue(args.venue))
 
     # Get wallets (from args or env)
     if args.wallets:
