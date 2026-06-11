@@ -7,6 +7,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **`polymarket-fast-scaler` skill published to ClawHub at v1.0.0.** Magnitude-gated BTC 5-minute fast-market strategy. Fires only when |1m BTC momentum| ≥ 0.10% — the EV-positive regime validated by backtest. Position sizes across 3 conviction tiers ($3/$5/$10). Live-tested for 48h on a real Polymarket wallet; trades filled and budget cap honored. Available via `clawhub install polymarket-fast-scaler`.
 - **`polymarket-worldcup-copytrader` skill — World Cup Copytrader (Regular mode).** New skill that copies the auto-curated top World Cup traders on Polymarket. Unlike the base `polymarket-copytrading` skill (which requires a manual wallet list), this skill fetches the wallet list automatically from Simmer's daily curation endpoint: PolyNode top-traders → slippage-adjusted copy-PnL screen → top-10 copyable WC sharps. Portfolio-level, size-weighted aggregation across all leaders; conflict detection; drift/stale filters. Dry-run default; sim-first (`--venue sim`) before any real USDC. Category: `world-cup`. Sensitivity: `sensitive` (novel-risk automation — copytrading executes without per-trade approval).
 
 ## [0.17.29] - 2026-06-10
