@@ -674,7 +674,7 @@ def _process_reactor_signal(client, signal: dict) -> bool:
     side = signal.get("side")
     action = signal.get("action", "buy")
     amount = float(signal.get("amount") or 0)
-    venue = signal.get("venue")
+    venue = signal.get("venue") or "sim"  # omitted venue = Simmer-targeted, fails safe (paper)
     whale = signal.get("whale") or {}
 
     tx_short = tx_hash[:12] if tx_hash else "<no-tx>"
@@ -934,14 +934,18 @@ def _assert_reactor_sdk_version() -> None:
         sys.exit(1)
 
 
-def run_reactor(once: bool = False) -> None:
+def run_reactor(once: bool = False, venue: str = None) -> None:
     """
     Reactor entry point. `once=True` polls once and exits (cron-friendly);
     `once=False` runs a forever loop polling every REACTOR_POLL_INTERVAL_SECONDS.
+
+    `venue` is the CLI-resolved venue (from `_resolve_venue(args.venue)`). It
+    governs client construction only — per-trade venue still comes from the
+    signal so the SIM-3058 audit intent is preserved.
     """
     _assert_reactor_sdk_version()
     global _reactor_price_buffer
-    client = get_client()
+    client = get_client(venue)
 
     # Fetch reactor config to pick up user's price_buffer setting.
     # Falls back to env var / default if the API call fails.
@@ -1186,7 +1190,7 @@ def main():
         if dry_run and not args.live:
             print("[reactor] note: reactor mode executes live trades — "
                   "the default dry-run flag does not apply here")
-        run_reactor(once=args.once)
+        run_reactor(venue=_resolve_venue(args.venue), once=args.once)
         return
 
     # Resolve venue BEFORE constructing the client: SimmerClient.__init__ has

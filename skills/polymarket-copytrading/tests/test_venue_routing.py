@@ -238,5 +238,60 @@ class TestVenueRouting(unittest.TestCase):
                          "TRADING_VENUE=polymarket must not override --venue sim at construction time.")
 
 
+class TestReactorVenueRouting(unittest.TestCase):
+    """Reactor-mode venue routing: CLI venue governs construction; signal venue governs execution."""
+
+    def test_reactor_startup_constructs_client_with_cli_venue_not_env(self):
+        """--reactor --venue sim + TRADING_VENUE=polymarket → SimmerClient constructor
+        receives venue='sim'. TRADING_VENUE must not override --venue at construction time."""
+        mod, _ = _make_skill_module(config_venue="", env_venue="polymarket")
+        mod._client = None  # force re-construction on the next get_client() call
+
+        construction_venues = []
+
+        class TrackingClient:
+            def __new__(cls, api_key, venue):
+                construction_venues.append(venue)
+                mc = MagicMock()
+                mc.venue = venue
+                return mc
+
+        sys.modules["simmer_sdk"].SimmerClient = TrackingClient
+        try:
+            with patch.dict(os.environ, {"SIMMER_API_KEY": "sk_test", "TRADING_VENUE": "polymarket"},
+                            clear=False):
+                with patch.object(mod, "_poll_reactor_once"):
+                    with patch.object(mod, "_assert_reactor_sdk_version"):
+                        mod.run_reactor(venue=mod._resolve_venue("sim"), once=True)
+        finally:
+            mod._client = None
+
+        self.assertEqual(construction_venues, ["sim"],
+                         f"Reactor constructor received {construction_venues!r}; expected ['sim']. "
+                         "TRADING_VENUE=polymarket must not override --reactor --venue sim at construction time.")
+
+    def test_signal_missing_venue_defaults_to_sim(self):
+        """Signal without 'venue' key → extracted as 'sim', client.trade() receives venue='sim'
+        not None. Omitted venue = Simmer-targeted, fails safe (paper)."""
+        mod, mock_client = _make_skill_module(config_venue="sim")
+
+        signal = {
+            "tx_hash": "0xdeadbeef1234",
+            "market_id": "mkt-reactor",
+            "side": "yes",
+            "action": "buy",
+            "amount": 5.0,
+            # no "venue" key — simulates a signal emitted without explicit venue
+            "whale": {"wallet": "0xwhale1", "side": "yes", "size": 50.0, "price": 0.6},
+        }
+
+        mod._process_reactor_signal(mock_client, signal)
+
+        mock_client.trade.assert_called_once()
+        kwargs = mock_client.trade.call_args[1]
+        self.assertEqual(kwargs.get("venue"), "sim",
+                         f"Expected venue='sim' for signal with no venue key, got: {kwargs}")
+
+
 if __name__ == "__main__":
     unittest.main()
