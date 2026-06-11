@@ -222,7 +222,7 @@ class SimmerClient:
     def __init__(
         self,
         api_key: str,
-        base_url: str = "https://api.simmer.markets",
+        base_url: Optional[str] = None,
         venue: str = "sim",
         private_key: Optional[str] = None,
         ows_wallet: Optional[str] = None,
@@ -234,7 +234,11 @@ class SimmerClient:
 
         Args:
             api_key: Your SDK API key (sk_live_...)
-            base_url: API base URL (default: production)
+            base_url: API base URL. Resolution order: this argument, then the
+                SIMMER_API_URL environment variable, then production
+                (https://api.simmer.markets). The env override exists so
+                harnesses (e.g. Simmer's replay engine) can redirect an
+                unmodified skill to a local server without code changes.
             venue: Trading venue (default: "sim")
                 - "sim": Trade on Simmer's LMSR market with $SIM (virtual currency)
                 - "polymarket": Execute real trades on Polymarket CLOB with USDC
@@ -293,6 +297,10 @@ class SimmerClient:
             venue = "sim"
 
         self.api_key = api_key
+        # base_url resolution: explicit arg > SIMMER_API_URL env > production.
+        # Additive (SIM-3070): lets harnesses redirect unmodified skills.
+        if base_url is None:
+            base_url = os.getenv("SIMMER_API_URL") or "https://api.simmer.markets"
         self.base_url = base_url.rstrip("/")
         # Enforce HTTPS so the API key (Authorization: Bearer) and the EIP-712
         # batches we sign can't be read or tampered with on the wire. A plain
