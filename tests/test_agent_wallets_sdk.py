@@ -311,6 +311,50 @@ class TestTradeWalletAddress:
         assert payload["wallet_address"] == "0x1234567890abcdef1234567890abcdef12345678"
         assert payload["signed_order"] == {"signed": "order"}
 
+    def test_registered_raw_key_polymarket_trade_skips_user_level_auto_link(self):
+        """Raw-key registered per-agent wallets must skip auto-link too.
+
+        Regression for the johng insider-bets-live hang (2026-06-11): the
+        registered_agent_wallet gate required self._ows_wallet, so a
+        browser/raw-key dedicated wallet (SIM-2897 cohort) fell into the
+        user-level _ensure_wallet_linked() — which tried to auto-link the
+        agent EOA over the account's primary wallet and hung. "Dedicated"
+        and "OWS" are orthogonal; the registration row is what matters.
+        """
+        client = _make_client(
+            private_key="0x" + "11" * 32,
+            wallet_address="0x1234567890abcdef1234567890abcdef12345678",
+        )
+        client._agent_wallet_registered = True
+        client._request.return_value = {
+            "success": True,
+            "market_id": "test-market",
+            "side": "yes",
+            "shares_bought": 10.0,
+            "cost": 5.0,
+            "new_price": 0.5,
+            "fill_status": "filled",
+        }
+        client._get_held_markets = MagicMock(return_value={})
+        client._ensure_wallet_linked = MagicMock(
+            side_effect=RuntimeError(
+                "Cannot re-link: your current external wallet has open positions on Polymarket."
+            )
+        )
+        client._load_per_agent_dw_state = MagicMock()
+        client._warn_approvals_once = MagicMock()
+        client._build_signed_order = MagicMock(return_value={"signed": "order"})
+
+        result = client.trade("test-market", "yes", amount=10.0, venue="polymarket")
+
+        assert result.success is True
+        client._ensure_wallet_linked.assert_not_called()
+        client._load_per_agent_dw_state.assert_called_once()
+        call_args = client._request.call_args
+        payload = call_args.kwargs.get("json") or call_args[1].get("json")
+        assert payload["wallet_address"] == "0x1234567890abcdef1234567890abcdef12345678"
+        assert payload["signed_order"] == {"signed": "order"}
+
     def test_registered_ows_populates_dw_state_from_agents_me(self):
         """_load_per_agent_dw_state must populate _uses_deposit_wallet and
         _deposit_wallet_address so _build_signed_order picks sig type 3."""
