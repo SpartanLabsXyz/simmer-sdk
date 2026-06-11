@@ -203,7 +203,9 @@ class TestVenueRouting(unittest.TestCase):
         """TRADING_VENUE=polymarket env without --venue CLI flag → trade gets venue=polymarket."""
         mod, mock_client = _make_skill_module(config_venue="", env_venue="polymarket")
         mock_client.venue = "polymarket"
-        _run_copytrading(mod, mock_client, live=True, venue="polymarket")
+        # No venue= arg (no CLI flag); env provides TRADING_VENUE=polymarket
+        _run_copytrading(mod, mock_client, live=True, venue=None,
+                         env_overrides={"TRADING_VENUE": "polymarket"})
         mock_client.trade.assert_called_once()
         kwargs = mock_client.trade.call_args[1]
         self.assertEqual(kwargs.get("venue"), "polymarket")
