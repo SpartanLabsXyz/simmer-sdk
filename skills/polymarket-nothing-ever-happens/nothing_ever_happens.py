@@ -148,9 +148,13 @@ def resolve_effective_dry_run(dry_run: bool, client_venue) -> bool:
     """
     is_paper_venue = resolve_venue() == "sim"
     effective = dry_run and not is_paper_venue
-    if dry_run and not effective and client_venue != "sim":
+    # The venue assertion must cover EVERY execution where TRADING_VENUE=sim
+    # ends up live — including explicit --live runs where dry_run was never
+    # True (codex P1): if env says sim but the client would hit a real venue,
+    # preflight is skipped downstream and trades would live-fire.
+    if is_paper_venue and not effective and client_venue != "sim":
         print(
-            f"FATAL: TRADING_VENUE=sim disabled dry-run, but the client venue is "
+            f"FATAL: TRADING_VENUE=sim implies paper mode, but the client venue is "
             f"{client_venue!r} (not 'sim') — refusing to live-fire a real venue.",
             flush=True,
         )

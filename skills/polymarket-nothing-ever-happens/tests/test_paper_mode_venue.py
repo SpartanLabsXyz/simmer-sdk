@@ -170,5 +170,23 @@ class PositionsVenueTests(unittest.TestCase):
         self.assertEqual(kwargs.get("venue"), "sim")
 
 
+class TestSimEnvExplicitLiveGuard(unittest.TestCase):
+    """TRADING_VENUE=sim with --live (dry_run already False) must STILL
+    assert the client venue is sim before any live path (codex P1)."""
+
+    def test_sim_env_live_with_real_client_venue_aborts(self):
+        with patch.dict(os.environ, {"TRADING_VENUE": "sim"}):
+            with self.assertRaises(SystemExit):
+                neh.resolve_effective_dry_run(False, "polymarket")
+
+    def test_sim_env_live_with_sim_client_venue_proceeds(self):
+        with patch.dict(os.environ, {"TRADING_VENUE": "sim"}):
+            self.assertFalse(neh.resolve_effective_dry_run(False, "sim"))
+
+    def test_real_env_live_unaffected(self):
+        with patch.dict(os.environ, {"TRADING_VENUE": "polymarket"}):
+            self.assertFalse(neh.resolve_effective_dry_run(False, "polymarket"))
+
+
 if __name__ == "__main__":
     unittest.main()
