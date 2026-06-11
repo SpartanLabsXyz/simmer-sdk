@@ -292,6 +292,51 @@ class TestReactorVenueRouting(unittest.TestCase):
         self.assertEqual(kwargs.get("venue"), "sim",
                          f"Expected venue='sim' for signal with no venue key, got: {kwargs}")
 
+    def test_signal_missing_venue_large_amount_does_not_reroute_to_polymarket(self):
+        """A signal WITHOUT a venue whose amount exceeds the sim per-trade cap must
+        NOT auto-route to polymarket — the defaulted venue stays on sim and gets
+        capped by the venue (fail-safe). Only an EXPLICIT 'sim' venue may reroute."""
+        mod, mock_client = _make_skill_module(config_venue="sim")
+
+        signal = {
+            "tx_hash": "0xdeadbeef5678",
+            "market_id": "mkt-reactor",
+            "side": "yes",
+            "action": "buy",
+            "amount": mod.SIMMER_VENUE_TRADE_CAP_USD + 100.0,
+            # no "venue" key — omitted venue must never escalate to real USDC
+            "whale": {"wallet": "0xwhale2", "side": "yes", "size": 900.0, "price": 0.6},
+        }
+
+        mod._process_reactor_signal(mock_client, signal)
+
+        mock_client.trade.assert_called_once()
+        kwargs = mock_client.trade.call_args[1]
+        self.assertEqual(kwargs.get("venue"), "sim",
+                         f"Omitted-venue signal above the sim cap must stay on sim, got: {kwargs}")
+
+    def test_signal_explicit_sim_venue_large_amount_still_reroutes(self):
+        """Explicit venue='sim' above the sim per-trade cap keeps the documented
+        auto-route to polymarket (follow the whale's actual size)."""
+        mod, mock_client = _make_skill_module(config_venue="sim")
+
+        signal = {
+            "tx_hash": "0xdeadbeef9abc",
+            "market_id": "mkt-reactor",
+            "side": "yes",
+            "action": "buy",
+            "amount": mod.SIMMER_VENUE_TRADE_CAP_USD + 100.0,
+            "venue": "sim",
+            "whale": {"wallet": "0xwhale3", "side": "yes", "size": 900.0, "price": 0.6},
+        }
+
+        mod._process_reactor_signal(mock_client, signal)
+
+        mock_client.trade.assert_called_once()
+        kwargs = mock_client.trade.call_args[1]
+        self.assertEqual(kwargs.get("venue"), "polymarket",
+                         f"Explicit sim venue above the cap should auto-route to polymarket, got: {kwargs}")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -674,7 +674,8 @@ def _process_reactor_signal(client, signal: dict) -> bool:
     side = signal.get("side")
     action = signal.get("action", "buy")
     amount = float(signal.get("amount") or 0)
-    venue = signal.get("venue") or "sim"  # omitted venue = Simmer-targeted, fails safe (paper)
+    raw_venue = signal.get("venue")
+    venue = raw_venue or "sim"  # omitted venue = Simmer-targeted, fails safe (paper)
     whale = signal.get("whale") or {}
 
     tx_short = tx_hash[:12] if tx_hash else "<no-tx>"
@@ -693,8 +694,11 @@ def _process_reactor_signal(client, signal: dict) -> bool:
     effective_amount = amount
     _rerouted_to_polymarket = False
 
+    # Auto-route requires an EXPLICIT sim venue — a defaulted (omitted) venue
+    # must never escalate to real-USDC polymarket; it stays on sim and gets
+    # capped by the venue instead (fail-safe).
     if (not FORCE_SIMMER_VENUE
-            and venue in ("sim", None)
+            and raw_venue == "sim"
             and amount > SIMMER_VENUE_TRADE_CAP_USD):
         _rerouted_to_polymarket = True
         effective_venue = "polymarket"
