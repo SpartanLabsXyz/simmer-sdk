@@ -10,6 +10,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **`polymarket-fast-scaler` skill published to ClawHub at v1.0.0.** Magnitude-gated BTC 5-minute fast-market strategy. Fires only when |1m BTC momentum| ≥ 0.10% — the EV-positive regime validated by backtest. Position sizes across 3 conviction tiers ($3/$5/$10). Live-tested for 48h on a real Polymarket wallet; trades filled and budget cap honored. Available via `clawhub install polymarket-fast-scaler`.
 - **`polymarket-worldcup-copytrader` skill — World Cup Copytrader (Regular mode).** New skill that copies the auto-curated top World Cup traders on Polymarket. Unlike the base `polymarket-copytrading` skill (which requires a manual wallet list), this skill fetches the wallet list automatically from Simmer's daily curation endpoint: PolyNode top-traders → slippage-adjusted copy-PnL screen → top-10 copyable WC sharps. Portfolio-level, size-weighted aggregation across all leaders; conflict detection; drift/stale filters. Dry-run default; sim-first (`--venue sim`) before any real USDC. Category: `world-cup`. Sensitivity: `sensitive` (novel-risk automation — copytrading executes without per-trade approval).
 
+## [0.17.30] - 2026-06-11
+
+### Fixed
+
+- **Raw-key registered per-agent wallets no longer hang in the user-level auto-link path.** The `registered_agent_wallet` gate in `trade()` required an OWS wallet, so a dedicated per-agent wallet registered with a raw key (`WALLET_PRIVATE_KEY` / `private_key=`, the SIM-2897 browser/Phantom cohort) fell into `_ensure_wallet_linked()` — which saw the agent EOA didn't match the account's linked wallet and tried to auto-link over it, hanging indefinitely in the link flow (and, had it succeeded, orphaning the account's primary deposit wallet — CREATE2 binds the DW to its owner EOA). Registered raw-key wallets now take the same per-agent branch as OWS: skip user-level link, fetch DW routing flags from `/api/sdk/agents/me`, and inject `wallet_address` into trade payloads for per-agent attribution. "Dedicated" and "OWS" are orthogonal — the `user_agent_wallets` registration row is what routes, not the signing-key flavor. Surfaced by the johng `insider-bets-live` redemption investigation (the wrong-signer half of that incident was fixed server-side in simmer PR #1223).
+
 ## [0.17.29] - 2026-06-10
 
 ### Security

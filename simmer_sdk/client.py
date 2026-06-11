@@ -1226,8 +1226,8 @@ class SimmerClient:
     def _load_per_agent_dw_state(self) -> None:
         """Populate DW routing flags from /api/sdk/agents/me for per-agent wallets.
 
-        Registered per-agent OWS wallets skip _ensure_wallet_linked() (to avoid
-        the user-level re-link path), but _build_signed_order() needs
+        Registered per-agent wallets (OWS or raw-key) skip _ensure_wallet_linked()
+        (to avoid the user-level re-link path), but _build_signed_order() needs
         _uses_deposit_wallet and _deposit_wallet_address for sig-type selection.
         Fetches from the same endpoint preflight() uses. Cached for the session.
         """
@@ -1759,17 +1759,25 @@ class SimmerClient:
             payload["price"] = price
 
         registered_agent_wallet = (
-            self._ows_wallet
+            (self._ows_wallet or self._private_key)
             and self._wallet_address
             and self._is_agent_wallet_registered()
         )
 
         # Include wallet_address only for users who explicitly opted into per-agent
-        # wallet attribution by registering this OWS wallet (Elite feature).
-        # Otherwise the server would reject with "Agent wallet not found" because
-        # the wallet has no row in user_agent_wallets — but the user-level
-        # linked_wallet_address path still works fine. Don't conflate "OWS configured"
-        # with "wants per-agent isolation."
+        # wallet attribution by registering this wallet (Elite feature) — OWS or
+        # raw-key, the registration row is what matters ("dedicated" and "OWS" are
+        # orthogonal, SIM-2897). Otherwise the server would reject with "Agent
+        # wallet not found" because the wallet has no row in user_agent_wallets —
+        # but the user-level linked_wallet_address path still works fine. Don't
+        # conflate "signing key configured" with "wants per-agent isolation."
+        #
+        # The raw-key arm was added 2026-06-11: a registered raw-key per-agent
+        # wallet previously failed this check and fell into the user-level
+        # _ensure_wallet_linked() below, which tried to auto-link the agent EOA
+        # over the account's primary wallet — hanging in the link flow and, had
+        # it succeeded, orphaning the primary deposit wallet (CREATE2 binds DW
+        # to owner EOA). Same OWS/raw-key asymmetry class as SIM-2899/2900.
         if registered_agent_wallet:
             payload["wallet_address"] = self._wallet_address
 
