@@ -3,8 +3,7 @@ name: polymarket-fast-scaler
 description: Trade Polymarket BTC 5-minute fast markets using a magnitude-gated conviction-ladder strategy. Only fires when |1m BTC momentum| >= 0.10% — the backtested threshold above which the strategy shows positive EV. Position size scales with signal strength (3 conviction tiers). Use when user wants disciplined, gate-filtered BTC fast-market trading.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "0.9.0"
-  status: scaffold
+  version: "1.0.0"
   displayName: Polymarket FastScaler
   difficulty: advanced
 ---

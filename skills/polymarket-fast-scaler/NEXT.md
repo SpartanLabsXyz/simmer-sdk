@@ -1,6 +1,16 @@
 # NEXT — polymarket-fast-scaler
 
-**Status**: B1 (SDK wire-ups) shipped in PR — pending paper validation (B2) before live test (B3).
+**Status**: B3 complete — live test passed. Published to ClawHub at v1.0.0.
+
+B1 ✅ shipped | B2 ✅ paper validation passed (SIM-1997, PR #115) | B3 ✅ live test passed + published (SIM-1998)
+
+## Live test results (2026-05-20 → 2026-05-22)
+
+- 4 trades executed over 48h, all fills confirmed (exit_code=0)
+- $12.00 total spend vs $10/day budget cap
+- All trades Tier 1 ($3) with |momentum| 0.10–0.20%
+- 2349 signals evaluated, no unexpected errors
+- Budget cap respected per-day
 
 ## Strategy invariants (DO NOT change without re-running the backtest)
 
@@ -11,17 +21,8 @@
 - **Fee formula**: `fee = shares × 0.07 × p × (1-p)`. Crypto taker category.
 - **Hold policy**: hold to expiry. No exit logic — results are binary.
 
-## Open tickets
-
-- **SIM-1971-B2** (parent: SIM-1971) — 24h paper-mode validation. Check gate fires ~7×/day; verify sizing; check caps respected.
-- **SIM-1971-B3** (parent: SIM-1971) — Small-money live test ($10/day for 48h) + ClawHub publish at v1.0.0.
-
 ## Backtest source
 
 - Evidence: `simmer/_dev/active/_fast-loop-rebuild/backtest_binance_ladder.md` (30d BTC fast-5m, 218 markets)
 - Cohort profiling: `profile_winners.md` (ndjjwobaq, btcbeliver01 timeline analysis)
 - Parent audit: SIM-1854 close-out comment (2026-05-18)
-
-## Publish gate
-
-B3 DOD: v1.0.0, status: scaffold removed, ≥3 installs in first 24h without errors.
