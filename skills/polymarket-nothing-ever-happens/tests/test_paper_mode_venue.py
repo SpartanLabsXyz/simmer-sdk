@@ -190,3 +190,42 @@ class TestSimEnvExplicitLiveGuard(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestAutoRedeemGating(unittest.TestCase):
+    """auto_redeem submits REAL Polymarket transactions regardless of client
+    venue — only live polymarket runs (not sim/paper, dry-run, or --scan)
+    may reach it (codex pass-2 P1)."""
+
+    def _run_main(self, argv, env):
+        with patch.dict(os.environ, env):
+            with patch.object(sys, "argv", ["nothing_ever_happens.py"] + argv):
+                neh._client = None
+                with patch.object(neh, "fetch_candidate_markets", return_value=[]):
+                    with patch.object(_sdk_stub, "SimmerClient") as MockClient:
+                        mock = MockClient.return_value
+                        mock.venue = env.get("TRADING_VENUE", "polymarket")
+                        mock.ensure_can_trade.return_value = {
+                            "ok": True, "max_safe_size": 999.0, "balance": 100.0}
+                        mock.auto_redeem.return_value = []
+                        try:
+                            neh.main()
+                        except SystemExit:
+                            pass
+                        return mock
+
+    def test_sim_env_never_calls_auto_redeem(self):
+        mock = self._run_main(["--live", "--quiet"], {"TRADING_VENUE": "sim", "SIMMER_API_KEY": "sk"})
+        mock.auto_redeem.assert_not_called()
+
+    def test_dry_run_never_calls_auto_redeem(self):
+        mock = self._run_main(["--quiet"], {"TRADING_VENUE": "polymarket", "SIMMER_API_KEY": "sk"})
+        mock.auto_redeem.assert_not_called()
+
+    def test_scan_never_calls_auto_redeem(self):
+        mock = self._run_main(["--scan", "--live", "--quiet"], {"TRADING_VENUE": "polymarket", "SIMMER_API_KEY": "sk"})
+        mock.auto_redeem.assert_not_called()
+
+    def test_live_polymarket_calls_auto_redeem(self):
+        mock = self._run_main(["--live", "--quiet"], {"TRADING_VENUE": "polymarket", "SIMMER_API_KEY": "sk"})
+        mock.auto_redeem.assert_called_once()

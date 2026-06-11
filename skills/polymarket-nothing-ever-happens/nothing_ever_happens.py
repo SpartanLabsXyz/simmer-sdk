@@ -605,14 +605,20 @@ def main():
     dry_run = not args.live
     get_client(live=not dry_run)  # Validate API key early
 
-    # Redeem any winning positions
-    try:
-        redeemed = get_client().auto_redeem()
-        for r in redeemed:
-            if r.get("success"):
-                print(f"  Redeemed {r['market_id'][:8]}... (NO)")
-    except Exception:
-        pass  # Non-critical
+    # Redeem any winning positions — LIVE polymarket runs only. auto_redeem()
+    # submits REAL Polymarket redemption transactions regardless of the
+    # client's venue, so paper mode (TRADING_VENUE=sim), dry-run, and --scan
+    # must never reach it (codex pass-2 P1; same class as wc-copytrader fix).
+    if args.live and not args.scan and resolve_venue() == "polymarket":
+        try:
+            redeemed = get_client().auto_redeem()
+            for r in redeemed:
+                if r.get("success"):
+                    print(f"  Redeemed {r['market_id'][:8]}... (NO)")
+        except Exception:
+            pass  # Non-critical
+    elif not args.quiet:
+        print("  (auto-redeem skipped: live polymarket runs only)")
 
     # Balance pre-flight: skip cleanly when wallet is underfunded instead of
     # looping on rejected trades. Helper is collateral-agnostic — checks pUSD
