@@ -101,8 +101,20 @@ _config = load_config(CONFIG_SCHEMA, __file__, slug="polymarket-copytrading")
 # SimmerClient singleton
 _client = None
 
-def get_client():
-    """Lazy-init SimmerClient singleton."""
+
+def _resolve_venue(cli_venue: str = None) -> str:
+    """Venue priority: CLI flag > config/env > 'polymarket' (default)."""
+    return cli_venue or _config.get("venue") or os.environ.get("TRADING_VENUE") or "polymarket"
+
+
+def get_client(venue: str = None):
+    """Lazy-init SimmerClient singleton; re-pins venue when CLI --venue overrides config/env.
+
+    The CLI --venue flag is authoritative: if the cached singleton was created
+    with a different venue (e.g. the first get_client() call happened before
+    main() resolved args.venue), re-pin it so trade() and ensure_can_trade()
+    use the correct venue.
+    """
     global _client
     if _client is None:
         try:
@@ -115,8 +127,9 @@ def get_client():
             print("Error: SIMMER_API_KEY environment variable not set")
             print("Get your API key from: simmer.markets/dashboard -> SDK tab")
             sys.exit(1)
-        venue = _config.get("venue") or os.environ.get("TRADING_VENUE") or "polymarket"
-        _client = SimmerClient(api_key=api_key, venue=venue)
+        _client = SimmerClient(api_key=api_key, venue=_resolve_venue(venue))
+    elif venue and getattr(_client, "venue", None) != venue:
+        _client.venue = venue
     return _client
 
 # Polymarket constraints
@@ -268,22 +281,6 @@ def get_context(market_id: str) -> dict:
     return get_client().get_market_context(market_id)
 
 
-def execute_trade(market_id: str, side: str, action: str, amount_usd: float = None, shares: float = None) -> dict:
-    """Execute a trade via SDK."""
-    try:
-        result = get_client().trade(
-            market_id=market_id, side=side, action=action,
-            amount=amount_usd or 0, shares=shares or 0,
-            source=TRADE_SOURCE, skill_slug=SKILL_SLUG,
-        )
-        return {
-            "success": result.success, "trade_id": result.trade_id,
-            "shares_bought": result.shares_bought, "error": result.error,
-        }
-    except Exception as e:
-        raise ValueError(str(e))
-
-
 # =============================================================================
 # Copytrading Logic
 # =============================================================================
@@ -354,7 +351,7 @@ def execute_copytrading(wallets: list, top_n: int = None, max_usd: float = 50.0,
                 "whale_wallet": _whale_wallet[:10] if _whale_wallet else "",
                 "whale_size": round(t.get("whale_position_usd", t.get("estimated_cost", 0)), 2),
             }
-            trade_result = get_client().trade(
+            trade_result = get_client(venue).trade(
                 market_id=market_id,
                 side=side,
                 action=action,
@@ -365,6 +362,7 @@ def execute_copytrading(wallets: list, top_n: int = None, max_usd: float = 50.0,
                 source=TRADE_SOURCE,
                 skill_slug=SKILL_SLUG,
                 signal_data=_signal_data,
+                venue=venue,
             )
             t["success"] = trade_result.success
             t["error"] = trade_result.error if not trade_result.success else None
@@ -425,9 +423,15 @@ def run_copytrading(wallets: list, top_n: int = None, max_usd: float = 50.0, dry
     if dry_run:
         print("\n  [DRY RUN] Trades will be simulated server-side. Use --live for real trades.")
 
+    # Pin the client singleton to the effective venue before any client use.
+    # Prevents the singleton (initialized from config/env at first call) from
+    # using a stale venue when the CLI --venue flag overrides config/env.
+    effective_venue = _resolve_venue(venue)
+    get_client(effective_venue)
+
     # Redeem any winning positions before starting the cycle
     try:
-        redeemed = get_client().auto_redeem()
+        redeemed = get_client(effective_venue).auto_redeem()
         for r in redeemed:
             if r.get("success"):
                 print(f"  💰 Redeemed {r['market_id'][:8]}... ({r.get('side', '?')})")
@@ -438,8 +442,8 @@ def run_copytrading(wallets: list, top_n: int = None, max_usd: float = 50.0, dry
     # looping on rejected trades. Helper is collateral-agnostic — checks pUSD
     # on V2, USDC.e on V1 per server's exchange_version.
     global _automaton_reported
-    if not dry_run and (venue or "polymarket") == "polymarket":
-        _preflight = get_client().ensure_can_trade(min_usd=1.0)
+    if not dry_run and effective_venue == "polymarket":
+        _preflight = get_client(effective_venue).ensure_can_trade(min_usd=1.0, venue=effective_venue)
         if not _preflight["ok"]:
             print(f"\n  ⏸️  insufficient_balance: ${_preflight['balance']:.2f} {_preflight['collateral']} "
                   f"(need ≥ $1.00) — skip")
@@ -459,7 +463,7 @@ def run_copytrading(wallets: list, top_n: int = None, max_usd: float = 50.0, dry
     # Execute copytrading via SDK
     print("\n📡 Calling Simmer API...")
     try:
-        result = execute_copytrading(wallets, top_n, max_usd, dry_run, buy_only, detect_whale_exits, MAX_TRADES_PER_RUN, venue=venue)
+        result = execute_copytrading(wallets, top_n, max_usd, dry_run, buy_only, detect_whale_exits, MAX_TRADES_PER_RUN, venue=effective_venue)
     except Exception as e:
         print(f"\n❌ Error: {e}")
         return

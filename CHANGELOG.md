@@ -9,6 +9,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 - **`polymarket-worldcup-copytrader` skill — World Cup Copytrader (Regular mode).** New skill that copies the auto-curated top World Cup traders on Polymarket. Unlike the base `polymarket-copytrading` skill (which requires a manual wallet list), this skill fetches the wallet list automatically from Simmer's daily curation endpoint: PolyNode top-traders → slippage-adjusted copy-PnL screen → top-10 copyable WC sharps. Portfolio-level, size-weighted aggregation across all leaders; conflict detection; drift/stale filters. Dry-run default; sim-first (`--venue sim`) before any real USDC. Category: `world-cup`. Sensitivity: `sensitive` (novel-risk automation — copytrading executes without per-trade approval).
 
+### Fixed
+
+- **`polymarket-copytrading` skill — `--venue` flag now correctly reaches trade execution.** Previously the `--venue` argument was threaded to the server-side PLAN request but silently dropped before the actual `client.trade()` call, so a `--venue sim` override on a `TRADING_VENUE=polymarket` env would still execute real-USDC trades. The client singleton also initialized from config/env before `main()` resolved `args.venue`, leaving the singleton pinned to the wrong venue for the whole run. Fixed by: adding `_resolve_venue()` (mirrors worldcup-copytrader pattern), making `get_client(venue)` accept and re-pin the singleton on override, passing `venue=effective_venue` to `ensure_can_trade()` and `client.trade()`. The dead `execute_trade()` helper (unused, lacked `venue=`) is removed. Covered by a new `TestVenueRouting` suite (7 tests) that red/green-validated all failure modes.
+
 ## [0.17.29] - 2026-06-10
 
 ### Security
