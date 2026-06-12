@@ -18,6 +18,7 @@ Requires:
 import os
 import sys
 import json
+import math
 import re
 import argparse
 from datetime import datetime, timezone, timedelta
@@ -493,17 +494,16 @@ def run_mert_strategy(dry_run=True, positions_only=False, show_config=False,
             continue
 
         resolves_at = parse_resolves_at(market.get("resolves_at"))
+        if not resolves_at:
+            continue
 
-        minutes_remaining = None
+        # Strict numeric check: bool is an int subclass (float(True) would read
+        # as ~1s to expiry), and strings/NaN/inf signal a schema bug — all of
+        # those fall back to the wall-clock path instead of being trusted.
         secs = market.get("seconds_to_resolution")
-        if secs is not None:
-            try:
-                minutes_remaining = float(secs) / 60
-            except (TypeError, ValueError):
-                minutes_remaining = None
-        if minutes_remaining is None:
-            if not resolves_at:
-                continue
+        if isinstance(secs, (int, float)) and not isinstance(secs, bool) and math.isfinite(secs):
+            minutes_remaining = secs / 60
+        else:
             minutes_remaining = (resolves_at - now).total_seconds() / 60
 
         # Must be within window and not already past
