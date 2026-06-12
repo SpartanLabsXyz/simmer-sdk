@@ -479,7 +479,10 @@ def run_mert_strategy(dry_run=True, positions_only=False, show_config=False,
         print("  No markets available")
         return
 
-    # Filter by expiry window
+    # Filter by expiry window. Prefer the API's server-computed
+    # seconds_to_resolution over local wall-clock: immune to host clock skew,
+    # and deterministic under replay (where "now" is the server's frozen tick,
+    # not this process's datetime.now()).
     now = datetime.now(timezone.utc)
     expiring_markets = []
 
@@ -490,10 +493,18 @@ def run_mert_strategy(dry_run=True, positions_only=False, show_config=False,
             continue
 
         resolves_at = parse_resolves_at(market.get("resolves_at"))
-        if not resolves_at:
-            continue
 
-        minutes_remaining = (resolves_at - now).total_seconds() / 60
+        minutes_remaining = None
+        secs = market.get("seconds_to_resolution")
+        if secs is not None:
+            try:
+                minutes_remaining = float(secs) / 60
+            except (TypeError, ValueError):
+                minutes_remaining = None
+        if minutes_remaining is None:
+            if not resolves_at:
+                continue
+            minutes_remaining = (resolves_at - now).total_seconds() / 60
 
         # Must be within window and not already past
         if 0 < minutes_remaining <= expiry_mins:
