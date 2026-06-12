@@ -1,21 +1,23 @@
 ---
 name: polymarket-fast-scaler
-description: Trade Polymarket BTC 5-minute fast markets using a magnitude-gated conviction-ladder strategy. Only fires when |1m BTC momentum| >= 0.10% — the backtested threshold above which the strategy shows positive EV. Position size scales with signal strength (3 conviction tiers). Use when user wants disciplined, gate-filtered BTC fast-market trading.
+description: Trade Polymarket BTC 5-minute fast markets using a magnitude-gated conviction-ladder strategy. Only fires when |1m BTC momentum| >= 0.10%, the magnitude threshold the strategy is built around. Position size scales with signal strength (3 conviction tiers). Reference template for gate-filtered BTC fast-market trading; the original performance claim was retracted (see below).
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.0.0"
+  version: "1.1.0"
   displayName: Polymarket FastScaler
   difficulty: advanced
 ---
 # Polymarket FastScaler
 
-Trade Polymarket BTC 5-minute fast markets with a conviction-ladder strategy. Only enters when Binance 1m momentum exceeds the 0.10% magnitude gate — the EV-positive regime validated by backtest. Position size scales with signal strength across 3 tiers.
+Trade Polymarket BTC 5-minute fast markets with a conviction-ladder strategy. Only enters when Binance 1m momentum exceeds the 0.10% magnitude gate. Position size scales with signal strength across 3 tiers.
 
 > 🚨 **Framework, not a production trading system.** Read [DISCLAIMER.md](./DISCLAIMER.md) before connecting to a wallet with real funds.
 
 > **Polymarket only.** All trades execute on Polymarket with real USDC. Paper mode is the default.
 
-> ⚠️ **Strategy invariants.** Do not lower `magnitude_gate_pct` below 0.10% without re-running the backtest. The 89.4% win rate is gated on this threshold. Below it, the strategy enters the noise zone where fees dominate.
+> ⛔ **Performance claim retracted (2026-06-12).** An earlier version cited an "89.4% win rate / +5.04%" backtest. A look-ahead-enforced replay (Simmer skill-replay) found that backtest measured the 1m candle that *starts* at window-open, which only closes 60 seconds into the 5-minute window it is meant to predict. The signal the skill can actually act on at the decision point (the last complete 1m candle, i.e. the prior minute) shows **no measured edge**: roughly a coin flip before fees. Treat this skill as an **unvalidated reference template**, not a validated edge. Run paper mode and form your own view.
+
+> ⚠️ **Strategy invariants.** `magnitude_gate_pct` defaults to 0.10%. Below it the gate admits more low-magnitude noise and fees dominate a larger share of trades. This is a design default, not a validated profit threshold (see the retraction above).
 
 > ⚠️ **Risk monitoring does not apply to sub-15-minute markets.** Simmer's stop-loss and take-profit monitors check positions every 15 minutes — they will never fire on 5m markets before resolution. Size accordingly.
 
@@ -36,9 +38,9 @@ Trade Polymarket BTC 5-minute fast markets with a conviction-ladder strategy. On
 
 **Hold**: position held to expiry. No exit logic.
 
-**Why this works**: Polymarket fast markets resolve on Chainlink oracle snapshots. At the moment of the 1m window-open candle, strong BTC momentum correlates with the resolution direction before the market re-prices. The 0.10% gate filters the noise zone where this correlation collapses and fees dominate.
+**Strategy thesis (unvalidated)**: the idea is that strong BTC momentum at window-open correlates with the resolution direction before the market re-prices, and that the 0.10% gate filters the noise zone. Replay testing did **not** confirm this for the signal available at the decision point (the prior complete 1m candle). Treat the thesis as untested.
 
-**Backtest (BTC 5m, 30d)**: +5.04% gross / 218 markets / 89.4% win rate at |momentum| ≥ 0.10%. Past performance does not guarantee future results — see DISCLAIMER.md.
+**Backtest status (2026-06-12)**: the original +5.04% / 89.4% backtest was **retracted**. A look-ahead-enforced replay found it used in-window price action (the first minute *inside* the window) that is not available when the entry decision is made. The live-actionable signal showed no measured edge. See the retraction note at the top and DISCLAIMER.md.
 
 ## When to Use This Skill
 
@@ -117,15 +119,15 @@ python fast_scaler.py --set position_tier3_usd=15
 - **Per-market cap** (default $10) prevents stacking multiple bets on the same slot. Leave it at or below `position_tier3_usd`.
 - **Daily budget** (default $30) is the safety cap. At 7 trades/day × avg $5 = $35, the default may cut the last ~1 trade. Increase if you want full daily exposure.
 
-## Invariants — don't raise without re-backtesting
+## Risk-envelope defaults — don't raise without your own validation
 
-The +5.04% / 89.4% backtest result is conditional on the parameter values it was run against. Three values are **invariants** — changing them invalidates the backtest and the skill becomes an unvalidated experiment:
+The original backtest that motivated these values was retracted (see the top), so treat them as **conservative risk-envelope defaults**, not edge-preserving constraints. There is no validated edge to preserve; these just bound exposure:
 
-- **`magnitude_gate_pct ≥ 0.10`** — lowering admits noise; backtest win rate degrades fast below 0.10%.
-- **`position_tier3_usd ≤ 10`** — the conviction ladder ($3/$5/$10) is sized for the observed win-rate distribution. Raising T3 without re-running the backtest scales bet size beyond what the empirical edge supports.
-- **`daily_budget_usd ≤ 50`** — the daily budget caps total daily exposure. Raising it past ~$50 admits parameter combinations the backtest didn't cover.
+- **`magnitude_gate_pct ≥ 0.10`** — lowering admits more low-magnitude noise and trades a larger share of marginal signals.
+- **`position_tier3_usd ≤ 10`** — caps the largest single bet in the conviction ladder ($3/$5/$10).
+- **`daily_budget_usd ≤ 50`** — caps total daily exposure.
 
-Lowering any of these is always safe. Raising them is your call but invalidates the empirical evidence cited above.
+Lowering any of these reduces exposure. Raising them increases it, with no validated edge to justify the larger size.
 
 ## Geo-fallback (Binance.us)
 
@@ -139,10 +141,10 @@ When the Simmer SDK's primary market-discovery path is unavailable, the skill fa
 
 ## Advanced: Extending the Strategy
 
-The conviction ladder and magnitude gate are the two load-bearing components. All other parameters are tunable without invalidating the backtest. If you want to:
+The conviction ladder and magnitude gate are the two load-bearing components. If you want to:
 
-- **Use ETH/SOL**: change `asset` — but run your own backtest first. The 0.10% gate and 89.4% win rate are BTC-only results.
-- **Use 15m markets**: change `window` — 15m backtest is on the roadmap but not yet run.
+- **Use ETH/SOL**: change `asset`, and run your own validation first. The 0.10% gate is a BTC-only default; there is no validated win rate to cite.
+- **Use 15m markets**: change `window`. Untested.
 - **Tighten the ladder**: raise `ladder_tier2_pct` / `ladder_tier3_pct` for fewer but higher-conviction trades.
 - **Cap exposure**: lower `position_tier3_usd` or `daily_budget_usd`.
 
