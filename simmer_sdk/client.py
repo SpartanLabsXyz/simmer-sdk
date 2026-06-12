@@ -1460,30 +1460,64 @@ class SimmerClient:
         limit: int = 50,
         include: Optional[str] = None,
         q: Optional[str] = None,
+        *,
+        venue: Optional[str] = None,
+        sort: Optional[str] = None,
+        tags: Optional[str] = None,
     ) -> List[Market]:
         """
         Get available markets.
 
         Args:
             status: Filter by status ('active', 'resolved')
-            import_source: Filter by source ('polymarket', 'kalshi', or None for all)
+            import_source: Filter by data source ('polymarket', 'kalshi', or None for all)
             limit: Maximum number of markets to return
             include: Opt-in extra fields, e.g. "resolution_criteria"
-            q: Keyword search on market question (min 2 chars, case-insensitive)
+            q: Keyword search on market question (min 2 chars, case-insensitive).
+                Applied server-side before the result window, so use ``q`` or ``tags``
+                to reach a specific older market rather than paging an unfiltered list.
+            venue: Filter by trading venue ('sim', 'polymarket', 'kalshi').
+                Keyword-only. 'sim' returns all active, tradeable markets — every
+                market is paper-tradeable on the synthetic venue — while
+                'polymarket'/'kalshi' narrow to markets backed by that real venue.
+                Prefer this over ``import_source`` for venue-scoped discovery; if
+                both are given ``import_source`` wins.
+            sort: Result ordering — "volume" (most-traded first; best for finding
+                liquid, tradeable markets) or "recent" (newest first). Keyword-only.
+                When omitted, results are newest-first today, but this default is
+                scheduled to become liquidity-first in an upcoming release — pass
+                sort="recent" to pin the current behavior, or sort="volume" to adopt
+                the new behavior now.
+            tags: Comma-separated tag filter (e.g. "world-cup" or "weather,crypto").
+                Keyword-only. Returns markets carrying ALL specified tags. Like ``q``,
+                applied before the result window.
+
+        Note:
+            Unfiltered browse (no ``q``/``tags``) is capped and windowed server-side,
+            so it returns a slice of all active markets, not the full catalog. For
+            trading discovery prefer sort="volume" or a keyword/tag filter.
 
         Returns:
             List of Market objects
 
         Example:
             markets = client.get_markets(q="bitcoin", limit=5)
+            liquid = client.get_markets(sort="volume", limit=20)
+            wc = client.get_markets(tags="world-cup", limit=50)
         """
         params = {"status": status, "limit": limit}
         if import_source:
             params["import_source"] = import_source
+        if venue:
+            params["venue"] = venue
         if include:
             params["include"] = include
         if q:
             params["q"] = q
+        if sort:
+            params["sort"] = sort
+        if tags:
+            params["tags"] = tags
 
         data = self._request("GET", "/api/sdk/markets", params=params)
 
