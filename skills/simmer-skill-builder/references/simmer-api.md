@@ -27,21 +27,27 @@ The `venue` param sets default trading venue. Can be overridden per-trade.
 ### Markets
 
 ```python
-# List active markets
-markets = client.get_markets(status="active", limit=20)
+# List active markets (liquid first — recommended for trading discovery)
+markets = client.get_markets(status="active", sort="volume", limit=20)
 # Returns List[Market] dataclass objects
 
-# Search by keyword
-markets = client.find_markets("bitcoin")
+# Keyword search (matches a specific market regardless of the browse window)
+markets = client.get_markets(q="bitcoin", limit=5)
+
+# Filter by trading venue ('sim' = all paper-tradeable markets; 'polymarket'/'kalshi' narrow to that real venue)
+markets = client.get_markets(venue="polymarket", limit=20)
+
+# Filter by tags (ALL-match, comma-separated)
+markets = client.get_markets(tags="world-cup", limit=50)
 
 # Get single market
 market = client.get_market_by_id("uuid")
 ```
 
-**Note:** `get_markets()` accepts `status`, `import_source`, and `limit` only. For keyword search, use `find_markets(query)`. The REST API supports `q=` param on `GET /api/sdk/markets` but the SDK `get_markets()` method does not pass it through.
+**Note:** `get_markets()` accepts `status`, `import_source`, `limit`, `include`, `q`, plus keyword-only `venue`, `sort`, and `tags`. Unfiltered browse is recency-windowed and server-capped (a slice of all active markets), so use `sort="volume"`, `q=`, or `tags=` for discovery rather than paging an unsorted list (`ids=` is REST-only). **Default ordering is newest-first today but will flip to liquidity-first in an upcoming release — pin `sort="recent"` to keep newest-first.**
 
 **REST API market params** (via `client._request("GET", "/api/sdk/markets", params=...)`):
-`status`, `tags`, `q`, `venue`, `sort` (`volume`, `opportunity`), `limit`, `ids`, `max_hours_to_resolution`.
+`status`, `import_source`, `tags`, `q`, `venue` (`sim`/`polymarket`/`kalshi`), `sort` (`volume`, `recent`), `limit`, `offset`, `ids`, `include`, `max_hours_to_resolution`.
 
 ### Market Fields (Market dataclass)
 
