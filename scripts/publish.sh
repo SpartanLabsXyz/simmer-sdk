@@ -106,7 +106,7 @@ echo "   Source: $SKILL_DIR"
 
 # Check if version already exists
 echo "   Checking ClawHub for existing version..."
-if clawhub inspect "$NAME" 2>&1 | grep -q "Latest: $VERSION"; then
+if npx clawhub@latest inspect "$NAME" 2>&1 | grep -q "Latest: $VERSION"; then
   echo "❌ Version $VERSION already exists on ClawHub"
   echo "   Bump the version in $SKILL_MD and try again"
   exit 1
@@ -136,8 +136,11 @@ echo "   Files: $FILE_COUNT"
 
 # Publish
 echo "   Publishing..."
-OUTPUT=$(clawhub publish "$TMP_DIR" --version "$VERSION" 2>&1)
-EXIT_CODE=$?
+# `|| EXIT_CODE=$?` keeps set -e from killing the script before the
+# error report below prints (a bare `clawhub` binary missing from PATH died
+# silently at exactly this line on 2026-06-12).
+EXIT_CODE=0
+OUTPUT=$(npx clawhub@latest publish "$TMP_DIR" --version "$VERSION" --owner simmer 2>&1) || EXIT_CODE=$?
 
 if [ $EXIT_CODE -eq 0 ]; then
   echo "✅ Published $NAME@$VERSION"
