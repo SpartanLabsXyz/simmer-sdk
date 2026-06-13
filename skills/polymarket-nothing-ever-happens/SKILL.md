@@ -3,7 +3,7 @@ name: polymarket-nothing-ever-happens
 description: Buy NO on standalone non-sports yes/no Polymarket markets priced below a configurable cap. Based on the "nothing-ever-happens" thesis — binary markets often resolve NO, and cheap NO shares offer asymmetric value. Scans for candidates via Gamma API, filters out sports and grouped markets, checks fees, and executes.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.0.4"
+  version: "1.0.5"
   displayName: Polymarket Nothing-Ever-Happens
   difficulty: beginner
 ---
@@ -20,6 +20,8 @@ Buy NO on standalone yes/no Polymarket markets priced below a configurable cap.
 ## The Thesis
 
 On most standalone binary prediction markets, the event resolves NO — nothing dramatic happens. Markets systematically overprice dramatic YES outcomes. When NO is trading at 3¢–5¢, you're getting 20–33x payout if you're right, and the base rate of "nothing happens" is often much higher than the implied 3–5%.
+
+> ⚠️ **Automated stop-losses cannot protect against gap-resolution.** Many NO-fade targets, weather temperature buckets especially, do not decay toward their losing outcome. They gap: the price sits near your entry, then jumps straight to about 0 at resolution. A percentage stop has no intermediate price to trigger on and no liquidity to exit into once it is near zero, so it cannot cap your downside on these markets. Size every position for the full loss, not for the stop. See [DISCLAIMER.md](./DISCLAIMER.md).
 
 ## What It Does
 
