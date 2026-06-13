@@ -74,6 +74,20 @@ ows = ["open-wallet-standard>=1.3.0,<2.0.0"]
 # Install with: pip install 'simmer-sdk[hyperliquid]'
 hyperliquid = ["hyperliquid-python-sdk>=0.24.0,<1.0.0"]
 
+# Local historical backtesting (SIM-3070). Pulls the engine substrate the
+# vendored `simmer_sdk.backtest.replay` package needs: duckdb (reads the
+# Polymarket trade-tape parquet set), fastapi+uvicorn (serves the frozen
+# replay API the unmodified skill subprocess calls over real HTTP). `requests`
+# is already a core dep. Not a hard dep: only `simmer backtest` users need it,
+# and duckdb pulls a sizeable native wheel most SDK users never touch.
+#
+# Install with: pip install 'simmer-sdk[backtest]'
+backtest = [
+    "duckdb>=0.10.0",
+    "fastapi>=0.110.0",
+    "uvicorn>=0.27.0",
+]
+
 [project.urls]
 Homepage = "https://simmer.markets"
 Documentation = "https://github.com/SpartanLabsXyz/simmer-sdk"
