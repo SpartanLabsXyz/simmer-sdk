@@ -1,4 +1,4 @@
-# vendored from simmer_v3/replay/duckdb_store.py @ befeed1b328b
+# vendored from simmer_v3/replay/duckdb_store.py @ b3422ef9248a
 # DO NOT EDIT HERE — regenerate via scripts/sync_replay_engine.py
 """DuckDB-backed HistoricalStore over the Polymarket trade-tape parquet set.
 
@@ -155,26 +155,35 @@ def _aware(dt: Optional[datetime]) -> Optional[datetime]:
     return dt.astimezone(timezone.utc)
 
 
+# A *resolved* binary market IS 0 or 1, but Polymarket records a residual
+# near-resolution mark — `0.0005`/`0.9995` for ~90% of closed markets, with a
+# tail out to ~0.019 from the boundary; only ~7% land exactly on 0/1. We snap
+# this residual band to {0,1}. A GENUINE fractional outcome — a 0.5 void/refund,
+# or a partial — sits >= 0.021 from the boundary in the dataset, so the band is
+# separable: snap residuals, leave genuine fractionals to settle proportionally.
+_RESIDUAL_EPS = 0.02
+
+
 def _parse_outcome_yes(outcome_prices: Optional[str]) -> Optional[float]:
     """Parse the answer1 (YES-side) outcome from the dataset's outcome_prices,
-    snapped to the binary resolution {0.0, 1.0}.
+    with Polymarket's near-resolution residual mark snapped to {0.0, 1.0}.
 
     REAL dataset format is a single-quoted Python-list repr, e.g. "['1', '0']"
     — NOT valid JSON. So try json.loads first (double-quoted), then fall back
-    to ast.literal_eval (single-quoted). Returns the YES-side outcome as 0.0/1.0,
-    or None if unparseable / not yet resolved.
+    to ast.literal_eval (single-quoted). Returns the YES-side outcome (0.0/1.0
+    for a clean resolution, or a genuine fraction for a void/partial), or None
+    if unparseable / not yet resolved.
 
-    Binary-snap (SIM-3070): a *resolved* binary market IS 0 or 1, but Polymarket
-    records the residual near-resolution mark — `['0.0005', '0.9995']` for ~90%
-    of closed markets, only ~7% land exactly on `['1','0']`/`['0','1']`. Taking
-    the raw 0.0005 made a losing YES position settle at `shares * 0.0005 > 0`,
-    which the engine's `wins = settlements with usd > 1e-9` then counted as a
-    HIT — inflating hit_rate toward 100% for any YES-buying skill while the
-    `buy_and_hold_yes` baseline (same report) correctly showed the loss. Snap to
-    {0,1} at the 0.5 threshold so a loser pays exactly 0 and hit_rate is honest
-    and consistent with the baselines. The engine only ever replays binary
-    Yes/No markets (the harness's gamma shim emits binary outcomes), so the snap
-    is always valid here.
+    Residual-snap (SIM-3070): taking the raw `0.0005` mark made a losing YES
+    position settle at `shares * 0.0005 > 0`, which the engine's
+    `wins = settlements with usd > 1e-9` counted as a HIT — inflating hit_rate
+    toward 100% for any YES-buying skill while the `buy_and_hold_yes` baseline
+    (same report) correctly showed the loss. Snapping only the residual band
+    (within `_RESIDUAL_EPS` of 0/1) makes a loser pay exactly 0 and keeps
+    hit_rate honest, WITHOUT corrupting a genuine 0.5 void/refund (~3% of closed
+    markets are genuinely fractional) — those settle proportionally, as they did
+    before the fix. Snapping at a naive 0.5 threshold would over-pay every YES
+    holder of a voided market $1 and zero the NO side (caught in review).
 
     (The single-quote format was missed by JSON-only fixtures and surfaced by
     the 2026-03 NEH pilot — all settlements were silently dropped. See
@@ -194,4 +203,8 @@ def _parse_outcome_yes(outcome_prices: Optional[str]) -> Optional[float]:
         raw = float(vals[0])
     except (ValueError, TypeError):
         return None
-    return 1.0 if raw >= 0.5 else 0.0
+    if raw >= 1.0 - _RESIDUAL_EPS:
+        return 1.0
+    if raw <= _RESIDUAL_EPS:
+        return 0.0
+    return raw  # genuine void/partial (e.g. 0.5 refund) — settle proportionally
