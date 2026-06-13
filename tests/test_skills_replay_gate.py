@@ -65,6 +65,7 @@ def test_fastloop_live_falls_back_when_plane_missing(monkeypatch):
 
 def test_plane_used_when_available(monkeypatch):
     monkeypatch.delenv("SIMMER_REPLAY", raising=False)
+    monkeypatch.setenv("SIMMER_API_KEY", "sk_test")  # guard: no key → plane skipped
     m = _load("polymarket-fast-scaler", "fast_scaler.py", "_fs_plane")
     candles = [{"open": 100.0, "close": 100.3, "volume": 5.0},
                {"open": 100.3, "close": 100.1, "volume": 7.0}]

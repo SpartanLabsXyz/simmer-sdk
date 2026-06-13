@@ -317,21 +317,26 @@ def fetch_btc_momentum(lookback_minutes):
 
     Returns (momentum_pct, direction, current_price) or (None, None, None).
     """
-    try:
-        end = datetime.now(timezone.utc)
-        start = end - timedelta(minutes=max(lookback_minutes + 1, 5))
-        candles = get_client().get_candles("BTCUSDT", start.isoformat(), end.isoformat())
-        if candles and len(candles) >= 2:
-            open_price = float(candles[0]["open"])
-            close_price = float(candles[-1]["close"])
-            momentum_pct = (close_price - open_price) / open_price * 100
-            direction = "up" if momentum_pct > 0 else "down"
-            return abs(momentum_pct), direction, close_price
-        if _is_replay():
-            return None, None, None  # honest no-signal — never fall back under replay
-    except Exception:  # noqa: BLE001 — branch on environment below
-        if _is_replay():
-            return None, None, None
+    # No API key → no client (get_client() sys.exits). Checked up-front so the
+    # sys.exit never fires inside the signal fetch.
+    if os.environ.get("SIMMER_API_KEY"):
+        try:
+            end = datetime.now(timezone.utc)
+            start = end - timedelta(minutes=max(lookback_minutes + 1, 5))
+            candles = get_client().get_candles("BTCUSDT", start.isoformat(), end.isoformat())
+            if candles and len(candles) >= 2:
+                open_price = float(candles[0]["open"])
+                close_price = float(candles[-1]["close"])
+                momentum_pct = (close_price - open_price) / open_price * 100
+                direction = "up" if momentum_pct > 0 else "down"
+                return abs(momentum_pct), direction, close_price
+            if _is_replay():
+                return None, None, None  # honest no-signal — never fall back under replay
+        except Exception:  # noqa: BLE001 — branch on environment below
+            if _is_replay():
+                return None, None, None
+    elif _is_replay():
+        return None, None, None  # can't reach the plane under replay → no-signal
 
     # ---- legacy LIVE-ONLY direct path (never reached under replay) ----
     interval = "1m"

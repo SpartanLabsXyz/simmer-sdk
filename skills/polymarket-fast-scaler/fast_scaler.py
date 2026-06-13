@@ -523,19 +523,25 @@ def get_binance_1m_momentum(asset="BTC"):
     """
     symbol = ASSET_SYMBOLS.get(asset, "BTCUSDT")
 
-    try:
-        from datetime import datetime, timedelta, timezone
+    # No API key → no client (get_client() sys.exits). Checked up-front so the
+    # sys.exit never fires inside the signal fetch; live falls back to legacy,
+    # replay yields no-signal.
+    if os.environ.get("SIMMER_API_KEY"):
+        try:
+            from datetime import datetime, timedelta, timezone
 
-        end = datetime.now(timezone.utc)
-        start = end - timedelta(minutes=4)  # ≥3 closed candles for volume context
-        plane = get_client().get_candles(symbol, start.isoformat(), end.isoformat())
-        if plane:
-            return _momentum_from_closed_candles(plane)
-        if _is_replay():
-            return None  # empty tape window — honest no-signal, never fall back
-    except Exception:  # noqa: BLE001 — branch on environment below
-        if _is_replay():
-            return None
+            end = datetime.now(timezone.utc)
+            start = end - timedelta(minutes=4)  # ≥3 closed candles for volume context
+            plane = get_client().get_candles(symbol, start.isoformat(), end.isoformat())
+            if plane:
+                return _momentum_from_closed_candles(plane)
+            if _is_replay():
+                return None  # empty tape window — honest no-signal, never fall back
+        except Exception:  # noqa: BLE001 — branch on environment below
+            if _is_replay():
+                return None
+    elif _is_replay():
+        return None  # can't reach the plane under replay → no-signal, never legacy
 
     # ---- legacy LIVE-ONLY direct path (never reached under replay) ----
     # Try global endpoint first; fall back to US endpoint for geo-restricted deployments (HTTP 451)

@@ -517,6 +517,18 @@ def fetch_candles_via_simmer(symbol, lookback_minutes, interval="1m"):
     """
     from datetime import datetime, timedelta, timezone
 
+    # No API key → no client (get_client() sys.exits). Treat as "plane
+    # unreachable from here": live falls back to the legacy path, replay
+    # raises. Checked up-front so get_client()'s sys.exit never fires inside
+    # the signal fetch.
+    if not os.environ.get("SIMMER_API_KEY"):
+        if _is_replay():
+            raise SignalFetchError(
+                "Simmer candles plane unavailable under replay: SIMMER_API_KEY unset",
+                [{"endpoint": "simmer-data-plane", "error": "no_api_key"}],
+            )
+        return None
+
     end = datetime.now(timezone.utc)
     # +1 interval of slack: closed-candle semantics mean "now" excludes the
     # in-progress candle, so the window must reach one interval further back
@@ -683,14 +695,15 @@ def get_binance_price_at(symbol, start_ms):
     from datetime import datetime, timedelta, timezone
 
     start = datetime.fromtimestamp(start_ms / 1000, tz=timezone.utc)
-    try:
-        candles = get_client().get_candles(
-            symbol, start.isoformat(), (start + timedelta(minutes=2)).isoformat(),
-        )
-        if candles:
-            return float(candles[0]["close"])
-    except Exception:  # noqa: BLE001 — branch on environment below
-        pass
+    if os.environ.get("SIMMER_API_KEY"):
+        try:
+            candles = get_client().get_candles(
+                symbol, start.isoformat(), (start + timedelta(minutes=2)).isoformat(),
+            )
+            if candles:
+                return float(candles[0]["close"])
+        except Exception:  # noqa: BLE001 — branch on environment below
+            pass
     if _is_replay():
         return None
     url = (
