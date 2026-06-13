@@ -114,9 +114,10 @@ def _cmd_backtest(args: argparse.Namespace) -> int:
         return 2
 
     if args.window:
-        print("error: --window (self-serve tape download) is not available yet "
-              "(SIM-3070 slice 5).\nFor now pass --tape <dir> with a local slice, "
-              "or --demo for the bundled offline demo.", file=sys.stderr)
+        print("error: --window (last-N-days) isn't supported — the public dataset "
+              "is historical (ends ~2026-05-05), so 'from now' is empty. Pass an "
+              "explicit --t0/--t1 instead and the slice is fetched automatically.",
+              file=sys.stderr)
         return 2
 
     if args.demo:
@@ -128,9 +129,9 @@ def _cmd_backtest(args: argparse.Namespace) -> int:
         # the demo skill reads no candles — keep the run hermetic + fast.
         candles = False
     else:
+        # --tape is optional now: omit it and the slice is fetched for the window.
         missing = [n for n, v in (("bundle", args.bundle),
                                   ("--entrypoint", args.entrypoint),
-                                  ("--tape", args.tape),
                                   ("--t0", args.t0), ("--t1", args.t1)) if not v]
         if missing:
             print("error: " + ", ".join(missing) + " required "
@@ -147,6 +148,8 @@ def _cmd_backtest(args: argparse.Namespace) -> int:
             tape=tape,
             t0=t0,
             t1=t1,
+            max_markets=args.max_markets,
+            min_volume=args.min_volume,
             cadence=cadence,
             balance=args.balance,
             fee_rate=args.fee_rate,
@@ -188,14 +191,20 @@ def _build_parser() -> argparse.ArgumentParser:
     bt = sub.add_parser(
         "backtest",
         help="replay an unmodified skill bundle over historical data",
-        description="Backtest a skill bundle against a local historical tape "
-                    "slice (or the bundled --demo). Requires the [backtest] extra.",
+        description="Backtest a skill bundle over historical data. Omit --tape "
+                    "and the slice for [--t0, --t1] is fetched automatically and "
+                    "cached. Or use --demo. Requires the [backtest] extra.",
     )
     bt.add_argument("bundle", nargs="?", help="path to the skill bundle dir")
     bt.add_argument("--entrypoint", help="script filename inside the bundle to run each tick")
-    bt.add_argument("--tape", help="local tape slice dir (markets.parquet + quant.parquet)")
+    bt.add_argument("--tape", help="local tape slice dir (markets.parquet + quant.parquet); "
+                                   "omit to auto-fetch the window")
     bt.add_argument("--t0", help="window start (ISO, e.g. 2026-03-01)")
     bt.add_argument("--t1", help="window end (ISO)")
+    bt.add_argument("--max-markets", type=int, default=300, dest="max_markets",
+                    help="auto-fetch: cap slice to top-N markets by volume (default 300)")
+    bt.add_argument("--min-volume", type=float, default=1000.0, dest="min_volume",
+                    help="auto-fetch: only markets with volume above this (default 1000)")
     bt.add_argument("--cadence", default="15m", help="tick spacing: 15m / 12h / 30d / minutes (default 15m)")
     bt.add_argument("--balance", type=float, default=1000.0, help="starting balance (default 1000)")
     bt.add_argument("--fee-rate", type=float, default=0.0, dest="fee_rate", help="per-fill fee rate (default 0)")

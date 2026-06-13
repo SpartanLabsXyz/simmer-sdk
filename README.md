@@ -152,10 +152,16 @@ pip install 'simmer-sdk[backtest]'
 # Try it offline — bundled 10-market demo slice, no data download:
 simmer backtest --demo
 
-# Backtest your own skill over a local tape slice:
-simmer backtest ./my-skill --entrypoint run.py --tape ./slice \
+# Backtest your own skill — the historical data is fetched + cached for you:
+simmer backtest ./my-skill --entrypoint run.py \
     --t0 2026-03-01 --t1 2026-03-08 --cadence 12h --out report.json
 ```
+
+You don't have to source data: omit `--tape` and the slice for `[--t0, --t1]`
+is pulled from the public, MIT-licensed Polymarket dataset (HuggingFace) and
+cached under `~/.simmer/tapes/` (first fetch takes a few minutes; repeats are
+instant). Shape it with `--max-markets` / `--min-volume`. Already have a tape?
+Pass `--tape ./slice`. (Coverage ends ~2026-05-05 for now.)
 
 The engine replays your **unmodified** skill against a frozen, look-ahead-safe
 replay server (one subprocess per tick) and reports pnl, hit rate, max drawdown,

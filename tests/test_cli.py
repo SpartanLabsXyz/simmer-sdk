@@ -20,11 +20,11 @@ def test_backtest_requires_inputs_or_demo(capsys):
     assert "required" in capsys.readouterr().err
 
 
-def test_window_flag_is_not_yet_supported(capsys):
-    rc = cli.main(["backtest", "./b", "--entrypoint", "r.py", "--tape", "./t",
+def test_window_flag_is_rejected_points_to_t0_t1(capsys):
+    rc = cli.main(["backtest", "./b", "--entrypoint", "r.py",
                    "--t0", "2026-03-01", "--t1", "2026-03-02", "--window", "30d"])
     assert rc == 2
-    assert "slice 5" in capsys.readouterr().err
+    assert "--t0/--t1" in capsys.readouterr().err
 
 
 def test_version_exits_zero(capsys):

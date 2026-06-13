@@ -3,6 +3,20 @@
 All notable changes to `simmer-sdk` are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.0] - 2026-06-13
+
+### Added
+
+- **`simmer backtest` auto-fetches its data (SIM-3070).** `--tape` is now optional — omit it and the slice for `[--t0, --t1]` is fetched from the public, MIT-licensed Polymarket dataset (HuggingFace `SII-WANGZJ/Polymarket_data`) and cached under `~/.simmer/tapes/`. So you no longer have to source data by hand:
+  ```
+  simmer backtest ./my-skill --entrypoint run.py --t0 2026-03-01 --t1 2026-03-08
+  ```
+  New `--max-markets` / `--min-volume` flags shape the auto-fetched slice. Robust by design: the small index file is downloaded over plain HTTP (the HF CDN flakes on ranged httpfs metadata reads), and the large remote trade-prints read is retried with backoff. Programmatic: `simmer_sdk.backtest.tape.fetch_tape(...)`. Dataset coverage ends ~2026-05-05 (a freshness fetcher is a planned follow-up); a window past it errors clearly.
+
+### Changed
+
+- **Crypto-signal skills are now backtestable.** `get_candles` rebases a wall-clock candle window (`datetime.now()`-relative, as the Binance trio use) to end at the frozen replay tick — gated on `SIMMER_REPLAY_NOW`, which only the replay harness sets, so it's a strict no-op for live trading. Previously such skills got zero candles under replay and read "no signal".
+
 ## [0.18.0] - 2026-06-13
 
 ### Added

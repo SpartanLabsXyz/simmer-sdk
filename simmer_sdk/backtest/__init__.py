@@ -137,9 +137,11 @@ def run_backtest(
     bundle: str,
     *,
     entrypoint: str,
-    tape: str,
+    tape: Optional[str] = None,
     t0: Union[str, datetime],
     t1: Union[str, datetime],
+    max_markets: int = 300,
+    min_volume: float = 1000.0,
     cadence: Union[str, int, float, timedelta] = "15m",
     balance: float = 1000.0,
     fee_rate: float = 0.0,
@@ -157,10 +159,12 @@ def run_backtest(
         bundle: path to the skill bundle dir (the thing a user installs).
         entrypoint: script filename inside the bundle to run each tick
             (e.g. ``nothing_ever_happens.py``).
-        tape: local dir holding ``markets.parquet`` + ``quant.parquet``
-            (+ optional ``manifest.json``) — as produced by
-            ``scripts/replay_run.py extract``. Remote/window download is slice 5.
+        tape: local dir holding ``markets.parquet`` + ``quant.parquet``. When
+            omitted, a slice for ``[t0, t1]`` is fetched from the public dataset
+            and cached under ``~/.simmer/tapes/`` (see ``backtest.tape``).
         t0, t1: window bounds (ISO string or datetime; naive => UTC).
+        max_markets, min_volume: only when auto-fetching — cap the slice to the
+            top ``max_markets`` resolved markets with volume above ``min_volume``.
         cadence: tick spacing — ``15m`` / ``12h`` / ``30d``, minutes, or timedelta.
         balance: starting balance.
         fee_rate: per-fill fee rate (0 = none; baselines ignore fees in v0).
@@ -199,6 +203,15 @@ def run_backtest(
     if not os.path.exists(os.path.join(bundle, entrypoint)):
         raise BacktestError(f"entrypoint {entrypoint!r} not found in bundle {bundle}")
 
+    # No tape given → fetch (+ cache) a slice for the window from the public
+    # dataset, so the user never has to source data by hand.
+    if tape is None:
+        from .tape import TapeFetchError, fetch_tape
+        try:
+            tape = fetch_tape(t0, t1, max_markets=max_markets, min_volume=min_volume)
+        except TapeFetchError as exc:
+            raise BacktestError(str(exc)) from exc
+
     markets_pq = os.path.join(tape, "markets.parquet")
     quant_pq = os.path.join(tape, "quant.parquet")
     for p in (markets_pq, quant_pq):
@@ -206,7 +219,7 @@ def run_backtest(
             raise BacktestError(
                 f"missing tape file: {p}\n"
                 "expected a local slice dir with markets.parquet + quant.parquet "
-                "(produce one with scripts/replay_run.py extract)"
+                "(omit --tape to auto-fetch one for the window)"
             )
 
     t0_dt, t1_dt = _parse_dt(t0), _parse_dt(t1)
