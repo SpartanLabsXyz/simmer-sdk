@@ -3,6 +3,25 @@
 All notable changes to `simmer-sdk` are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.0] - 2026-06-13
+
+### Added
+
+- **`simmer backtest` — local historical backtesting for trading skills (SIM-3070).** Backtest an UNMODIFIED skill bundle against historical prediction-market data before risking capital — the missing *historical* leg alongside the existing live-forward modes (sim-venue, dry-run, paper-trade). New optional extra `pip install 'simmer-sdk[backtest]'` (pulls duckdb/fastapi/uvicorn). New `simmer` console command:
+  ```
+  simmer backtest ./my-skill --entrypoint run.py --tape ./slice \
+      --t0 2026-03-01 --t1 2026-03-08 [--cadence 12h] [--out report.json]
+  simmer backtest --demo        # bundled offline demo, no tape needed
+  ```
+  Programmatic mirror: `simmer_sdk.backtest.run_backtest(...) -> report dict`. The engine runs locally and replays the real skill subprocess against a frozen, look-ahead-safe replay server, returning pnl, hit_rate, drawdown, trades, decisions, baselines (buy-and-hold-YES / random), realism gaps, and a reproducible `config_hash`. The engine substrate is vendored from the Simmer backend and runs the identical code path as the internal seed runner (same inputs → identical `config_hash` → identical results). `--window` (self-serve tape download) lands in a follow-up; for now pass `--tape <local-slice>` or `--demo`.
+- **Hyperliquid HIP-4 outcome-market signing + venue adapter (SIM-3151, P1 slice 1).** New optional extra `pip install 'simmer-sdk[hyperliquid]'`. Adds a `HyperliquidVenue` adapter behind a `VenueAdapter` Protocol (`client.hyperliquid`), with a dual signer (raw-key and OWS) producing byte-identical signatures, reusing the official SDK's validated EIP-712 wire-building / action-hash / float-formatting primitives. Signing is validated offline (26 tests, bit-identical raw≡OWS); end-to-end funded validation is pending — opt-in only, no change to default trading behavior.
+
+## [0.17.32] - 2026-06-12
+
+### Added
+
+- **Binance trio (`polymarket-fast-loop` / `polymarket-fast-scaler` / `polymarket-btc-up-down-trader`) read momentum signal from Simmer's data plane (`client.get_candles`) instead of hardcoding `urlopen(api.binance.com)` (SIM-3070 1.5C, #202).** Closed candles only; under replay the same endpoint is clamped to the frozen tick so the skills become backtestable rather than silently fetching live (future) data.
+
 ## [0.17.31] - 2026-06-12
 
 ### Added
