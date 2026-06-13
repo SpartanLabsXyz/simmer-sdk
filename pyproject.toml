@@ -88,6 +88,9 @@ backtest = [
     "uvicorn>=0.27.0",
 ]
 
+[project.scripts]
+simmer = "simmer_sdk.cli:main"
+
 [project.urls]
 Homepage = "https://simmer.markets"
 Documentation = "https://github.com/SpartanLabsXyz/simmer-sdk"
@@ -100,4 +103,9 @@ where = ["."]
 include = ["simmer_sdk*"]
 
 [tool.setuptools.package-data]
-simmer_sdk = ["scripts/*.js"]
+simmer_sdk = [
+    "scripts/*.js",
+    # bundled offline demo for `simmer backtest --demo` (tiny tape + skill)
+    "backtest/demo/tape/*",
+    "backtest/demo/backtest-demo-favorites/*",
+]
