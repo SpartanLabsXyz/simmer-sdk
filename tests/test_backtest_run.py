@@ -41,6 +41,13 @@ def test_parse_dt_passthrough_datetime_and_tz_convert():
     assert bt._parse_dt(aware) == datetime(2026, 3, 1, 4, tzinfo=timezone.utc)
 
 
+def test_parse_dt_offset_string_forces_utc_for_config_hash_parity():
+    # an offset-bearing STRING must mirror the internal _dt EXACTLY: force the
+    # tz to UTC (keep wall-clock), do NOT convert — else config_hash desyncs from
+    # scripts/replay_run.py. (Contrast the aware-DATETIME case above, which converts.)
+    assert bt._parse_dt("2026-03-01T00:00:00+05:00") == datetime(2026, 3, 1, tzinfo=timezone.utc)
+
+
 @pytest.mark.parametrize("value,seconds", [
     ("90s", 90),
     ("15m", 900),

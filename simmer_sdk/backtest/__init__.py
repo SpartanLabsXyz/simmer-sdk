@@ -38,17 +38,20 @@ class BacktestError(RuntimeError):
 def _parse_dt(value: Union[str, datetime]) -> datetime:
     """ISO string or datetime -> tz-aware UTC.
 
-    Mirrors the internal CLI's ``_dt``: a naive value is pinned to UTC (NOT
-    converted), so the same ``--t0 2026-03-01`` produces a byte-identical
-    isoformat in ``config_hash`` on both the SDK and internal paths.
+    STRING inputs mirror the internal CLI's ``_dt`` EXACTLY — it does
+    ``datetime.fromisoformat(s).replace(tzinfo=utc)``, which FORCES UTC and does
+    NOT convert an offset, so an offset-bearing ISO string keeps its wall-clock
+    time. We must match byte-for-byte (incl. that quirk) or ``config_hash``
+    desyncs from ``scripts/replay_run.py`` for the same ``--t0``/``--t1``.
+
+    DATETIME inputs (programmatic; no internal counterpart) get the sane
+    treatment: a naive value is pinned to UTC, an aware value is converted.
     """
-    if isinstance(value, datetime):
-        dt = value
-    else:
-        dt = datetime.fromisoformat(str(value))
-    if dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(timezone.utc)
+    if not isinstance(value, datetime):
+        return datetime.fromisoformat(str(value)).replace(tzinfo=timezone.utc)
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
 
 
 def _parse_cadence(value: Union[str, int, float, timedelta]) -> timedelta:
@@ -213,27 +216,33 @@ def run_backtest(
     extra_args = _normalize_args(args)
     sdk_path = resolve_sdk_path(sdk_path)
 
-    store = DuckDBStore(markets_pq, quant_pq)
-    config = ReplayConfig(
-        t0=t0_dt,
-        t1=t1_dt,
-        cadence=cadence_td,
-        starting_balance=balance,
-        fee_rate=fee_rate,
-        skill_slug=os.path.basename(bundle.rstrip("/")),
-        skill_version=_bundle_skill_version(bundle),
-        dataset_rev=_dataset_rev(tape),
-        seed=seed,
-        max_evaluations=max_evaluations,
-        # bundle content + invocation change results -> must change config_hash
-        params={
-            "entrypoint": entrypoint,
-            "args": extra_args or _DEFAULT_ARGS,
-            "bundle_digest": bundle_digest(bundle),
-        },
-    )
-    kline_store = build_kline_store(offline=offline_klines) if candles else None
+    # store + kline_store both hold OS resources (a DuckDB connection / FD); build
+    # them INSIDE the try so the finally closes whatever was opened even if a later
+    # constructor throws (e.g. build_kline_store on a bad cache dir would otherwise
+    # leak the already-open DuckDB connection).
+    store = None
+    kline_store = None
     try:
+        store = DuckDBStore(markets_pq, quant_pq)
+        config = ReplayConfig(
+            t0=t0_dt,
+            t1=t1_dt,
+            cadence=cadence_td,
+            starting_balance=balance,
+            fee_rate=fee_rate,
+            skill_slug=os.path.basename(bundle.rstrip("/")),
+            skill_version=_bundle_skill_version(bundle),
+            dataset_rev=_dataset_rev(tape),
+            seed=seed,
+            max_evaluations=max_evaluations,
+            # bundle content + invocation change results -> must change config_hash
+            params={
+                "entrypoint": entrypoint,
+                "args": extra_args or _DEFAULT_ARGS,
+                "bundle_digest": bundle_digest(bundle),
+            },
+        )
+        kline_store = build_kline_store(offline=offline_klines) if candles else None
         report = replay_bundle(
             store, bundle, entrypoint, config, sdk_path,
             extra_args=extra_args, kline_store=kline_store,
@@ -241,7 +250,8 @@ def run_backtest(
     finally:
         if kline_store is not None:
             kline_store.close()
-        store.close()
+        if store is not None:
+            store.close()
 
     # Runner-asserted coverage: lets a 0-trade result read as verified
     # no-signal. Default False keeps 0-trade results inconclusive.
