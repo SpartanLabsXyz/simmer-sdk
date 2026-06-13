@@ -593,6 +593,19 @@ def get_binance_momentum(symbol="BTCUSDT", lookback_minutes=5):
         failures.append({"endpoint": "simmer-data-plane",
                          "error": "insufficient_candles", "candles": len(plane)})
 
+    # Structural look-ahead backstop: the legacy direct-Binance path below is
+    # future data relative to the frozen tick. The branches above already
+    # raise under replay for every CURRENT data-plane outcome, but this guard
+    # makes the invariant independent of get_candles' return contract — a
+    # future SDK change that returned None (falsy, not raising) would
+    # otherwise slip past `plane is not None` and reach legacy. Never rely on
+    # an upstream return shape to enforce a money-correctness property.
+    if _is_replay():
+        raise SignalFetchError(
+            "no usable data-plane candles under replay (legacy fetch blocked)",
+            failures or [{"endpoint": "simmer-data-plane", "error": "no_candles"}],
+        )
+
     # ---- legacy LIVE-ONLY direct path (never reached under replay) ----
     result = None
     endpoint = None

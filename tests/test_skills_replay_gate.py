@@ -76,3 +76,16 @@ def test_plane_used_when_available(monkeypatch):
     out = m.get_binance_1m_momentum("BTC")
     assert out["price_now"] == 100.1  # LAST CLOSED candle, not index -2
     m._api_request.assert_not_called()
+
+
+def test_fastloop_replay_none_candles_still_blocks_binance(replay_env):
+    """Self-review backstop: even if get_candles returns None (falsy, not
+    raising) under replay, the legacy Binance path must not run."""
+    m = _load("polymarket-fast-loop", "fastloop_trader.py", "_fl_none")
+    client = MagicMock()
+    client.get_candles.return_value = None
+    m.get_client = MagicMock(return_value=client)
+    m._api_request = MagicMock()
+    with pytest.raises(m.SignalFetchError):
+        m.get_binance_momentum("BTCUSDT", 5)
+    m._api_request.assert_not_called()
