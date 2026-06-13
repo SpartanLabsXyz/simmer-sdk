@@ -63,3 +63,14 @@ def test_demo_runs_offline(tmp_path, capsys):
     # hit_rate must be sane (engine snaps resolved outcomes to {0,1}, so a
     # losing YES is NOT counted as a win — pre-fix this read ~1.0)
     assert 0.0 <= s["hit_rate"] <= 1.0
+
+
+def test_demo_without_out_writes_no_file(tmp_path, monkeypatch, capsys):
+    pytest.importorskip("duckdb", reason="requires the [backtest] extra")
+    pytest.importorskip("fastapi", reason="requires the [backtest] extra")
+    monkeypatch.chdir(tmp_path)
+    rc = cli.main(["backtest", "--demo"])
+    assert rc == 0
+    # running --demo must NOT silently drop a report file into the user's CWD
+    assert not list(tmp_path.glob("*.json")), "--demo wrote a file without --out"
+    assert "--out" in capsys.readouterr().out  # hints how to save it

@@ -164,14 +164,15 @@ def _cmd_backtest(args: argparse.Namespace) -> int:
 
     _print_summary(report, balance=args.balance)
 
-    out = args.out
-    if args.demo and not out:
-        out = os.path.join(os.getcwd(), "backtest-demo-report.json")
-    if out:
-        os.makedirs(os.path.dirname(os.path.abspath(out)) or ".", exist_ok=True)
-        with open(out, "w") as fh:
+    # The full report JSON is opt-in via --out. (Don't silently drop a file into
+    # the user's CWD just for running --demo — the summary already prints.)
+    if args.out:
+        os.makedirs(os.path.dirname(os.path.abspath(args.out)) or ".", exist_ok=True)
+        with open(args.out, "w") as fh:
             json.dump(report, fh, indent=2)
-        print(f"full report → {out}")
+        print(f"full report → {args.out}")
+    elif args.demo:
+        print("(pass --out report.json to save the full report)")
 
     # A run with failed ticks is not a clean result; surface it in the exit code.
     return 1 if report.get("bundle", {}).get("failed_ticks") else 0
