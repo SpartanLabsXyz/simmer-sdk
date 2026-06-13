@@ -1,4 +1,4 @@
-# vendored from simmer_v3/replay/store.py @ b3422ef9248a
+# vendored from simmer_v3/replay/store.py @ 96544b0f6a6c
 # DO NOT EDIT HERE — regenerate via scripts/sync_replay_engine.py
 """HistoricalStore protocol + the frozen-clock view the replay server uses.
 
