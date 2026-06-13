@@ -1,4 +1,4 @@
-# vendored from simmer_v3/replay/duckdb_store.py @ fc7f82cadfd5
+# vendored from simmer_v3/replay/duckdb_store.py @ befeed1b328b
 # DO NOT EDIT HERE — regenerate via scripts/sync_replay_engine.py
 """DuckDB-backed HistoricalStore over the Polymarket trade-tape parquet set.
 
@@ -156,12 +156,25 @@ def _aware(dt: Optional[datetime]) -> Optional[datetime]:
 
 
 def _parse_outcome_yes(outcome_prices: Optional[str]) -> Optional[float]:
-    """Parse the answer1 (YES-side) outcome from the dataset's outcome_prices.
+    """Parse the answer1 (YES-side) outcome from the dataset's outcome_prices,
+    snapped to the binary resolution {0.0, 1.0}.
 
     REAL dataset format is a single-quoted Python-list repr, e.g. "['1', '0']"
     — NOT valid JSON. So try json.loads first (double-quoted), then fall back
-    to ast.literal_eval (single-quoted). Returns the YES-side outcome as float,
+    to ast.literal_eval (single-quoted). Returns the YES-side outcome as 0.0/1.0,
     or None if unparseable / not yet resolved.
+
+    Binary-snap (SIM-3070): a *resolved* binary market IS 0 or 1, but Polymarket
+    records the residual near-resolution mark — `['0.0005', '0.9995']` for ~90%
+    of closed markets, only ~7% land exactly on `['1','0']`/`['0','1']`. Taking
+    the raw 0.0005 made a losing YES position settle at `shares * 0.0005 > 0`,
+    which the engine's `wins = settlements with usd > 1e-9` then counted as a
+    HIT — inflating hit_rate toward 100% for any YES-buying skill while the
+    `buy_and_hold_yes` baseline (same report) correctly showed the loss. Snap to
+    {0,1} at the 0.5 threshold so a loser pays exactly 0 and hit_rate is honest
+    and consistent with the baselines. The engine only ever replays binary
+    Yes/No markets (the harness's gamma shim emits binary outcomes), so the snap
+    is always valid here.
 
     (The single-quote format was missed by JSON-only fixtures and surfaced by
     the 2026-03 NEH pilot — all settlements were silently dropped. See
@@ -178,6 +191,7 @@ def _parse_outcome_yes(outcome_prices: Optional[str]) -> Optional[float]:
     if not isinstance(vals, (list, tuple)) or not vals:
         return None
     try:
-        return float(vals[0])
+        raw = float(vals[0])
     except (ValueError, TypeError):
         return None
+    return 1.0 if raw >= 0.5 else 0.0
