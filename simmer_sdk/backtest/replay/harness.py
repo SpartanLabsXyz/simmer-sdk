@@ -1,4 +1,4 @@
-# vendored from simmer_v3/replay/harness.py @ 96544b0f6a6c
+# vendored from simmer_v3/replay/harness.py @ 2c909730b34a
 # DO NOT EDIT HERE — regenerate via scripts/sync_replay_engine.py
 """Unmodified-bundle replay harness (SIM-3070).
 
@@ -106,7 +106,7 @@ _ENV_ALLOWLIST = ("PATH", "HOME", "LANG", "LC_ALL", "TMPDIR", "TZ",
                   "SSL_CERT_FILE", "REQUESTS_CA_BUNDLE")
 
 
-def _subprocess_env(base_url: str, sdk_path: str) -> dict:
+def _subprocess_env(base_url: str, sdk_path: str, now: datetime) -> dict:
     env = {k: os.environ[k] for k in _ENV_ALLOWLIST if k in os.environ}
     env.update({
         "SIMMER_API_URL": base_url,
@@ -115,6 +115,13 @@ def _subprocess_env(base_url: str, sdk_path: str) -> dict:
         # fallbacks (e.g. api.binance.com when the candles plane is absent)
         # on this — a fallback firing under replay would be look-ahead.
         "SIMMER_REPLAY": "1",
+        # The frozen tick (SIM-3070): candle-signal skills window candles by
+        # datetime.now() (wall clock), which under replay is the REAL present —
+        # after the tick — so the server clamps the request to nothing. The SDK's
+        # get_candles rebases a "last N minutes ending now" request to end at this
+        # tick instead. Set ONLY here (per tick); production never sets it, so the
+        # rebase is a strict no-op for live trading.
+        "SIMMER_REPLAY_NOW": now.isoformat(),
         "PYTHONPATH": sdk_path,
         "TRADING_VENUE": "polymarket",
         "PYTHONUNBUFFERED": "1",
@@ -202,7 +209,7 @@ class BundleStrategy:
         self.tick_logs: list[dict] = []
 
     def on_tick(self, api, now: datetime) -> None:
-        env = _subprocess_env(self.base_url, self.sdk_path)
+        env = _subprocess_env(self.base_url, self.sdk_path, now)
         proc = subprocess.run(
             [sys.executable, str(self.entry), *self.extra_args],
             cwd=str(self.entry.parent), env=env,
