@@ -475,16 +475,69 @@ def find_best_fast_market(markets):
 # Signal — Binance 1m Momentum
 # =============================================================================
 
-def get_binance_1m_momentum(asset="BTC"):
-    """Fetch the most recent 1-minute Binance candle and return momentum %.
+def _is_replay():
+    """True inside the Simmer replay harness (SIMMER_REPLAY=1). Decision data
+    must then come ONLY from the Simmer API — a direct-vendor fetch would be
+    future data relative to the frozen tick (the exact class behind this
+    skill's 89.4% backtest retraction)."""
+    return os.environ.get("SIMMER_REPLAY") == "1"
 
-    Returns dict with: momentum_pct, direction, price_now, price_open, volume_ratio
-    or None on failure.
+
+def _momentum_from_closed_candles(candles):
+    """Momentum dict from the LAST CLOSED candle, volume context from the
+    rest. Same semantics as the legacy index -2 rule: a settled signal,
+    never the in-progress candle."""
+    if not candles or len(candles) < 1:
+        return None
+    candle = candles[-1]
+    price_open = float(candle["open"])
+    price_close = float(candle["close"])
+    volume = float(candle["volume"])
+    avg_volume = sum(float(c["volume"]) for c in candles) / len(candles)
+    momentum_pct = (price_close - price_open) / price_open * 100
+    return {
+        "momentum_pct": momentum_pct,
+        "abs_momentum_pct": abs(momentum_pct),
+        # momentum_pct == 0 → "down" is unreachable; magnitude gate filters |mom| > 0
+        "direction": "up" if momentum_pct > 0 else "down",
+        "price_now": price_close,
+        "price_open": price_open,
+        "volume": volume,
+        "volume_ratio": volume / avg_volume if avg_volume > 0 else 1.0,
+    }
+
+
+def get_binance_1m_momentum(asset="BTC"):
+    """Momentum % from the last CLOSED 1-minute candle.
+
+    Primary source: Simmer's data plane (client.get_candles — closed candles
+    only, one code path live and under replay). Legacy direct Binance is a
+    LIVE-ONLY fallback for servers without the data plane; under replay it
+    never fires (returns None → no signal this tick).
 
     Using 1m lookback (window-open candle) is the backtested signal source.
     Do not increase lookback without re-running the backtest.
+
+    Returns dict with: momentum_pct, direction, price_now, price_open,
+    volume_ratio — or None on failure.
     """
     symbol = ASSET_SYMBOLS.get(asset, "BTCUSDT")
+
+    try:
+        from datetime import datetime, timedelta, timezone
+
+        end = datetime.now(timezone.utc)
+        start = end - timedelta(minutes=4)  # ≥3 closed candles for volume context
+        plane = get_client().get_candles(symbol, start.isoformat(), end.isoformat())
+        if plane:
+            return _momentum_from_closed_candles(plane)
+        if _is_replay():
+            return None  # empty tape window — honest no-signal, never fall back
+    except Exception:  # noqa: BLE001 — branch on environment below
+        if _is_replay():
+            return None
+
+    # ---- legacy LIVE-ONLY direct path (never reached under replay) ----
     # Try global endpoint first; fall back to US endpoint for geo-restricted deployments (HTTP 451)
     result = None
     for base in ("https://api.binance.com", "https://api.binance.us"):
