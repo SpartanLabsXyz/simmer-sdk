@@ -1523,6 +1523,99 @@ class SimmerClient:
 
         return [self._parse_market(m) for m in data.get("markets", [])]
 
+    def get_candles(
+        self,
+        symbol: str,
+        start: str,
+        end: str,
+        *,
+        interval: str = "1m",
+        allow_live_fallback: bool = True,
+    ) -> List[dict]:
+        """
+        Historical closed OHLCV candles from Simmer's data plane (SIM-3070).
+
+        One code path live AND under replay: the server serves archived
+        Binance klines (closed candles only — never an in-progress candle);
+        under replay the same endpoint is clamped to the frozen tick. Prefer
+        this over calling Binance directly in skill decision logic — direct
+        ``urlopen(api.binance.com)`` makes a skill non-replayable (the
+        fast-scaler look-ahead retraction came from exactly that class).
+
+        Args:
+            symbol: e.g. "BTCUSDT" (server-side allowlist)
+            start/end: ISO timestamps (UTC assumed when naive)
+            interval: "1m" (v1)
+            allow_live_fallback: when the SERVER says its archive coverage
+                ends before ``end`` (``complete: false``), fetch the uncovered
+                tail from live Binance — closed candles only. The replay
+                server always answers ``complete: true``, so the fallback can
+                never fire under replay (no look-ahead path). Set False for
+                strictly-archived data.
+
+        Returns:
+            List of candle dicts: open_time, close_time (ISO), open, high,
+            low, close, volume — ascending by open_time.
+        """
+        data = self._request(
+            "GET", "/api/replay-data/candles",
+            params={"symbol": symbol, "interval": interval, "start": start, "end": end},
+        )
+        candles = list(data.get("candles") or [])
+        if data.get("complete") or not allow_live_fallback:
+            return candles
+
+        tail = self._live_binance_tail(
+            data.get("symbol") or symbol.upper(), interval,
+            data.get("served_through") or start, end,
+        )
+        return candles + tail
+
+    @staticmethod
+    def _live_binance_tail(symbol: str, interval: str, start: str, end: str) -> List[dict]:
+        """Closed candles from live Binance for the archive-uncovered tail.
+
+        Mirrors the server's closed-candle rule client-side: a candle whose
+        close_time is in the future (in progress) is dropped — its final
+        OHLCV would be look-ahead relative to now. Errors degrade to an
+        empty tail (the archived head is still returned).
+        """
+        import json as _json
+        import urllib.parse as _up
+        import urllib.request as _ur
+        from datetime import datetime as _dt, timezone as _tz
+
+        def _ms(s):
+            d = _dt.fromisoformat(str(s).replace("Z", "+00:00"))
+            if d.tzinfo is None:
+                d = d.replace(tzinfo=_tz.utc)
+            return int(d.timestamp() * 1000)
+
+        try:
+            params = _up.urlencode({
+                "symbol": symbol, "interval": interval,
+                "startTime": _ms(start), "endTime": _ms(end), "limit": 1000,
+            })
+            req = _ur.Request(f"https://api.binance.com/api/v3/klines?{params}",
+                              headers={"User-Agent": "simmer-sdk"})
+            with _ur.urlopen(req, timeout=15) as resp:
+                rows = _json.loads(resp.read().decode())
+            now_ms = _dt.now(_tz.utc).timestamp() * 1000
+            out = []
+            for r in rows:
+                open_ms, close_ms = int(r[0]), int(r[6])
+                if close_ms > now_ms:
+                    continue  # in-progress candle — look-ahead, drop
+                out.append({
+                    "open_time": _dt.fromtimestamp(open_ms / 1000, tz=_tz.utc).isoformat(),
+                    "close_time": _dt.fromtimestamp(close_ms / 1000, tz=_tz.utc).isoformat(),
+                    "open": float(r[1]), "high": float(r[2]), "low": float(r[3]),
+                    "close": float(r[4]), "volume": float(r[5]),
+                })
+            return out
+        except Exception:
+            return []
+
     def get_fast_markets(
         self,
         asset: Optional[str] = None,
