@@ -64,6 +64,16 @@ dependencies = [
 # required.
 ows = ["open-wallet-standard>=1.3.0,<2.0.0"]
 
+# Hyperliquid HIP-4 outcome-market trading. Provides the official SDK's
+# validated EIP-712 wire-building + action-hash + float-formatting primitives
+# (reused verbatim — the same code path validated byte-for-byte in the P0
+# spike). Not a hard dep: only agents trading HIP-4 need it. eth-account
+# (already a core dep) covers the raw-key signing; this adds msgpack-based
+# action hashing.
+#
+# Install with: pip install 'simmer-sdk[hyperliquid]'
+hyperliquid = ["hyperliquid-python-sdk>=0.24.0,<1.0.0"]
+
 [project.urls]
 Homepage = "https://simmer.markets"
 Documentation = "https://github.com/SpartanLabsXyz/simmer-sdk"

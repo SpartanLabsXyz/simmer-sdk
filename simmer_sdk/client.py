@@ -224,7 +224,7 @@ class SimmerClient:
     """
 
     # Valid venue options ("simmer" is silent alias for "sim", "sandbox" is deprecated)
-    VENUES = ("sim", "simmer", "sandbox", "polymarket", "kalshi")
+    VENUES = ("sim", "simmer", "sandbox", "polymarket", "kalshi", "hyperliquid")
     # Valid order types for Polymarket CLOB
     ORDER_TYPES = ("GTC", "GTD", "FOK", "FAK")
     POLYMARKET_CLOB_API = "https://clob.polymarket.com"
@@ -371,6 +371,7 @@ class SimmerClient:
         self._position_holder_ts: float = 0
         self._clob_client = None  # Cached ClobClient for local CLOB operations
         self._market_data_cache: dict = {}  # market_id -> market data for signing
+        self._hyperliquid_venue = None  # lazy HyperliquidVenue adapter
         self._ows_wallet: Optional[str] = None  # OWS wallet name
         self._agent_wallet_registered: Optional[bool] = None  # lazy: cached check whether
         # the OWS wallet is registered in user_agent_wallets (per-agent-wallets feature).
@@ -653,6 +654,42 @@ class SimmerClient:
     def has_solana_wallet(self) -> bool:
         """Check if client is configured for external Solana wallet trading (Kalshi)."""
         return self._solana_key_available
+
+    @property
+    def hyperliquid(self):
+        """Hyperliquid HIP-4 venue adapter (place/cancel orders, positions, balances).
+
+        Built lazily from the client's signer config (OWS_WALLET or
+        WALLET_PRIVATE_KEY — HL is EVM-key-based, no new key needed). Orders
+        sign and submit locally to ``api.hyperliquid.xyz``; the Simmer server
+        is not in the execution path. Set ``SIMMER_HYPERLIQUID_TESTNET=1`` to
+        target testnet. Requires the ``[hyperliquid]`` extra.
+
+        Note: this is the direct venue adapter. Unified ``trade(venue=
+        "hyperliquid")`` routing (with server-side fill recording) lands in a
+        follow-up; use this adapter for HIP-4 trading today.
+        """
+        if self._hyperliquid_venue is None:
+            from simmer_sdk.hyperliquid_signing import (
+                OwsHyperliquidSigner,
+                RawKeyHyperliquidSigner,
+            )
+            from simmer_sdk.hyperliquid_venue import HyperliquidVenue
+
+            if self._ows_wallet:
+                signer = OwsHyperliquidSigner(self._ows_wallet)
+            elif self._private_key:
+                signer = RawKeyHyperliquidSigner(self._private_key)
+            else:
+                raise ValueError(
+                    "Hyperliquid trading requires a signer: set OWS_WALLET or "
+                    "WALLET_PRIVATE_KEY."
+                )
+            is_mainnet = os.environ.get(
+                "SIMMER_HYPERLIQUID_TESTNET", ""
+            ).lower() not in ("1", "true", "yes")
+            self._hyperliquid_venue = HyperliquidVenue(signer, is_mainnet=is_mainnet)
+        return self._hyperliquid_venue
 
     # ==========================================
     # SKILL VERSION DETECTION
@@ -1785,6 +1822,18 @@ class SimmerClient:
             raise ValueError(f"Invalid order_type '{order_type}'. Must be one of: {self.ORDER_TYPES}")
         if action not in ("buy", "sell"):
             raise ValueError(f"Invalid action '{action}'. Must be 'buy' or 'sell'")
+
+        # Hyperliquid HIP-4: trade directly via the venue adapter for now.
+        # Guard before any preflight/network so this never falls through to the
+        # generic /api/sdk/trade endpoint, which has no HL handling. Unified
+        # trade() routing (with server-side fill recording) is a follow-up.
+        if effective_venue == "hyperliquid":
+            raise NotImplementedError(
+                "Unified trade(venue='hyperliquid') routing is not wired yet "
+                "(server fill-recording endpoint pending). Trade HIP-4 markets "
+                "directly via client.hyperliquid.place_order(...) — it signs "
+                "and submits locally to api.hyperliquid.xyz."
+            )
 
         # Validate amount/shares based on action
         is_sell = action == "sell"
