@@ -1594,6 +1594,13 @@ class SimmerClient:
             List of candle dicts: open_time, close_time (ISO), open, high,
             low, close, volume — ascending by open_time.
         """
+        # Under replay, a wall-clock-windowed skill (e.g. "last N minutes ending
+        # datetime.now()") asks for a window ending in the REAL present — after
+        # the frozen tick — so the server clamps it to nothing and the skill reads
+        # "no signal". Rebase such a request to end at the frozen tick, preserving
+        # the requested duration. SIMMER_REPLAY_NOW is set ONLY by the replay
+        # harness; live trading never sets it, so this is a strict no-op in prod.
+        start, end = self._replay_rebase_window(start, end)
         data = self._request(
             "GET", "/api/replay-data/candles",
             params={"symbol": symbol, "interval": interval, "start": start, "end": end},
@@ -1607,6 +1614,34 @@ class SimmerClient:
             data.get("served_through") or start, end,
         )
         return candles + tail
+
+    @staticmethod
+    def _replay_rebase_window(start: str, end: str):
+        """Shift a wall-clock candle window to end at the frozen replay tick.
+
+        Returns ``(start, end)`` unchanged unless ``SIMMER_REPLAY_NOW`` is set
+        (only the replay harness sets it) AND the requested window ends AFTER the
+        tick. A window that already ends at/before the tick is a valid historical
+        request and is served as-is. Preserves the requested duration so "the
+        last N minutes" stays N minutes, just ending at the tick.
+        """
+        tick_iso = os.environ.get("SIMMER_REPLAY_NOW")
+        if not tick_iso:
+            return start, end
+
+        def _iso(value):
+            dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+            return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+        try:
+            tick = _iso(tick_iso)
+            s, e = _iso(start), _iso(end)
+        except (ValueError, TypeError):
+            return start, end
+        if e <= tick:
+            return start, end
+        offset = e - tick
+        return (s - offset).isoformat(), tick.isoformat()
 
     @staticmethod
     def _live_binance_tail(symbol: str, interval: str, start: str, end: str) -> List[dict]:
