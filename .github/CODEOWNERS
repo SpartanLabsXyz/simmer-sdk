@@ -1,0 +1,20 @@
+# Money-path code owners — SDK red fence (SIM-3220, mirrors the main simmer repo).
+#
+# Any PR touching SDK signing / redemption code requires a human (code-owner)
+# review before merge, regardless of author (agent or human). The SDK signs
+# REAL orders and transactions, so these are the highest-risk money paths in
+# the package — and until now they had no fence (weaker than the main repo,
+# which is backwards from the risk).
+#
+# Requires branch protection on `main`: "Require review from Code Owners".
+#
+# Known gap: client.py orchestrates trade execution + signing but is too broad
+# to require review wholesale (it changes on most SDK PRs). Fence it explicitly
+# if SDK velocity allows, or as signing concentrates out of it. The dedicated
+# signing modules below are the focused money-correctness surface.
+
+/simmer_sdk/signing.py              @adlai88
+/simmer_sdk/ows_utils.py            @adlai88
+/simmer_sdk/solana_signing.py       @adlai88
+/simmer_sdk/hyperliquid_signing.py  @adlai88
+/simmer_sdk/dw_redeem.py            @adlai88
