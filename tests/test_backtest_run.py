@@ -86,6 +86,10 @@ def test_resolve_sdk_path_explicit_wins():
 # -- validation errors (CI-safe; fail before the engine import is needed) -----
 
 def test_run_backtest_rejects_missing_bundle(tmp_path):
+    # run_backtest checks for the [backtest] extra before it reaches the
+    # bundle-dir validation, so skip cleanly when the extra isn't installed —
+    # mirrors test_run_backtest_rejects_missing_{entrypoint,tape} below.
+    pytest.importorskip("duckdb", reason="requires the [backtest] extra")
     with pytest.raises(BacktestError, match="bundle dir not found"):
         run_backtest(str(tmp_path / "nope"), entrypoint="x.py",
                      tape=str(tmp_path), t0="2026-03-01", t1="2026-03-02")
