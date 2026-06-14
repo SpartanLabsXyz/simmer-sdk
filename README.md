@@ -142,6 +142,39 @@ print(f"Balance: ${summary['balance']:.2f}, P&L: ${summary['total_pnl']:.2f}")
 
 **Graduation path:** `sim` (instant fills, no spread) → `polymarket` + `live=False` (real prices, spread modeled) → `polymarket` live (real USDC).
 
+## Backtesting
+
+The three modes above are all *live-forward*. To test a strategy on **historical** data before risking capital, backtest the skill bundle:
+
+```bash
+pip install 'simmer-sdk[backtest]'
+
+# Try it offline — bundled 10-market demo slice, no data download:
+simmer backtest --demo
+
+# Backtest your own skill over a local tape slice:
+simmer backtest ./my-skill --entrypoint run.py --tape ./slice \
+    --t0 2026-03-01 --t1 2026-03-08 --cadence 12h --out report.json
+```
+
+The engine replays your **unmodified** skill against a frozen, look-ahead-safe
+replay server (one subprocess per tick) and reports pnl, hit rate, max drawdown,
+trades, baselines (buy-and-hold-YES / random), realism gaps, and a reproducible
+`config_hash`. Programmatic equivalent:
+
+```python
+from simmer_sdk.backtest import run_backtest
+
+report = run_backtest("./my-skill", entrypoint="run.py", tape="./slice",
+                      t0="2026-03-01", t1="2026-03-08", cadence="12h")
+print(report["summary"]["pnl"], report["summary"]["hit_rate"])
+```
+
+> Backtests use trade-tape prices (no orderbook), so they model decision quality,
+> not execution realism — every report lists its `realism_gaps`. Self-serve
+> `--window` (auto-download a historical slice) is coming; for now pass a local
+> `--tape` directory or use `--demo`.
+
 ## Key Methods
 
 | Method | Description |
@@ -152,6 +185,7 @@ print(f"Balance: ${summary['balance']:.2f}, P&L: ${summary['total_pnl']:.2f}")
 | `get_held_markets()` | Map of market_id → source tags for held positions |
 | `check_conflict()` | Check if another skill holds a position on a market |
 | `get_open_orders()` | Open GTC/GTD orders on the CLOB |
+| `maker_rewards_status(market_id)` | Polymarket liquidity-rewards config: max spread, daily pool, eligibility |
 | `get_portfolio(venue="all")` | Portfolio summary with per-venue buckets (sim/polymarket/kalshi/total) |
 | `get_market_context(market_id, venue="all")` | Per-venue positions + trading safeguards |
 | `get_trades(venue="all")` | Trade history merged across venues, each row tagged with venue |

@@ -298,11 +298,47 @@ def fetch_btc_updown_markets():
 # Price signals
 # =============================================================================
 
+def _is_replay():
+    """True inside the Simmer replay harness (SIMMER_REPLAY=1). Decision data
+    must then come ONLY from the Simmer API — a direct-vendor fetch would be
+    future data relative to the frozen tick."""
+    return os.environ.get("SIMMER_REPLAY") == "1"
+
+
 def fetch_btc_momentum(lookback_minutes):
     """
-    Fetch BTC momentum from Binance BTCUSDT klines.
+    BTC momentum over the last `lookback_minutes` of CLOSED 1m candles.
+
+    Primary source: Simmer's data plane (client.get_candles — closed candles
+    only, one code path live and under replay; current_price becomes the last
+    CLOSED close, <=60s behind the old intra-candle read). Legacy direct
+    Binance is a LIVE-ONLY fallback for servers without the data plane; under
+    replay it never fires.
+
     Returns (momentum_pct, direction, current_price) or (None, None, None).
     """
+    # No API key → no client (get_client() sys.exits). Checked up-front so the
+    # sys.exit never fires inside the signal fetch.
+    if os.environ.get("SIMMER_API_KEY"):
+        try:
+            end = datetime.now(timezone.utc)
+            start = end - timedelta(minutes=max(lookback_minutes + 1, 5))
+            candles = get_client().get_candles("BTCUSDT", start.isoformat(), end.isoformat())
+            if candles and len(candles) >= 2:
+                open_price = float(candles[0]["open"])
+                close_price = float(candles[-1]["close"])
+                momentum_pct = (close_price - open_price) / open_price * 100
+                direction = "up" if momentum_pct > 0 else "down"
+                return abs(momentum_pct), direction, close_price
+            if _is_replay():
+                return None, None, None  # honest no-signal — never fall back under replay
+        except Exception:  # noqa: BLE001 — branch on environment below
+            if _is_replay():
+                return None, None, None
+    elif _is_replay():
+        return None, None, None  # can't reach the plane under replay → no-signal
+
+    # ---- legacy LIVE-ONLY direct path (never reached under replay) ----
     interval = "1m"
     limit = max(lookback_minutes + 1, 5)
     url = f"https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval={interval}&limit={limit}"
@@ -661,11 +697,14 @@ def run_exit_monitor(client, live=False, quiet=False):
             print(f"  🚪 EXIT triggered: {exit_reason} | {details}")
             if live:
                 try:
-                    result = client.sell(
+                    result = client.trade(
                         market_id=market_id,
-                        side=side,
-                        quantity=quantity,
+                        side=side.lower(),
+                        action="sell",
+                        shares=quantity,
+                        venue="polymarket",
                         source=TRADE_SOURCE,
+                        skill_slug=SKILL_SLUG,
                     )
                     log_trade(
                         market_id=market_id,
@@ -779,11 +818,14 @@ def run_entry_scan(client, live=False, quiet=False):
 
         if live:
             try:
-                result = client.buy(
+                result = client.trade(
                     market_id=market_id,
-                    side=side,
-                    amount_usd=trade_size,
+                    side=side.lower(),
+                    action="buy",
+                    amount=trade_size,
+                    venue="polymarket",
                     source=TRADE_SOURCE,
+                    skill_slug=SKILL_SLUG,
                 )
                 log_trade(
                     market_id=market_id,

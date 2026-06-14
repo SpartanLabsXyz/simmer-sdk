@@ -3,7 +3,7 @@ name: polymarket-weather-trader
 description: Trade Polymarket weather markets using NOAA (US) and Open-Meteo (international) forecasts via Simmer API. Inspired by gopfan2's weather trading approach. Use when user wants to trade temperature markets, automate weather bets, check forecasts, or run weather-based strategies.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.23.0"
+  version: "1.23.1"
   displayName: Polymarket Weather Trader
   difficulty: beginner
   attribution: Strategy inspired by gopfan2 (public Polymarket trader — approach referenced, not endorsed).
@@ -25,7 +25,7 @@ This skill executes real-money trades on Polymarket only when the `--live` flag 
 - **Real-money trading requires explicit human verification.** A wallet must be linked at [simmer.markets/dashboard](https://simmer.markets/dashboard) before any real trade lands. Without a linked wallet the SDK rejects real-money order construction.
 - **Per-trade cap.** `SIMMER_WEATHER_MAX_POSITION_USD` defaults to `$2.00` per trade. Configurable via env var, capped at the user's dashboard-set platform per-trade limit.
 - **Daily caps.** Platform-level daily caps apply (max trades/day, max USD/day). Set at [simmer.markets/dashboard](https://simmer.markets/dashboard) → SDK settings.
-- **Auto stop-loss is ON by default.** Server-side risk monitor watches every buy. Threshold is configurable per user at simmer.markets/dashboard → Settings → Auto Risk Monitor.
+- **Auto stop-loss is ON by default.** Server-side risk monitor watches every buy. Threshold is configurable per user at simmer.markets/dashboard → Settings → Auto Risk Monitor. **It cannot protect against gap-resolution, though:** weather temperature buckets jump straight to about 0 at resolution rather than decaying through your stop, so a percentage stop has no price to trigger on and no liquidity to exit into. Size for the full loss, not for the stop. See [DISCLAIMER.md](./DISCLAIMER.md).
 - **Strategy-side safeguards.** Beyond platform risk monitors, this skill checks flip-flop, slippage (`SIMMER_WEATHER_SLIPPAGE_MAX`, default 15%), time-decay, and resolved-market status before every order. Disable only with `--no-safeguards` (not recommended).
 - **Reversibility.** Open positions exit automatically when price > `SIMMER_WEATHER_EXIT_THRESHOLD` (default `0.45`), or via `client.cancel_order()` / a manual sell.
 

@@ -435,5 +435,87 @@ class TestEntryEdgeSemantics(unittest.TestCase):
         self.assertGreater(self._edge_down(0.60), threshold)  # YES at 0.60, down momentum
 
 
+class TestLiveTradeCalls(unittest.TestCase):
+    """Regression coverage for live execution using SimmerClient.trade()."""
+
+    def setUp(self):
+        strat.DAILY_BUDGET = 50.0
+        strat.MAX_POSITION_USD = 10.0
+        strat.MIN_MOMENTUM_PCT = 0.3
+        strat.MIN_HOURS_TO_RESOLUTION = 4.0
+        strat.ENTRY_THRESHOLD = 0.05
+
+    def test_exit_monitor_sells_with_client_trade(self):
+        class ClientWithoutSell:
+            def __init__(self):
+                self.trade = MagicMock(return_value={"success": True})
+
+            def get_positions(self):
+                return [
+                    {
+                        "marketId": "mkt_exit",
+                        "side": "YES",
+                        "quantity": 3.25,
+                        "source": strat.TRADE_SOURCE,
+                    }
+                ]
+
+        client = ClientWithoutSell()
+        market_data = {
+            "question": "Bitcoin up or down?",
+            "endDate": (datetime.now(timezone.utc) + timedelta(hours=2)).isoformat(),
+            "clobTokenIds": ["yes_token", "no_token"],
+        }
+
+        with patch.object(strat, "_api_request", return_value=market_data), \
+             patch.object(strat, "evaluate_exit_triggers", return_value=(True, "time_cap", {"hours": 2})), \
+             patch.object(strat, "log_trade"):
+            closed = strat.run_exit_monitor(client, live=True, quiet=True)
+
+        self.assertEqual(closed, 1)
+        client.trade.assert_called_once_with(
+            market_id="mkt_exit",
+            side="yes",
+            action="sell",
+            shares=3.25,
+            venue="polymarket",
+            source=strat.TRADE_SOURCE,
+            skill_slug=strat.SKILL_SLUG,
+        )
+
+    def test_entry_scan_buys_with_client_trade(self):
+        class ClientWithoutBuy:
+            def __init__(self):
+                self.trade = MagicMock(return_value={"success": True})
+
+        client = ClientWithoutBuy()
+        market = {
+            "conditionId": "mkt_entry",
+            "question": "Bitcoin up or down?",
+            "clobTokenIds": ["yes_token", "no_token"],
+            "_hours_to_resolution": 8.0,
+            "_end_dt": datetime.now(timezone.utc) + timedelta(hours=8),
+        }
+
+        with patch.object(strat, "_load_daily_spend", return_value={"spent": 0.0, "trades": 0}), \
+             patch.object(strat, "_save_daily_spend"), \
+             patch.object(strat, "fetch_btc_momentum", return_value=(0.8, "up", 100000.0)), \
+             patch.object(strat, "fetch_btc_updown_markets", return_value=[market]), \
+             patch.object(strat, "fetch_live_midpoint", return_value=0.40), \
+             patch.object(strat, "log_trade"):
+            entered = strat.run_entry_scan(client, live=True, quiet=True)
+
+        self.assertEqual(entered, 1)
+        client.trade.assert_called_once_with(
+            market_id="mkt_entry",
+            side="yes",
+            action="buy",
+            amount=10.0,
+            venue="polymarket",
+            source=strat.TRADE_SOURCE,
+            skill_slug=strat.SKILL_SLUG,
+        )
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

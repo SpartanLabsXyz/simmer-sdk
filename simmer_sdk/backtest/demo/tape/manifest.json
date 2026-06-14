@@ -1,0 +1,8 @@
+{
+  "source": "SII-WANGZJ/Polymarket_data (downsampled demo slice)",
+  "t0": "2026-04-28",
+  "t1": "2026-05-05",
+  "markets": 10,
+  "quant_rows": 181,
+  "extracted_with": "simmer_sdk/backtest/demo (bundled demo slice)"
+}

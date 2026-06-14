@@ -18,6 +18,7 @@ Requires:
 import os
 import sys
 import json
+import math
 import re
 import argparse
 from datetime import datetime, timezone, timedelta
@@ -479,7 +480,10 @@ def run_mert_strategy(dry_run=True, positions_only=False, show_config=False,
         print("  No markets available")
         return
 
-    # Filter by expiry window
+    # Filter by expiry window. Prefer the API's server-computed
+    # seconds_to_resolution over local wall-clock: immune to host clock skew,
+    # and deterministic under replay (where "now" is the server's frozen tick,
+    # not this process's datetime.now()).
     now = datetime.now(timezone.utc)
     expiring_markets = []
 
@@ -493,7 +497,14 @@ def run_mert_strategy(dry_run=True, positions_only=False, show_config=False,
         if not resolves_at:
             continue
 
-        minutes_remaining = (resolves_at - now).total_seconds() / 60
+        # Strict numeric check: bool is an int subclass (float(True) would read
+        # as ~1s to expiry), and strings/NaN/inf signal a schema bug — all of
+        # those fall back to the wall-clock path instead of being trusted.
+        secs = market.get("seconds_to_resolution")
+        if isinstance(secs, (int, float)) and not isinstance(secs, bool) and math.isfinite(secs):
+            minutes_remaining = secs / 60
+        else:
+            minutes_remaining = (resolves_at - now).total_seconds() / 60
 
         # Must be within window and not already past
         if 0 < minutes_remaining <= expiry_mins:

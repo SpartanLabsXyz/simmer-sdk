@@ -3,7 +3,7 @@ name: polymarket-mert-sniper
 description: Near-expiry conviction trading on Polymarket. The skill scans markets in their final minutes, filters for strongly-skewed splits (60/40+), and places bounded trades against the under-priced side. Defaults — $10 max per trade, 5 trades/run, 8-minute expiry window, dry-run unless `--live`.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.3.2"
+  version: "1.3.3"
   displayName: Mert Sniper
   difficulty: advanced
   attribution: Strategy inspired by @mert — https://x.com/mert/status/2020216613279060433

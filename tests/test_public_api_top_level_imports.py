@@ -26,6 +26,11 @@ def test_polymarket_order_params_importable_from_top_level():
     assert PolymarketOrderParams.__dataclass_fields__["token_id"] is not None
 
 
+def test_maker_rewards_status_importable_from_top_level():
+    from simmer_sdk import MakerRewardsStatus
+    assert MakerRewardsStatus.__dataclass_fields__["eligible"] is not None
+
+
 def test_top_level_and_client_paths_resolve_to_same_class():
     """Defensive: both import paths must return the same class object (no shim)."""
     from simmer_sdk import TradeResult as TopLevel

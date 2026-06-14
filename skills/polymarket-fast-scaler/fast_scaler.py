@@ -12,7 +12,10 @@ Strategy invariants (DO NOT change without re-running the backtest):
   - Fee formula:    fee = shares * 0.07 * p * (1-p). Crypto taker category.
   - Hold policy:    no exit. Every position held to expiry (binary win/lose).
 
-Backtest: +5.04% gross / 218 markets / 30d BTC fast-5m at |momentum| >= 0.10% gate.
+Backtest RETRACTED (2026-06-12): the original +5.04% / 89.4% backtest used the 1m
+candle that starts at window-open (a look-ahead candle that only closes 60s into
+the window). The signal available at the decision point shows no measured edge.
+Unvalidated reference template; see SKILL.md retraction note + DISCLAIMER.md.
 
 Usage:
     python fast_scaler.py              # Dry run (paper prices, no real trades)
@@ -52,9 +55,9 @@ except ImportError:
 # =============================================================================
 
 CONFIG_SCHEMA = {
-    # Strategy invariants — DO NOT lower magnitude_gate_pct without re-running the backtest.
-    # The 89.4% win rate is gated on |momentum| >= 0.10%. Lowering it reintroduces
-    # the noise zone that kills fast-loop (structurally -9.2% backtest at no gate).
+    # magnitude_gate_pct defaults to 0.10%. The original 89.4%/+5.04% backtest was
+    # retracted (look-ahead; see module docstring) — this is a design default, not a
+    # validated profit threshold. Lowering it admits more low-magnitude noise.
     "magnitude_gate_pct": {
         "default": 0.10,
         "env": "SIMMER_FASTSCALER_MAGNITUDE_GATE",
@@ -472,16 +475,75 @@ def find_best_fast_market(markets):
 # Signal — Binance 1m Momentum
 # =============================================================================
 
-def get_binance_1m_momentum(asset="BTC"):
-    """Fetch the most recent 1-minute Binance candle and return momentum %.
+def _is_replay():
+    """True inside the Simmer replay harness (SIMMER_REPLAY=1). Decision data
+    must then come ONLY from the Simmer API — a direct-vendor fetch would be
+    future data relative to the frozen tick (the exact class behind this
+    skill's 89.4% backtest retraction)."""
+    return os.environ.get("SIMMER_REPLAY") == "1"
 
-    Returns dict with: momentum_pct, direction, price_now, price_open, volume_ratio
-    or None on failure.
+
+def _momentum_from_closed_candles(candles):
+    """Momentum dict from the LAST CLOSED candle, volume context from the
+    rest. Same semantics as the legacy index -2 rule: a settled signal,
+    never the in-progress candle."""
+    if not candles or len(candles) < 1:
+        return None
+    candle = candles[-1]
+    price_open = float(candle["open"])
+    price_close = float(candle["close"])
+    volume = float(candle["volume"])
+    avg_volume = sum(float(c["volume"]) for c in candles) / len(candles)
+    momentum_pct = (price_close - price_open) / price_open * 100
+    return {
+        "momentum_pct": momentum_pct,
+        "abs_momentum_pct": abs(momentum_pct),
+        # momentum_pct == 0 → "down" is unreachable; magnitude gate filters |mom| > 0
+        "direction": "up" if momentum_pct > 0 else "down",
+        "price_now": price_close,
+        "price_open": price_open,
+        "volume": volume,
+        "volume_ratio": volume / avg_volume if avg_volume > 0 else 1.0,
+    }
+
+
+def get_binance_1m_momentum(asset="BTC"):
+    """Momentum % from the last CLOSED 1-minute candle.
+
+    Primary source: Simmer's data plane (client.get_candles — closed candles
+    only, one code path live and under replay). Legacy direct Binance is a
+    LIVE-ONLY fallback for servers without the data plane; under replay it
+    never fires (returns None → no signal this tick).
 
     Using 1m lookback (window-open candle) is the backtested signal source.
     Do not increase lookback without re-running the backtest.
+
+    Returns dict with: momentum_pct, direction, price_now, price_open,
+    volume_ratio — or None on failure.
     """
     symbol = ASSET_SYMBOLS.get(asset, "BTCUSDT")
+
+    # No API key → no client (get_client() sys.exits). Checked up-front so the
+    # sys.exit never fires inside the signal fetch; live falls back to legacy,
+    # replay yields no-signal.
+    if os.environ.get("SIMMER_API_KEY"):
+        try:
+            from datetime import datetime, timedelta, timezone
+
+            end = datetime.now(timezone.utc)
+            start = end - timedelta(minutes=4)  # ≥3 closed candles for volume context
+            plane = get_client().get_candles(symbol, start.isoformat(), end.isoformat())
+            if plane:
+                return _momentum_from_closed_candles(plane)
+            if _is_replay():
+                return None  # empty tape window — honest no-signal, never fall back
+        except Exception:  # noqa: BLE001 — branch on environment below
+            if _is_replay():
+                return None
+    elif _is_replay():
+        return None  # can't reach the plane under replay → no-signal, never legacy
+
+    # ---- legacy LIVE-ONLY direct path (never reached under replay) ----
     # Try global endpoint first; fall back to US endpoint for geo-restricted deployments (HTTP 451)
     result = None
     for base in ("https://api.binance.com", "https://api.binance.us"):
@@ -792,7 +854,7 @@ def run_fast_scaler(dry_run=True, positions_only=False, show_config=False, quiet
 
     log(f"\n🎯 Signal: {side.upper()} | Tier {tier} (|momentum|={momentum_pct:.4f}%)")
 
-    # Log informational fee estimate (not a gate — magnitude gate already ensures EV-positive regime)
+    # Log informational fee estimate (not a gate; the magnitude gate is a noise filter, not a validated EV guarantee)
     fee_per_share = POLY_FEE_RATE_CRYPTO * buy_price * (1 - buy_price)
     fee_pct_of_spend = POLY_FEE_RATE_CRYPTO * (1 - buy_price)
     log(f"  Fee: ${fee_per_share:.4f}/share ({fee_pct_of_spend:.2%} on spend at {buy_price:.3f})")

@@ -3,7 +3,43 @@
 All notable changes to `simmer-sdk` are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.18.0] - 2026-06-13
+
+### Added
+
+- **`simmer backtest` — local historical backtesting for trading skills (SIM-3070).** Backtest an UNMODIFIED skill bundle against historical prediction-market data before risking capital — the missing *historical* leg alongside the existing live-forward modes (sim-venue, dry-run, paper-trade). New optional extra `pip install 'simmer-sdk[backtest]'` (pulls duckdb/fastapi/uvicorn). New `simmer` console command:
+  ```
+  simmer backtest ./my-skill --entrypoint run.py --tape ./slice \
+      --t0 2026-03-01 --t1 2026-03-08 [--cadence 12h] [--out report.json]
+  simmer backtest --demo        # bundled offline demo, no tape needed
+  ```
+  Programmatic mirror: `simmer_sdk.backtest.run_backtest(...) -> report dict`. The engine runs locally and replays the real skill subprocess against a frozen, look-ahead-safe replay server, returning pnl, hit_rate, drawdown, trades, decisions, baselines (buy-and-hold-YES / random), realism gaps, and a reproducible `config_hash`. The engine substrate is vendored from the Simmer backend and runs the identical code path as the internal seed runner (same inputs → identical `config_hash` → identical results). `--window` (self-serve tape download) lands in a follow-up; for now pass `--tape <local-slice>` or `--demo`.
+- **Hyperliquid HIP-4 outcome-market signing + venue adapter (SIM-3151, P1 slice 1).** New optional extra `pip install 'simmer-sdk[hyperliquid]'`. Adds a `HyperliquidVenue` adapter behind a `VenueAdapter` Protocol (`client.hyperliquid`), with a dual signer (raw-key and OWS) producing byte-identical signatures, reusing the official SDK's validated EIP-712 wire-building / action-hash / float-formatting primitives. Signing is validated offline (26 tests, bit-identical raw≡OWS); end-to-end funded validation is pending — opt-in only, no change to default trading behavior.
+
+## [0.17.32] - 2026-06-12
+
+### Added
+
+- **Binance trio (`polymarket-fast-loop` / `polymarket-fast-scaler` / `polymarket-btc-up-down-trader`) read momentum signal from Simmer's data plane (`client.get_candles`) instead of hardcoding `urlopen(api.binance.com)` (SIM-3070 1.5C, #202).** Closed candles only; under replay the same endpoint is clamped to the frozen tick so the skills become backtestable rather than silently fetching live (future) data.
+
+## [0.17.31] - 2026-06-12
+
+### Added
+
+- **`get_markets()` gains `sort`, `venue`, and `tags` keyword-only parameters (SIM-3124 / SIM-3125).** `sort="volume"` ranks results by 24h trading volume — liquid, tradeable markets first, the recommended ordering for trading discovery; `sort="recent"` is explicit newest-first. `venue` filters by trading venue: `venue="sim"` returns all active, tradeable markets (every market is paper-tradeable on the synthetic venue), while `venue="polymarket"`/`venue="kalshi"` narrow to that real venue. `tags="world-cup"` (comma-separated, ALL-match) filters by market tags. All three are keyword-only — positional call sites from 0.17.30 and earlier are unaffected. Previously `get_markets()` accepted none of these: passing `venue=` raised `TypeError` from the SDK method, and integration layers that forward only known kwargs dropped it silently, returning an unfiltered list that *looked* venue-scoped. The server-side `venue` alias was also fixed: it previously mapped `venue=sim` literally to `import_source='sim'`, which matched almost nothing. **Heads-up — upcoming default change:** unfiltered `get_markets()` browse is recency-windowed (a server-capped slice of all active markets, newest-first). An upcoming release will flip the default ordering to liquidity-first (equivalent to `sort="volume"`) so agent traders see liquid, tradeable markets by default. **If your strategy depends on newest-first ordering, pin `sort="recent"` now.** To reach a specific older market regardless of the window, filter with `q=` or `tags=` (or `ids=` on the REST endpoint).
+- **`polymarket-fast-scaler` skill published to ClawHub at v1.0.0.** Magnitude-gated BTC 5-minute fast-market strategy. Fires only when |1m BTC momentum| ≥ 0.10% — the EV-positive regime validated by backtest. Position sizes across 3 conviction tiers ($3/$5/$10). Live-tested for 48h on a real Polymarket wallet; trades filled and budget cap honored. Available via `clawhub install polymarket-fast-scaler`.
+- **`polymarket-worldcup-copytrader` skill — World Cup Copytrader (Regular mode).** New skill that copies the auto-curated top World Cup traders on Polymarket. Unlike the base `polymarket-copytrading` skill (which requires a manual wallet list), this skill fetches the wallet list automatically from Simmer's daily curation endpoint: PolyNode top-traders → slippage-adjusted copy-PnL screen → top-10 copyable WC sharps. Portfolio-level, size-weighted aggregation across all leaders; conflict detection; drift/stale filters. Dry-run default; sim-first (`--venue sim`) before any real USDC. Category: `world-cup`. Sensitivity: `sensitive` (novel-risk automation — copytrading executes without per-trade approval).
+
+### Fixed
+
+- **`venue="sim"` market discovery no longer returns a near-empty list (SIM-3125).** The `/api/sdk/markets` `venue` alias mapped `sim` literally to `import_source='sim'`, but markets mirrored from external venues carry `import_source='polymarket'`/`'kalshi'`, so `venue="sim"` matched almost nothing. It now applies no source filter (all active markets are paper-tradeable on the sim venue). Surfaced while diagnosing a World Cup group-winner market discovery report.
+- **`polymarket-copytrading` skill — `--venue` flag now correctly reaches trade execution.** Previously the `--venue` argument was threaded to the server-side PLAN request but silently dropped before the actual `client.trade()` call, so a `--venue sim` override on a `TRADING_VENUE=polymarket` env would still execute real-USDC trades. The client singleton also initialized from config/env before `main()` resolved `args.venue`, leaving the singleton pinned to the wrong venue for the whole run. Fixed by: adding `_resolve_venue()` (mirrors worldcup-copytrader pattern), making `get_client(venue)` accept and re-pin the singleton on override, passing `venue=effective_venue` to `ensure_can_trade()` and `client.trade()`. The dead `execute_trade()` helper (unused, lacked `venue=`) is removed. Reactor mode: CLI-resolved venue now governs client construction (kills env-pinned constructor side effects), per-trade venue stays signal-sourced, and signals that omit `venue` resolve to `sim` and never auto-route to polymarket (fail-safe). Covered by an expanded `TestVenueRouting` suite (12 tests) that red/green-validated all failure modes.
+
+## [0.17.30] - 2026-06-11
+
+### Fixed
+
+- **Raw-key registered per-agent wallets no longer hang in the user-level auto-link path.** The `registered_agent_wallet` gate in `trade()` required an OWS wallet, so a dedicated per-agent wallet registered with a raw key (`WALLET_PRIVATE_KEY` / `private_key=`, the SIM-2897 browser/Phantom cohort) fell into `_ensure_wallet_linked()` — which saw the agent EOA didn't match the account's linked wallet and tried to auto-link over it, hanging indefinitely in the link flow (and, had it succeeded, orphaning the account's primary deposit wallet — CREATE2 binds the DW to its owner EOA). Registered raw-key wallets now take the same per-agent branch as OWS: skip user-level link, fetch DW routing flags from `/api/sdk/agents/me`, and inject `wallet_address` into trade payloads for per-agent attribution. "Dedicated" and "OWS" are orthogonal — the `user_agent_wallets` registration row is what routes, not the signing-key flavor. Surfaced by the johng `insider-bets-live` redemption investigation (the wrong-signer half of that incident was fixed server-side in simmer PR #1223).
 
 ## [0.17.29] - 2026-06-10
 

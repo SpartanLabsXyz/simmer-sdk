@@ -13,6 +13,7 @@ import requests
 from typing import Optional, List, Dict, Any
 from dataclasses import dataclass
 from urllib.parse import urlparse
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +95,22 @@ class Position:
     best_ask_size: Optional[float] = None  # Shares available at best_ask
     spread: Optional[float] = None  # best_ask - best_bid for the held side
     quote_ts: Optional[float] = None  # Epoch-second snapshot time (~30s freshness)
+
+
+@dataclass
+class MakerRewardsStatus:
+    """Polymarket liquidity-rewards configuration for one market."""
+    market_id: str
+    condition_id: str
+    eligible: bool
+    v: Optional[float] = None  # Max qualifying spread, from rewards_max_spread
+    b: Optional[float] = None  # In-game multiplier when exposed by CLOB
+    c: float = 3.0  # Polymarket docs: single-sided divisor is currently 3.0
+    daily_pool: float = 0.0
+    min_size: Optional[float] = None
+    market_competitiveness: Optional[float] = None
+    reward_configs: Optional[List[Dict[str, Any]]] = None
+    raw: Optional[Dict[str, Any]] = None
 
 
 @dataclass
@@ -207,9 +224,10 @@ class SimmerClient:
     """
 
     # Valid venue options ("simmer" is silent alias for "sim", "sandbox" is deprecated)
-    VENUES = ("sim", "simmer", "sandbox", "polymarket", "kalshi")
+    VENUES = ("sim", "simmer", "sandbox", "polymarket", "kalshi", "hyperliquid")
     # Valid order types for Polymarket CLOB
     ORDER_TYPES = ("GTC", "GTD", "FOK", "FAK")
+    POLYMARKET_CLOB_API = "https://clob.polymarket.com"
     # Private key format: 0x + 64 hex characters (EVM)
     PRIVATE_KEY_LENGTH = 66
     # Environment variable for EVM private key auto-detection (Polymarket)
@@ -222,7 +240,7 @@ class SimmerClient:
     def __init__(
         self,
         api_key: str,
-        base_url: str = "https://api.simmer.markets",
+        base_url: Optional[str] = None,
         venue: str = "sim",
         private_key: Optional[str] = None,
         ows_wallet: Optional[str] = None,
@@ -234,7 +252,11 @@ class SimmerClient:
 
         Args:
             api_key: Your SDK API key (sk_live_...)
-            base_url: API base URL (default: production)
+            base_url: API base URL. Resolution order: this argument, then the
+                SIMMER_API_URL environment variable, then production
+                (https://api.simmer.markets). The env override exists so
+                harnesses (e.g. Simmer's replay engine) can redirect an
+                unmodified skill to a local server without code changes.
             venue: Trading venue (default: "sim")
                 - "sim": Trade on Simmer's LMSR market with $SIM (virtual currency)
                 - "polymarket": Execute real trades on Polymarket CLOB with USDC
@@ -293,6 +315,10 @@ class SimmerClient:
             venue = "sim"
 
         self.api_key = api_key
+        # base_url resolution: explicit arg > SIMMER_API_URL env > production.
+        # Additive (SIM-3070): lets harnesses redirect unmodified skills.
+        if base_url is None:
+            base_url = os.getenv("SIMMER_API_URL") or "https://api.simmer.markets"
         self.base_url = base_url.rstrip("/")
         # Enforce HTTPS so the API key (Authorization: Bearer) and the EIP-712
         # batches we sign can't be read or tampered with on the wire. A plain
@@ -345,6 +371,7 @@ class SimmerClient:
         self._position_holder_ts: float = 0
         self._clob_client = None  # Cached ClobClient for local CLOB operations
         self._market_data_cache: dict = {}  # market_id -> market data for signing
+        self._hyperliquid_venue = None  # lazy HyperliquidVenue adapter
         self._ows_wallet: Optional[str] = None  # OWS wallet name
         self._agent_wallet_registered: Optional[bool] = None  # lazy: cached check whether
         # the OWS wallet is registered in user_agent_wallets (per-agent-wallets feature).
@@ -627,6 +654,42 @@ class SimmerClient:
     def has_solana_wallet(self) -> bool:
         """Check if client is configured for external Solana wallet trading (Kalshi)."""
         return self._solana_key_available
+
+    @property
+    def hyperliquid(self):
+        """Hyperliquid HIP-4 venue adapter (place/cancel orders, positions, balances).
+
+        Built lazily from the client's signer config (OWS_WALLET or
+        WALLET_PRIVATE_KEY — HL is EVM-key-based, no new key needed). Orders
+        sign and submit locally to ``api.hyperliquid.xyz``; the Simmer server
+        is not in the execution path. Set ``SIMMER_HYPERLIQUID_TESTNET=1`` to
+        target testnet. Requires the ``[hyperliquid]`` extra.
+
+        Note: this is the direct venue adapter. Unified ``trade(venue=
+        "hyperliquid")`` routing (with server-side fill recording) lands in a
+        follow-up; use this adapter for HIP-4 trading today.
+        """
+        if self._hyperliquid_venue is None:
+            from simmer_sdk.hyperliquid_signing import (
+                OwsHyperliquidSigner,
+                RawKeyHyperliquidSigner,
+            )
+            from simmer_sdk.hyperliquid_venue import HyperliquidVenue
+
+            if self._ows_wallet:
+                signer = OwsHyperliquidSigner(self._ows_wallet)
+            elif self._private_key:
+                signer = RawKeyHyperliquidSigner(self._private_key)
+            else:
+                raise ValueError(
+                    "Hyperliquid trading requires a signer: set OWS_WALLET or "
+                    "WALLET_PRIVATE_KEY."
+                )
+            is_mainnet = os.environ.get(
+                "SIMMER_HYPERLIQUID_TESTNET", ""
+            ).lower() not in ("1", "true", "yes")
+            self._hyperliquid_venue = HyperliquidVenue(signer, is_mainnet=is_mainnet)
+        return self._hyperliquid_venue
 
     # ==========================================
     # SKILL VERSION DETECTION
@@ -1200,8 +1263,8 @@ class SimmerClient:
     def _load_per_agent_dw_state(self) -> None:
         """Populate DW routing flags from /api/sdk/agents/me for per-agent wallets.
 
-        Registered per-agent OWS wallets skip _ensure_wallet_linked() (to avoid
-        the user-level re-link path), but _build_signed_order() needs
+        Registered per-agent wallets (OWS or raw-key) skip _ensure_wallet_linked()
+        (to avoid the user-level re-link path), but _build_signed_order() needs
         _uses_deposit_wallet and _deposit_wallet_address for sig-type selection.
         Fetches from the same endpoint preflight() uses. Cached for the session.
         """
@@ -1434,34 +1497,196 @@ class SimmerClient:
         limit: int = 50,
         include: Optional[str] = None,
         q: Optional[str] = None,
+        *,
+        venue: Optional[str] = None,
+        sort: Optional[str] = None,
+        tags: Optional[str] = None,
     ) -> List[Market]:
         """
         Get available markets.
 
         Args:
             status: Filter by status ('active', 'resolved')
-            import_source: Filter by source ('polymarket', 'kalshi', or None for all)
+            import_source: Filter by data source ('polymarket', 'kalshi', or None for all)
             limit: Maximum number of markets to return
             include: Opt-in extra fields, e.g. "resolution_criteria"
-            q: Keyword search on market question (min 2 chars, case-insensitive)
+            q: Keyword search on market question (min 2 chars, case-insensitive).
+                Applied server-side before the result window, so use ``q`` or ``tags``
+                to reach a specific older market rather than paging an unfiltered list.
+            venue: Filter by trading venue ('sim', 'polymarket', 'kalshi').
+                Keyword-only. 'sim' returns all active, tradeable markets — every
+                market is paper-tradeable on the synthetic venue — while
+                'polymarket'/'kalshi' narrow to markets backed by that real venue.
+                Prefer this over ``import_source`` for venue-scoped discovery; if
+                both are given ``import_source`` wins.
+            sort: Result ordering — "volume" (most-traded first; best for finding
+                liquid, tradeable markets) or "recent" (newest first). Keyword-only.
+                When omitted, results are newest-first today, but this default is
+                scheduled to become liquidity-first in an upcoming release — pass
+                sort="recent" to pin the current behavior, or sort="volume" to adopt
+                the new behavior now.
+            tags: Comma-separated tag filter (e.g. "world-cup" or "weather,crypto").
+                Keyword-only. Returns markets carrying ALL specified tags. Like ``q``,
+                applied before the result window.
+
+        Note:
+            Unfiltered browse (no ``q``/``tags``) is capped and windowed server-side,
+            so it returns a slice of all active markets, not the full catalog. For
+            trading discovery prefer sort="volume" or a keyword/tag filter.
 
         Returns:
             List of Market objects
 
         Example:
             markets = client.get_markets(q="bitcoin", limit=5)
+            liquid = client.get_markets(sort="volume", limit=20)
+            wc = client.get_markets(tags="world-cup", limit=50)
         """
         params = {"status": status, "limit": limit}
         if import_source:
             params["import_source"] = import_source
+        if venue:
+            params["venue"] = venue
         if include:
             params["include"] = include
         if q:
             params["q"] = q
+        if sort:
+            params["sort"] = sort
+        if tags:
+            params["tags"] = tags
 
         data = self._request("GET", "/api/sdk/markets", params=params)
 
         return [self._parse_market(m) for m in data.get("markets", [])]
+
+    def get_candles(
+        self,
+        symbol: str,
+        start: str,
+        end: str,
+        *,
+        interval: str = "1m",
+        allow_live_fallback: bool = True,
+    ) -> List[dict]:
+        """
+        Historical closed OHLCV candles from Simmer's data plane (SIM-3070).
+
+        One code path live AND under replay: the server serves archived
+        Binance klines (closed candles only — never an in-progress candle);
+        under replay the same endpoint is clamped to the frozen tick. Prefer
+        this over calling Binance directly in skill decision logic — direct
+        ``urlopen(api.binance.com)`` makes a skill non-replayable (the
+        fast-scaler look-ahead retraction came from exactly that class).
+
+        Args:
+            symbol: e.g. "BTCUSDT" (server-side allowlist)
+            start/end: ISO timestamps (UTC assumed when naive)
+            interval: "1m" (v1)
+            allow_live_fallback: when the SERVER says its archive coverage
+                ends before ``end`` (``complete: false``), fetch the uncovered
+                tail from live Binance — closed candles only. The replay
+                server always answers ``complete: true``, so the fallback can
+                never fire under replay (no look-ahead path). Set False for
+                strictly-archived data.
+
+        Returns:
+            List of candle dicts: open_time, close_time (ISO), open, high,
+            low, close, volume — ascending by open_time.
+        """
+        # Under replay, a wall-clock-windowed skill (e.g. "last N minutes ending
+        # datetime.now()") asks for a window ending in the REAL present — after
+        # the frozen tick — so the server clamps it to nothing and the skill reads
+        # "no signal". Rebase such a request to end at the frozen tick, preserving
+        # the requested duration. SIMMER_REPLAY_NOW is set ONLY by the replay
+        # harness; live trading never sets it, so this is a strict no-op in prod.
+        start, end = self._replay_rebase_window(start, end)
+        data = self._request(
+            "GET", "/api/replay-data/candles",
+            params={"symbol": symbol, "interval": interval, "start": start, "end": end},
+        )
+        candles = list(data.get("candles") or [])
+        if data.get("complete") or not allow_live_fallback:
+            return candles
+
+        tail = self._live_binance_tail(
+            data.get("symbol") or symbol.upper(), interval,
+            data.get("served_through") or start, end,
+        )
+        return candles + tail
+
+    @staticmethod
+    def _replay_rebase_window(start: str, end: str):
+        """Shift a wall-clock candle window to end at the frozen replay tick.
+
+        Returns ``(start, end)`` unchanged unless ``SIMMER_REPLAY_NOW`` is set
+        (only the replay harness sets it) AND the requested window ends AFTER the
+        tick. A window that already ends at/before the tick is a valid historical
+        request and is served as-is. Preserves the requested duration so "the
+        last N minutes" stays N minutes, just ending at the tick.
+        """
+        tick_iso = os.environ.get("SIMMER_REPLAY_NOW")
+        if not tick_iso:
+            return start, end
+
+        def _iso(value):
+            dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+            return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+        try:
+            tick = _iso(tick_iso)
+            s, e = _iso(start), _iso(end)
+        except (ValueError, TypeError):
+            return start, end
+        if e <= tick:
+            return start, end
+        offset = e - tick
+        return (s - offset).isoformat(), tick.isoformat()
+
+    @staticmethod
+    def _live_binance_tail(symbol: str, interval: str, start: str, end: str) -> List[dict]:
+        """Closed candles from live Binance for the archive-uncovered tail.
+
+        Mirrors the server's closed-candle rule client-side: a candle whose
+        close_time is in the future (in progress) is dropped — its final
+        OHLCV would be look-ahead relative to now. Errors degrade to an
+        empty tail (the archived head is still returned).
+        """
+        import json as _json
+        import urllib.parse as _up
+        import urllib.request as _ur
+        from datetime import datetime as _dt, timezone as _tz
+
+        def _ms(s):
+            d = _dt.fromisoformat(str(s).replace("Z", "+00:00"))
+            if d.tzinfo is None:
+                d = d.replace(tzinfo=_tz.utc)
+            return int(d.timestamp() * 1000)
+
+        try:
+            params = _up.urlencode({
+                "symbol": symbol, "interval": interval,
+                "startTime": _ms(start), "endTime": _ms(end), "limit": 1000,
+            })
+            req = _ur.Request(f"https://api.binance.com/api/v3/klines?{params}",
+                              headers={"User-Agent": "simmer-sdk"})
+            with _ur.urlopen(req, timeout=15) as resp:
+                rows = _json.loads(resp.read().decode())
+            now_ms = _dt.now(_tz.utc).timestamp() * 1000
+            out = []
+            for r in rows:
+                open_ms, close_ms = int(r[0]), int(r[6])
+                if close_ms > now_ms:
+                    continue  # in-progress candle — look-ahead, drop
+                out.append({
+                    "open_time": _dt.fromtimestamp(open_ms / 1000, tz=_tz.utc).isoformat(),
+                    "close_time": _dt.fromtimestamp(close_ms / 1000, tz=_tz.utc).isoformat(),
+                    "open": float(r[1]), "high": float(r[2]), "low": float(r[3]),
+                    "close": float(r[4]), "volume": float(r[5]),
+                })
+            return out
+        except Exception:
+            return []
 
     def get_fast_markets(
         self,
@@ -1633,6 +1858,18 @@ class SimmerClient:
         if action not in ("buy", "sell"):
             raise ValueError(f"Invalid action '{action}'. Must be 'buy' or 'sell'")
 
+        # Hyperliquid HIP-4: trade directly via the venue adapter for now.
+        # Guard before any preflight/network so this never falls through to the
+        # generic /api/sdk/trade endpoint, which has no HL handling. Unified
+        # trade() routing (with server-side fill recording) is a follow-up.
+        if effective_venue == "hyperliquid":
+            raise NotImplementedError(
+                "Unified trade(venue='hyperliquid') routing is not wired yet "
+                "(server fill-recording endpoint pending). Trade HIP-4 markets "
+                "directly via client.hyperliquid.place_order(...) — it signs "
+                "and submits locally to api.hyperliquid.xyz."
+            )
+
         # Validate amount/shares based on action
         is_sell = action == "sell"
         if is_sell and shares <= 0:
@@ -1733,17 +1970,25 @@ class SimmerClient:
             payload["price"] = price
 
         registered_agent_wallet = (
-            self._ows_wallet
+            (self._ows_wallet or self._private_key)
             and self._wallet_address
             and self._is_agent_wallet_registered()
         )
 
         # Include wallet_address only for users who explicitly opted into per-agent
-        # wallet attribution by registering this OWS wallet (Elite feature).
-        # Otherwise the server would reject with "Agent wallet not found" because
-        # the wallet has no row in user_agent_wallets — but the user-level
-        # linked_wallet_address path still works fine. Don't conflate "OWS configured"
-        # with "wants per-agent isolation."
+        # wallet attribution by registering this wallet (Elite feature) — OWS or
+        # raw-key, the registration row is what matters ("dedicated" and "OWS" are
+        # orthogonal, SIM-2897). Otherwise the server would reject with "Agent
+        # wallet not found" because the wallet has no row in user_agent_wallets —
+        # but the user-level linked_wallet_address path still works fine. Don't
+        # conflate "signing key configured" with "wants per-agent isolation."
+        #
+        # The raw-key arm was added 2026-06-11: a registered raw-key per-agent
+        # wallet previously failed this check and fell into the user-level
+        # _ensure_wallet_linked() below, which tried to auto-link the agent EOA
+        # over the account's primary wallet — hanging in the link flow and, had
+        # it succeeded, orphaning the primary deposit wallet (CREATE2 binds DW
+        # to owner EOA). Same OWS/raw-key asymmetry class as SIM-2899/2900.
         if registered_agent_wallet:
             payload["wallet_address"] = self._wallet_address
 
@@ -2638,6 +2883,125 @@ class SimmerClient:
                 })
         holders.sort(key=lambda x: x["amount"], reverse=True)
         return holders[:limit]
+
+    @staticmethod
+    def _looks_like_polymarket_condition_id(value: str) -> bool:
+        return isinstance(value, str) and value.startswith("0x") and len(value) == 66
+
+    def _resolve_polymarket_condition_id(self, market_id: str) -> str:
+        """Resolve a Simmer market id to a Polymarket condition id."""
+        if self._looks_like_polymarket_condition_id(market_id):
+            return market_id
+
+        market = self.get_market_by_id(market_id)
+        if market and market.polymarket_condition_id:
+            return market.polymarket_condition_id
+
+        ctx = self.get_market_context(market_id)
+        ctx_market = (ctx or {}).get("market") or {}
+        condition_id = (
+            ctx_market.get("polymarket_condition_id")
+            or ctx_market.get("polymarket_id")
+            or ctx_market.get("condition_id")
+        )
+        if condition_id:
+            return condition_id
+
+        raise ValueError(
+            "maker_rewards_status requires a Polymarket condition_id or a "
+            "Simmer market_id whose metadata includes polymarket_id"
+        )
+
+    @staticmethod
+    def _parse_reward_date(value: Optional[str]):
+        if not value:
+            return None
+        try:
+            return datetime.fromisoformat(value[:10]).date()
+        except ValueError:
+            return None
+
+    @classmethod
+    def _active_reward_configs(cls, configs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        today = datetime.now(timezone.utc).date()
+        active = []
+        for cfg in configs:
+            start = cls._parse_reward_date(cfg.get("start_date"))
+            end = cls._parse_reward_date(cfg.get("end_date"))
+            if start and today < start:
+                continue
+            if end and today > end:
+                continue
+            active.append(cfg)
+        return active
+
+    @staticmethod
+    def _first_present(data: Dict[str, Any], keys: List[str]):
+        for key in keys:
+            if key in data and data[key] is not None:
+                return data[key]
+        return None
+
+    def maker_rewards_status(
+        self,
+        market_id: str,
+        *,
+        sponsored: bool = False,
+        timeout: int = 10,
+    ) -> MakerRewardsStatus:
+        """
+        Fetch Polymarket maker-rewards configuration for a market.
+
+        This calls Polymarket's public CLOB rewards endpoint directly:
+        ``GET /rewards/markets/{condition_id}``. Pass either a Polymarket
+        condition id or a Simmer market id with Polymarket metadata.
+
+        The public market endpoint exposes ``v`` via ``rewards_max_spread`` and
+        the active daily reward pool via ``rewards_config.rate_per_day``. The
+        single-sided divisor ``c`` is documented by Polymarket as 3.0. As of
+        2026-06-10 the public endpoint does not consistently expose an explicit
+        ``b`` multiplier field; when no explicit multiplier is present, ``b`` is
+        returned as ``None`` and ``market_competitiveness`` is preserved.
+        """
+        condition_id = self._resolve_polymarket_condition_id(market_id)
+        params = {"sponsored": "true"} if sponsored else None
+        response = requests.get(
+            f"{self.POLYMARKET_CLOB_API}/rewards/markets/{condition_id}",
+            params=params,
+            headers={"Accept": "application/json"},
+            timeout=timeout,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        rows = payload.get("data") or []
+        if not rows:
+            return MakerRewardsStatus(
+                market_id=market_id,
+                condition_id=condition_id,
+                eligible=False,
+                raw=payload,
+            )
+
+        row = rows[0]
+        configs = row.get("rewards_config") or []
+        active_configs = self._active_reward_configs(configs)
+        daily_pool = sum(float(cfg.get("rate_per_day") or 0) for cfg in active_configs)
+        explicit_b = self._first_present(
+            row,
+            ["b", "rewards_multiplier", "market_reward_weight", "in_game_multiplier"],
+        )
+        return MakerRewardsStatus(
+            market_id=row.get("market_id") or market_id,
+            condition_id=row.get("condition_id") or condition_id,
+            eligible=bool(active_configs and daily_pool > 0),
+            v=row.get("rewards_max_spread"),
+            b=float(explicit_b) if explicit_b is not None else None,
+            daily_pool=daily_pool,
+            min_size=row.get("rewards_min_size"),
+            market_competitiveness=row.get("market_competitiveness"),
+            reward_configs=configs,
+            raw=payload,
+        )
 
     def get_trades(
         self,

@@ -1,14 +1,12 @@
 {
   "emoji": "⚡",
-  "status": "scaffold",
-  "published": false,
   "primaryEnv": "SIMMER_API_KEY",
   "requires": {
     "env": [
       "SIMMER_API_KEY"
     ],
     "pip": [
-      "simmer-sdk>=0.17.0"
+      "simmer-sdk>=0.17.32"
     ]
   },
   "envVars": [
@@ -52,7 +50,7 @@
       "default": 5.0,
       "range": [1, 15],
       "step": 1,
-      "label": "Tier 2 position size ($) — backtested at $5; raising past $15 invalidates the +5.04% backtest"
+      "label": "Tier 2 position size ($) — default $5; the original backtest was retracted, so raising this just increases exposure with no validated edge"
     },
     {
       "env": "SIMMER_FASTSCALER_POS_T3",
@@ -60,7 +58,7 @@
       "default": 10.0,
       "range": [1, 20],
       "step": 1,
-      "label": "Tier 3 position size ($) — backtested at $10; raising past $20 invalidates the +5.04% backtest"
+      "label": "Tier 3 position size ($) — default $10; the original backtest was retracted, so raising this just increases exposure with no validated edge"
     },
     {
       "env": "SIMMER_FASTSCALER_DAILY_BUDGET",
@@ -68,7 +66,7 @@
       "default": 30.0,
       "range": [10, 50],
       "step": 5,
-      "label": "Daily budget ($) — backtested at $30; raising past $50 admits parameter combos the backtest didn't cover"
+      "label": "Daily budget ($) — default $30; caps total daily exposure (the original backtest was retracted)"
     },
     {
       "env": "SIMMER_FASTSCALER_PER_MARKET_CAP",

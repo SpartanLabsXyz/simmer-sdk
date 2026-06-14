@@ -28,8 +28,16 @@ exceeding any specific position size.
 
 Stop-loss and take-profit monitors run on a fixed schedule. Markets that
 resolve faster than the monitor cycle cannot be exited automatically.
-Position sizing is the only risk control on these markets — set it
-conservatively.
+
+Some markets also resolve by gapping rather than decaying. Weather
+temperature buckets are the clearest case: the losing side can sit near
+your entry, then jump straight to about 0 at resolution, with no
+intermediate price for a percentage stop to trigger on and no liquidity
+to exit into. On these markets a stop-loss cannot cap your loss
+regardless of the monitor cycle.
+
+Position sizing is the only reliable risk control on these markets. Set
+it conservatively, assuming the full position can go to zero.
 
 ## Use of this skill is at your own risk
 

@@ -502,11 +502,111 @@ def find_best_fast_market(markets):
 # CEX Price Signal
 # =============================================================================
 
+def _is_replay():
+    """True inside the Simmer replay harness (SIMMER_REPLAY=1). Decision data
+    must then come ONLY from the Simmer API — any direct-vendor fetch would be
+    future data relative to the frozen tick."""
+    return os.environ.get("SIMMER_REPLAY") == "1"
+
+
+def fetch_candles_via_simmer(symbol, lookback_minutes, interval="1m"):
+    """CLOSED 1m candles for the last `lookback_minutes` via Simmer's data
+    plane (client.get_candles — one code path live and under replay; the
+    server never serves an in-progress candle). Returns a list of candle
+    dicts ascending, or raises SignalFetchError.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    # No API key → no client (get_client() sys.exits). Treat as "plane
+    # unreachable from here": live falls back to the legacy path, replay
+    # raises. Checked up-front so get_client()'s sys.exit never fires inside
+    # the signal fetch.
+    if not os.environ.get("SIMMER_API_KEY"):
+        if _is_replay():
+            raise SignalFetchError(
+                "Simmer candles plane unavailable under replay: SIMMER_API_KEY unset",
+                [{"endpoint": "simmer-data-plane", "error": "no_api_key"}],
+            )
+        return None
+
+    end = datetime.now(timezone.utc)
+    # +1 interval of slack: closed-candle semantics mean "now" excludes the
+    # in-progress candle, so the window must reach one interval further back
+    # to still contain `lookback` closed candles.
+    start = end - timedelta(minutes=lookback_minutes + 1)
+    try:
+        return get_client().get_candles(
+            symbol, start.isoformat(), end.isoformat(), interval=interval,
+        )
+    except Exception as exc:  # noqa: BLE001 — branch on environment below
+        if _is_replay():
+            raise SignalFetchError(
+                f"Simmer candles plane unavailable under replay: {exc}",
+                [{"endpoint": "simmer-data-plane", "error": str(exc)[:240]}],
+            ) from exc
+        return None  # live: caller may use the legacy direct path
+
+
 def get_binance_momentum(symbol="BTCUSDT", lookback_minutes=5):
-    """Get price momentum from Binance public API.
+    """Price momentum over the last `lookback_minutes` of CLOSED 1m candles.
+
+    Primary source: Simmer's data plane (replay-deterministic — the
+    fast-scaler 89.4% retraction came from exactly the in-progress-candle
+    class this avoids; live now matches what a backtest can verify, at the
+    cost of <=60s signal lag vs the old intra-candle price). Legacy direct
+    Binance path remains as a LIVE-ONLY fallback for older/self-hosted
+    servers without the data plane; under replay it never fires.
+
     Returns: {momentum_pct, direction, price_now, price_then, avg_volume, candles}
     """
     failures = []
+
+    plane = fetch_candles_via_simmer(symbol, lookback_minutes)
+    if plane is not None and len(plane) >= 2:
+        candles = plane
+        price_then = float(candles[0]["open"])
+        price_now = float(candles[-1]["close"])
+        momentum_pct = ((price_now - price_then) / price_then) * 100
+        volumes = [float(c["volume"]) for c in candles]
+        avg_volume = sum(volumes) / len(volumes)
+        latest_volume = volumes[-1]
+        return {
+            "momentum_pct": momentum_pct,
+            "direction": "up" if momentum_pct > 0 else "down",
+            "price_now": price_now,
+            "price_then": price_then,
+            "avg_volume": avg_volume,
+            "latest_volume": latest_volume,
+            "volume_ratio": latest_volume / avg_volume if avg_volume > 0 else 1.0,
+            "candles": len(candles),
+            "endpoint": "simmer-data-plane",
+            "fallback_attempts": [],
+        }
+    if plane is not None:
+        # Data plane answered but with <2 closed candles in the window.
+        if _is_replay():
+            raise SignalFetchError(
+                f"data plane returned {len(plane)} candles; need at least 2",
+                [{"endpoint": "simmer-data-plane", "error": "insufficient_candles",
+                  "candles": len(plane)}],
+            )
+        failures.append({"endpoint": "simmer-data-plane",
+                         "error": "insufficient_candles", "candles": len(plane)})
+
+    # Structural look-ahead backstop: the legacy direct-Binance path below is
+    # future data relative to the frozen tick. The branches above already
+    # raise under replay for every CURRENT data-plane outcome, but this guard
+    # makes the invariant independent of get_candles' return contract — a
+    # future SDK change that returned None (falsy, not raising) would
+    # otherwise slip past `plane is not None` and reach legacy. Never rely on
+    # an upstream return shape to enforce a money-correctness property.
+    if _is_replay():
+        raise SignalFetchError(
+            "no usable data-plane candles under replay (legacy fetch blocked)",
+            failures or [{"endpoint": "simmer-data-plane", "error": "no_candles"}],
+        )
+
+    # ---- legacy LIVE-ONLY direct path (never reached under replay) ----
     result = None
     endpoint = None
     for base_url in BINANCE_BASE_URLS:
@@ -599,8 +699,26 @@ def _norm_cdf(x):
 
 
 def get_binance_price_at(symbol, start_ms):
-    """Get BTC close price of the 1-minute candle starting at start_ms (unix ms).
-    Used to fetch the reference price at market open for the N(d) model."""
+    """Close price of the 1-minute candle starting at start_ms (unix ms).
+    Used to fetch the reference price at market open for the N(d) model.
+
+    Simmer data plane first (deterministic under replay); legacy direct
+    Binance is LIVE-ONLY — under replay a missing plane returns None and the
+    caller's no-reference path handles it (never future data)."""
+    from datetime import datetime, timedelta, timezone
+
+    start = datetime.fromtimestamp(start_ms / 1000, tz=timezone.utc)
+    if os.environ.get("SIMMER_API_KEY"):
+        try:
+            candles = get_client().get_candles(
+                symbol, start.isoformat(), (start + timedelta(minutes=2)).isoformat(),
+            )
+            if candles:
+                return float(candles[0]["close"])
+        except Exception:  # noqa: BLE001 — branch on environment below
+            pass
+    if _is_replay():
+        return None
     url = (
         f"https://api.binance.com/api/v3/klines"
         f"?symbol={symbol}&interval=1m&startTime={start_ms}&limit=1"
