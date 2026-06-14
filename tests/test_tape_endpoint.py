@@ -30,6 +30,7 @@ class _Resp:
 @pytest.fixture
 def cache(tmp_path, monkeypatch):
     monkeypatch.setenv("SIMMER_TAPE_CACHE", str(tmp_path))
+    monkeypatch.setenv("SIMMER_API_KEY", "sk_live_test")
     return tmp_path
 
 
@@ -59,9 +60,10 @@ def _patch_download(monkeypatch):
 def test_fetch_tape_success_and_request_shape(cache, monkeypatch):
     captured = {}
 
-    def fake_post(url, json=None, timeout=None):
+    def fake_post(url, json=None, headers=None, timeout=None):
         captured["url"] = url
         captured["json"] = json
+        captured["headers"] = headers
         return _Resp(200, _ok_body())
 
     monkeypatch.setattr(tp.requests, "post", fake_post)
@@ -72,8 +74,30 @@ def test_fetch_tape_success_and_request_shape(cache, monkeypatch):
     assert captured["url"] == "http://localhost:8000/api/backtest/tape"
     assert captured["json"] == {"t0": "2026-03-01", "t1": "2026-03-08",
                                 "max_markets": 50, "min_volume": 2000.0}
+    assert captured["headers"]["Authorization"] == "Bearer sk_live_test"
     assert os.path.exists(os.path.join(out, "markets.parquet"))
     assert os.path.exists(os.path.join(out, "quant.parquet"))
+
+
+def test_fetch_tape_requires_api_key(tmp_path, monkeypatch):
+    monkeypatch.setenv("SIMMER_TAPE_CACHE", str(tmp_path))
+    monkeypatch.delenv("SIMMER_API_KEY", raising=False)
+    with pytest.raises(tp.TapeFetchError, match="API key"):
+        tp.fetch_tape("2026-03-01", "2026-03-08", base_url="http://x")
+
+
+def test_fetch_tape_maps_401(cache, monkeypatch):
+    monkeypatch.setattr(tp.requests, "post",
+                        lambda *a, **k: _Resp(401, {"detail": "invalid api key"}))
+    with pytest.raises(tp.TapeFetchError, match="SIMMER_API_KEY|api key"):
+        tp.fetch_tape("2026-03-01", "2026-03-08", base_url="http://x")
+
+
+def test_fetch_tape_maps_429(cache, monkeypatch):
+    monkeypatch.setattr(tp.requests, "post",
+                        lambda *a, **k: _Resp(429, {"detail": "rate limit reached"}))
+    with pytest.raises(tp.TapeFetchError, match="rate limit"):
+        tp.fetch_tape("2026-03-01", "2026-03-08", base_url="http://x")
 
 
 def test_fetch_tape_cache_hit_skips_redownload(cache, monkeypatch):

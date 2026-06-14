@@ -143,6 +143,7 @@ def run_backtest(
     max_markets: int = 300,
     min_volume: float = 1000.0,
     base_url: Optional[str] = None,
+    api_key: Optional[str] = None,
     cadence: Union[str, int, float, timedelta] = "15m",
     balance: float = 1000.0,
     fee_rate: float = 0.0,
@@ -171,6 +172,8 @@ def run_backtest(
         min_volume: min market volume for a fetched slice. Ignored for a local tape.
         base_url: tape-service base URL (default: ``SIMMER_API_URL`` env or
             production). Ignored when ``tape`` is an explicit local dir.
+        api_key: Simmer API key for the tape fetch (default: ``SIMMER_API_KEY``
+            env — the same key you trade with). Ignored for a local ``tape``.
         cadence: tick spacing — ``15m`` / ``12h`` / ``30d``, minutes, or timedelta.
         balance: starting balance.
         fee_rate: per-fill fee rate (0 = none; baselines ignore fees in v0).
@@ -215,7 +218,8 @@ def run_backtest(
 
         try:
             tape = fetch_tape(
-                t0, t1, max_markets=max_markets, min_volume=min_volume, base_url=base_url
+                t0, t1, max_markets=max_markets, min_volume=min_volume,
+                base_url=base_url, api_key=api_key,
             )
         except TapeFetchError as exc:
             raise BacktestError(str(exc)) from exc
