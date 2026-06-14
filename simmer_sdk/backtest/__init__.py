@@ -137,9 +137,13 @@ def run_backtest(
     bundle: str,
     *,
     entrypoint: str,
-    tape: str,
+    tape: Optional[str] = None,
     t0: Union[str, datetime],
     t1: Union[str, datetime],
+    max_markets: int = 300,
+    min_volume: float = 1000.0,
+    base_url: Optional[str] = None,
+    api_key: Optional[str] = None,
     cadence: Union[str, int, float, timedelta] = "15m",
     balance: float = 1000.0,
     fee_rate: float = 0.0,
@@ -158,9 +162,18 @@ def run_backtest(
         entrypoint: script filename inside the bundle to run each tick
             (e.g. ``nothing_ever_happens.py``).
         tape: local dir holding ``markets.parquet`` + ``quant.parquet``
-            (+ optional ``manifest.json``) — as produced by
-            ``scripts/replay_run.py extract``. Remote/window download is slice 5.
+            (+ optional ``manifest.json``). When omitted, the slice for
+            ``[t0, t1]`` is fetched from the backend tape service and cached
+            under ``~/.simmer/tapes/`` (``POST /api/backtest/tape``); pass an
+            explicit dir to use your own local slice (BYO escape hatch).
         t0, t1: window bounds (ISO string or datetime; naive => UTC).
+        max_markets: cap on markets in a fetched slice (server clamps to 1000).
+            Ignored when ``tape`` is an explicit local dir.
+        min_volume: min market volume for a fetched slice. Ignored for a local tape.
+        base_url: tape-service base URL (default: ``SIMMER_API_URL`` env or
+            production). Ignored when ``tape`` is an explicit local dir.
+        api_key: Simmer API key for the tape fetch (default: ``SIMMER_API_KEY``
+            env — the same key you trade with). Ignored for a local ``tape``.
         cadence: tick spacing — ``15m`` / ``12h`` / ``30d``, minutes, or timedelta.
         balance: starting balance.
         fee_rate: per-fill fee rate (0 = none; baselines ignore fees in v0).
@@ -198,6 +211,18 @@ def run_backtest(
         raise BacktestError(f"bundle dir not found: {bundle}")
     if not os.path.exists(os.path.join(bundle, entrypoint)):
         raise BacktestError(f"entrypoint {entrypoint!r} not found in bundle {bundle}")
+
+    # No local tape => fetch (and cache) the slice for [t0, t1] from the backend.
+    if tape is None:
+        from .tape import TapeFetchError, fetch_tape
+
+        try:
+            tape = fetch_tape(
+                t0, t1, max_markets=max_markets, min_volume=min_volume,
+                base_url=base_url, api_key=api_key,
+            )
+        except TapeFetchError as exc:
+            raise BacktestError(str(exc)) from exc
 
     markets_pq = os.path.join(tape, "markets.parquet")
     quant_pq = os.path.join(tape, "quant.parquet")

@@ -20,11 +20,28 @@ def test_backtest_requires_inputs_or_demo(capsys):
     assert "required" in capsys.readouterr().err
 
 
-def test_window_flag_is_not_yet_supported(capsys):
-    rc = cli.main(["backtest", "./b", "--entrypoint", "r.py", "--tape", "./t",
-                   "--t0", "2026-03-01", "--t1", "2026-03-02", "--window", "30d"])
-    assert rc == 2
-    assert "slice 5" in capsys.readouterr().err
+def test_resolve_window_from_duration():
+    import argparse
+
+    # --window anchors to the dataset end when --t1 is absent and walks back.
+    a = argparse.Namespace(t0=None, t1=None, window="30d")
+    t0, t1 = cli._resolve_window(a)
+    assert t1 == "2026-05-05" and t0 == "2026-04-05"
+
+
+def test_resolve_window_explicit_takes_precedence():
+    import argparse
+
+    a = argparse.Namespace(t0="2026-03-01", t1="2026-03-08", window="30d")
+    assert cli._resolve_window(a) == ("2026-03-01", "2026-03-08")
+
+
+def test_resolve_window_requires_a_window():
+    import argparse
+
+    a = argparse.Namespace(t0=None, t1=None, window=None)
+    with pytest.raises(ValueError, match="window is required"):
+        cli._resolve_window(a)
 
 
 def test_version_exits_zero(capsys):

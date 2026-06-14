@@ -3,6 +3,17 @@
 All notable changes to `simmer-sdk` are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.0] - 2026-06-14
+
+### Added
+
+- **`simmer backtest` self-serve tape download — `--window` / `--t0`/`--t1` without a local tape (SIM-3070 slice 5).** Omit `--tape` and the window slice is fetched from Simmer's backend tape service (`POST /api/backtest/tape`), which slices the canonical Polymarket dataset server-side and returns a small per-window tape (tens of MB), cached under `~/.simmer/tapes/`. No more hunting for data or downloading the 21GB public dump:
+  ```
+  simmer backtest ./my-skill --entrypoint run.py --t0 2026-03-01 --t1 2026-03-08
+  simmer backtest ./my-skill --entrypoint run.py --window 30d   # by duration
+  ```
+  New flags `--max-markets` / `--min-volume` (clamp the slice; server caps at 1000 markets) and `--base-url` (defaults to `SIMMER_API_URL` env or production). `run_backtest(...)` now accepts `tape=None` (fetch) plus `max_markets` / `min_volume` / `base_url`. `--tape <local>` stays as a BYO escape hatch. Why server-side slicing: the public HF dump's CDN serves the 21GB file at ~0.44 MB/s, so client-side window slicing over httpfs is impractical; the backend stages the dataset into fast object storage once and slices intra-datacenter. Data coverage currently ends ~2026-05-05 (a freshness fetcher is the next follow-up).
+
 ## [0.18.0] - 2026-06-13
 
 ### Added

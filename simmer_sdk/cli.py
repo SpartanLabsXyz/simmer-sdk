@@ -3,9 +3,12 @@
 
 Currently one subcommand:
 
-    simmer backtest <bundle> --entrypoint run.py --tape ./slice \
+    # fetch + cache the window slice from the tape service (no local tape needed)
+    simmer backtest <bundle> --entrypoint run.py \
         --t0 2026-03-01 --t1 2026-03-08 [--cadence 12h] [--out report.json]
 
+    simmer backtest <bundle> --entrypoint run.py --window 30d   # window by duration
+    simmer backtest <bundle> --entrypoint run.py --tape ./slice --t0 ... --t1 ...  # BYO slice
     simmer backtest --demo        # bundled offline demo, no tape needed
 
 Backtest an UNMODIFIED skill bundle against historical prediction-market data
@@ -105,18 +108,41 @@ def _print_summary(report: dict, *, balance: float) -> None:
 
 # -- backtest subcommand ------------------------------------------------------
 
+_WINDOW_UNITS = {"s": 1, "m": 60, "h": 3600, "d": 86400}
+
+
+def _resolve_window(args: argparse.Namespace) -> tuple[str, str]:
+    """Return (t0, t1) ISO dates from explicit --t0/--t1 or a --window duration.
+
+    --window <Nd/Nh/...> anchors to --t1 (or the dataset end until the freshness
+    fetcher lands) and walks back. Explicit --t0/--t1 take precedence.
+    """
+    import re
+    from datetime import datetime, timedelta, timezone
+
+    from simmer_sdk.backtest.tape import DATASET_END
+
+    if args.t0 and args.t1:
+        return args.t0, args.t1
+    if args.window:
+        m = re.fullmatch(r"(\d+(?:\.\d+)?)\s*([smhd]?)", str(args.window).strip().lower())
+        if not m:
+            raise ValueError(f"--window {args.window!r} not understood — use e.g. 30d, 12h, 90d")
+        span = timedelta(seconds=float(m.group(1)) * _WINDOW_UNITS[m.group(2) or "d"])
+        t1 = datetime.fromisoformat(args.t1) if args.t1 else datetime.fromisoformat(DATASET_END)
+        t1 = t1.replace(tzinfo=timezone.utc)
+        t0 = t1 - span
+        return t0.date().isoformat(), t1.date().isoformat()
+    raise ValueError("a window is required — pass --t0 and --t1, or --window 30d "
+                     "(or --demo for the bundled offline demo)")
+
+
 def _cmd_backtest(args: argparse.Namespace) -> int:
     try:
         from simmer_sdk.backtest import BacktestError, run_backtest
     except ImportError as exc:
         print(f"error: could not import the backtest engine ({exc})\n"
               "install it with:  pip install 'simmer-sdk[backtest]'", file=sys.stderr)
-        return 2
-
-    if args.window:
-        print("error: --window (self-serve tape download) is not available yet "
-              "(SIM-3070 slice 5).\nFor now pass --tape <dir> with a local slice, "
-              "or --demo for the bundled offline demo.", file=sys.stderr)
         return 2
 
     if args.demo:
@@ -128,16 +154,21 @@ def _cmd_backtest(args: argparse.Namespace) -> int:
         # the demo skill reads no candles — keep the run hermetic + fast.
         candles = False
     else:
+        # tape is now OPTIONAL — omit it and the window slice is fetched from the
+        # backend tape service and cached. --window derives [t0,t1] for convenience.
+        try:
+            t0, t1 = _resolve_window(args)
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
         missing = [n for n, v in (("bundle", args.bundle),
-                                  ("--entrypoint", args.entrypoint),
-                                  ("--tape", args.tape),
-                                  ("--t0", args.t0), ("--t1", args.t1)) if not v]
+                                  ("--entrypoint", args.entrypoint)) if not v]
         if missing:
             print("error: " + ", ".join(missing) + " required "
                   "(or pass --demo for the bundled offline demo)", file=sys.stderr)
             return 2
         bundle, entrypoint, tape = args.bundle, args.entrypoint, args.tape
-        t0, t1, cadence = args.t0, args.t1, args.cadence
+        cadence = args.cadence
         candles = not args.no_candles
 
     try:
@@ -147,6 +178,9 @@ def _cmd_backtest(args: argparse.Namespace) -> int:
             tape=tape,
             t0=t0,
             t1=t1,
+            max_markets=args.max_markets,
+            min_volume=args.min_volume,
+            base_url=args.base_url,
             cadence=cadence,
             balance=args.balance,
             fee_rate=args.fee_rate,
@@ -193,9 +227,16 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     bt.add_argument("bundle", nargs="?", help="path to the skill bundle dir")
     bt.add_argument("--entrypoint", help="script filename inside the bundle to run each tick")
-    bt.add_argument("--tape", help="local tape slice dir (markets.parquet + quant.parquet)")
+    bt.add_argument("--tape", help="local tape slice dir (markets.parquet + quant.parquet); "
+                                   "omit to fetch + cache the window from the tape service")
     bt.add_argument("--t0", help="window start (ISO, e.g. 2026-03-01)")
     bt.add_argument("--t1", help="window end (ISO)")
+    bt.add_argument("--max-markets", type=int, default=300, dest="max_markets",
+                    help="cap on markets in a fetched slice (default 300; server clamps to 1000)")
+    bt.add_argument("--min-volume", type=float, default=1000.0, dest="min_volume",
+                    help="min market volume for a fetched slice (default 1000)")
+    bt.add_argument("--base-url", default=None, dest="base_url",
+                    help="tape-service base URL (default: SIMMER_API_URL env or production)")
     bt.add_argument("--cadence", default="15m", help="tick spacing: 15m / 12h / 30d / minutes (default 15m)")
     bt.add_argument("--balance", type=float, default=1000.0, help="starting balance (default 1000)")
     bt.add_argument("--fee-rate", type=float, default=0.0, dest="fee_rate", help="per-fill fee rate (default 0)")
@@ -216,7 +257,8 @@ def _build_parser() -> argparse.ArgumentParser:
     bt.add_argument("--out", default=None, help="write the full report JSON here")
     bt.add_argument("--demo", action="store_true", help="run the bundled offline demo (no tape needed)")
     bt.add_argument("--window", default=None,
-                    help="(coming in slice 5) self-serve tape download, e.g. 30d — use --tape for now")
+                    help="window duration to fetch, e.g. 30d / 12h — anchored to --t1 "
+                         "or the dataset end. Alternative to explicit --t0/--t1.")
     bt.set_defaults(fn=_cmd_backtest)
     return p
 
