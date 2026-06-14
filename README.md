@@ -152,9 +152,13 @@ pip install 'simmer-sdk[backtest]'
 # Try it offline — bundled 10-market demo slice, no data download:
 simmer backtest --demo
 
-# Backtest your own skill over a local tape slice:
-simmer backtest ./my-skill --entrypoint run.py --tape ./slice \
+# Backtest your own skill over a window — the tape is fetched + cached for you:
+simmer backtest ./my-skill --entrypoint run.py \
     --t0 2026-03-01 --t1 2026-03-08 --cadence 12h --out report.json
+
+# ...or by duration, and with your own local slice (BYO):
+simmer backtest ./my-skill --entrypoint run.py --window 30d
+simmer backtest ./my-skill --entrypoint run.py --tape ./slice --t0 2026-03-01 --t1 2026-03-08
 ```
 
 The engine replays your **unmodified** skill against a frozen, look-ahead-safe
@@ -165,15 +169,16 @@ trades, baselines (buy-and-hold-YES / random), realism gaps, and a reproducible
 ```python
 from simmer_sdk.backtest import run_backtest
 
-report = run_backtest("./my-skill", entrypoint="run.py", tape="./slice",
+# tape omitted => the window slice is fetched from the tape service and cached.
+report = run_backtest("./my-skill", entrypoint="run.py",
                       t0="2026-03-01", t1="2026-03-08", cadence="12h")
 print(report["summary"]["pnl"], report["summary"]["hit_rate"])
 ```
 
 > Backtests use trade-tape prices (no orderbook), so they model decision quality,
-> not execution realism — every report lists its `realism_gaps`. Self-serve
-> `--window` (auto-download a historical slice) is coming; for now pass a local
-> `--tape` directory or use `--demo`.
+> not execution realism — every report lists its `realism_gaps`. The window slice
+> is fetched from Simmer's tape service and cached under `~/.simmer/tapes/`; pass
+> `--tape <dir>` to use your own. Data coverage currently ends ~2026-05-05.
 
 ## Key Methods
 
