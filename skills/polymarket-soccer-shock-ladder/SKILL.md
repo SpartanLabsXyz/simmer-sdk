@@ -7,7 +7,7 @@ tags:
   - soccer
 metadata:
   author: Simmer (@simmer_markets)
-  version: "0.1.3"
+  version: "0.1.4"
   displayName: World Cup Shock Ladder
   difficulty: intermediate
   simmer:
@@ -123,6 +123,70 @@ one run fully handles one shock.
 openclaw cron add --name "shock-ladder" --cron "*/1 * * * *" --tz UTC --session isolated \
   --message "Run: cd /path/to/skill && python3 shock_ladder_trader.py --once --live"
 ```
+
+### Lower-latency alternative: bounded-continuous polling
+
+The `--once` cron above is the simplest, most restart-proof setup, but it adds
+0 to 60 seconds of entry latency: a shock that fires at second 5 of a minute
+waits until the next cron tick to get a ladder placed. For a shock-*fade*
+strategy (resting limit bids below the pre-shock price, betting on a recovery
+that plays out over minutes), faster entry improves fill quality — you rest your
+rungs closer to the bottom of the drop rather than after the book has already
+started recovering.
+
+The continuous mode (omit `--once`) polls every `--interval` seconds (2s by
+default), which cuts entry latency to roughly 2 seconds. On its own, though, a
+long-lived process loses the restart-resilience that makes the cron pattern
+nice: if it hangs or dies, nothing brings it back. The fix is to **bound each
+process to under a minute and let cron restart it every minute**, so a hung
+process is reaped and a fresh one takes over on the next tick. You keep ~2s
+entry latency *and* restart-resilience.
+
+```bash
+# crontab — start a fresh bounded-continuous run every minute
+*/1 * * * * cd /path/to/skill && ./run_bounded.sh
+```
+
+**macOS note (no GNU `timeout`).** macOS ships without the GNU `timeout`
+binary, so the usual `timeout 55s python3 ...` does not work out of the box. Use
+a POSIX wrapper instead: background the child, sleep for the bound, then kill it.
+This is the real-world validated pattern (an operator ran it cleanly in dry-run
+at 2s polling):
+
+```bash
+#!/usr/bin/env bash
+# run_bounded.sh — run the continuous loop, bounded to ~55s, cron restarts it.
+set -euo pipefail
+cd "$(dirname "$0")"
+
+# Dry-run by default (no --live). Add --live only once you've validated the ladder.
+python3 shock_ladder_trader.py --interval 2 &
+child=$!
+
+# Bound the run so a hung process is reaped before the next cron tick.
+sleep 55
+kill "$child" 2>/dev/null || true
+wait "$child" 2>/dev/null || true
+```
+
+(Linux/coreutils hosts can use the simpler `timeout 55s python3
+shock_ladder_trader.py --interval 2` and skip the wrapper.)
+
+**Why 2s polling is safe.** Reactor signals carry a server-side TTL of 120
+seconds in production. A 2s poll therefore has roughly a 60x margin against the
+TTL: a fresh process started on any cron tick will see any signal still within
+its TTL, so this pattern cannot miss a shock.
+
+**Latency vs reliability — the tradeoff:**
+
+| Pattern | Entry latency | Restart-proof | Setup |
+|---|---|---|---|
+| `--once` cron (recommended) | 0 to 60s | ✓ (cron re-runs) | simplest |
+| bounded-continuous (this section) | ~2s | ✓ (bound + cron reap) | one wrapper script |
+
+> **Note:** whether to promote bounded-continuous to the default recommendation
+> is pending live edge-validation. For now it is documented as a lower-latency
+> alternative; the `--once` cron above remains the recommended starting point.
 
 ## Configuration
 
