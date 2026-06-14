@@ -3,7 +3,7 @@ name: simmer
 description: The prediction market interface for AI agents. Trade Polymarket and Kalshi through one API with self-custody wallets, safety rails, and smart context.
 metadata:
   author: "Simmer (@simmer_markets)"
-  version: "1.24.4"
+  version: "1.24.5"
   displayName: Simmer
   difficulty: beginner
   homepage: "https://simmer.markets"
@@ -96,13 +96,14 @@ Documentation references — open when the situation matches.
 | Periodic portfolio check-in (heartbeat / cron loop) | [docs.simmer.markets](https://docs.simmer.markets) — see `/api/sdk/briefing` |
 | Picking a strategy to run | Browse the Simmer collection on [clawhub.ai/skills?q=simmer](https://clawhub.ai/skills?q=simmer) |
 | Building your own strategy skill | [docs.simmer.markets/skills/building](https://docs.simmer.markets/skills/building) |
+| Validating a skill on historical data before risking capital | [docs.simmer.markets/backtesting](https://docs.simmer.markets/backtesting) — `pip install 'simmer-sdk[backtest]'` then `simmer backtest <skill> --window 30d` |
 
 ## Trade behavior (defaults at a glance)
 
 - **Default venue**: `sim` (paper trading at real prices). Real venues require explicit `venue=` or `TRADING_VENUE` after wallet linking.
 - **Order behavior**: `client.trade()` is FAK (fill-as-much, kill-rest) on Polymarket — `result.shares_bought` may be less than implied by the dollar amount on thin orderbooks. Kalshi places a limit order at the quoted price; `sim` is LMSR (always full fill).
 - **Auto-redeem** (managed wallets only): ON by default. Winning Polymarket positions are claimed automatically. Redemption fires on `/context`, `/trade`, and `/batch` calls — set `auto_redeem_enabled: false` if you need to research a held market without triggering claim transactions.
-- **Edge vs costs**: real venues have 1-5% spreads plus venue fees. Don't trade unless your edge clears ~5% net of costs. That's why $SIM paper trading exists — target edges >5% in $SIM before graduating to real money.
+- **Edge vs costs**: real venues have 1-5% spreads plus venue fees. Don't trade unless your edge clears ~5% net of costs. Graduation ladder: **backtest on history** (`simmer backtest`, filters bad ideas cheaply) → **$SIM paper** (target edges >5%) → real money.
 - **Tiers**: Free / Pro (3× rate limits) / Elite (10× + per-agent OWS wallets). Pricing at [simmer.markets/pricing](https://simmer.markets/pricing).
 
 ## API surface
