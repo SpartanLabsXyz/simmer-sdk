@@ -565,6 +565,14 @@ def run(dry_run: bool = True, venue: str = None) -> None:
                 t["success"] = False
                 t["error"] = "no_price_bound"
                 continue
+        # Quantize to the SDK's precision contract before submitting. The
+        # server plan returns full-precision floats (e.g. estimated_cost
+        # 16.489550245148255); the SDK rejects buys whose USDC amount has >2
+        # decimals and sells whose share count has >5 (client.trade decimal
+        # guard). Round at the trade boundary, not on `cost`/`shares` upstream,
+        # so the per-position cap check above keeps full-precision estimates.
+        amount_q = round(cost, 2) if action == "buy" else 0
+        shares_q = round(shares, 5) if action == "sell" else 0
         source_wallet = t.get("whale_wallet") or t.get("source_wallet") or ""
         signal_data = {
             "signal_source": "wc_copytrader",
@@ -578,8 +586,8 @@ def run(dry_run: bool = True, venue: str = None) -> None:
                 market_id=market_id,
                 side=side,
                 action=action,
-                amount=cost if action == "buy" else 0,
-                shares=shares if action == "sell" else 0,
+                amount=amount_q,
+                shares=shares_q,
                 venue=effective_venue,
                 # FAK (fill-and-kill): fill what's available now, cancel the
                 # rest. A once-daily fire-and-forget run must never leave

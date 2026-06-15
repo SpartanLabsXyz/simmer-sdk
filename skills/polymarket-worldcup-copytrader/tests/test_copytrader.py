@@ -1115,5 +1115,48 @@ class TestSensitivityManifest(unittest.TestCase):
             self.assertNotIn(phrase, content, f"SKILL.md must not contain: {phrase}")
 
 
+class TestDecimalPrecisionQuantize(unittest.TestCase):
+    """Stake amounts/share counts from the server plan are full-precision
+    floats; the SDK rejects buys with >2 USDC decimals and sells with >5
+    share decimals (client.trade decimal guard). The skill must quantize at
+    the trade boundary so live runs don't drop trades (SIM-3265)."""
+
+    def _hiprec_plan(self):
+        return {"trades": [
+            {"market_id": "mkt-wc-1", "action": "buy", "side": "yes",
+             "shares": 27.0, "estimated_price": 0.6,
+             "estimated_cost": 16.489550245148255,  # >2 decimals
+             "market_title": "WC buy hiprec"},
+            {"market_id": "mkt-wc-2", "action": "sell", "side": "yes",
+             "shares": 4.123456789,  # >5 decimals
+             "estimated_price": 0.7, "estimated_cost": 2.886419752,
+             "market_title": "WC sell hiprec"},
+        ]}
+
+    def test_buy_amount_rounded_to_2dp(self):
+        plan = self._hiprec_plan()
+        mod, mock_client = _make_skill_module(
+            leaders_response=_leaders_response(), plan_response=plan)
+        mod.run(dry_run=False, venue="sim")
+        buys = [c[1] for c in mock_client.trade.call_args_list
+                if c[1].get("action") == "buy"]
+        self.assertEqual(len(buys), 1)
+        self.assertEqual(buys[0]["amount"], 16.49)
+        # never ship a value the SDK would reject
+        self.assertEqual(round(buys[0]["amount"], 2), buys[0]["amount"])
+
+    def test_sell_shares_rounded_to_5dp(self):
+        plan = self._hiprec_plan()
+        mod, mock_client = _make_skill_module(
+            leaders_response=_leaders_response(), plan_response=plan)
+        mod._config["buy_only"] = "false"
+        mod.run(dry_run=False, venue="sim")
+        sells = [c[1] for c in mock_client.trade.call_args_list
+                 if c[1].get("action") == "sell"]
+        self.assertEqual(len(sells), 1)
+        self.assertEqual(sells[0]["shares"], 4.12346)
+        self.assertEqual(round(sells[0]["shares"], 5), sells[0]["shares"])
+
+
 if __name__ == "__main__":
     unittest.main()
