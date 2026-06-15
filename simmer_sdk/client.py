@@ -10,7 +10,7 @@ import sys
 import time
 import logging
 import requests
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Callable
 from dataclasses import dataclass
 from urllib.parse import urlparse
 from datetime import datetime, timezone
@@ -1179,6 +1179,94 @@ class SimmerClient:
         client.set_api_creds(creds)
         self._clob_client = client
         return client
+
+    def place_combo(
+        self,
+        leg_position_ids: List[str],
+        size_usdc: float,
+        side: str = "YES",
+        direction: str = "BUY",
+        dry_run: bool = True,
+        builder_code: Optional[str] = None,
+        max_retries: int = 2,
+        on_status: Optional[Callable[[str], None]] = None,
+    ) -> Dict[str, Any]:
+        """Place a Polymarket combo (parlay) via the requester RFQ gateway.
+
+        A combo bundles >=2 binary legs into ONE YES/NO position: every leg
+        must hit to win, and any single leg losing is a TOTAL LOSS of the
+        stake. The price is combined odds quoted by competing makers over a
+        ~5s RFQ window (the gateway returns the best quote; we sign + accept).
+
+        Identity is resolved from this client's wallet:
+          - deposit-wallet cohort -> signature_type 3 (POLY_1271), maker=signer=DW
+          - EOA cohort            -> signature_type 0, maker=signer=EOA
+
+        MONEY PATH. ``dry_run=True`` (default) opens no socket and signs
+        nothing — it returns the resolved request for inspection. Pass
+        ``dry_run=False`` to actually place; that also requires the client to
+        be in live mode (``SimmerClient(live=True)``).
+
+        OWS-signed wallets are not yet supported for combos — raw-key /
+        external-EOA (incl. deposit-wallet owner key) only for now.
+
+        Args:
+            leg_position_ids: chosen-side CTF token id per leg (>= 2), from
+                ``simmer_sdk.combo.fetch_combo_legs()``.
+            size_usdc: stake in USD (>= $1).
+            side: combo position side ("YES" or "NO"; currently YES-only upstream).
+            direction: "BUY" or "SELL".
+            dry_run: default True (no money). False = real placement.
+
+        Returns the dry-run plan, or ``{status, tx_hash, rfq_id}`` on a fill.
+        """
+        from simmer_sdk import combo as _combo
+
+        if len(leg_position_ids) < 2:
+            raise ValueError("a combo needs at least 2 legs")
+        if self._ows_wallet and not self._private_key:
+            raise NotImplementedError(
+                "OWS-signed combo placement is not yet implemented. Combos "
+                "currently require a raw EOA private key (the deposit-wallet "
+                "owner key). Use a raw WALLET_PRIVATE_KEY for the combo cohort."
+            )
+        if not self._private_key or not self._wallet_address:
+            raise ValueError("place_combo requires a configured EVM wallet (private key).")
+
+        uses_dw = bool(self._uses_deposit_wallet and self._deposit_wallet_address)
+        signature_type = 3 if uses_dw else 0
+        dw = self._deposit_wallet_address if uses_dw else None
+
+        if not dry_run and not self.live:
+            raise RuntimeError(
+                "place_combo(dry_run=False) requires the client in live mode. "
+                "Refusing to place a real combo from a non-live client."
+            )
+
+        # Derive CLOB L2 creds for the resolved identity only for a real
+        # placement (network call). dry_run stays fully offline.
+        creds: Dict[str, str] = {}
+        if not dry_run:
+            from py_clob_client.client import ClobClient
+            cc = ClobClient(
+                host="https://clob.polymarket.com", key=self._private_key, chain_id=137,
+                signature_type=signature_type,
+                funder=(dw if uses_dw else self._wallet_address),
+            )
+            api = cc.create_or_derive_api_creds()
+            creds = {
+                "apiKey": api.api_key,
+                "secret": api.api_secret,
+                "passphrase": api.api_passphrase,
+            }
+
+        return _combo.place_combo(
+            creds=creds, private_key=self._private_key, eoa_address=self._wallet_address,
+            leg_position_ids=leg_position_ids, size_usdc=size_usdc,
+            deposit_wallet_address=dw, signature_type=signature_type,
+            direction=direction, side=side, builder_code=builder_code,
+            max_retries=max_retries, on_status=on_status, dry_run=dry_run,
+        )
 
     def _cancel_orders_for_token(self, token_id: str):
         """Cancel all open orders for a token using local py_clob_client."""
