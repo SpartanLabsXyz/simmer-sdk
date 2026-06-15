@@ -2567,14 +2567,24 @@ class SimmerClient:
         """
         Search markets by question text.
 
+        Uses the server-side keyword filter (``q``), which is applied BEFORE the
+        result window, so matches are found across the full active catalogue --
+        not just the most-recent browse slice. This matters for older-but-active
+        markets (e.g. World Cup markets outside the newest-N window): a plain
+        windowed browse would silently miss them. Queries shorter than 2 chars
+        fall back to a windowed client-side scan (the server filter needs >= 2).
+
         Args:
             query: Search string
 
         Returns:
             List of matching markets
         """
-        markets = self.get_markets(limit=100)
         query_lower = query.lower()
+        if len(query.strip()) >= 2:
+            markets = self.get_markets(q=query, limit=100)
+        else:
+            markets = self.get_markets(limit=100)
         return [m for m in markets if query_lower in m.question.lower()]
 
     def get_open_orders(self) -> Dict[str, Any]:

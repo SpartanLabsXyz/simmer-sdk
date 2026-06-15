@@ -734,6 +734,11 @@ if (simmer) {
     description: [
       "List or search markets available for trading.",
       "Use 'q' for text search. Results include price, volume, and venue.",
+      "Unfiltered browse is windowed to the most-recent slice of the catalogue,",
+      "so to reach the full set for a category (e.g. World Cup) pass a filter:",
+      "tags (e.g. tags='world-cup'), a 'q' query, or sort='volume'. Filters are",
+      "applied server-side BEFORE the window, so they reach older-but-active",
+      "markets a plain browse would miss.",
       "Default limit is 50; max is 500.",
     ],
     schema: {

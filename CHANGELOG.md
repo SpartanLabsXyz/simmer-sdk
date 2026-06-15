@@ -3,6 +3,12 @@
 All notable changes to `simmer-sdk` are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.1] - 2026-06-15
+
+### Fixed
+
+- **`find_markets()` now reaches the full active catalogue, not just the most-recent browse slice (SIM-3241).** `find_markets(query)` previously fetched an *unfiltered* `get_markets(limit=100)` window and filtered client-side, so any market outside the newest-N server window was invisible to it — most visibly a large portion of live World Cup markets that an agent could see on the dashboard but not via `find_markets()`. It now pushes `query` to the server-side `q` filter, which is applied **before** the window, so older-but-active markets are found. Queries shorter than 2 chars fall back to the previous windowed scan (the server `q` filter requires >= 2 chars). Trading was never affected — this is a discovery-only fix, and `get_markets(tags=..., q=..., sort="volume")` already reached these markets. Companion MCP `simmer_get_markets` (simmer-mcp 3.4.3) gains a tool-description note that unfiltered browse is windowed and to pass `tags`/`q`/`sort` to reach a full category. The default unfiltered browse ordering is tracked separately (SIM-3126) and intentionally unchanged here.
+
 ## [0.19.0] - 2026-06-14
 
 ### Added
