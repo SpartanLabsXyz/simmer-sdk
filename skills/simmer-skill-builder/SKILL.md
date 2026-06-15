@@ -3,7 +3,7 @@ name: simmer-skill-builder
 description: Generate complete, installable OpenClaw trading skills from natural language strategy descriptions. Use when your human wants to create a new trading strategy, build a bot, generate a skill, automate a trade idea, turn a tweet into a strategy, or asks "build me a skill that...". Produces a full skill folder (SKILL.md + Python script + config) ready to install and run.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.3.7"
+  version: "1.3.8"
   displayName: Simmer Skill Builder
   difficulty: beginner
 ---
@@ -266,8 +266,13 @@ Customize:
 - `TRADE_SOURCE` — unique tag like `"sdk:<skillname>"`
 - `SKILL_SLUG` — must match the ClawHub slug exactly (e.g., `"polymarket-weather-trader"`)
 - Signal logic — your human's strategy
-- Market fetching/filtering — how to find relevant markets
+- Market fetching/filtering — how to find relevant markets (see **Market discovery** below)
 - Main strategy function — the core loop
+
+**Market discovery — the #1 cause of "0 markets" skills.** Unfiltered `get_markets()` returns a **windowed slice** (~1,000 of ~21k active markets), not the full catalog — so filtering an unfiltered call client-side reads as "0 markets found" when the markets are actually live and tradeable. Rules:
+- To reach a **specific** market, filter **server-side**: `get_markets(tags="world-cup", limit=50)` or `get_markets(q="netherlands japan", limit=20)`. `tags=`/`q=` apply *before* the window; filtering an unfiltered list in Python does not.
+- For "what's liquid to trade right now," use `sort="volume"`.
+- **Never hardcode market IDs** in the skill or its config. Markets import on a rolling basis, and the same matchup can re-import under a new ID — so a pinned ID 404s later. Resolve IDs at runtime from `get_markets(...)` and read each market's `id`.
 
 ### Step 5: Validate
 
