@@ -58,6 +58,7 @@ jobs:
 
       - name: Set npm deprecation notice on simmer-autoresearch
         if: ${{ !inputs.dry_run }}
-        run: npm deprecate simmer-autoresearch "This package has been renamed to simmer-mcp. Run: npm install -g simmer-mcp"
+        run: >-
+          npm deprecate simmer-autoresearch "This package has been renamed to simmer-mcp. Run: npm install -g simmer-mcp"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
