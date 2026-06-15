@@ -40,8 +40,9 @@ def get_client():
 def run(live: bool = False):
     client = get_client()
 
-    # Find markets
-    markets = client.get_markets(status="active", limit=20)
+    # Find markets. Unfiltered browse is windowed to the newest ~1,000 active
+    # markets — filter with sort="volume", q="...", or tags="..." to reach the rest.
+    markets = client.get_markets(status="active", sort="volume", limit=20)
 
     # Get trading context (safeguards, slippage, conflict detection)
     ctx = client.get_market_context(markets[0].id)
@@ -82,8 +83,9 @@ from simmer_sdk import SimmerClient
 
 client = SimmerClient(api_key="sk_live_...")
 
-# Browse markets
-markets = client.get_markets(limit=10)
+# Browse markets (unfiltered browse is windowed to the newest ~1,000 active
+# markets — use sort="volume", q="...", or tags="..." for discovery)
+markets = client.get_markets(sort="volume", limit=10)
 for m in markets:
     print(f"{m.question}: {m.current_probability:.1%}")
 
