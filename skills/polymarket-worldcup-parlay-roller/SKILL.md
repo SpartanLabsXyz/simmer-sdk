@@ -1,6 +1,6 @@
 ---
 name: polymarket-worldcup-parlay-roller
-description: Build parlay-style multi-leg positions on Polymarket World Cup markets leg by leg on the CLOB - stake leg 1, roll proceeds into leg 2 on a win, until the streak completes or a leg loses. Free skill. Combo-implied pricing shown for comparison; routes through real Polymarket combos when their taker API ships.
+description: Build parlay-style multi-leg positions on Polymarket World Cup markets leg by leg on the CLOB - stake leg 1, roll proceeds into leg 2 on a win, until the streak completes or a leg loses. Free skill. Combo-implied pricing shown for comparison. Interim approach - a real atomic-combo skill is in progress and will supersede this.
 category: world-cup
 tags:
   - world-cup
@@ -15,10 +15,12 @@ metadata:
 
 # Worldcup Parlay Roller
 
-Express a World Cup parlay today, on the CLOB. Polymarket's new combo positions
-(RFQ parlays) have no public taker API yet, so this skill builds the same payoff
-leg by leg: stake leg 1, sell the winner after the match, roll all proceeds into
-leg 2, and repeat. One lost leg ends the streak. Max loss is the initial stake.
+Express a World Cup parlay today, on the CLOB. Polymarket's combo positions
+(RFQ parlays) are reachable via a taker API, but Simmer's SDK doesn't expose
+combo placement yet, so this interim skill approximates the same payoff leg by
+leg: stake leg 1, sell the winner after the match, roll all proceeds into leg 2,
+and repeat. One lost leg ends the streak. Max loss is the initial stake. A real
+atomic-combo skill is in progress and will supersede this.
 
 Read [DISCLAIMER.md](./DISCLAIMER.md) before going live. This is a framework,
 not a guaranteed edge, and it runs in dry-run by default.
@@ -75,5 +77,6 @@ transition is appended to the streak log.
 At setup (the first tick of a fresh streak), the skill fetches Polymarket's
 public combo catalog and prints the combo-implied price next to the streak's
 naive leg-product price. Correlated legs make the product an approximation. If
-the catalog is unreachable, comparison is simply unavailable. When Polymarket
-ships the combo taker API, v2 can route through real combos when cheaper.
+the catalog is unreachable, comparison is simply unavailable. A real
+atomic-combo skill (`client.place_combo`) is in progress and will supersede this
+sequential roller, routing through real combos directly.
