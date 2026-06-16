@@ -68,6 +68,23 @@ def fetch_combo_legs(limit: int = 100, max_legs: int = 300) -> List[Dict[str, An
         if cursor:
             url += f"&cursor={cursor}"
         r = requests.get(url, headers={"User-Agent": _UA, "accept": "application/json"}, timeout=20)
+        if r.status_code == 403:
+            # Polymarket geo-restricts the combo RFQ API by region. Surface the
+            # real reason instead of letting raise_for_status() throw an opaque
+            # HTTPError stack trace (SIM-3279).
+            detail = ""
+            try:
+                body = r.json()
+                detail = body.get("message") or body.get("error") or ""
+            except Exception:
+                detail = (r.text or "").strip()[:200]
+            raise ComboGeoBlockError(
+                "Combo markets are not available in your region — Polymarket "
+                "geo-restricts the combo RFQ API"
+                + (f" ({detail})" if detail else "")
+                + ". Run from a Polymarket-allowed region; see Polymarket's "
+                "allowed-regions docs."
+            )
         r.raise_for_status()
         data = r.json()
         page = data.get("markets") or (data if isinstance(data, list) else [])
@@ -100,6 +117,14 @@ def estimate_combo_price(leg_prices: List[float], stake: float = 1.0) -> Optiona
 
 class ComboPlacementError(Exception):
     """Raised when a combo placement fails (auth, expiry exhaustion, gateway error)."""
+
+
+class ComboGeoBlockError(ComboPlacementError):
+    """Raised when the combo RFQ API geo-restricts the caller's region (HTTP 403).
+
+    Subclass of ComboPlacementError so existing ``except ComboPlacementError``
+    handlers catch it without changes.
+    """
 
 
 def _signed_order_to_wire(order) -> Dict[str, Any]:

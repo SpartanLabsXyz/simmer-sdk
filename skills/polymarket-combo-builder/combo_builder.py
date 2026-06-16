@@ -46,7 +46,12 @@ def _load_config():
 
 def browse_legs():
     from simmer_sdk import combo
-    legs = combo.fetch_combo_legs(limit=100, max_legs=60)
+    from simmer_sdk.combo import ComboPlacementError
+    try:
+        legs = combo.fetch_combo_legs(limit=100, max_legs=60)
+    except ComboPlacementError as e:
+        # Catches ComboGeoBlockError too (subclass): clean message, no stack trace.
+        sys.exit(f"\n{e}")
     print(f"{len(legs)} combo-eligible legs (showing up to 40):\n")
     for m in legs[:40]:
         pos = m.get("position_ids") or []

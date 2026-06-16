@@ -106,3 +106,22 @@ def test_signed_order_wire_shape():
     assert wire["expiration"] == "0"
     assert isinstance(wire["makerAmount"], str) and wire["makerAmount"] == "1026000"
     assert wire["maker"] == wire["signer"]  # DW == DW
+
+
+def test_fetch_combo_legs_geoblock_403(monkeypatch):
+    """SIM-3279: a 403 from the geo-restricted combo RFQ API raises a clear
+    ComboGeoBlockError (with the server's reason), not an opaque HTTPError."""
+    class FakeResp:
+        status_code = 403
+        text = '{"message": "Trading restricted in your region"}'
+        def json(self):
+            return {"message": "Trading restricted in your region"}
+
+    monkeypatch.setattr(cb.requests, "get", lambda *a, **k: FakeResp())
+    with pytest.raises(cb.ComboGeoBlockError) as ei:
+        cb.fetch_combo_legs()
+    msg = str(ei.value)
+    assert "not available in your region" in msg
+    assert "Trading restricted in your region" in msg  # server detail surfaced
+    # subclass of ComboPlacementError, so existing handlers catch it unchanged
+    assert isinstance(ei.value, cb.ComboPlacementError)
