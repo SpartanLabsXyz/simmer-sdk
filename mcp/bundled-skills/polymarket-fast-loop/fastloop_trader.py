@@ -1,0 +1,1470 @@
+#!/usr/bin/env python3
+"""
+Simmer FastLoop Trading Skill
+
+Trades Polymarket BTC 5-minute fast markets using CEX price momentum.
+Default signal: Binance BTCUSDT candles. Agents can customize signal source.
+
+Usage:
+    python fast_trader.py              # Dry run (show opportunities, no trades)
+    python fast_trader.py --live       # Execute real trades
+    python fast_trader.py --positions  # Show current fast market positions
+    python fast_trader.py --quiet      # Only output on trades/errors
+
+Requires:
+    SIMMER_API_KEY environment variable (get from simmer.markets/dashboard)
+"""
+
+import os
+import sys
+import json
+import math
+import argparse
+from datetime import datetime, timezone, timedelta
+from urllib.request import urlopen, Request
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode, quote
+
+# Force line-buffered stdout for non-TTY environments (cron, Docker, OpenClaw)
+sys.stdout.reconfigure(line_buffering=True)
+
+# Optional: Trade Journal integration
+try:
+    from tradejournal import log_trade
+    JOURNAL_AVAILABLE = True
+except ImportError:
+    try:
+        from skills.tradejournal import log_trade
+        JOURNAL_AVAILABLE = True
+    except ImportError:
+        JOURNAL_AVAILABLE = False
+        def log_trade(*args, **kwargs):
+            pass
+
+# =============================================================================
+# Configuration (config.json > env vars > defaults)
+# =============================================================================
+
+CONFIG_SCHEMA = {
+    "entry_threshold": {"default": 0.05, "env": "SIMMER_FASTLOOP_ENTRY_THRESHOLD", "type": float,
+                        "help": "Min price divergence from 50¢ to trigger trade"},
+    "min_momentum_pct": {"default": 0.5, "env": "SIMMER_FASTLOOP_MOMENTUM_THRESHOLD", "type": float,
+                         "help": "Min BTC % move in lookback window to trigger"},
+    "max_position": {"default": 5.0, "env": "SIMMER_FASTLOOP_MAX_POSITION_USD", "type": float,
+                     "help": "Max $ per trade"},
+    "signal_source": {"default": "binance", "env": "SIMMER_SPRINT_SIGNAL", "type": str,
+                      "help": "Price feed source (binance)"},
+    "lookback_minutes": {"default": 5, "env": "SIMMER_FASTLOOP_LOOKBACK_MINUTES", "type": int,
+                         "help": "Minutes of price history for momentum calc"},
+    "min_time_remaining": {"default": 0, "env": "SIMMER_SPRINT_MIN_TIME", "type": int,
+                           "help": "Skip fast_markets with less than this many seconds remaining (0 = auto: 10%% of window)"},
+    "asset": {"default": "BTC", "env": "SIMMER_SPRINT_ASSET", "type": str,
+              "help": "Asset to trade (BTC, ETH, SOL)"},
+    "window": {"default": "5m", "env": "SIMMER_SPRINT_WINDOW", "type": str,
+               "help": "Market window duration (5m or 15m)"},
+    "volume_confidence": {"default": True, "env": "SIMMER_FASTLOOP_VOL_CONFIDENCE_MIN", "type": bool,
+                          "help": "Weight signal by volume (higher volume = more confident)"},
+    "daily_budget": {"default": 10.0, "env": "SIMMER_FASTLOOP_DAILY_BUDGET_USD", "type": float,
+                     "help": "Max total spend per UTC day"},
+    "use_fair_value": {"default": False, "env": "SIMMER_FASTLOOP_FAIR_VALUE", "type": bool,
+                       "help": "Use N(d) fair-value model instead of raw momentum signal"},
+    "fair_value_min_edge": {"default": 0.05, "env": "SIMMER_FASTLOOP_FV_MIN_EDGE", "type": float,
+                            "help": "Minimum |market_price - fair_value| edge required to trade"},
+    "btc_annual_vol": {"default": 0.55, "env": "SIMMER_FASTLOOP_ANNUAL_VOL", "type": float,
+                       "help": "Annualised volatility for N(d) fair-value model (default: 0.55 = 55%)"},
+    "order_type": {"default": "GTC", "env": "SIMMER_FASTLOOP_ORDER_TYPE", "type": str,
+                   "help": "Order type for Polymarket trades: GTC (default, waits for fill) or FAK (cancel if not filled immediately)"},
+    "enable_news_veto": {"default": False, "env": "SIMMER_FASTLOOP_ENABLE_NEWS_VETO", "type": bool,
+                         "help": "Block news-resolution trades within 30s after scheduled macro/news releases"},
+}
+
+TRADE_SOURCE = "sdk:fastloop"
+SKILL_SLUG = "polymarket-fast-loop"
+_automaton_reported = False
+SMART_SIZING_PCT = 0.05  # 5% of balance per trade
+MIN_SHARES_PER_ORDER = 5  # Polymarket minimum
+MAX_SPREAD_PCT = 0.10     # Skip if CLOB bid-ask spread exceeds this
+
+# Asset → Binance symbol mapping
+ASSET_SYMBOLS = {
+    "BTC": "BTCUSDT",
+    "ETH": "ETHUSDT",
+    "SOL": "SOLUSDT",
+}
+BINANCE_BASE_URLS = (
+    "https://api.binance.com",
+    "https://api.binance.us",
+)
+
+# Asset → Gamma API search patterns
+ASSET_PATTERNS = {
+    "BTC": ["bitcoin up or down"],
+    "ETH": ["ethereum up or down"],
+    "SOL": ["solana up or down"],
+}
+
+
+from simmer_sdk.skill import load_config, update_config, get_config_path
+from simmer_sdk.guards.news_recency_veto import load_macro_news_schedule, news_window_match
+
+# Load config
+cfg = load_config(CONFIG_SCHEMA, __file__, slug="polymarket-fast-loop")
+ENTRY_THRESHOLD = cfg["entry_threshold"]
+MIN_MOMENTUM_PCT = cfg["min_momentum_pct"]
+MAX_POSITION_USD = cfg["max_position"]
+_automaton_max = os.environ.get("AUTOMATON_MAX_BET")
+if _automaton_max:
+    MAX_POSITION_USD = min(MAX_POSITION_USD, float(_automaton_max))
+SIGNAL_SOURCE = cfg["signal_source"]
+LOOKBACK_MINUTES = cfg["lookback_minutes"]
+ASSET = cfg["asset"].upper()
+WINDOW = cfg["window"]  # "5m" or "15m"
+
+# Dynamic min_time_remaining: 0 = auto (10% of window duration)
+_window_seconds = {"5m": 300, "15m": 900, "1h": 3600}
+_configured_min_time = cfg["min_time_remaining"]
+if _configured_min_time > 0:
+    MIN_TIME_REMAINING = _configured_min_time
+else:
+    MIN_TIME_REMAINING = max(30, _window_seconds.get(WINDOW, 300) // 10)
+VOLUME_CONFIDENCE = cfg["volume_confidence"]
+DAILY_BUDGET = cfg["daily_budget"]
+
+# Fair-value mode: compare market price to Black-Scholes binary option fair value.
+# fair_YES = N(d) where d = log(S/S0) / (σ_annual × √τ)
+# S0 = BTC price at market open, S = current BTC price, τ = time remaining (years)
+# Trades whichever side has the larger mispricing vs fair value.
+USE_FAIR_VALUE = cfg["use_fair_value"]
+FAIR_VALUE_MIN_EDGE = cfg["fair_value_min_edge"]
+BTC_ANNUAL_VOL = cfg["btc_annual_vol"]
+ORDER_TYPE = cfg["order_type"].upper() if cfg["order_type"] else "GTC"
+ENABLE_NEWS_VETO = cfg["enable_news_veto"]
+SECONDS_PER_YEAR = 31_536_000
+
+# Polymarket crypto taker fee formula (docs.polymarket.com/trading/fees)
+# fee = num_shares × POLY_FEE_RATE_CRYPTO × p × (1-p)
+# Effective rate on dollars spent = POLY_FEE_RATE_CRYPTO × (1-p)
+# Peak: 3.5% at p=0.50. Worst case (p=0.05/0.95): ~6.6%. Makers: 0%.
+POLY_FEE_RATE_CRYPTO = 0.07   # Crypto markets taker fee coefficient
+
+
+# =============================================================================
+# Daily Budget Tracking
+# =============================================================================
+
+def _get_spend_path(skill_file):
+    from pathlib import Path
+    return Path(skill_file).parent / "daily_spend.json"
+
+
+def _load_daily_spend(skill_file):
+    """Load today's spend. Resets if date != today (UTC)."""
+    spend_path = _get_spend_path(skill_file)
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    if spend_path.exists():
+        try:
+            with open(spend_path) as f:
+                data = json.load(f)
+            if data.get("date") == today:
+                return data
+        except (json.JSONDecodeError, IOError):
+            pass
+    return {"date": today, "spent": 0.0, "trades": 0}
+
+
+def _save_daily_spend(skill_file, spend_data):
+    """Save daily spend to file."""
+    spend_path = _get_spend_path(skill_file)
+    with open(spend_path, "w") as f:
+        json.dump(spend_data, f, indent=2)
+
+
+# =============================================================================
+# API Helpers
+# =============================================================================
+
+_client = None
+
+def get_client(live=True):
+    """Lazy-init SimmerClient singleton."""
+    global _client
+    if _client is None:
+        try:
+            from simmer_sdk import SimmerClient
+        except ImportError:
+            print("Error: simmer-sdk not installed. Run: pip install simmer-sdk")
+            sys.exit(1)
+        api_key = os.environ.get("SIMMER_API_KEY")
+        if not api_key:
+            print("Error: SIMMER_API_KEY environment variable not set")
+            print("Get your API key from: simmer.markets/dashboard → SDK tab")
+            sys.exit(1)
+        venue = os.environ.get("TRADING_VENUE", "polymarket")
+        _client = SimmerClient(api_key=api_key, venue=venue, live=live)
+    return _client
+
+
+def _api_request(url, method="GET", data=None, headers=None, timeout=15):
+    """Make an HTTP request to external APIs (Binance, CoinGecko, Gamma). Returns parsed JSON or None on error."""
+    try:
+        req_headers = headers or {}
+        if "User-Agent" not in req_headers:
+            req_headers["User-Agent"] = "simmer-fastloop_market/1.0"
+        body = None
+        if data:
+            body = json.dumps(data).encode("utf-8")
+            req_headers["Content-Type"] = "application/json"
+        req = Request(url, data=body, headers=req_headers, method=method)
+        with urlopen(req, timeout=timeout) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except HTTPError as e:
+        try:
+            error_body = json.loads(e.read().decode("utf-8"))
+            return {"error": error_body.get("detail", str(e)), "status_code": e.code}
+        except Exception:
+            return {"error": str(e), "status_code": e.code}
+    except URLError as e:
+        return {"error": f"Connection error: {e.reason}"}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+CLOB_API = "https://clob.polymarket.com"
+
+
+class SignalFetchError(RuntimeError):
+    """External price signal fetch failed after all configured attempts."""
+
+    def __init__(self, message, failures):
+        super().__init__(message)
+        self.failures = failures
+
+
+def _summarize_api_failure(result, *, url, endpoint):
+    failure = {"endpoint": endpoint, "url": url}
+    if isinstance(result, dict):
+        if result.get("status_code") is not None:
+            failure["status_code"] = result.get("status_code")
+        if result.get("error"):
+            failure["error"] = str(result.get("error"))[:240]
+        else:
+            failure["error"] = "unexpected object response"
+    elif not result:
+        failure["error"] = "empty response"
+    else:
+        failure["error"] = f"unexpected response type {type(result).__name__}"
+    return failure
+
+
+def _lookup_fee_rate(token_id):
+    """Fetch taker fee rate (bps) from Polymarket CLOB for a token. Returns 0 on failure."""
+    result = _api_request(f"{CLOB_API}/fee-rate?token_id={quote(str(token_id))}", timeout=5)
+    if not result or not isinstance(result, dict) or result.get("error"):
+        return 0
+    try:
+        return int(float(result.get("base_fee") or 0))
+    except (ValueError, TypeError):
+        return 0
+
+
+def fetch_live_midpoint(token_id):
+    """Fetch live midpoint price from Polymarket CLOB for a single token."""
+    result = _api_request(f"{CLOB_API}/midpoint?token_id={quote(str(token_id))}", timeout=5)
+    if not result or not isinstance(result, dict) or result.get("error"):
+        return None
+    try:
+        return float(result["mid"])
+    except (KeyError, ValueError, TypeError):
+        return None
+
+
+def fetch_live_prices(clob_token_ids):
+    """Fetch live YES midpoint from Polymarket CLOB.
+
+    Args:
+        clob_token_ids: List of [yes_token_id, no_token_id] from Gamma.
+
+    Returns:
+        float or None: Live YES price (0-1).
+    """
+    if not clob_token_ids or len(clob_token_ids) < 1:
+        return None
+    yes_token = clob_token_ids[0]
+    return fetch_live_midpoint(yes_token)
+
+
+def fetch_orderbook_summary(clob_token_ids):
+    """Fetch order book for YES token and return spread + depth summary.
+
+    Args:
+        clob_token_ids: List of [yes_token_id, no_token_id] from Gamma.
+
+    Returns:
+        dict with spread_pct, best_bid, best_ask, bid_depth_usd, ask_depth_usd
+        or None on failure.
+    """
+    if not clob_token_ids or len(clob_token_ids) < 1:
+        return None
+    yes_token = clob_token_ids[0]
+    result = _api_request(f"{CLOB_API}/book?token_id={quote(str(yes_token))}", timeout=5)
+    if not result or not isinstance(result, dict):
+        return None
+
+    bids = result.get("bids", [])
+    asks = result.get("asks", [])
+    if not bids or not asks:
+        return None
+
+    try:
+        best_bid = float(bids[0]["price"])
+        best_ask = float(asks[0]["price"])
+        spread = best_ask - best_bid
+        mid = (best_ask + best_bid) / 2
+        spread_pct = spread / mid if mid > 0 else 0
+
+        # Sum depth (top 5 levels)
+        bid_depth = sum(float(b.get("size", 0)) * float(b.get("price", 0)) for b in bids[:5])
+        ask_depth = sum(float(a.get("size", 0)) * float(a.get("price", 0)) for a in asks[:5])
+
+        return {
+            "best_bid": best_bid,
+            "best_ask": best_ask,
+            "spread_pct": spread_pct,
+            "bid_depth_usd": bid_depth,
+            "ask_depth_usd": ask_depth,
+        }
+    except (KeyError, ValueError, IndexError, TypeError):
+        return None
+
+
+# =============================================================================
+# Sprint Market Discovery
+# =============================================================================
+
+def discover_fast_market_markets(asset="BTC", window="5m"):
+    """Find active fast markets via Simmer API (pre-imported, reliable).
+    Falls back to Gamma API if Simmer returns no results."""
+    # Primary: Simmer's /api/sdk/fast-markets (markets already imported, is_live_now computed)
+    markets = []
+    try:
+        client = get_client()
+        sdk_markets = client.get_fast_markets(asset=asset, window=window, limit=50)
+        for m in sdk_markets or []:
+            # Parse resolves_at string to datetime for time calculations
+            end_time = _parse_resolves_at(m.resolves_at) if m.resolves_at else None
+            clob_tokens = [m.polymarket_token_id] if m.polymarket_token_id else []
+            if m.polymarket_no_token_id:
+                clob_tokens.append(m.polymarket_no_token_id)
+            markets.append({
+                "question": m.question,
+                "market_id": m.id,  # Already imported — no import step needed
+                "end_time": end_time,
+                "clob_token_ids": clob_tokens,
+                "is_live_now": m.is_live_now,
+                "spread_cents": m.spread_cents,
+                "liquidity_tier": m.liquidity_tier,
+                "external_price_yes": m.external_price_yes,
+                "fee_rate_bps": getattr(m, 'fee_rate_bps', 0),  # Filled by dynamic lookup after discovery
+                "source": "simmer",
+            })
+    except Exception as e:
+        print(f"  ⚠️  Simmer fast-markets API failed ({e}), falling back to Gamma")
+
+    # Fall back to Gamma when Simmer returns no live markets — covers import gaps
+    # where Simmer's DB is behind Polymarket's live slot publishing.
+    has_live = any(m.get("is_live_now") for m in markets)
+    if not has_live:
+        if markets:
+            print(f"  ⚠️  Simmer fast-markets returned {len(markets)} markets but none are live; checking Gamma for missing slots")
+        gamma_markets = _discover_via_gamma(asset, window)
+        # Merge, de-duped by clob_token_ids (Gamma markets not yet imported → market_id None)
+        seen_tokens = {t for m in markets for t in (m.get("clob_token_ids") or [])}
+        for gm in gamma_markets:
+            gtokens = gm.get("clob_token_ids") or []
+            if not any(t in seen_tokens for t in gtokens):
+                markets.append(gm)
+
+    return markets
+
+
+def _discover_via_gamma(asset="BTC", window="5m"):
+    """Fallback: Find active fast markets on Polymarket via Gamma API."""
+    patterns = ASSET_PATTERNS.get(asset, ASSET_PATTERNS["BTC"])
+    url = (
+        "https://gamma-api.polymarket.com/markets/keyset"
+        "?limit=100&closed=false&tag=crypto&order=endDate&ascending=true"
+    )
+    result = _api_request(url)
+    if not result or not isinstance(result, dict) or result.get("error"):
+        return []
+    raw_markets = result.get("markets", [])
+
+    markets = []
+    for m in raw_markets:
+        q = (m.get("question") or "").lower()
+        slug = m.get("slug", "")
+        matches_window = f"-{window}-" in slug
+        if any(p in q for p in patterns) and matches_window:
+            condition_id = m.get("conditionId", "")
+            closed = m.get("closed", False)
+            if not closed and slug:
+                end_time = _parse_fast_market_end_time(m.get("question", ""))
+                clob_tokens_raw = m.get("clobTokenIds", "[]")
+                if isinstance(clob_tokens_raw, str):
+                    try:
+                        clob_tokens = json.loads(clob_tokens_raw)
+                    except (json.JSONDecodeError, ValueError):
+                        clob_tokens = []
+                else:
+                    clob_tokens = clob_tokens_raw or []
+                markets.append({
+                    "question": m.get("question", ""),
+                    "slug": slug,
+                    "condition_id": condition_id,
+                    "end_time": end_time,
+                    "outcomes": m.get("outcomes", []),
+                    "outcome_prices": m.get("outcomePrices", "[]"),
+                    "clob_token_ids": clob_tokens,
+                    "fee_rate_bps": int(m.get("fee_rate_bps") or m.get("feeRateBps") or 0),
+                    "source": "gamma",
+                })
+    return markets
+
+
+def _parse_resolves_at(resolves_at_str):
+    """Parse a resolves_at string (ISO format) into a timezone-aware UTC datetime."""
+    try:
+        # Handle both "2026-03-02 05:10:00Z" and "2026-03-02T05:10:00Z" formats
+        s = resolves_at_str.replace("Z", "+00:00").replace(" ", "T")
+        dt = datetime.fromisoformat(s)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    except Exception:
+        return None
+
+
+def _parse_fast_market_end_time(question):
+    """Parse end time from fast market question (Gamma fallback path).
+    e.g., 'Bitcoin Up or Down - February 15, 5:30AM-5:35AM ET' → datetime
+    """
+    import re
+    pattern = r'(\w+ \d+),.*?-\s*(\d{1,2}:\d{2}(?:AM|PM))\s*ET'
+    match = re.search(pattern, question)
+    if not match:
+        return None
+    try:
+        from zoneinfo import ZoneInfo
+        date_str = match.group(1)
+        time_str = match.group(2)
+        year = datetime.now(timezone.utc).year
+        dt_str = f"{date_str} {year} {time_str}"
+        dt = datetime.strptime(dt_str, "%B %d %Y %I:%M%p")
+        et = ZoneInfo("America/New_York")
+        dt = dt.replace(tzinfo=et).astimezone(timezone.utc)
+        return dt
+    except Exception:
+        return None
+
+
+def find_best_fast_market(markets):
+    """Pick the best fast_market to trade: live now, soonest expiring, enough time remaining."""
+    now = datetime.now(timezone.utc)
+    max_remaining = _window_seconds.get(WINDOW, 300) * 2
+    candidates = []
+    for m in markets:
+        # Prefer is_live_now flag from Simmer API (reliable, server-computed)
+        if m.get("is_live_now") is not None:
+            if not m["is_live_now"]:
+                continue  # Not live yet — skip
+            end_time = m.get("end_time")
+            if end_time:
+                remaining = (end_time - now).total_seconds()
+                if remaining > MIN_TIME_REMAINING:
+                    candidates.append((remaining, m))
+        else:
+            # Gamma fallback: use time-based filtering
+            end_time = m.get("end_time")
+            if not end_time:
+                continue
+            remaining = (end_time - now).total_seconds()
+            if remaining > MIN_TIME_REMAINING and remaining < max_remaining:
+                candidates.append((remaining, m))
+
+    if not candidates:
+        return None
+    # Sort by soonest expiring
+    candidates.sort(key=lambda x: x[0])
+    return candidates[0][1]
+
+
+# =============================================================================
+# CEX Price Signal
+# =============================================================================
+
+def _is_replay():
+    """True inside the Simmer replay harness (SIMMER_REPLAY=1). Decision data
+    must then come ONLY from the Simmer API — any direct-vendor fetch would be
+    future data relative to the frozen tick."""
+    return os.environ.get("SIMMER_REPLAY") == "1"
+
+
+def fetch_candles_via_simmer(symbol, lookback_minutes, interval="1m"):
+    """CLOSED 1m candles for the last `lookback_minutes` via Simmer's data
+    plane (client.get_candles — one code path live and under replay; the
+    server never serves an in-progress candle). Returns a list of candle
+    dicts ascending, or raises SignalFetchError.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    # No API key → no client (get_client() sys.exits). Treat as "plane
+    # unreachable from here": live falls back to the legacy path, replay
+    # raises. Checked up-front so get_client()'s sys.exit never fires inside
+    # the signal fetch.
+    if not os.environ.get("SIMMER_API_KEY"):
+        if _is_replay():
+            raise SignalFetchError(
+                "Simmer candles plane unavailable under replay: SIMMER_API_KEY unset",
+                [{"endpoint": "simmer-data-plane", "error": "no_api_key"}],
+            )
+        return None
+
+    end = datetime.now(timezone.utc)
+    # +1 interval of slack: closed-candle semantics mean "now" excludes the
+    # in-progress candle, so the window must reach one interval further back
+    # to still contain `lookback` closed candles.
+    start = end - timedelta(minutes=lookback_minutes + 1)
+    try:
+        return get_client().get_candles(
+            symbol, start.isoformat(), end.isoformat(), interval=interval,
+        )
+    except Exception as exc:  # noqa: BLE001 — branch on environment below
+        if _is_replay():
+            raise SignalFetchError(
+                f"Simmer candles plane unavailable under replay: {exc}",
+                [{"endpoint": "simmer-data-plane", "error": str(exc)[:240]}],
+            ) from exc
+        return None  # live: caller may use the legacy direct path
+
+
+def get_binance_momentum(symbol="BTCUSDT", lookback_minutes=5):
+    """Price momentum over the last `lookback_minutes` of CLOSED 1m candles.
+
+    Primary source: Simmer's data plane (replay-deterministic — the
+    fast-scaler 89.4% retraction came from exactly the in-progress-candle
+    class this avoids; live now matches what a backtest can verify, at the
+    cost of <=60s signal lag vs the old intra-candle price). Legacy direct
+    Binance path remains as a LIVE-ONLY fallback for older/self-hosted
+    servers without the data plane; under replay it never fires.
+
+    Returns: {momentum_pct, direction, price_now, price_then, avg_volume, candles}
+    """
+    failures = []
+
+    plane = fetch_candles_via_simmer(symbol, lookback_minutes)
+    if plane is not None and len(plane) >= 2:
+        candles = plane
+        price_then = float(candles[0]["open"])
+        price_now = float(candles[-1]["close"])
+        momentum_pct = ((price_now - price_then) / price_then) * 100
+        volumes = [float(c["volume"]) for c in candles]
+        avg_volume = sum(volumes) / len(volumes)
+        latest_volume = volumes[-1]
+        return {
+            "momentum_pct": momentum_pct,
+            "direction": "up" if momentum_pct > 0 else "down",
+            "price_now": price_now,
+            "price_then": price_then,
+            "avg_volume": avg_volume,
+            "latest_volume": latest_volume,
+            "volume_ratio": latest_volume / avg_volume if avg_volume > 0 else 1.0,
+            "candles": len(candles),
+            "endpoint": "simmer-data-plane",
+            "fallback_attempts": [],
+        }
+    if plane is not None:
+        # Data plane answered but with <2 closed candles in the window.
+        if _is_replay():
+            raise SignalFetchError(
+                f"data plane returned {len(plane)} candles; need at least 2",
+                [{"endpoint": "simmer-data-plane", "error": "insufficient_candles",
+                  "candles": len(plane)}],
+            )
+        failures.append({"endpoint": "simmer-data-plane",
+                         "error": "insufficient_candles", "candles": len(plane)})
+
+    # Structural look-ahead backstop: the legacy direct-Binance path below is
+    # future data relative to the frozen tick. The branches above already
+    # raise under replay for every CURRENT data-plane outcome, but this guard
+    # makes the invariant independent of get_candles' return contract — a
+    # future SDK change that returned None (falsy, not raising) would
+    # otherwise slip past `plane is not None` and reach legacy. Never rely on
+    # an upstream return shape to enforce a money-correctness property.
+    if _is_replay():
+        raise SignalFetchError(
+            "no usable data-plane candles under replay (legacy fetch blocked)",
+            failures or [{"endpoint": "simmer-data-plane", "error": "no_candles"}],
+        )
+
+    # ---- legacy LIVE-ONLY direct path (never reached under replay) ----
+    result = None
+    endpoint = None
+    for base_url in BINANCE_BASE_URLS:
+        url = (
+            f"{base_url}/api/v3/klines"
+            f"?symbol={symbol}&interval=1m&limit={lookback_minutes}"
+        )
+        result = _api_request(url)
+        if result and not isinstance(result, dict):
+            endpoint = base_url
+            break
+        failures.append(_summarize_api_failure(result, url=url, endpoint=base_url))
+        result = None
+    if result is None:
+        detail = "; ".join(
+            f"{f['endpoint']} status={f.get('status_code', 'n/a')} error={f.get('error', 'unknown')}"
+            for f in failures
+        )
+        raise SignalFetchError(f"Binance kline fetch failed ({detail})", failures)
+
+    try:
+        # Kline format: [open_time, open, high, low, close, volume, ...]
+        candles = result
+        if len(candles) < 2:
+            raise SignalFetchError(
+                f"Binance kline fetch returned {len(candles)} candles; need at least 2",
+                [{"endpoint": "binance", "error": "insufficient_candles", "candles": len(candles)}],
+            )
+
+        price_then = float(candles[0][1])   # open of oldest candle
+        price_now = float(candles[-1][4])    # close of newest candle
+        momentum_pct = ((price_now - price_then) / price_then) * 100
+        direction = "up" if momentum_pct > 0 else "down"
+
+        volumes = [float(c[5]) for c in candles]
+        avg_volume = sum(volumes) / len(volumes)
+        latest_volume = volumes[-1]
+
+        # Volume ratio: latest vs average (>1 = above average activity)
+        volume_ratio = latest_volume / avg_volume if avg_volume > 0 else 1.0
+
+        return {
+            "momentum_pct": momentum_pct,
+            "direction": direction,
+            "price_now": price_now,
+            "price_then": price_then,
+            "avg_volume": avg_volume,
+            "latest_volume": latest_volume,
+            "volume_ratio": volume_ratio,
+            "candles": len(candles),
+            "endpoint": endpoint,
+            "fallback_attempts": failures,
+        }
+    except (IndexError, ValueError, KeyError) as exc:
+        raise SignalFetchError(
+            f"Binance kline parse failed: {exc}",
+            [{"endpoint": "binance", "error": str(exc)[:240]}],
+        ) from exc
+
+
+COINGECKO_ASSETS = {"BTC": "bitcoin", "ETH": "ethereum", "SOL": "solana"}
+
+
+def get_momentum(asset="BTC", source="binance", lookback=5):
+    """Get price momentum from configured source."""
+    if source == "binance":
+        symbol = ASSET_SYMBOLS.get(asset, "BTCUSDT")
+        return get_binance_momentum(symbol, lookback)
+    elif source == "coingecko":
+        print("  ⚠️  CoinGecko free tier doesn't provide candle data — switch to binance")
+        print("  Run: python fastloop_trader.py --set signal_source=binance")
+        return None
+    else:
+        return None
+
+
+# =============================================================================
+# Fair-Value Model (Black-Scholes binary option)
+# =============================================================================
+
+def _norm_cdf(x):
+    """Standard normal CDF — Abramowitz & Stegun rational approximation.
+    Max error < 7.5e-8. No external dependencies."""
+    import math
+    a1, a2, a3, a4, a5 = 0.319381530, -0.356563782, 1.781477937, -1.821255978, 1.330274429
+    k = 1.0 / (1.0 + 0.2316419 * abs(x))
+    poly = k * (a1 + k * (a2 + k * (a3 + k * (a4 + k * a5))))
+    n = 1.0 - math.exp(-0.5 * x * x) * poly / math.sqrt(2 * math.pi)
+    return n if x >= 0 else 1.0 - n
+
+
+def get_binance_price_at(symbol, start_ms):
+    """Close price of the 1-minute candle starting at start_ms (unix ms).
+    Used to fetch the reference price at market open for the N(d) model.
+
+    Simmer data plane first (deterministic under replay); legacy direct
+    Binance is LIVE-ONLY — under replay a missing plane returns None and the
+    caller's no-reference path handles it (never future data)."""
+    from datetime import datetime, timedelta, timezone
+
+    start = datetime.fromtimestamp(start_ms / 1000, tz=timezone.utc)
+    if os.environ.get("SIMMER_API_KEY"):
+        try:
+            candles = get_client().get_candles(
+                symbol, start.isoformat(), (start + timedelta(minutes=2)).isoformat(),
+            )
+            if candles:
+                return float(candles[0]["close"])
+        except Exception:  # noqa: BLE001 — branch on environment below
+            pass
+    if _is_replay():
+        return None
+    url = (
+        f"https://api.binance.com/api/v3/klines"
+        f"?symbol={symbol}&interval=1m&startTime={start_ms}&limit=1"
+    )
+    result = _api_request(url)
+    if isinstance(result, list) and len(result) > 0:
+        return float(result[0][4])  # close price
+    return None
+
+
+# =============================================================================
+# Import & Trade
+# =============================================================================
+
+def import_fast_market_market(slug):
+    """Import a fast market to Simmer. Returns market_id or None."""
+    url = f"https://polymarket.com/event/{slug}"
+    try:
+        result = get_client().import_market(url)
+    except Exception as e:
+        return None, str(e)
+
+    if not result:
+        return None, "No response from import endpoint"
+
+    if result.get("error"):
+        return None, result.get("error", "Unknown error")
+
+    status = result.get("status")
+    market_id = result.get("market_id")
+
+    if status == "resolved":
+        alternatives = result.get("active_alternatives", [])
+        if alternatives:
+            return None, f"Market resolved. Try alternative: {alternatives[0].get('id')}"
+        return None, "Market resolved, no alternatives found"
+
+    if status in ("imported", "already_exists"):
+        return market_id, None
+
+    return None, f"Unexpected status: {status}"
+
+
+def get_market_details(market_id):
+    """Fetch market details by ID."""
+    try:
+        market = get_client().get_market_by_id(market_id)
+        if not market:
+            return None
+        from dataclasses import asdict
+        return asdict(market)
+    except Exception:
+        return None
+
+
+def get_portfolio():
+    """Get portfolio summary."""
+    try:
+        return get_client().get_portfolio()
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def get_positions():
+    """Get current positions as list of dicts, filtered by venue."""
+    try:
+        client = get_client()
+        positions = client.get_positions(venue=client.venue)
+        from dataclasses import asdict
+        return [asdict(p) for p in positions]
+    except Exception:
+        return []
+
+
+def execute_trade(market_id, side, amount, signal_data=None, market_context=None):
+    """Execute a trade on Simmer."""
+    try:
+        client = get_client()
+        if client.live:
+            pf = client.preflight(planned_amount=amount, exposure_cap_usd=0, venue=client.venue)
+            if not pf.ok_to_trade:
+                blockers = ", ".join(pf.blockers)
+                print(f"  ⛔ Preflight blocked: {blockers}")
+                return {"error": f"preflight_blocked: {blockers}"}
+        if ENABLE_NEWS_VETO:
+            vetoed, event = news_window_match(market_context or {"id": market_id}, load_macro_news_schedule())
+            if vetoed:
+                event_id = event.get("id") or event.get("name") or event.get("category") or "scheduled-news"
+                print(json.dumps({
+                    "event": "news_recency_veto",
+                    "market_id": market_id,
+                    "news_event_id": event_id,
+                    "skill": SKILL_SLUG,
+                }))
+                return {"error": "news_recency_veto", "event_id": event_id, "retryable": False}
+        result = client.trade(
+            market_id=market_id,
+            side=side,
+            amount=amount,
+            order_type=ORDER_TYPE,
+            source=TRADE_SOURCE, skill_slug=SKILL_SLUG,
+            signal_data=signal_data,
+        )
+        return {
+            "success": result.success,
+            "trade_id": result.trade_id,
+            "shares_bought": result.shares_bought,
+            "shares": result.shares_bought,
+            "error": result.error,
+            "simulated": result.simulated,
+            "retryable": result.retryable,
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def calculate_position_size(max_size, smart_sizing=False):
+    """Calculate position size, optionally based on portfolio."""
+    if not smart_sizing:
+        return max_size
+    portfolio = get_portfolio()
+    if not portfolio or portfolio.get("error"):
+        return max_size
+    balance = portfolio.get("balance_usdc", 0)
+    if balance <= 0:
+        return max_size
+    smart_size = balance * SMART_SIZING_PCT
+    return min(smart_size, max_size)
+
+
+# =============================================================================
+# Main Strategy Logic
+# =============================================================================
+
+def run_fast_market_strategy(dry_run=True, positions_only=False, show_config=False,
+                        smart_sizing=False, quiet=False):
+    """Run one cycle of the fast_market trading strategy."""
+    # Globals declared up-front: balance pre-flight (below) may cap MAX_POSITION_USD,
+    # and automaton skip reports flip _automaton_reported.
+    global MAX_POSITION_USD, _automaton_reported
+
+    def log(msg, force=False):
+        """Print unless quiet mode is on. force=True always prints."""
+        if not quiet or force:
+            print(msg)
+
+    log("⚡ Simmer FastLoop Trading Skill")
+    log("=" * 50)
+
+    if dry_run:
+        log("\n  [PAPER MODE] Trades will be simulated with real prices. Use --live for real trades.")
+
+    log(f"\n⚙️  Configuration:")
+    log(f"  Asset:            {ASSET}")
+    log(f"  Window:           {WINDOW}")
+    log(f"  Entry threshold:  {ENTRY_THRESHOLD} (min divergence from 50¢)")
+    log(f"  Min momentum:     {MIN_MOMENTUM_PCT}% (min price move)")
+    log(f"  Max position:     ${MAX_POSITION_USD:.2f}")
+    log(f"  Signal source:    {SIGNAL_SOURCE}")
+    log(f"  Lookback:         {LOOKBACK_MINUTES} minutes")
+    log(f"  Min time left:    {MIN_TIME_REMAINING}s")
+    log(f"  Volume weighting: {'✓' if VOLUME_CONFIDENCE else '✗'}")
+    daily_spend = _load_daily_spend(__file__)
+    log(f"  Daily budget:     ${DAILY_BUDGET:.2f} (${daily_spend['spent']:.2f} spent today, {daily_spend['trades']} trades)")
+
+    if show_config:
+        config_path = get_config_path(__file__)
+        log(f"\n  Config file: {config_path}")
+        log(f"\n  To change settings:")
+        log(f'    python fast_trader.py --set entry_threshold=0.08')
+        log(f'    python fast_trader.py --set asset=ETH')
+        log(f'    Or edit config.json directly')
+        return
+
+    # Initialize client early to validate API key (paper mode when not live)
+    client = get_client(live=not dry_run)
+
+    # Redeem any winning positions before starting the cycle
+    try:
+        redeemed = client.auto_redeem()
+        for r in redeemed:
+            if r.get("success"):
+                log(f"  💰 Redeemed {r['market_id'][:8]}... ({r.get('side', '?')})")
+    except Exception:
+        pass  # Non-critical — don't block trading
+
+    # Balance pre-flight: skip cleanly when wallet is underfunded instead of
+    # looping on rejected trades. Helper is collateral-agnostic — checks pUSD
+    # on V2, USDC.e on V1 per server's exchange_version.
+    if not dry_run:
+        _preflight = client.ensure_can_trade(min_usd=max(1.0, MIN_SHARES_PER_ORDER * 0.5))
+        if not _preflight["ok"]:
+            log(f"  ⏸️  insufficient_balance: ${_preflight['balance']:.2f} {_preflight['collateral']} "
+                f"(need ≥ $1.00) — skip", force=True)
+            if os.environ.get("AUTOMATON_MANAGED"):
+                print(json.dumps({"automaton": {
+                    "signals": 0, "trades_attempted": 0, "trades_executed": 0,
+                    "skip_reason": _preflight["reason"],
+                    "balance_usd": round(_preflight["balance"], 2),
+                }}))
+                _automaton_reported = True
+            return
+        if _preflight["max_safe_size"] < MAX_POSITION_USD:
+            log(f"  💰 Capping max bet ${MAX_POSITION_USD:.2f} → ${_preflight['max_safe_size']:.2f} "
+                f"(balance ${_preflight['balance']:.2f} {_preflight['collateral']})", force=True)
+            MAX_POSITION_USD = _preflight["max_safe_size"]
+
+    # GTC stale order cleanup: cancel any open GTC orders from previous cycles.
+    # GTC orders sit on the CLOB indefinitely — if a previous cycle's order wasn't
+    # filled, it locks collateral and can fill unexpectedly after the market window
+    # has passed. Cancel them before placing new trades.
+    if ORDER_TYPE == "GTC" and not dry_run:
+        try:
+            open_orders = client.get_open_orders()
+            orders = open_orders.get("orders", [])
+            if orders:
+                # Only cancel orders placed by this skill — don't touch other skills' GTC orders
+                stale_count = 0
+                for order in orders:
+                    source = (order.get("source") or "").lower()
+                    slug = (order.get("skill_slug") or "").lower()
+                    question = (order.get("question") or "").lower()
+                    is_ours = (
+                        source == TRADE_SOURCE
+                        or slug == SKILL_SLUG
+                        or "up or down" in question  # fast-market pattern
+                    )
+                    if not is_ours:
+                        continue
+                    oid = order.get("order_id") or order.get("id")
+                    if oid:
+                        cancel_result = client.cancel_order(oid)
+                        if cancel_result.get("success"):
+                            stale_count += 1
+                            log(f"  🧹 Cancelled stale GTC order {oid[:16]}...")
+                        elif cancel_result.get("warning"):
+                            log(f"  ℹ️  Order {oid[:16]}... already filled (not stale)")
+                if stale_count > 0:
+                    log(f"  🧹 Cleaned up {stale_count} stale GTC order(s) from previous cycles", force=True)
+        except Exception as e:
+            log(f"  ⚠️  GTC cleanup check failed (non-fatal): {e}")
+
+    # Show positions if requested
+    if positions_only:
+        log("\n📊 Sprint Positions:")
+        positions = get_positions()
+        fast_market_positions = [p for p in positions if "up or down" in (p.get("question", "") or "").lower()]
+        if not fast_market_positions:
+            log("  No open fast market positions")
+        else:
+            for pos in fast_market_positions:
+                log(f"  • {pos.get('question', 'Unknown')[:60]}")
+                log(f"    YES: {pos.get('shares_yes', 0):.1f} | NO: {pos.get('shares_no', 0):.1f} | P&L: ${pos.get('pnl', 0):.2f}")
+        return
+
+    # Show portfolio if smart sizing
+    if smart_sizing:
+        log("\n💰 Portfolio:")
+        portfolio = get_portfolio()
+        if portfolio and not portfolio.get("error"):
+            log(f"  Balance: ${portfolio.get('balance_usdc', 0):.2f}")
+
+    # Step 1: Discover fast markets
+    log(f"\n🔍 Discovering {ASSET} fast markets...")
+    markets = discover_fast_market_markets(ASSET, WINDOW)
+    log(f"  Found {len(markets)} active fast markets")
+
+    # Look up fee rate once per run from a sample token (same window = same fee tier)
+    if markets:
+        sample = next((m for m in markets if m.get("clob_token_ids")), None)
+        if sample and sample.get("fee_rate_bps", 0) == 0:
+            fee = _lookup_fee_rate(sample["clob_token_ids"][0])
+            if fee > 0:
+                log(f"  Fee rate for {WINDOW} markets: {fee} bps ({fee/100:.0f}%)")
+                for m in markets:
+                    m["fee_rate_bps"] = fee
+
+    if not markets:
+        log("  No active fast markets found — may be outside market hours or wrong asset/window")
+        log(f"  Check: asset={ASSET}, window={WINDOW}")
+        if not quiet:
+            print("📊 Summary: No markets available")
+        return
+
+    # Step 2: Find best fast_market to trade
+    best = find_best_fast_market(markets)
+    if not best:
+        # Show what we skipped so users understand the gap
+        now = datetime.now(timezone.utc)
+        for m in markets:
+            end_time = m.get("end_time")
+            if m.get("is_live_now") is False:
+                log(f"  Skipped: {m['question'][:50]}... (not live yet)")
+            elif end_time:
+                secs_left = (end_time - now).total_seconds()
+                log(f"  Skipped: {m['question'][:50]}... ({secs_left:.0f}s left < {MIN_TIME_REMAINING}s min)")
+        log(f"  No live tradeable markets among {len(markets)} found — waiting for next window")
+        if not quiet:
+            print(f"📊 Summary: No tradeable markets (0/{len(markets)} live with enough time)")
+        return
+
+    skip_reasons = []
+
+    def _emit_skip_report(signals=1, attempted=0, extra=None):
+        """Emit automaton JSON with skip_reason before early return."""
+        global _automaton_reported
+        if os.environ.get("AUTOMATON_MANAGED") and skip_reasons:
+            report = {
+                "signals": signals,
+                "trades_attempted": attempted,
+                "trades_executed": 0,
+                "skip_reason": ", ".join(dict.fromkeys(skip_reasons)),
+            }
+            if extra:
+                report.update(extra)
+            print(json.dumps({"automaton": report}))
+            _automaton_reported = True
+
+    end_time = best.get("end_time")
+    remaining = (end_time - datetime.now(timezone.utc)).total_seconds() if end_time else 0
+    log(f"\n🎯 Selected: {best['question']}")
+    log(f"  Expires in: {remaining:.0f}s")
+
+    # Dedup: skip if we already hold a position on this market
+    _mid = best.get("market_id") or ""
+    _q = best.get("question", "").lower()
+    existing = get_positions()
+    for pos in existing:
+        held = (pos.get("shares_yes") or 0) + (pos.get("shares_no") or 0)
+        if held <= 0:
+            continue
+        if (_mid and pos.get("market_id") == _mid) or (_q and pos.get("question", "").lower() == _q):
+            log(f"  ⏸️  Already holding position on this market — skip (dedup)")
+            if not quiet:
+                print(f"📊 Summary: No trade (already holding this market)")
+            skip_reasons.append("already holding")
+            _emit_skip_report()
+            return
+
+    # Fetch live CLOB price — required for fast markets (stale prices cause bad trades)
+    clob_tokens = best.get("clob_token_ids", [])
+    live_price = fetch_live_prices(clob_tokens) if clob_tokens else None
+    if live_price is not None:
+        market_yes_price = live_price
+        log(f"  Current YES price: ${market_yes_price:.3f} (live CLOB)")
+    else:
+        log(f"  ⏸️  Could not fetch live CLOB price — skipping (stale prices are unsafe on fast markets)")
+        if not quiet:
+            print(f"📊 Summary: No trade (CLOB price unavailable)")
+        return
+
+    # Fee info: Polymarket crypto taker fee (docs.polymarket.com/trading/fees):
+    # fee = num_shares × 0.07 × p × (1-p). fee_rate_bps from API is a contract
+    # param, not a direct percentage — we use the documented formula instead.
+    fee_rate_bps = best.get("fee_rate_bps", 0)
+    if fee_rate_bps > 0:
+        # fee per share at current market price (in price terms)
+        _p = market_yes_price if market_yes_price <= 0.5 else (1 - market_yes_price)
+        _eff = POLY_FEE_RATE_CRYPTO * _p * (1 - _p)
+        log(f"  Fee rate:         {_eff:.4f}/share ({POLY_FEE_RATE_CRYPTO * (1 - _p):.2%} on spend at current price, feeRateBps={fee_rate_bps})")
+
+    # Step 3: Get CEX price momentum
+    log(f"\n📈 Fetching {ASSET} price signal ({SIGNAL_SOURCE})...")
+    signal_error = None
+    try:
+        momentum = get_momentum(ASSET, SIGNAL_SOURCE, LOOKBACK_MINUTES)
+    except SignalFetchError as exc:
+        momentum = None
+        signal_error = exc
+
+    if not momentum:
+        log("  ❌ Failed to fetch price data", force=True)
+        if signal_error:
+            for failure in signal_error.failures:
+                status = failure.get("status_code", "n/a")
+                log(
+                    f"     endpoint={failure.get('endpoint', 'unknown')} "
+                    f"status={status} error={failure.get('error', 'unknown')}",
+                    force=True,
+                )
+            error_payload = {
+                "signal_source": SIGNAL_SOURCE,
+                "signal_error": str(signal_error),
+                "signal_failures": signal_error.failures,
+            }
+        else:
+            error_payload = {
+                "signal_source": SIGNAL_SOURCE,
+                "signal_error": "price signal returned no data",
+            }
+        skip_reasons.append("signal_fetch_failed")
+        _emit_skip_report(signals=0, attempted=0, extra=error_payload)
+        return
+
+    log(f"  Price: ${momentum['price_now']:,.2f} (was ${momentum['price_then']:,.2f})")
+    if momentum.get("endpoint") and momentum.get("fallback_attempts"):
+        log(f"  Source endpoint: {momentum['endpoint']} (fallback after {len(momentum['fallback_attempts'])} failed attempt(s))")
+    log(f"  Momentum: {momentum['momentum_pct']:+.3f}%")
+    log(f"  Direction: {momentum['direction']}")
+    if VOLUME_CONFIDENCE:
+        log(f"  Volume ratio: {momentum['volume_ratio']:.2f}x avg")
+
+    # Step 4: Decision logic
+    log(f"\n🧠 Analyzing...")
+
+    momentum_pct = abs(momentum["momentum_pct"])
+    direction = momentum["direction"]
+
+    # Check order book spread and depth
+    # Use pre-fetched spread from Simmer API if available, otherwise fetch from CLOB
+    pre_spread = best.get("spread_cents")
+    if pre_spread is not None:
+        # spread_cents is raw cents (e.g. 2.5 = 2.5¢). Convert to fraction of midpoint
+        # for comparison with MAX_SPREAD_PCT. Fast markets trade near 50¢ midpoint.
+        mid_estimate = market_yes_price if market_yes_price > 0 else 0.5
+        spread_pct = (pre_spread / 100.0) / mid_estimate
+        log(f"  Spread: {pre_spread:.1f}¢ ({best.get('liquidity_tier', 'unknown')})")
+        if spread_pct > MAX_SPREAD_PCT:
+            log(f"  ⏸️  Spread {spread_pct:.1%} > 10% — illiquid, skip")
+            if not quiet:
+                print(f"📊 Summary: No trade (wide spread: {spread_pct:.1%})")
+            skip_reasons.append("wide spread")
+            _emit_skip_report()
+            return
+    else:
+        book = fetch_orderbook_summary(clob_tokens) if clob_tokens else None
+        if book:
+            log(f"  Spread: {book['spread_pct']:.1%} (bid ${book['best_bid']:.3f} / ask ${book['best_ask']:.3f})")
+            log(f"  Depth: ${book['bid_depth_usd']:.0f} bid / ${book['ask_depth_usd']:.0f} ask (top 5)")
+            if book["spread_pct"] > MAX_SPREAD_PCT:
+                log(f"  ⏸️  Spread {book['spread_pct']:.1%} > 10% — illiquid, skip")
+                if not quiet:
+                    print(f"📊 Summary: No trade (wide spread: {book['spread_pct']:.1%})")
+                skip_reasons.append("wide spread")
+                _emit_skip_report()
+                return
+
+    # Check minimum momentum (loose gate when fair-value mode is on — edge check filters there)
+    _momentum_floor = 0.01 if USE_FAIR_VALUE else MIN_MOMENTUM_PCT
+    if momentum_pct < _momentum_floor:
+        log(f"  ⏸️  Momentum {momentum_pct:.3f}% < minimum {_momentum_floor}% — skip")
+        if not quiet:
+            print(f"📊 Summary: No trade (momentum too weak: {momentum_pct:.3f}%)")
+        return
+
+    # Decision logic: fair-value model or raw momentum
+    if USE_FAIR_VALUE:
+        # ── N(d) fair-value model ─────────────────────────────────────────────
+        # Treats the fast market as a binary option expiring at market close.
+        # fair_YES = N(d) where d = log(S/S0) / (σ_annual × √τ)
+        #   S0 = BTC price at market open  (fetched from Binance klines)
+        #   S  = BTC price now             (from momentum signal)
+        #   σ  = btc_annual_vol config param
+        #   τ  = seconds remaining / SECONDS_PER_YEAR
+        # Trade whichever direction (YES/NO) has the larger mispricing vs fair value.
+        import math
+        _wdur = _window_seconds.get(WINDOW, 300)
+        _fv_symbol = ASSET_SYMBOLS.get(ASSET, "BTCUSDT")
+        _btc_start_price = None
+        if end_time:
+            _market_open_ms = int((end_time.timestamp() - _wdur) * 1000)
+            _btc_start_price = get_binance_price_at(_fv_symbol, _market_open_ms)
+
+        if _btc_start_price and _btc_start_price > 0 and remaining > 30:
+            _log_ret = math.log(momentum["price_now"] / _btc_start_price)
+            _sigma_tau = BTC_ANNUAL_VOL * math.sqrt(remaining / SECONDS_PER_YEAR)
+            _d = _log_ret / _sigma_tau if _sigma_tau > 0 else 0
+            fair_yes = _norm_cdf(_d)
+            edge = fair_yes - market_yes_price
+
+            log(f"  BTC at open:  ${_btc_start_price:,.2f}  →  now ${momentum['price_now']:,.2f}")
+            log(f"  Fair YES: {fair_yes:.3f}  |  Market: {market_yes_price:.3f}  |  Edge: {edge:+.3f}  (d={_d:.2f})")
+
+            if abs(edge) < FAIR_VALUE_MIN_EDGE:
+                log(f"  ⏸️  Edge {abs(edge):.3f} < min {FAIR_VALUE_MIN_EDGE} — skip")
+                if not quiet:
+                    print(f"📊 Summary: No trade (edge {edge:+.3f} below threshold {FAIR_VALUE_MIN_EDGE})")
+                skip_reasons.append("insufficient edge")
+                _emit_skip_report()
+                return
+
+            side = "yes" if edge > 0 else "no"
+            divergence = abs(edge)
+            trade_rationale = (
+                f"fair YES={fair_yes:.3f} vs market={market_yes_price:.3f}"
+                f" ({edge:+.3f} edge, d={_d:.2f})"
+            )
+        else:
+            # Fallback to momentum when BTC start price is unavailable or <30s left
+            log("  ⚠️  Fair-value unavailable (no start price or <30s left) — momentum fallback")
+            if direction == "up":
+                side = "yes"
+                divergence = 0.50 + ENTRY_THRESHOLD - market_yes_price
+                trade_rationale = f"momentum fallback: {ASSET} {momentum['momentum_pct']:+.3f}%"
+            else:
+                side = "no"
+                divergence = market_yes_price - (0.50 - ENTRY_THRESHOLD)
+                trade_rationale = f"momentum fallback: {ASSET} {momentum['momentum_pct']:+.3f}%"
+            if divergence <= 0:
+                log(f"  ⏸️  Fallback divergence {divergence:.3f} ≤ 0 — skip")
+                if not quiet:
+                    print(f"📊 Summary: No trade (fallback: market priced in)")
+                skip_reasons.append("market already priced in")
+                _emit_skip_report()
+                return
+    else:
+        # Default: follow the momentum direction.
+        # Simple model: strong momentum → higher probability of continuation
+        if direction == "up":
+            side = "yes"
+            divergence = 0.50 + ENTRY_THRESHOLD - market_yes_price
+            trade_rationale = f"{ASSET} up {momentum['momentum_pct']:+.3f}% but YES only ${market_yes_price:.3f}"
+        else:
+            side = "no"
+            divergence = market_yes_price - (0.50 - ENTRY_THRESHOLD)
+            trade_rationale = f"{ASSET} down {momentum['momentum_pct']:+.3f}% but YES still ${market_yes_price:.3f}"
+
+    # Volume confidence adjustment
+    vol_note = ""
+    if VOLUME_CONFIDENCE and momentum["volume_ratio"] < 0.5:
+        log(f"  ⏸️  Low volume ({momentum['volume_ratio']:.2f}x avg) — weak signal, skip")
+        if not quiet:
+            print(f"📊 Summary: No trade (low volume)")
+        skip_reasons.append("low volume")
+        _emit_skip_report()
+        return
+    elif VOLUME_CONFIDENCE and momentum["volume_ratio"] > 2.0:
+        vol_note = f" 📊 (high volume: {momentum['volume_ratio']:.1f}x avg)"
+
+    # Check divergence threshold
+    if divergence <= 0:
+        log(f"  ⏸️  Market already priced in: divergence {divergence:.3f} ≤ 0 — skip")
+        if not quiet:
+            print(f"📊 Summary: No trade (market already priced in)")
+        skip_reasons.append("market already priced in")
+        _emit_skip_report()
+        return
+
+    # Fee-aware EV check: require enough divergence to cover fees
+    # EV = win_prob * payout_after_fees - (1 - win_prob) * cost
+    # At the buy price, win_prob ≈ buy_price (market-implied).
+    # We need our edge (divergence) to overcome the fee drag.
+    if fee_rate_bps > 0:
+        buy_price = market_yes_price if side == "yes" else (1 - market_yes_price)
+        # Polymarket crypto taker fee: fee = num_shares × 0.07 × p × (1-p)
+        # fee_per_share (in price terms) = 0.07 × p × (1-p)
+        fee_per_share = POLY_FEE_RATE_CRYPTO * buy_price * (1 - buy_price)
+        # Divergence is in absolute price — compare to round-trip fee drag + buffer
+        min_divergence = fee_per_share * 2 + 0.02  # round-trip fee + buffer
+        log(f"  Fee:              ${fee_per_share:.4f}/share ({POLY_FEE_RATE_CRYPTO * (1 - buy_price):.2%} on spend, min divergence {min_divergence:.3f})")
+        if divergence < min_divergence:
+            log(f"  ⏸️  Divergence {divergence:.3f} < fee-adjusted minimum {min_divergence:.3f} — skip")
+            if not quiet:
+                print(f"📊 Summary: No trade (fees eat the edge)")
+            skip_reasons.append("fees eat the edge")
+            _emit_skip_report()
+            return
+
+    # We have a signal!
+    position_size = calculate_position_size(MAX_POSITION_USD, smart_sizing)
+    price = market_yes_price if side == "yes" else (1 - market_yes_price)
+
+    # Daily budget check
+    remaining_budget = DAILY_BUDGET - daily_spend["spent"]
+    if remaining_budget <= 0:
+        log(f"  ⏸️  Daily budget exhausted (${daily_spend['spent']:.2f}/${DAILY_BUDGET:.2f} spent) — skip")
+        if not quiet:
+            print(f"📊 Summary: No trade (daily budget exhausted)")
+        skip_reasons.append("daily budget exhausted")
+        _emit_skip_report()
+        return
+    if position_size > remaining_budget:
+        position_size = remaining_budget
+        log(f"  Budget cap: trade capped at ${position_size:.2f} (${daily_spend['spent']:.2f}/${DAILY_BUDGET:.2f} spent)")
+    if position_size < 0.50:
+        log(f"  ⏸️  Remaining budget ${position_size:.2f} < $0.50 — skip")
+        if not quiet:
+            print(f"📊 Summary: No trade (remaining budget too small)")
+        skip_reasons.append("budget too small")
+        _emit_skip_report()
+        return
+
+    # Check minimum order size
+    if price > 0:
+        min_cost = MIN_SHARES_PER_ORDER * price
+        if min_cost > position_size:
+            log(f"  ⚠️  Position ${position_size:.2f} too small for {MIN_SHARES_PER_ORDER} shares at ${price:.2f}")
+            skip_reasons.append("position too small")
+            _emit_skip_report(attempted=1)
+            return
+
+    log(f"  ✅ Signal: {side.upper()} — {trade_rationale}{vol_note}", force=True)
+    log(f"  Divergence: {divergence:.3f}", force=True)
+
+    # Step 5: Get market ID (already have it from Simmer API, or import from Gamma)
+    if best.get("market_id"):
+        market_id = best["market_id"]
+        log(f"\n🔗 Market ready: {market_id[:16]}...", force=True)
+    else:
+        log(f"\n🔗 Importing to Simmer...", force=True)
+        market_id, import_error = import_fast_market_market(best["slug"])
+        if not market_id:
+            log(f"  ❌ Import failed: {import_error}", force=True)
+            return
+        log(f"  ✅ Market ID: {market_id[:16]}...", force=True)
+
+    if ENABLE_NEWS_VETO:
+        market_for_veto = {
+            "id": market_id,
+            "question": best.get("question"),
+            "slug": best.get("slug"),
+        }
+        vetoed, event = news_window_match(market_for_veto, load_macro_news_schedule())
+        if vetoed:
+            event_id = event.get("id") or event.get("name") or event.get("category") or "scheduled-news"
+            log(f"  ⏸️  News-recency veto: {event_id} fired within the last 30s — skip", force=True)
+            if not quiet:
+                print("📊 Summary: No trade (news-recency veto)")
+            skip_reasons.append("news-recency veto")
+            _emit_skip_report()
+            return
+
+    execution_error = None
+    tag = "SIMULATED" if dry_run else "LIVE"
+    log(f"  Executing {side.upper()} trade for ${position_size:.2f} ({tag})...", force=True)
+    _signal_data = {
+        "edge": round(divergence, 4),
+        "confidence": round(min(0.9, 0.5 + divergence + (momentum_pct / 100)), 2),
+        "signal_source": SIGNAL_SOURCE,
+        "market_price": round(market_yes_price, 4),
+        "window_minutes": LOOKBACK_MINUTES,
+    }
+    if USE_FAIR_VALUE and 'fair_yes' in locals():
+        _signal_data["fair_value"] = round(fair_yes, 4)
+    result = execute_trade(
+        market_id,
+        side,
+        position_size,
+        signal_data=_signal_data,
+        market_context=market_for_veto if ENABLE_NEWS_VETO else None,
+    )
+
+    if result and result.get("success"):
+        shares = result.get("shares_bought") or result.get("shares") or 0
+        trade_id = result.get("trade_id")
+        log(f"  ✅ {'[PAPER] ' if result.get('simulated') else ''}Bought {shares:.1f} {side.upper()} shares @ ${price:.3f}", force=True)
+
+        # Update daily spend (skip for paper trades)
+        if not result.get("simulated"):
+            daily_spend["spent"] += position_size
+            daily_spend["trades"] += 1
+            _save_daily_spend(__file__, daily_spend)
+
+        # Log to trade journal (skip for paper trades)
+        if trade_id and JOURNAL_AVAILABLE and not result.get("simulated"):
+            confidence = min(0.9, 0.5 + divergence + (momentum_pct / 100))
+            log_trade(
+                trade_id=trade_id,
+                source=TRADE_SOURCE, skill_slug=SKILL_SLUG,
+                thesis=trade_rationale,
+                confidence=round(confidence, 2),
+                asset=ASSET,
+                momentum_pct=round(momentum["momentum_pct"], 3),
+                volume_ratio=round(momentum["volume_ratio"], 2),
+                signal_source=SIGNAL_SOURCE,
+            )
+    else:
+        error = result.get("error", "Unknown error") if result else "No response"
+        if result and not result.get("retryable", True):
+            log(f"  ⛔ Trade aborted (position cleared on-chain — no retry): {error}", force=True)
+        else:
+            log(f"  ❌ Trade failed: {error}", force=True)
+        execution_error = error[:120]
+
+    # Summary
+    total_trades = 1 if result and result.get("success") else 0
+    show_summary = not quiet or total_trades > 0
+    if show_summary:
+        print(f"\n📊 Summary:")
+        print(f"  Sprint: {best['question'][:50]}")
+        print(f"  Signal: {direction} {momentum_pct:.3f}% | YES ${market_yes_price:.3f}")
+        print(f"  Action: {'PAPER' if dry_run else ('TRADED' if total_trades else 'FAILED')}")
+
+    # Structured report for automaton (takes priority over fallback in __main__)
+    if os.environ.get("AUTOMATON_MANAGED"):
+        amount = round(position_size, 2) if total_trades > 0 else 0
+        report = {"signals": 1, "trades_attempted": 1, "trades_executed": total_trades, "amount_usd": amount}
+        if execution_error:
+            report["execution_errors"] = [execution_error]
+        print(json.dumps({"automaton": report}))
+        _automaton_reported = True
+
+
+# =============================================================================
+# CLI Entry Point
+# =============================================================================
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Simmer FastLoop Trading Skill")
+    parser.add_argument("--live", action="store_true", help="Execute real trades (default is dry-run)")
+    parser.add_argument("--dry-run", action="store_true", help="(Default) Show opportunities without trading")
+    parser.add_argument("--positions", action="store_true", help="Show current fast market positions")
+    parser.add_argument("--config", action="store_true", help="Show current config")
+    parser.add_argument("--set", action="append", metavar="KEY=VALUE",
+                        help="Update config (e.g., --set entry_threshold=0.08)")
+    parser.add_argument("--smart-sizing", action="store_true", help="Use portfolio-based position sizing")
+    parser.add_argument("--quiet", "-q", action="store_true",
+                        help="Only output on trades/errors (ideal for high-frequency runs)")
+    args = parser.parse_args()
+
+    if args.set:
+        updates = {}
+        for item in args.set:
+            if "=" not in item:
+                print(f"Invalid --set format: {item}. Use KEY=VALUE")
+                sys.exit(1)
+            key, val = item.split("=", 1)
+            if key in CONFIG_SCHEMA:
+                type_fn = CONFIG_SCHEMA[key].get("type", str)
+                try:
+                    if type_fn == bool:
+                        updates[key] = val.lower() in ("true", "1", "yes")
+                    else:
+                        updates[key] = type_fn(val)
+                except ValueError:
+                    print(f"Invalid value for {key}: {val}")
+                    sys.exit(1)
+            else:
+                print(f"Unknown config key: {key}")
+                print(f"Valid keys: {', '.join(CONFIG_SCHEMA.keys())}")
+                sys.exit(1)
+        result = update_config(updates, __file__)
+        print(f"✅ Config updated: {json.dumps(updates)}")
+        sys.exit(0)
+
+    dry_run = not args.live
+
+    run_fast_market_strategy(
+        dry_run=dry_run,
+        positions_only=args.positions,
+        show_config=args.config,
+        smart_sizing=args.smart_sizing,
+        quiet=args.quiet,
+    )
+
+    # Fallback report for automaton if the strategy returned early (no signal)
+    # The function emits its own report when it reaches a trade; this covers early exits.
+    if os.environ.get("AUTOMATON_MANAGED") and not _automaton_reported:
+        print(json.dumps({"automaton": {"signals": 0, "trades_attempted": 0, "trades_executed": 0, "skip_reason": "no_signal"}}))

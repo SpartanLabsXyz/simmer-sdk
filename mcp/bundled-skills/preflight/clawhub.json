@@ -1,0 +1,35 @@
+{
+  "emoji": "✅",
+  "primaryEnv": "SIMMER_API_KEY",
+  "requires": {
+    "env": [
+      "SIMMER_API_KEY"
+    ],
+    "pip": [
+      "simmer-sdk>=0.17.13"
+    ]
+  },
+  "envVars": [
+    {
+      "name": "SIMMER_API_KEY",
+      "required": true,
+      "description": "Your Simmer SDK API key — get from simmer.markets/dashboard"
+    },
+    {
+      "name": "TRADING_VENUE",
+      "required": false,
+      "description": "Default trading venue (sim / polymarket / kalshi). Overridden by the venue argument to client.preflight()."
+    },
+    {
+      "name": "EXPOSURE_CAP_USD",
+      "required": false,
+      "description": "Maximum total open exposure in USD across real venues. Defaults to 100.0 if not set."
+    }
+  ],
+  "cron": null,
+  "autostart": false,
+  "automaton": {
+    "managed": true,
+    "entrypoint": "preflight.py"
+  }
+}

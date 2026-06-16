@@ -11,6 +11,11 @@ npm run build           # TypeScript → dist/
 npm test                # build + all tests (104 tests)
 ```
 
+`bundled-skills/` is committed intentionally. When any file under `../skills/`
+changes, run `npm run bundle-skills` and commit the matching bundle update. CI
+runs `check:bundle-skills` before `npm test` can refresh the bundle, so stale
+committed bundles fail the PR.
+
 ## Manual smoke checklist (Phase 4 publish gate)
 
 Run these before tagging a release:

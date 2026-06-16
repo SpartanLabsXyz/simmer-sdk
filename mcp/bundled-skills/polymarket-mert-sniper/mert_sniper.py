@@ -1,0 +1,761 @@
+#!/usr/bin/env python3
+"""
+Mert Sniper - Near-Expiry Conviction Trading
+
+Snipe Polymarket markets about to resolve when odds are heavily skewed.
+Strategy by @mert: https://x.com/mert/status/2020216613279060433
+
+Usage:
+    python mert_sniper.py              # Dry run (show opportunities, no trades)
+    python mert_sniper.py --live       # Execute real trades
+    python mert_sniper.py --positions  # Show current positions only
+    python mert_sniper.py --filter sol # Only scan SOL-related markets
+
+Requires:
+    SIMMER_API_KEY environment variable (get from simmer.markets/dashboard)
+"""
+
+import os
+import sys
+import json
+import math
+import re
+import argparse
+from datetime import datetime, timezone, timedelta
+from urllib.request import urlopen, Request
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode, quote
+
+# Force line-buffered stdout so output is visible in non-TTY environments (cron, Docker, OpenClaw)
+sys.stdout.reconfigure(line_buffering=True)
+
+# =============================================================================
+# Configuration (config.json > env vars > defaults)
+# =============================================================================
+
+from simmer_sdk.skill import load_config, update_config, get_config_path
+from simmer_sdk.guards.news_recency_veto import load_macro_news_schedule, news_window_match
+
+# Configuration schema
+CONFIG_SCHEMA = {
+    "market_filter": {"env": "SIMMER_MERT_FILTER", "default": "", "type": str},
+    "max_bet_usd": {"env": "SIMMER_MERT_MAX_BET_USD", "default": 10.00, "type": float},
+    "expiry_window_mins": {"env": "SIMMER_MERT_EXPIRY_MINUTES", "default": 8, "type": int},
+    "min_split": {"env": "SIMMER_MERT_MIN_SPLIT", "default": 0.60, "type": float},
+    "max_trades_per_run": {"env": "SIMMER_MERT_MAX_TRADES_PER_RUN", "default": 5, "type": int},
+    "sizing_pct": {"env": "SIMMER_MERT_SIZING_PCT", "default": 0.05, "type": float},
+    "order_type": {"env": "SIMMER_MERT_ORDER_TYPE", "default": "GTC", "type": str},
+    "fee_buffer": {"env": "SIMMER_MERT_FEE_BUFFER", "default": 0.02, "type": float},
+    "min_edge": {"env": "SIMMER_MERT_MIN_EDGE", "default": 0.0, "type": float},
+    "enable_news_veto": {"env": "SIMMER_MERT_ENABLE_NEWS_VETO", "default": False, "type": bool},
+}
+
+_config = load_config(CONFIG_SCHEMA, __file__, slug="polymarket-mert-sniper")
+
+TRADE_SOURCE = "sdk:mertsniper"
+SKILL_SLUG = "polymarket-mert-sniper"
+_automaton_reported = False
+
+# Polymarket constraints
+MIN_SHARES_PER_ORDER = 5.0
+MIN_TICK_SIZE = 0.01
+
+# Strategy parameters
+MARKET_FILTER = _config["market_filter"]
+MAX_BET_USD = _config["max_bet_usd"]
+# Automaton budget isolation — cap max bet if managed
+_automaton_max = os.environ.get("AUTOMATON_MAX_BET")
+if _automaton_max:
+    MAX_BET_USD = min(MAX_BET_USD, float(_automaton_max))
+EXPIRY_WINDOW_MINS = _config["expiry_window_mins"]
+MIN_SPLIT = _config["min_split"]
+MAX_TRADES_PER_RUN = _config["max_trades_per_run"]
+SMART_SIZING_PCT = _config["sizing_pct"]
+ORDER_TYPE = _config["order_type"]
+ENABLE_NEWS_VETO = _config["enable_news_veto"]
+
+# Safeguard thresholds
+SLIPPAGE_MAX_PCT = 0.15
+MIN_BOOK_DEPTH_USD = 50.0  # Skip if less than $50 available on the side we want
+
+# Polymarket crypto taker fee formula (docs.polymarket.com/trading/fees)
+# fee = num_shares × POLY_FEE_RATE_CRYPTO × p × (1-p)
+# Effective rate on dollars spent = POLY_FEE_RATE_CRYPTO × (1-p)
+POLY_FEE_RATE_CRYPTO = 0.07   # Crypto markets taker fee coefficient
+FEE_BUFFER = _config["fee_buffer"]  # Extra alpha required above entry fee cost
+MIN_EDGE = _config["min_edge"]      # Declared alpha above market price (0 = fee-logging only)
+
+# Polymarket CLOB API
+CLOB_API = "https://clob.polymarket.com"
+
+# =============================================================================
+# API Helpers
+# =============================================================================
+
+_client = None
+
+def get_client(live=True):
+    """Lazy-init SimmerClient singleton."""
+    global _client
+    if _client is None:
+        try:
+            from simmer_sdk import SimmerClient
+        except ImportError:
+            print("Error: simmer-sdk not installed. Run: pip install simmer-sdk")
+            sys.exit(1)
+        api_key = os.environ.get("SIMMER_API_KEY")
+        if not api_key:
+            print("Error: SIMMER_API_KEY environment variable not set")
+            print("Get your API key from: simmer.markets/dashboard -> SDK tab")
+            sys.exit(1)
+        venue = os.environ.get("TRADING_VENUE", "polymarket")
+        _client = SimmerClient(api_key=api_key, venue=venue, live=live)
+    return _client
+
+
+# =============================================================================
+# SDK Wrappers
+# =============================================================================
+
+def get_portfolio():
+    try:
+        return get_client().get_portfolio()
+    except Exception as e:
+        print(f"  Portfolio fetch failed: {e}")
+        return None
+
+
+def get_positions():
+    """Get current positions as list of dicts, filtered by venue."""
+    try:
+        client = get_client()
+        positions = client.get_positions(venue=client.venue)
+        from dataclasses import asdict
+        return [asdict(p) for p in positions]
+    except Exception as e:
+        print(f"  Error fetching positions: {e}")
+        return []
+
+
+def get_market_context(market_id):
+    try:
+        return get_client().get_market_context(market_id)
+    except Exception:
+        return None
+
+
+def check_context_safeguards(context):
+    """Check context for deal-breakers. Returns (should_trade, reasons)."""
+    if not context:
+        return True, []
+
+    reasons = []
+    warnings = context.get("warnings", [])
+    discipline = context.get("discipline", {})
+    slippage = context.get("slippage", {})
+
+    for warning in warnings:
+        if "MARKET RESOLVED" in str(warning).upper():
+            return False, ["Market already resolved"]
+
+    warning_level = discipline.get("warning_level", "none")
+    if warning_level == "severe":
+        return False, [f"Severe flip-flop warning: {discipline.get('flip_flop_warning', '')}"]
+    elif warning_level == "mild":
+        reasons.append("Mild flip-flop warning (proceed with caution)")
+
+    estimates = slippage.get("estimates", []) if slippage else []
+    if estimates:
+        slippage_pct = estimates[0].get("slippage_pct", 0)
+        if slippage_pct > SLIPPAGE_MAX_PCT:
+            return False, [f"Slippage too high: {slippage_pct:.1%}"]
+
+    return True, reasons
+
+
+def execute_trade(market_id, side, amount, reasoning="", market_context=None):
+    try:
+        client = get_client()
+        if client.live:
+            pf = client.preflight(planned_amount=amount, exposure_cap_usd=0, venue=client.venue)
+            if not pf.ok_to_trade:
+                blockers = ", ".join(pf.blockers)
+                print(f"  ⛔ Preflight blocked: {blockers}")
+                return {"error": f"preflight_blocked: {blockers}"}
+        if ENABLE_NEWS_VETO:
+            vetoed, event = news_window_match(market_context or {"id": market_id}, load_macro_news_schedule())
+            if vetoed:
+                event_id = event.get("id") or event.get("name") or event.get("category") or "scheduled-news"
+                print(json.dumps({
+                    "event": "news_recency_veto",
+                    "market_id": market_id,
+                    "news_event_id": event_id,
+                    "skill": SKILL_SLUG,
+                }))
+                return {"error": "news_recency_veto", "event_id": event_id, "retryable": False}
+        result = client.trade(
+            market_id=market_id,
+            side=side,
+            amount=amount,
+            source=TRADE_SOURCE, skill_slug=SKILL_SLUG,
+            reasoning=reasoning,
+            order_type=ORDER_TYPE,
+        )
+        return {
+            "success": result.success,
+            "trade_id": result.trade_id,
+            "shares_bought": result.shares_bought,
+            "shares": result.shares_bought,
+            "error": result.error,
+            "simulated": result.simulated,
+            "retryable": result.retryable,
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def calculate_position_size(default_size, smart_sizing):
+    if not smart_sizing:
+        return default_size
+
+    portfolio = get_portfolio()
+    if not portfolio:
+        print(f"  Smart sizing failed, using default ${default_size:.2f}")
+        return default_size
+
+    balance = portfolio.get("balance_usdc", 0)
+    if balance <= 0:
+        print(f"  No available balance, using default ${default_size:.2f}")
+        return default_size
+
+    smart_size = balance * SMART_SIZING_PCT
+    smart_size = min(smart_size, MAX_BET_USD)
+    smart_size = max(smart_size, 1.0)
+    print(f"  Smart sizing: ${smart_size:.2f} ({SMART_SIZING_PCT:.0%} of ${balance:.2f} balance)")
+    return smart_size
+
+
+# =============================================================================
+# Polymarket CLOB Helpers
+# =============================================================================
+
+def _clob_request(url, timeout=5):
+    """Fetch JSON from Polymarket CLOB API."""
+    try:
+        req = Request(url, headers={"User-Agent": "mert-sniper/1.1"})
+        with urlopen(req, timeout=timeout) as resp:
+            return json.loads(resp.read())
+    except Exception:
+        return None
+
+
+def _lookup_fee_rate(token_id):
+    """Fetch taker fee rate (bps) from Polymarket CLOB for a token. Returns 0 on failure."""
+    result = _clob_request(f"{CLOB_API}/fee-rate?token_id={quote(str(token_id))}")
+    if not result or not isinstance(result, dict):
+        return 0
+    try:
+        return int(float(result.get("base_fee") or 0))
+    except (ValueError, TypeError):
+        return 0
+
+
+def fetch_live_midpoint(token_id):
+    """Fetch live midpoint price from Polymarket CLOB for the YES token."""
+    result = _clob_request(f"{CLOB_API}/midpoint?token_id={quote(str(token_id))}")
+    if not result or not isinstance(result, dict):
+        return None
+    try:
+        return float(result["mid"])
+    except (KeyError, ValueError, TypeError):
+        return None
+
+
+def fetch_orderbook_summary(token_id):
+    """Fetch order book and return spread + depth summary.
+
+    Returns dict with best_bid, best_ask, spread_pct, bid_depth_usd, ask_depth_usd
+    or None on failure.
+    """
+    result = _clob_request(f"{CLOB_API}/book?token_id={quote(str(token_id))}")
+    if not result or not isinstance(result, dict):
+        return None
+
+    bids = result.get("bids", [])
+    asks = result.get("asks", [])
+    if not bids or not asks:
+        return None
+
+    try:
+        best_bid = float(bids[0]["price"])
+        best_ask = float(asks[0]["price"])
+        spread = best_ask - best_bid
+        mid = (best_ask + best_bid) / 2
+        spread_pct = spread / mid if mid > 0 else 0
+
+        # Sum depth (top 5 levels)
+        bid_depth = sum(float(b.get("size", 0)) * float(b.get("price", 0)) for b in bids[:5])
+        ask_depth = sum(float(a.get("size", 0)) * float(a.get("price", 0)) for a in asks[:5])
+
+        return {
+            "best_bid": best_bid,
+            "best_ask": best_ask,
+            "spread_pct": spread_pct,
+            "bid_depth_usd": bid_depth,
+            "ask_depth_usd": ask_depth,
+        }
+    except (KeyError, ValueError, IndexError, TypeError):
+        return None
+
+
+# =============================================================================
+# Market Fetching
+# =============================================================================
+
+def fetch_markets(market_filter=""):
+    """Fetch markets from Simmer API with optional filter."""
+    try:
+        params = {"status": "active", "limit": 200}
+        if market_filter:
+            params["tags"] = market_filter
+
+        result = get_client()._request("GET", "/api/sdk/markets", params=params)
+        markets = result.get("markets", [])
+
+        # If tag filter returned nothing, try text search
+        if not markets and market_filter:
+            params.pop("tags", None)
+            params["q"] = market_filter
+            result = get_client()._request("GET", "/api/sdk/markets", params=params)
+            markets = result.get("markets", [])
+
+        return markets
+    except Exception as e:
+        print(f"  Failed to fetch markets: {e}")
+        return []
+
+
+def is_fast_market_question(question):
+    """Detect fast markets from question text (e.g., 'BTC Up or Down - Feb 27, 9:25AM-9:30AM ET')."""
+    return bool(re.search(r'\d{1,2}:\d{2}\s*[AP]M\s*-\s*\d{1,2}:\d{2}\s*[AP]M', question, re.IGNORECASE))
+
+
+def has_suspicious_resolves_at(resolves_at_str):
+    """Detect date-only fallback timestamps (23:59:59 or 00:00:00) that indicate missing precision.
+    Note: Only use gated behind is_fast_market_question() — midnight is valid for non-fast markets."""
+    if not resolves_at_str:
+        return True
+    return '23:59:59' in str(resolves_at_str) or str(resolves_at_str).endswith('00:00:00')
+
+
+def parse_resolves_at(resolves_at_str):
+    """Parse resolves_at string to datetime. Returns None if unparseable."""
+    if not resolves_at_str:
+        return None
+    try:
+        # Handle various ISO formats
+        s = resolves_at_str.replace("Z", "+00:00")
+        dt = datetime.fromisoformat(s)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    except (ValueError, TypeError):
+        return None
+
+
+def format_duration(minutes):
+    """Format minutes into human-readable string."""
+    if minutes < 1:
+        seconds = int(minutes * 60)
+        return f"{seconds}s"
+    if minutes < 60:
+        m = int(minutes)
+        s = int((minutes - m) * 60)
+        return f"{m}m {s}s" if s > 0 else f"{m}m"
+    hours = int(minutes // 60)
+    mins = int(minutes % 60)
+    return f"{hours}h {mins}m"
+
+
+# =============================================================================
+# Main Strategy Logic
+# =============================================================================
+
+def run_mert_strategy(dry_run=True, positions_only=False, show_config=False,
+                      smart_sizing=False, use_safeguards=True,
+                      filter_override=None, expiry_override=None):
+    """Run the Mert Sniper near-expiry strategy."""
+    # Globals declared up-front: balance pre-flight (below) may cap MAX_BET_USD,
+    # and automaton skip reports flip _automaton_reported.
+    global MAX_BET_USD, _automaton_reported
+    print("🎯 Mert Sniper - Near-Expiry Conviction Trading")
+    print("=" * 50)
+
+    market_filter = filter_override if filter_override is not None else MARKET_FILTER
+    expiry_mins = expiry_override if expiry_override is not None else EXPIRY_WINDOW_MINS
+
+    # Initialize client early (paper mode when not live)
+    client = get_client(live=not dry_run)
+
+    # Redeem any winning positions before starting the cycle
+    try:
+        redeemed = client.auto_redeem()
+        for r in redeemed:
+            if r.get("success"):
+                print(f"  💰 Redeemed {r['market_id'][:8]}... ({r.get('side', '?')})")
+    except Exception:
+        pass  # Non-critical — don't block trading
+
+    # Balance pre-flight: skip cleanly when wallet is underfunded instead of
+    # looping on rejected trades. Helper is collateral-agnostic — checks pUSD
+    # on V2, USDC.e on V1 per server's exchange_version.
+    if not dry_run:
+        _preflight = client.ensure_can_trade(min_usd=1.0)
+        if not _preflight["ok"]:
+            print(f"  ⏸️  insufficient_balance: ${_preflight['balance']:.2f} {_preflight['collateral']} "
+                  f"(need ≥ $1.00) — skip")
+            if os.environ.get("AUTOMATON_MANAGED"):
+                print(json.dumps({"automaton": {
+                    "signals": 0, "trades_attempted": 0, "trades_executed": 0,
+                    "skip_reason": _preflight["reason"],
+                    "balance_usd": round(_preflight["balance"], 2),
+                }}))
+                _automaton_reported = True
+            return
+        if _preflight["max_safe_size"] < MAX_BET_USD:
+            print(f"  💰 Capping max bet ${MAX_BET_USD:.2f} → ${_preflight['max_safe_size']:.2f} "
+                  f"(balance ${_preflight['balance']:.2f} {_preflight['collateral']})")
+            MAX_BET_USD = _preflight["max_safe_size"]
+
+    if dry_run:
+        print("\n  [PAPER MODE] Trades will be simulated with real prices. Use --live for real trades.")
+
+    print(f"\n  Configuration:")
+    print(f"  Filter:        {market_filter or '(all markets)'}")
+    print(f"  Max bet:       ${MAX_BET_USD:.2f}")
+    print(f"  Expiry window: {expiry_mins} minute{'s' if expiry_mins != 1 else ''}")
+    print(f"  Min split:     {MIN_SPLIT:.0%}/{1-MIN_SPLIT:.0%}")
+    print(f"  Max trades:    {MAX_TRADES_PER_RUN}")
+    print(f"  Smart sizing:  {'Enabled' if smart_sizing else 'Disabled'}")
+    print(f"  Safeguards:    {'Enabled' if use_safeguards else 'Disabled'}")
+
+    if show_config:
+        config_path = get_config_path(__file__)
+        print(f"\n  Config file: {config_path}")
+        print(f"  Config exists: {'Yes' if config_path.exists() else 'No'}")
+        print("\n  To change settings, either:")
+        print('  1. Edit config.json: {"max_bet_usd": 5.00, "min_split": 0.65}')
+        print("  2. Use --set: python mert_sniper.py --set max_bet_usd=5.00")
+        print("  3. Set env vars: SIMMER_MERT_MAX_BET_USD=5.00")
+        return
+
+    # Show portfolio if smart sizing
+    if smart_sizing:
+        print("\n  Portfolio:")
+        portfolio = get_portfolio()
+        if portfolio:
+            print(f"  Balance: ${portfolio.get('balance_usdc', 0):.2f}")
+            print(f"  Exposure: ${portfolio.get('total_exposure', 0):.2f}")
+            print(f"  Positions: {portfolio.get('positions_count', 0)}")
+
+    if positions_only:
+        print("\n  Current Positions:")
+        positions = get_positions()
+        if not positions:
+            print("  No open positions")
+        else:
+            for pos in positions:
+                question = pos.get("question", "Unknown")[:50]
+                sources = pos.get("sources") or []
+                print(f"  - {question}...")
+                print(f"    YES: {pos.get('shares_yes', 0):.1f} | NO: {pos.get('shares_no', 0):.1f} | P&L: ${pos.get('pnl', 0):.2f} | Sources: {sources}")
+        return
+
+    # Fetch markets
+    print(f"\n  Fetching markets{' (filter: ' + market_filter + ')' if market_filter else ''}...")
+    markets = fetch_markets(market_filter)
+    print(f"  Found {len(markets)} active markets")
+
+    if not markets:
+        print("  No markets available")
+        return
+
+    # Filter by expiry window. Prefer the API's server-computed
+    # seconds_to_resolution over local wall-clock: immune to host clock skew,
+    # and deterministic under replay (where "now" is the server's frozen tick,
+    # not this process's datetime.now()).
+    now = datetime.now(timezone.utc)
+    expiring_markets = []
+
+    for market in markets:
+        # Guard: skip fast markets with unreliable resolves_at (date-only fallback)
+        question = market.get("question", "")
+        if is_fast_market_question(question) and has_suspicious_resolves_at(market.get("resolves_at")):
+            continue
+
+        resolves_at = parse_resolves_at(market.get("resolves_at"))
+        if not resolves_at:
+            continue
+
+        # Strict numeric check: bool is an int subclass (float(True) would read
+        # as ~1s to expiry), and strings/NaN/inf signal a schema bug — all of
+        # those fall back to the wall-clock path instead of being trusted.
+        secs = market.get("seconds_to_resolution")
+        if isinstance(secs, (int, float)) and not isinstance(secs, bool) and math.isfinite(secs):
+            minutes_remaining = secs / 60
+        else:
+            minutes_remaining = (resolves_at - now).total_seconds() / 60
+
+        # Must be within window and not already past
+        if 0 < minutes_remaining <= expiry_mins:
+            market["_minutes_remaining"] = minutes_remaining
+            market["_resolves_at"] = resolves_at
+            expiring_markets.append(market)
+
+    print(f"\n  Markets expiring within {expiry_mins} minute{'s' if expiry_mins != 1 else ''}: {len(expiring_markets)}")
+
+    if not expiring_markets:
+        print("\n" + "=" * 50)
+        print("  Summary:")
+        print(f"  Markets scanned: {len(markets)}")
+        print(f"  Near expiry:     0")
+        if dry_run:
+            print("\n  [PAPER MODE - trades simulated with real prices]")
+        return
+
+    # Sort by soonest expiry
+    expiring_markets.sort(key=lambda m: m["_minutes_remaining"])
+
+    # Calculate position size once (avoids repeated portfolio API calls)
+    position_size = calculate_position_size(MAX_BET_USD, smart_sizing)
+
+    trades_executed = 0
+    total_usd_spent = 0.0
+    strong_split_count = 0
+    skip_reasons = []
+    execution_errors = []
+
+    for market in expiring_markets:
+        market_id = market.get("id")
+        question = market.get("question", "Unknown")
+        oracle_price = market.get("current_probability") or 0.5
+        yes_token_id = market.get("polymarket_token_id")
+        mins_left = market["_minutes_remaining"]
+
+        print(f"\n  {question[:60]}{'...' if len(question) > 60 else ''}")
+        print(f"     Resolves in: {format_duration(mins_left)}")
+        print(f"     Oracle: YES {oracle_price:.0%} / NO {1-oracle_price:.0%}")
+
+        # Fetch live CLOB midpoint — this is the actual market price
+        live_price = None
+        if yes_token_id:
+            live_price = fetch_live_midpoint(yes_token_id)
+
+        if live_price is not None:
+            price = live_price
+            print(f"     CLOB:   YES {price:.0%} / NO {1-price:.0%}")
+        else:
+            price = oracle_price
+            print(f"     CLOB:   unavailable, using oracle price")
+
+        # Check split threshold
+        if price < MIN_SPLIT and price > (1 - MIN_SPLIT):
+            print(f"     Skip: split too narrow ({price:.0%}/{1-price:.0%}, need {MIN_SPLIT:.0%}+)")
+            continue
+
+        strong_split_count += 1
+
+        # Determine side (back the favorite)
+        if price >= MIN_SPLIT:
+            side = "yes"
+            side_price = price
+        else:
+            side = "no"
+            side_price = 1 - price
+
+        print(f"     Side: {side.upper()} ({side_price:.0%} >= {MIN_SPLIT:.0%})")
+
+        # Price sanity check
+        if side_price < MIN_TICK_SIZE or side_price > (1 - MIN_TICK_SIZE):
+            print(f"     Skip: price at extreme (${side_price:.4f})")
+            skip_reasons.append("price at extreme")
+            continue
+
+        # Check order book depth
+        if yes_token_id:
+            book = fetch_orderbook_summary(yes_token_id)
+            if book:
+                # Buying YES = consuming asks; buying NO (via YES book) = consuming bids
+                depth_key = "ask_depth_usd" if side == "yes" else "bid_depth_usd"
+                available_depth = book[depth_key]
+                print(f"     Book:  spread {book['spread_pct']:.1%} | bid ${book['bid_depth_usd']:.0f} | ask ${book['ask_depth_usd']:.0f}")
+                if available_depth < MIN_BOOK_DEPTH_USD:
+                    print(f"     Skip: thin book (${available_depth:.0f} < ${MIN_BOOK_DEPTH_USD:.0f} min)")
+                    skip_reasons.append("thin book")
+                    continue
+            else:
+                print(f"     Book:  unavailable (proceeding with caution)")
+
+        # Fee-aware EV check (entry fee only — Polymarket binary redemption is free).
+        # mert-sniper has no external price signal, so "divergence from neutral" is not a
+        # meaningful edge metric here. Instead, gate on MIN_EDGE: the alpha the user declares
+        # above the market price. At default MIN_EDGE=0 the gate is advisory (logs fee cost
+        # only); set SIMMER_MERT_MIN_EDGE to your signal's claimed edge to activate blocking.
+        fee_rate_bps = _lookup_fee_rate(yes_token_id) if yes_token_id else 0
+        fee_per_share = POLY_FEE_RATE_CRYPTO * side_price * (1 - side_price)
+        min_edge_required = fee_per_share + FEE_BUFFER  # entry fee + buffer (no × 2 — redemption is free)
+        fee_note = "" if fee_rate_bps else " [fee_rate unavailable]"
+        gate_str = f"declared edge {MIN_EDGE:.3f} vs required {min_edge_required:.3f}"
+        print(f"     Fee:   ${fee_per_share:.4f}/share ({POLY_FEE_RATE_CRYPTO * (1 - side_price):.2%} on spend) | {gate_str}{fee_note}")
+        if MIN_EDGE > 0 and MIN_EDGE < min_edge_required:
+            print(f"     Skip: declared edge {MIN_EDGE:.3f} < fee cost {min_edge_required:.3f} (fees eat the edge)")
+            skip_reasons.append("fees eat the edge")
+            continue
+
+        # Safeguards
+        if use_safeguards:
+            context = get_market_context(market_id)
+            should_trade, reasons = check_context_safeguards(context)
+            if not should_trade:
+                print(f"     Safeguard blocked: {'; '.join(reasons)}")
+                skip_reasons.append(f"safeguard: {reasons[0]}")
+                continue
+            if reasons:
+                print(f"     Warnings: {'; '.join(reasons)}")
+
+        if ENABLE_NEWS_VETO:
+            market_for_veto = {
+                "id": market_id,
+                "question": question,
+                "category": market.get("category") or market.get("tag"),
+            }
+            vetoed, event = news_window_match(market_for_veto, load_macro_news_schedule())
+            if vetoed:
+                event_id = event.get("id") or event.get("name") or event.get("category") or "scheduled-news"
+                print(f"     News-recency veto: {event_id} fired within the last 30s")
+                skip_reasons.append("news-recency veto")
+                continue
+
+        # Rate limit
+        if trades_executed >= MAX_TRADES_PER_RUN:
+            print(f"     Max trades ({MAX_TRADES_PER_RUN}) reached - skipping")
+            skip_reasons.append("max trades reached")
+            continue
+
+        # Check minimum order size
+        min_cost = MIN_SHARES_PER_ORDER * side_price
+        if min_cost > position_size:
+            print(f"     Skip: ${position_size:.2f} too small for {MIN_SHARES_PER_ORDER} shares at ${side_price:.2f}")
+            skip_reasons.append("position too small")
+            continue
+
+        reasoning = f"Near-expiry snipe: {side.upper()} at {side_price:.0%} with {format_duration(mins_left)} to resolution"
+
+        tag = "SIMULATED" if dry_run else "LIVE"
+        print(f"     Executing trade ({tag})...")
+        result = execute_trade(
+            market_id,
+            side,
+            position_size,
+            reasoning=reasoning,
+            market_context=market_for_veto if ENABLE_NEWS_VETO else None,
+        )
+
+        if result.get("success"):
+            trades_executed += 1
+            total_usd_spent += position_size
+            shares = result.get("shares_bought") or result.get("shares") or 0
+            print(f"     {'[PAPER] ' if result.get('simulated') else ''}Bought {shares:.1f} {side.upper()} shares @ ${side_price:.2f}")
+        else:
+            error = result.get("error", "Unknown error")
+            if not result.get("retryable", True):
+                print(f"     ⛔ Trade aborted (position cleared on-chain — no retry): {error}")
+            else:
+                print(f"     Trade failed: {error}")
+            execution_errors.append(error[:120])
+
+    # Summary
+    print("\n" + "=" * 50)
+    print("  Summary:")
+    print(f"  Markets scanned: {len(markets)}")
+    print(f"  Near expiry:     {len(expiring_markets)}")
+    print(f"  Strong split:    {strong_split_count}")
+    print(f"  Trades executed: {trades_executed}")
+
+    # Structured report for automaton
+    if os.environ.get("AUTOMATON_MANAGED"):
+        report = {"signals": strong_split_count, "trades_attempted": strong_split_count, "trades_executed": trades_executed, "amount_usd": round(total_usd_spent, 2)}
+        if strong_split_count > 0 and trades_executed == 0 and skip_reasons:
+            report["skip_reason"] = ", ".join(dict.fromkeys(skip_reasons))
+        if execution_errors:
+            report["execution_errors"] = execution_errors
+        print(json.dumps({"automaton": report}))
+        _automaton_reported = True
+
+    if dry_run:
+        print("\n  [PAPER MODE - trades simulated with real prices]")
+
+
+# =============================================================================
+# CLI Entry Point
+# =============================================================================
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Mert Sniper - Near-Expiry Conviction Trading")
+    parser.add_argument("--live", action="store_true", help="Execute real trades (default is dry-run)")
+    parser.add_argument("--dry-run", action="store_true", help="(Default) Show opportunities without trading")
+    parser.add_argument("--positions", action="store_true", help="Show current positions only")
+    parser.add_argument("--config", action="store_true", help="Show current config")
+    parser.add_argument("--filter", type=str, default=None, help="Override market filter (tag or keyword)")
+    parser.add_argument("--expiry", type=int, default=None, help="Override expiry window in minutes")
+    parser.add_argument("--set", action="append", metavar="KEY=VALUE",
+                        help="Set config value (e.g., --set max_bet_usd=5.00)")
+    parser.add_argument("--smart-sizing", action="store_true", help="Use portfolio-based position sizing")
+    parser.add_argument("--no-safeguards", action="store_true", help="Disable context safeguards")
+    parser.add_argument("--quiet", "-q", action="store_true", help="Only output on trades/errors")
+    args = parser.parse_args()
+
+    # Handle --set config updates
+    if args.set:
+        updates = {}
+        for item in args.set:
+            if "=" in item:
+                key, value = item.split("=", 1)
+                if key in CONFIG_SCHEMA:
+                    type_fn = CONFIG_SCHEMA[key].get("type", str)
+                    try:
+                        if type_fn == bool:
+                            value = value.lower() in ("true", "1", "yes")
+                        else:
+                            value = type_fn(value)
+                    except (ValueError, TypeError):
+                        pass
+                updates[key] = value
+        if updates:
+            updated = update_config(updates, __file__)
+            print(f"  Config updated: {updates}")
+            print(f"  Saved to: {get_config_path(__file__)}")
+            _config = load_config(CONFIG_SCHEMA, __file__, slug="polymarket-mert-sniper")
+            globals()["MARKET_FILTER"] = _config["market_filter"]
+            globals()["MAX_BET_USD"] = _config["max_bet_usd"]
+            globals()["EXPIRY_WINDOW_MINS"] = _config["expiry_window_mins"]
+            globals()["MIN_SPLIT"] = _config["min_split"]
+            globals()["MAX_TRADES_PER_RUN"] = _config["max_trades_per_run"]
+            globals()["SMART_SIZING_PCT"] = _config["sizing_pct"]
+            globals()["ENABLE_NEWS_VETO"] = _config["enable_news_veto"]
+
+    dry_run = not args.live
+
+    run_mert_strategy(
+        dry_run=dry_run,
+        positions_only=args.positions,
+        show_config=args.config,
+        smart_sizing=args.smart_sizing,
+        use_safeguards=not args.no_safeguards,
+        filter_override=args.filter,
+        expiry_override=args.expiry,
+    )
+
+    # Fallback report for automaton if the strategy returned early (no signal)
+    if os.environ.get("AUTOMATON_MANAGED") and not _automaton_reported:
+        print(json.dumps({"automaton": {"signals": 0, "trades_attempted": 0, "trades_executed": 0, "skip_reason": "no_signal"}}))
