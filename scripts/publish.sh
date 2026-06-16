@@ -117,8 +117,12 @@ TMP_DIR="/tmp/$NAME"
 rm -rf "$TMP_DIR"
 cp -r "$SKILL_DIR" "$TMP_DIR"
 
-# Clean up unwanted files
-rm -rf "$TMP_DIR/__pycache__" "$TMP_DIR"/.* 2>/dev/null || true
+# Clean up unwanted files. The old top-level-only rm missed NESTED caches
+# (e.g. tests/__pycache__), so a stale 90KB .pyc shipped in the copytrader
+# 0.1.1 bundle. Prune every __pycache__ dir + loose .pyc/.pyo recursively.
+find "$TMP_DIR" -type d -name __pycache__ -prune -exec rm -rf {} + 2>/dev/null || true
+find "$TMP_DIR" -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete 2>/dev/null || true
+rm -rf "$TMP_DIR"/.* 2>/dev/null || true
 
 FILE_COUNT=$(find "$TMP_DIR" -type f | wc -l)
 echo "   Files: $FILE_COUNT"
