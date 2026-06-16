@@ -71,6 +71,29 @@ def test_validation_dw_requires_address():
                        leg_position_ids=LEGS, size_usdc=1.0, signature_type=3, dry_run=True)
 
 
+def test_dw_live_is_gated():
+    """A live DW combo (sig3, dry_run=False) is blocked with a clear message
+    until Polymarket whitelists the combo exchange on the DW relayer."""
+    with pytest.raises(cb.ComboPlacementError, match="not available yet"):
+        cb.place_combo(
+            creds={"apiKey": "k", "secret": "s", "passphrase": "p"},
+            private_key=TEST_PK, eoa_address=TEST_EOA,
+            leg_position_ids=LEGS, size_usdc=1.0, signature_type=3,
+            deposit_wallet_address=TEST_DW, dry_run=False,  # live
+        )
+
+
+def test_dw_dry_run_still_works():
+    """DW dry-run is NOT gated — it shows the plan (no money, no socket)."""
+    plan = cb.place_combo(
+        creds={}, private_key=TEST_PK, eoa_address=TEST_EOA,
+        leg_position_ids=LEGS, size_usdc=1.0, signature_type=3,
+        deposit_wallet_address=TEST_DW, dry_run=True,
+    )
+    assert plan["dry_run"] is True
+    assert plan["identity"]["signature_type"] == 3
+
+
 def test_signed_order_wire_shape():
     order = cs.build_and_sign_combo_order_dw(
         private_key=TEST_PK, eoa_address=TEST_EOA, deposit_wallet_address=TEST_DW,

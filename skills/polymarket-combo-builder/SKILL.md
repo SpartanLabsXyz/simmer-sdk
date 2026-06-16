@@ -68,14 +68,24 @@ configured wallet (`WALLET_PRIVATE_KEY`) and a live Simmer client.
 
 ## Wallet support
 
-- **EOA** (`signature_type 0`): standard self-custody key.
-- **Deposit wallet** (`signature_type 3` / POLY_1271): the managed-style
-  deposit-wallet cohort. The skill resolves your cohort automatically from your
-  Simmer wallet state and signs the correct way (`maker == signer == deposit
-  wallet`, ERC-7739-wrapped).
+- **EOA** (`signature_type 0`): standard self-custody key. **Works today.**
+- **Deposit wallet** (`signature_type 3` / POLY_1271): signing works, but live
+  combos are **not yet available** — see below.
 
 OWS-signed wallets are not yet supported for combos — use a raw
 `WALLET_PRIVATE_KEY` (the deposit-wallet owner key) for now.
+
+### ⚠️ Deposit wallets: not enabled yet (pending Polymarket)
+
+Combos settle on a separate exchange that your wallet must approve first. A
+**deposit wallet** can only approve contracts through Polymarket's relayer
+(its `execute` is `onlyFactory` → `onlyOperator`), and that relayer **doesn't
+yet permit approving the combo exchange** — so a deposit-wallet combo signs
+correctly but would fail at on-chain settlement. The skill detects this and
+**blocks a live deposit-wallet combo with a clear message** rather than letting
+it fail confusingly. This auto-resolves once Polymarket whitelists the combo
+exchange on the deposit-wallet relayer. **EOA / self-custody wallets are
+unaffected and work today.** (Dry-run works for all wallet types.)
 
 ## Notes
 

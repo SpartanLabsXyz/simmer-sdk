@@ -1190,6 +1190,7 @@ class SimmerClient:
         builder_code: Optional[str] = None,
         max_retries: int = 2,
         on_status: Optional[Callable[[str], None]] = None,
+        allow_deposit_wallet: bool = False,
     ) -> Dict[str, Any]:
         """Place a Polymarket combo (parlay) via the requester RFQ gateway.
 
@@ -1209,6 +1210,13 @@ class SimmerClient:
 
         OWS-signed wallets are not yet supported for combos — raw-key /
         external-EOA (incl. deposit-wallet owner key) only for now.
+
+        **Deposit-wallet limitation:** DW combos sign correctly but a DW can't
+        yet APPROVE the combo exchange (Polymarket's relayer rejects it —
+        DW.execute is onlyFactory->Factory.proxy onlyOperator), so a live DW
+        combo is blocked with a clear error until Polymarket whitelists the
+        combo exchange on the deposit-wallet relayer. EOA wallets work today.
+        Pass ``allow_deposit_wallet=True`` to override once that's enabled.
 
         Args:
             leg_position_ids: chosen-side CTF token id per leg (>= 2), from
@@ -1266,6 +1274,7 @@ class SimmerClient:
             deposit_wallet_address=dw, signature_type=signature_type,
             direction=direction, side=side, builder_code=builder_code,
             max_retries=max_retries, on_status=on_status, dry_run=dry_run,
+            allow_deposit_wallet=allow_deposit_wallet,
         )
 
     def _cancel_orders_for_token(self, token_id: str):

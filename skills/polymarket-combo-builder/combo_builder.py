@@ -102,11 +102,16 @@ def run(live: bool):
         return
 
     print("=== LIVE — placing combo (money path) ===")
-    result = client.place_combo(
-        leg_position_ids=leg_ids, size_usdc=stake, side=side,
-        direction=direction, dry_run=False,
-        on_status=lambda s: print(f"  [{s}]"),
-    )
+    from simmer_sdk.combo import ComboPlacementError
+    try:
+        result = client.place_combo(
+            leg_position_ids=leg_ids, size_usdc=stake, side=side,
+            direction=direction, dry_run=False,
+            on_status=lambda s: print(f"  [{s}]"),
+        )
+    except ComboPlacementError as e:
+        # Most common: deposit-wallet combos aren't enabled yet (see below).
+        sys.exit(f"\nCombo not placed: {e}")
     print("Result:")
     print(json.dumps(result, indent=2))
     if result.get("tx_hash"):

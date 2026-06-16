@@ -267,6 +267,7 @@ def place_combo(
     max_retries: int = 2,
     on_status: Optional[Callable[[str], None]] = None,
     dry_run: bool = True,
+    allow_deposit_wallet: bool = False,
 ) -> Dict[str, Any]:
     """Place a combo via the requester RFQ WebSocket.
 
@@ -306,6 +307,28 @@ def place_combo(
     }
     if dry_run:
         return plan
+
+    # Deposit-wallet gate. DW combo *identity + signing* work, but a DW cannot
+    # APPROVE the combo exchange: DepositWallet.execute is onlyFactory and
+    # DepositWalletFactory.proxy is onlyOperator (Polymarket's relayer only),
+    # and that relayer rejects approvals to the combo exchange 0xe333…
+    # ("operator not in the allowed list"). So a DW combo signs fine but fails
+    # at on-chain settlement on missing allowance. Block it with a clear
+    # message instead of a confusing settlement failure. Auto-overridable:
+    # once Polymarket whitelists 0xe333 on the DW relayer and the DW is
+    # approved, pass allow_deposit_wallet=True. (Verified 2026-06-16.)
+    if signature_type == 3 and not allow_deposit_wallet:
+        raise ComboPlacementError(
+            "Deposit-wallet combos are not available yet. A deposit wallet can "
+            "only approve contracts via Polymarket's relayer (DW.execute is "
+            "onlyFactory -> Factory.proxy is onlyOperator), and that relayer "
+            "currently rejects approvals to the combo exchange 0xe3333700…  "
+            "('operator not in the allowed list'). So the order would sign but "
+            "fail at settlement on a missing allowance. EOA / self-custody "
+            "wallets work today. This auto-resolves once Polymarket whitelists "
+            "the combo exchange on the deposit-wallet relayer; pass "
+            "allow_deposit_wallet=True to override once your DW is approved."
+        )
 
     return asyncio.run(_place_combo_ws(
         creds=creds, private_key=private_key, eoa_address=eoa_address,
