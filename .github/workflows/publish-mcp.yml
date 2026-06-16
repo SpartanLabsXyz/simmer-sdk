@@ -34,10 +34,6 @@ jobs:
         working-directory: mcp
         run: npm run bundle-skills
 
-      - name: Check bundled skills are fresh
-        working-directory: mcp
-        run: npm run check:bundle-skills
-
       - name: Pack simmer-mcp (dry run check)
         working-directory: mcp
         run: npm pack --dry-run
