@@ -61,6 +61,8 @@ You follow this set, not wallets you chose yourself.
    ```bash
    export SIMMER_API_KEY=...   # simmer.markets/dashboard → SDK tab
    ```
+   If your agent already registered via the `simmer` skill, `SIMMER_API_KEY` is
+   set from the registration response — the dashboard is only for recovering it.
 
 3. **Optional — Polymarket wallet key** (only for `--venue polymarket --live`):
    ```bash
