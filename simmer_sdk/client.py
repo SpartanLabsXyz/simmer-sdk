@@ -1877,19 +1877,37 @@ class SimmerClient:
         if not is_sell and amount <= 0:
             raise ValueError("amount required for buy orders")
 
-        # Validate decimal precision before submission.
-        # Maker (USDC) supports max 2 decimals; shares support max 5.
+        # Quantize to the venue's input precision before submission. Maker
+        # (USDC) accepts max 2 decimals; shares accept max 5. Planner / Kelly
+        # sizing produces full-precision floats (e.g. 16.489550245148255), so
+        # round here rather than rejecting — every skill would otherwise have
+        # to re-implement the same round() workaround (SIM-3272).
+        #
+        # This is INPUT quantization only. Tick-aware rounding of the on-chain
+        # maker/taker amounts stays in signing.py (round_price_to_tick +
+        # py-clob-client ROUNDING_CONFIG); the two layers are orthogonal and
+        # round different quantities, so this never double-rounds the order.
         if not is_sell:
-            if round(amount, 2) != amount:
+            quantized = round(amount, 2)
+            if quantized != amount:
+                logger.debug(
+                    "Rounding amount %s -> %s (USDC max 2 decimals)", amount, quantized
+                )
+                amount = quantized
+            if amount <= 0:
                 raise ValueError(
-                    f"amount {amount} has too many decimal places (max 2). "
-                    f"Use {round(amount, 2)} instead."
+                    f"amount rounds to {amount} (below $0.01) — too small to place an order"
                 )
         else:
-            if round(shares, 5) != shares:
+            quantized = round(shares, 5)
+            if quantized != shares:
+                logger.debug(
+                    "Rounding shares %s -> %s (max 5 decimals)", shares, quantized
+                )
+                shares = quantized
+            if shares <= 0:
                 raise ValueError(
-                    f"shares {shares} has too many decimal places (max 5). "
-                    f"Use {round(shares, 5)} instead."
+                    f"shares rounds to {shares} — too small to place an order"
                 )
 
         # Paper trading: simulate with real prices (no live API calls)

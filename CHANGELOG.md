@@ -3,6 +3,12 @@
 All notable changes to `simmer-sdk` are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.2] - 2026-06-16
+
+### Fixed
+
+- **`trade()` now rounds `amount`/`shares` to venue precision instead of rejecting full-precision floats (SIM-3272).** Previously `client.trade()` raised `ValueError` when the USDC `amount` had more than 2 decimals (or `shares` more than 5), forcing every skill to re-implement a `round(cost, 2)` workaround. Planner / Kelly sizing routinely produces values like `16.489550245148255`, which silently dropped trades on live runs (the World Cup copytrader lost 3/10 trades to this alone). `trade()` now quantizes `amount` to 2 decimals and `shares` to 5 before submission, logging at debug when it rounds. Sub-precision values that quantize to `0` are still rejected (can't place a `$0` order). This is input-precision quantization only — tick-aware rounding of the on-chain maker/taker amounts is unchanged and stays in `signing.py` (`round_price_to_tick` + py-clob-client `ROUNDING_CONFIG`); the two layers round different quantities and never double-round.
+
 ## [0.19.1] - 2026-06-15
 
 ### Fixed

@@ -1,4 +1,11 @@
-"""Tests for pre-submission decimal validation in SimmerClient.trade()."""
+"""Tests for pre-submission decimal quantization in SimmerClient.trade().
+
+The client rounds amount (USDC maker, max 2 decimals) and shares (taker, max 5
+decimals) to the venue's input precision instead of rejecting full-precision
+floats, so skills can pass raw planner/Kelly outputs without re-implementing the
+round() workaround (SIM-3272). Tick-aware rounding of the on-chain order amounts
+stays in signing.py — this layer only quantizes the human-facing inputs.
+"""
 
 import pytest
 
@@ -6,7 +13,11 @@ from simmer_sdk.client import SimmerClient
 
 
 def _make_client():
-    """Return a live-mode client with network calls stubbed out."""
+    """Return a live-mode client with network calls stubbed out.
+
+    The stubbed ``_request`` records the last payload so tests can assert what
+    amount/shares actually reached the wire after quantization.
+    """
     client = SimmerClient.__new__(SimmerClient)
     client.live = True
     client.venue = "polymarket"
@@ -17,69 +28,80 @@ def _make_client():
     client._approvals_warned = False
     client.ORDER_TYPES = {"FAK", "FOK", "GTC", "GTD"}
     client.VENUES = {"sim", "polymarket", "kalshi", "simmer"}
+
+    client.sent_payloads = []
+
+    def _fake_request(method, path, **kwargs):
+        if kwargs.get("json") is not None:
+            client.sent_payloads.append(kwargs["json"])
+        return {
+            "success": True, "trade_id": "t1", "market_id": "m1",
+            "side": "yes", "shares_bought": 10, "shares_requested": 10,
+            "order_status": "MATCHED", "cost": 10.00, "new_price": 0.5,
+            "position": {},
+        }
+
+    client._request = _fake_request
     return client
 
 
-def _fake_request(method, path, **kwargs):
-    return {
-        "success": True, "trade_id": "t1", "market_id": "m1",
-        "side": "yes", "shares_bought": 10, "shares_requested": 10,
-        "order_status": "MATCHED", "cost": 10.00, "new_price": 0.5,
-        "position": {},
-    }
-
-
-class TestAmountDecimalValidation:
-    """amount (maker USDC) must have max 2 decimal places."""
+class TestAmountDecimalQuantization:
+    """amount (maker USDC) is rounded to max 2 decimal places."""
 
     def test_exact_two_decimals_accepted(self):
         client = _make_client()
-        client._request = _fake_request
         result = client.trade("m1", "yes", amount=10.12)
         assert result.success
+        assert client.sent_payloads[-1]["amount"] == 10.12
 
     def test_integer_amount_accepted(self):
         client = _make_client()
-        client._request = _fake_request
         result = client.trade("m1", "yes", amount=10.0)
         assert result.success
+        assert client.sent_payloads[-1]["amount"] == 10.0
 
-    def test_three_decimals_rejected(self):
+    def test_three_decimals_rounded(self):
         client = _make_client()
-        client._request = _fake_request
-        with pytest.raises(ValueError, match="too many decimal places.*max 2"):
-            client.trade("m1", "yes", amount=10.123)
+        result = client.trade("m1", "yes", amount=10.123)
+        assert result.success
+        assert client.sent_payloads[-1]["amount"] == 10.12
 
-    def test_many_decimals_rejected(self):
+    def test_many_decimals_rounded(self):
+        """The exact value from the SIM-3265 live run."""
         client = _make_client()
-        client._request = _fake_request
-        with pytest.raises(ValueError, match="too many decimal places.*max 2"):
-            client.trade("m1", "yes", amount=5.333333333)
+        result = client.trade("m1", "yes", amount=16.489550245148255)
+        assert result.success
+        assert client.sent_payloads[-1]["amount"] == 16.49
 
-    def test_error_suggests_rounded_value(self):
+    def test_amount_rounding_to_zero_rejected(self):
+        """A sub-cent amount that quantizes to 0 must not place a $0 order."""
         client = _make_client()
-        client._request = _fake_request
-        with pytest.raises(ValueError, match="Use 10.12 instead"):
-            client.trade("m1", "yes", amount=10.123)
+        with pytest.raises(ValueError, match="too small to place an order"):
+            client.trade("m1", "yes", amount=0.004)
 
 
-class TestSharesDecimalValidation:
-    """shares (taker) must have max 5 decimal places."""
+class TestSharesDecimalQuantization:
+    """shares (taker) are rounded to max 5 decimal places."""
 
     def test_exact_five_decimals_accepted(self):
         client = _make_client()
-        client._request = _fake_request
         result = client.trade("m1", "yes", shares=1.23456, action="sell")
         assert result.success
+        assert client.sent_payloads[-1]["shares"] == 1.23456
 
-    def test_six_decimals_rejected(self):
+    def test_six_decimals_rounded(self):
         client = _make_client()
-        client._request = _fake_request
-        with pytest.raises(ValueError, match="too many decimal places.*max 5"):
-            client.trade("m1", "yes", shares=1.234567, action="sell")
+        result = client.trade("m1", "yes", shares=1.234567, action="sell")
+        assert result.success
+        assert client.sent_payloads[-1]["shares"] == 1.23457
 
     def test_integer_shares_accepted(self):
         client = _make_client()
-        client._request = _fake_request
         result = client.trade("m1", "yes", shares=5.0, action="sell")
         assert result.success
+        assert client.sent_payloads[-1]["shares"] == 5.0
+
+    def test_shares_rounding_to_zero_rejected(self):
+        client = _make_client()
+        with pytest.raises(ValueError, match="too small to place an order"):
+            client.trade("m1", "yes", shares=0.000004, action="sell")
