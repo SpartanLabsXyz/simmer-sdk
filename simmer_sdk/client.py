@@ -774,9 +774,12 @@ class SimmerClient:
                         raise RuntimeError(
                             f"Skill '{self._skill_slug}' entrypoint integrity check failed. "
                             f"Local hash ({local_hash[:12]}...) does not match published hash "
-                            f"({published_hash[:12]}...). The skill may have been modified or "
-                            f"the publisher released an update. "
-                            f"Run 'clawhub install {self._skill_slug}' to update."
+                            f"({published_hash[:12]}...). Either (a) the skill was modified "
+                            f"locally, (b) the publisher released an update — run "
+                            f"'clawhub install {self._skill_slug}' to update, or (c) you just "
+                            f"published this skill and the backend's content_hash hasn't synced "
+                            f"yet (it refreshes from ClawHub on an hourly job). If (c), wait for "
+                            f"the next sync or have an admin POST /api/admin/skills/sync."
                         )
 
                     logger.info(f"Skill '{self._skill_slug}' integrity verified")
@@ -4445,7 +4448,7 @@ class SimmerClient:
                     neg_risk=neg_risk,
                     tick_size=tick_size,
                     order_type=order_type,
-                    builder_code=None,  # picks up POLY_BUILDER_CODE env
+                    builder_code=None,  # None -> POLY_BUILDER_CODE env -> Simmer default (see signing.py)
                     metadata=None,
                     amount_usdc=amount_usdc,
                 )

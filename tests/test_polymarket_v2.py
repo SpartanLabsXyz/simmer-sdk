@@ -355,3 +355,38 @@ def test_v2_invalid_order_type_rejected():
             side="BUY", price=0.5, size=10,
             tick_size=0.01, order_type="GIBBERISH",
         )
+
+
+# ==================== Builder attribution default ====================
+# Volume routed through the Simmer SDK must attribute to Simmer's builder
+# profile by default (builder-program revenue share + leaderboard). Prior to
+# this, the default was zero bytes32, so external operators who never set
+# POLY_BUILDER_CODE shipped unattributed volume — the attribution gap found
+# 2026-06-16 (~half of volume is external/local-signed). Maker/Taker fee rates
+# on the builder profile are 0%, so attaching the code adds no user cost.
+
+
+def test_v2_default_builder_code_is_simmer(monkeypatch):
+    monkeypatch.delenv("POLY_BUILDER_CODE", raising=False)
+    from simmer_sdk.signing import SIMMER_BUILDER_CODE, ZERO_BYTES32
+    d = _v2_signed(side="BUY", price=0.5, size=10.0, order_type="GTC")
+    assert d["builder"] == SIMMER_BUILDER_CODE
+    assert d["builder"] != ZERO_BYTES32
+
+
+def test_v2_builder_code_resolution_order(monkeypatch):
+    """explicit arg > POLY_BUILDER_CODE env > Simmer default; explicit zero opts out."""
+    from simmer_sdk.signing import ZERO_BYTES32
+    custom = "0x" + "22" * 32
+    # explicit arg beats env
+    monkeypatch.setenv("POLY_BUILDER_CODE", "0x" + "33" * 32)
+    d1 = _v2_signed(side="BUY", price=0.5, size=10.0, order_type="GTC", builder_code=custom)
+    assert d1["builder"] == custom
+    # env beats Simmer default when no arg
+    monkeypatch.setenv("POLY_BUILDER_CODE", custom)
+    d2 = _v2_signed(side="BUY", price=0.5, size=10.0, order_type="GTC")
+    assert d2["builder"] == custom
+    # explicit zero opts out of attribution
+    monkeypatch.delenv("POLY_BUILDER_CODE", raising=False)
+    d3 = _v2_signed(side="BUY", price=0.5, size=10.0, order_type="GTC", builder_code=ZERO_BYTES32)
+    assert d3["builder"] == ZERO_BYTES32

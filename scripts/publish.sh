@@ -149,6 +149,31 @@ OUTPUT=$(npx clawhub@latest publish "$TMP_DIR" --version "$VERSION" --owner simm
 if [ $EXIT_CODE -eq 0 ]; then
   echo "✅ Published $NAME@$VERSION"
   echo "   $OUTPUT"
+
+  # Refresh the Simmer backend's skill registry so the SDK integrity check
+  # (which compares a local entrypoint hash against the backend's content_hash,
+  # synced from ClawHub only on the hourly crawl) doesn't block a freshly
+  # published skill for up to ~1h. Surfaced 2026-06-16: Herman's correct local
+  # 0.1.1 copytrader was blocked against a stale 0.1.0 backend hash.
+  # Fire-and-forget against the existing admin endpoint; needs an admin SDK key
+  # in SIMMER_ADMIN_API_KEY, otherwise we print the manual command.
+  SIMMER_API_BASE="${SIMMER_API_URL:-https://api.simmer.markets}"
+  if [ -n "${SIMMER_ADMIN_API_KEY:-}" ]; then
+    echo "   Refreshing Simmer backend skill registry (content_hash sync)…"
+    sync_code=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
+      "$SIMMER_API_BASE/api/admin/skills/sync" \
+      -H "Authorization: Bearer $SIMMER_ADMIN_API_KEY" 2>/dev/null || echo "000")
+    case "$sync_code" in
+      200|202) echo "   ✅ Backend sync triggered (HTTP $sync_code) — content_hash refreshes shortly." ;;
+      409)     echo "   ℹ️  Backend sync already running (HTTP 409) — it will pick up this publish." ;;
+      *)       echo "   ⚠️  Backend sync trigger returned HTTP $sync_code. Run manually:"
+               echo "      curl -X POST $SIMMER_API_BASE/api/admin/skills/sync -H \"Authorization: Bearer \$SIMMER_ADMIN_API_KEY\"" ;;
+    esac
+  else
+    echo "   ℹ️  SIMMER_ADMIN_API_KEY not set — the SDK integrity check may block this"
+    echo "      skill until the hourly backend sync runs. Refresh it now with:"
+    echo "      curl -X POST $SIMMER_API_BASE/api/admin/skills/sync -H \"Authorization: Bearer <admin SDK key>\""
+  fi
 else
   echo "❌ Publish failed:"
   echo "   $OUTPUT"

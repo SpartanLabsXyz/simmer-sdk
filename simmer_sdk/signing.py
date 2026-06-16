@@ -56,8 +56,20 @@ MIN_ORDER_SIZE_SHARES = 5
 # Zero address for open orders (anyone can fill)
 ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
 
-# Zero bytes32 — V2 default for metadata / builder when unset
+# Zero bytes32 — V2 default for metadata, and the opt-out value for builder.
 ZERO_BYTES32 = "0x" + "00" * 32
+
+# Simmer's public Polymarket builder-attribution code (bytes32). This is the
+# DEFAULT `builder` on every V2 order this SDK signs, so volume routed through
+# the Simmer SDK is attributed to Simmer's builder profile (builder-program
+# revenue share + leaderboard standing). It is NOT a secret: it is serialized
+# on-chain in every order, shown at polymarket.com/settings?tab=builder, and
+# published on Polymarket's builder leaderboard. Override per-order via the
+# `builder_code` argument or globally via the POLY_BUILDER_CODE env var; pass
+# ZERO_BYTES32 explicitly to opt out of attribution entirely.
+SIMMER_BUILDER_CODE = (
+    "0xed9222e433d100f617b2d2b125fd36f055ee6ebf792e44d2c522ed33e55697f8"
+)
 
 
 @dataclass
@@ -161,9 +173,12 @@ def build_and_sign_order(
         signature_type: Signature type (0=EOA default)
         tick_size: Market tick size (e.g., 0.01 or 0.001)
         fee_rate_bps: V1 only. Ignored on V2 (fees are match-time, not signed).
-        builder_code: V2 only. bytes32 hex for builder attribution. Reads env
-            `POLY_BUILDER_CODE` if None; defaults to zero bytes32 if unset.
-            Mint yours at polymarket.com/settings?tab=builder.
+        builder_code: V2 only. bytes32 hex for builder attribution. Resolution
+            order: this arg > `POLY_BUILDER_CODE` env > Simmer's default builder
+            code (`SIMMER_BUILDER_CODE`). So SDK-routed volume is attributed to
+            Simmer by default. To attribute to your own builder profile, mint a
+            code at polymarket.com/settings?tab=builder and pass it here or set
+            `POLY_BUILDER_CODE`; pass ZERO_BYTES32 to opt out of attribution.
         metadata: V2 only. bytes32 hex, default zero bytes32.
         amount_usdc: V2 FAK/FOK BUY only. Original USDC dollar amount. If
             provided, the V2 path routes through `build_market_order` with
@@ -443,9 +458,9 @@ def _build_and_sign_order_v2(
             f"Invalid order_type '{order_type}'. Must be FAK, FOK, GTC, or GTD."
         )
 
-    # Resolve builder_code: explicit arg > env > zero bytes32
+    # Resolve builder_code: explicit arg > env > Simmer default attribution
     if builder_code is None:
-        builder_code = os.getenv("POLY_BUILDER_CODE", "").strip() or ZERO_BYTES32
+        builder_code = os.getenv("POLY_BUILDER_CODE", "").strip() or SIMMER_BUILDER_CODE
     if not builder_code.startswith("0x"):
         builder_code = "0x" + builder_code
     if metadata is None:
@@ -1021,7 +1036,7 @@ def _build_and_sign_order_v2_dw(
     _builder_code = (
         builder_code
         or os.getenv("POLY_BUILDER_CODE", "").strip()
-        or ZERO_BYTES32
+        or SIMMER_BUILDER_CODE
     )
     if not _builder_code.startswith("0x"):
         _builder_code = "0x" + _builder_code
@@ -1387,7 +1402,7 @@ def build_and_sign_order_v2_dw_ows(
     _builder_code = (
         builder_code
         or os.getenv("POLY_BUILDER_CODE", "").strip()
-        or ZERO_BYTES32
+        or SIMMER_BUILDER_CODE
     )
     if not _builder_code.startswith("0x"):
         _builder_code = "0x" + _builder_code
