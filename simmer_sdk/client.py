@@ -4445,7 +4445,7 @@ class SimmerClient:
                     neg_risk=neg_risk,
                     tick_size=tick_size,
                     order_type=order_type,
-                    builder_code=None,  # picks up POLY_BUILDER_CODE env
+                    builder_code=None,  # None -> POLY_BUILDER_CODE env -> Simmer default (see signing.py)
                     metadata=None,
                     amount_usdc=amount_usdc,
                 )

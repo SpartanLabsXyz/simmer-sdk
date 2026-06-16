@@ -3,6 +3,12 @@
 All notable changes to `simmer-sdk` are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.0] - 2026-06-16
+
+### Changed
+
+- **V2 orders now default to Simmer's builder code for attribution (was zero bytes32).** Volume routed through the Simmer SDK is now attributed to Simmer's Polymarket builder profile by default (builder-program revenue share + leaderboard standing). Previously the `builder` field defaulted to zero unless the operator set `POLY_BUILDER_CODE`, so external/self-custody operators — roughly half of all SDK volume — shipped **unattributed** orders (attribution gap found 2026-06-16). The server (managed-wallet) path was already attributed; this closes the external cohort. Precedence is unchanged: explicit `builder_code` arg > `POLY_BUILDER_CODE` env > **Simmer default** (`SIMMER_BUILDER_CODE`, the new fallback). To attribute to your own builder profile, pass `builder_code` or set `POLY_BUILDER_CODE`; pass `ZERO_BYTES32` to opt out entirely. The builder code is a public on-chain attribution identifier, not a secret. Maker/Taker fee rates on Simmer's builder profile are **0%**, so attribution adds no cost to operators' trades. Takes effect as operators upgrade the SDK (orders are signed client-side, so old installs keep current behavior until upgraded).
+
 ## [0.19.2] - 2026-06-16
 
 ### Fixed
