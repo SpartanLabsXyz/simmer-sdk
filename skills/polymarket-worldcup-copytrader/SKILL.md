@@ -8,7 +8,7 @@ tags:
   - copytrading
 metadata:
   author: Simmer (@simmer_markets)
-  version: "0.1.1"
+  version: "0.1.2"
   displayName: World Cup Copytrader
   difficulty: beginner
   sensitivity: sensitive
