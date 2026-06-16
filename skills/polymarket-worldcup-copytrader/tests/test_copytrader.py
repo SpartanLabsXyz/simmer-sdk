@@ -1158,5 +1158,37 @@ class TestDecimalPrecisionQuantize(unittest.TestCase):
         self.assertEqual(round(sells[0]["shares"], 5), sells[0]["shares"])
 
 
+class TestServerSideScopeParam(unittest.TestCase):
+    """The skill passes its WC allowlist as market_ids so the server scopes the
+    plan to WC markets BEFORE Top N, instead of relying only on the client-side
+    filter that discards already-planned slots (SIM-3273)."""
+
+    def test_market_ids_sent_to_plan(self):
+        mod, mock_client = _make_skill_module(leaders_response=_leaders_response())
+        mod.run(dry_run=True, venue="sim")
+        execute_calls = [c for c in mock_client._request.call_args_list
+                         if "copytrading/execute" in str(c)]
+        self.assertTrue(execute_calls, "plan endpoint was not called")
+        payload = execute_calls[0][1].get("json", {})
+        self.assertIn("market_ids", payload)
+        # default markets_response covers the plan's markets → allowlist non-empty
+        self.assertIn("mkt-abc", payload["market_ids"])
+
+    def test_dry_run_continues_unscoped_when_allowlist_unavailable(self):
+        """A dry-run must still produce a plan (unscoped) if the WC allowlist
+        fetch fails — nothing is spent, so don't fail closed."""
+        mod, mock_client = _make_skill_module(
+            leaders_response=_leaders_response(),
+            markets_response=RuntimeError("markets endpoint down"),
+        )
+        mod.run(dry_run=True, venue="sim")
+        execute_calls = [c for c in mock_client._request.call_args_list
+                         if "copytrading/execute" in str(c)]
+        self.assertTrue(execute_calls, "dry-run should still request a plan")
+        payload = execute_calls[0][1].get("json", {})
+        # no allowlist → no scope param sent; server returns unscoped plan
+        self.assertNotIn("market_ids", payload)
+
+
 if __name__ == "__main__":
     unittest.main()
