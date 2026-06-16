@@ -439,6 +439,28 @@ def run(dry_run: bool = True, venue: str = None) -> None:
             except Exception:
                 pass
 
+    # --- WC scope allowlist ---
+    # Fetch the WC market set up front: it scopes the server-side plan so the
+    # leaders' non-WC positions don't consume plan slots (SIM-3273), AND gates
+    # client-side execution below. A live run fails closed if the allowlist is
+    # unavailable (a WC-only skill must not trade unscoped); a dry-run
+    # continues unscoped since nothing is spent.
+    wc_market_ids = None
+    try:
+        wc_market_ids = fetch_wc_market_ids()
+    except Exception as e:
+        if not dry_run:
+            print(f"\n❌ WC market allowlist unavailable ({e}) — aborting live run (fail-closed).")
+            print("   A WC-only skill must not execute unscoped trades. Retry next run.")
+            if os.environ.get("AUTOMATON_MANAGED"):
+                print(json.dumps({"automaton": {
+                    "signals": 0, "trades_attempted": 0, "trades_executed": 0,
+                    "skip_reason": "wc_scope_unavailable",
+                }}))
+                _automaton_reported = True
+            return
+        print(f"\n⚠️  WC market allowlist unavailable ({e}); dry-run continues unscoped.")
+
     # --- build trade plan (server-side copytrading engine) ---
     print("\n📡 Requesting trade plan…")
     payload = {
@@ -455,6 +477,11 @@ def run(dry_run: bool = True, venue: str = None) -> None:
         "max_trades": MAX_TRADES,
         "venue": effective_venue,
     }
+    # Scope the plan server-side to WC markets so non-WC leader positions never
+    # consume plan slots (SIM-3273). Older servers ignore the param; the
+    # client-side filter below stays as belt-and-braces either way.
+    if wc_market_ids:
+        payload["market_ids"] = sorted(wc_market_ids)
     try:
         plan = client._request("POST", "/api/sdk/copytrading/execute", json=payload, timeout=60)
     except Exception as e:
@@ -493,27 +520,12 @@ def run(dry_run: bool = True, venue: str = None) -> None:
         _emit_automaton(plan, 0)
         return
 
-    # --- WC scope allowlist (live only) ---
-    # Leaders are WC-curated but their books are not: a leader can hold
-    # non-WC positions and the plan endpoint has no scope param, so a
-    # WC-only skill must filter client-side before spending anything.
-    try:
-        wc_market_ids = fetch_wc_market_ids()
-    except Exception as e:
-        print(f"\n❌ WC market allowlist unavailable ({e}) — aborting live run (fail-closed).")
-        print("   A WC-only skill must not execute unscoped trades. Retry next run.")
-        if os.environ.get("AUTOMATON_MANAGED"):
-            print(json.dumps({"automaton": {
-                "signals": plan.get("positions_found", 0),
-                "trades_attempted": 0, "trades_executed": 0,
-                "skip_reason": "wc_scope_unavailable",
-            }}))
-            _automaton_reported = True
-        return
-
     # --- execute trades client-side ---
-    # Belt-and-braces: server-side params already request these limits, but
-    # enforce them client-side too so a server bug can't oversize the run.
+    # Belt-and-braces: the server already scoped the plan to wc_market_ids
+    # (SIM-3273) and applied the size limits, but re-enforce both client-side
+    # so a server bug (or an older server that ignores market_ids) can't push
+    # a non-WC or oversized trade. wc_market_ids is guaranteed set here: a live
+    # run with no allowlist aborted fail-closed above.
     if len(trades) > MAX_TRADES:
         print(f"\n⚠️  Plan has {len(trades)} trades > max_trades={MAX_TRADES} — truncating.")
         trades = trades[:MAX_TRADES]
