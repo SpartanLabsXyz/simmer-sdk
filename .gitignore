@@ -40,6 +40,7 @@ Thumbs.db
 
 # Skill runtime config (may contain sensitive values)
 **/config.json
+!mcp/bundled-skills/**/config.json
 
 # Claude Code (worktrees, temporary files)
 .claude/
