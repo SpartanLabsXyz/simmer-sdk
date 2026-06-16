@@ -1,0 +1,66 @@
+name: Main Red Canary
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+
+permissions:
+  contents: read
+
+jobs:
+  alert:
+    name: Alert on red main CI
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    if: >-
+      ${{
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_branch == 'main' &&
+        github.event.workflow_run.conclusion != 'success' &&
+        github.event.workflow_run.conclusion != 'skipped' &&
+        github.event.workflow_run.conclusion != 'neutral'
+      }}
+
+    steps:
+      - name: Send Telegram alert
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_TOPIC_ID: ${{ secrets.TELEGRAM_TOPIC_ID }}
+          WORKFLOW_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          WORKFLOW_NAME: ${{ github.event.workflow_run.name }}
+          WORKFLOW_URL: ${{ github.event.workflow_run.html_url }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${TELEGRAM_BOT_TOKEN}" ] || [ -z "${TELEGRAM_CHAT_ID}" ]; then
+            echo "::error::TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID secrets are required for the main-red canary."
+            exit 1
+          fi
+
+          short_sha="${HEAD_SHA:0:12}"
+          message="$(printf '[main-red] %s main CI is %s\n\nWorkflow: %s\nCommit: %s\nRun: %s' \
+            "${REPOSITORY}" \
+            "${WORKFLOW_CONCLUSION}" \
+            "${WORKFLOW_NAME}" \
+            "${short_sha}" \
+            "${WORKFLOW_URL}")"
+
+          payload="$(jq -n \
+            --arg chat_id "${TELEGRAM_CHAT_ID}" \
+            --arg text "${message}" \
+            '{chat_id: $chat_id, text: $text, disable_web_page_preview: true}')"
+
+          if [ -n "${TELEGRAM_TOPIC_ID}" ]; then
+            payload="$(jq \
+              --argjson topic_id "${TELEGRAM_TOPIC_ID}" \
+              '. + {message_thread_id: $topic_id}' <<<"${payload}")"
+          fi
+
+          curl --fail-with-body --show-error --silent \
+            "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -H "Content-Type: application/json" \
+            -d "${payload}"
