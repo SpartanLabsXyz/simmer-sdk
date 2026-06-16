@@ -78,3 +78,7 @@ jobs:
       - name: Build + test MCP package
         working-directory: mcp
         run: npm test
+
+      - name: Check MCP bundled skills are fresh
+        working-directory: mcp
+        run: npm run check:bundle-skills
