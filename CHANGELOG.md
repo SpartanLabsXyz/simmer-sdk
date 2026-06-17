@@ -3,6 +3,12 @@
 All notable changes to `simmer-sdk` are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **`polymarket-soccer-shock-ladder`: `--venue sim` no longer emits per-rung placement errors.** The sim/LMSR venue has no order book, so limit-price rungs cannot be placed. The skill now detects `venue=sim` and skips order placement entirely — logging the computed ladder as `[shock-ladder] venue=sim: order book absent — computed ladder shown, NOT executed` — then deletes the signal normally. Previously every rung failed with a cryptic SDK error even when using sim as a smoke test. `--venue polymarket` behavior is unchanged.
+
 ## [0.20.0] - 2026-06-16
 
 ### Changed
