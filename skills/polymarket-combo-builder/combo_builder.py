@@ -93,7 +93,10 @@ def run(live: bool):
     if not api_key:
         sys.exit("Set SIMMER_API_KEY (simmer.markets/dashboard -> SDK tab).")
 
-    client = SimmerClient(api_key=api_key, live=live)
+    # Combos are Polymarket-only — pin the venue so the client doesn't print the
+    # "venue='sim' — PAPER $SIM" banner during a combo dry-run (it's misleading;
+    # a combo dry-run is a real-Polymarket plan, not $SIM paper trading).
+    client = SimmerClient(api_key=api_key, venue="polymarket", live=live)
     leg_ids = [str(leg["position_id"]) for leg in legs]
 
     if not live:

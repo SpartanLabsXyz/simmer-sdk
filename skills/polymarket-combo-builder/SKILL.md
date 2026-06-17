@@ -1,6 +1,6 @@
 ---
 name: polymarket-combo-builder
-description: Build an atomic Polymarket combo (parlay) - pick 2+ binary market legs, get live combined odds quoted over RFQ, and place the whole thing as ONE signed order. Every leg must hit to win; any single leg losing is a total loss of the stake. Works for both EOA and deposit-wallet (managed-style) accounts. Dry-run by default. Sports-general (World Cup ready).
+description: Build an atomic Polymarket combo (parlay) - pick 2+ binary market legs, get live combined odds quoted over RFQ, and place the whole thing as ONE signed order. Every leg must hit to win; any single leg losing is a total loss of the stake. Live placement works with EOA / self-custody wallets today; deposit-wallet live is blocked pending Polymarket. Dry-run by default (a local plan, not a paper fill). Sports-general (World Cup ready).
 category: world-cup
 tags:
   - world-cup
@@ -22,11 +22,17 @@ leg hits you win the combined payout, and if any single leg loses you lose the
 whole stake.
 
 This is the atomic combo — distinct from the leg-by-leg
-`polymarket-worldcup-parlay-roller`. It works for **deposit-wallet** accounts
-(the default for new Simmer/Polymarket users) as well as plain EOA wallets.
+`polymarket-worldcup-parlay-roller`. **Live placement works with EOA /
+self-custody wallets today.** Deposit-wallet dry-run + signing paths exist, but
+**live deposit-wallet combos are blocked** until Polymarket enables
+combo-exchange approvals for deposit wallets (details below).
 
 Read [DISCLAIMER.md](./DISCLAIMER.md) before going live. This is a framework,
-not an edge, and it runs in **dry-run by default**.
+not an edge, and it runs in **dry-run by default**. Dry-run is a **local plan**
+— it resolves legs and shows the combined-odds estimate but signs and sends
+nothing. There is **no paper / simulated-fill mode** for combos (they're
+Polymarket-only). Note: dry-run still reads your wallet key to resolve trading
+identity, but it never signs or sends.
 
 Polymarket venue only. Combos are a BETA Polymarket product (sports markets
 today); label them as such to users.

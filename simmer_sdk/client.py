@@ -1239,7 +1239,11 @@ class SimmerClient:
                 "owner key). Use a raw WALLET_PRIVATE_KEY for the combo cohort."
             )
         if not self._private_key or not self._wallet_address:
-            raise ValueError("place_combo requires a configured EVM wallet (private key).")
+            raise ValueError(
+                "place_combo requires a configured EVM wallet (raw private key) to "
+                "resolve your trading identity — needed even for dry_run, which "
+                "builds the plan but never signs or sends. Set WALLET_PRIVATE_KEY."
+            )
 
         uses_dw = bool(self._uses_deposit_wallet and self._deposit_wallet_address)
         signature_type = 3 if uses_dw else 0
