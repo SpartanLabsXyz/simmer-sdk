@@ -1,0 +1,11 @@
+{
+  "max_bucket_sum": 0.90,
+  "max_position_usd": 5.00,
+  "bucket_spread": 1,
+  "sizing_pct": 0.05,
+  "max_trades_per_run": 6,
+  "exit_threshold": 0.65,
+  "slippage_max_pct": 0.05,
+  "min_position_usd": 2.00,
+  "data_source": "xtracker"
+}

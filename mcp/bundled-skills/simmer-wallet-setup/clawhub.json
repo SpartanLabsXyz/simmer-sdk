@@ -1,0 +1,35 @@
+{
+  "emoji": "🔐",
+  "primaryEnv": "SIMMER_API_KEY",
+  "requires": {
+    "env": [
+      "SIMMER_API_KEY"
+    ],
+    "pip": [
+      "simmer-sdk"
+    ]
+  },
+  "envVars": [
+    {
+      "name": "SIMMER_API_KEY",
+      "required": true,
+      "description": "Your Simmer SDK API key (from agent registration)."
+    },
+    {
+      "name": "OWS_WALLET",
+      "required": false,
+      "description": "OWS wallet name. Set only if you chose Path A (OWS)."
+    },
+    {
+      "name": "WALLET_PRIVATE_KEY",
+      "required": false,
+      "description": "Polygon EVM private key. Set only if you chose Path B (external raw key)."
+    }
+  ],
+  "cron": null,
+  "autostart": false,
+  "automaton": {
+    "managed": false,
+    "entrypoint": null
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "emoji": "\ud83d\udd0d",
+  "requires": {
+    "env": [
+      "SIMMER_API_KEY"
+    ],
+    "pip": [
+      "simmer-sdk"
+    ]
+  },
+  "cron": null,
+  "autostart": false
+}

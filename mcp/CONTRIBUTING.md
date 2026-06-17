@@ -6,9 +6,15 @@
 cd mcp
 npm install
 npm run bundle-skills   # bundles skills + snapshots into dist artefacts
+npm run check:bundle-skills  # verifies bundled-skills matches ../skills
 npm run build           # TypeScript → dist/
 npm test                # build + all tests (104 tests)
 ```
+
+`bundled-skills/` is committed intentionally. When any file under `../skills/`
+changes, run `npm run bundle-skills` and commit the matching bundle update. CI
+runs `check:bundle-skills` before `npm test` can refresh the bundle, so stale
+committed bundles fail the PR.
 
 ## Manual smoke checklist (Phase 4 publish gate)
 
@@ -17,6 +23,7 @@ Run these before tagging a release:
 ```bash
 # 1. Build + tests clean
 npm test
+npm run check:bundle-skills
 
 # 2. Free-tier: exactly 3 tools (no API key)
 echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"smoke","version":"0.0.1"}}}' | \

@@ -1,0 +1,23 @@
+{
+  "emoji": "✈️",
+  "requires": {
+    "env": ["SIMMER_API_KEY"],
+    "pip": ["simmer-sdk"]
+  },
+  "cron": null,
+  "autostart": false,
+  "automaton": {
+    "managed": true,
+    "entrypoint": "milaircraft_tracker.py"
+  },
+  "tunables": [
+    {"env": "SIMMER_MILACFT_ENTRY_THRESHOLD", "type": "number", "default": 0.15, "range": [0.01, 0.50], "step": 0.01, "label": "Entry threshold"},
+    {"env": "SIMMER_MILACFT_EXIT_THRESHOLD", "type": "number", "default": 0.45, "range": [0.20, 0.95], "step": 0.01, "label": "Exit threshold"},
+    {"env": "SIMMER_MILACFT_TRADE_SIZE", "type": "number", "default": 5, "range": [1, 50], "step": 1, "label": "Max USD per trade"},
+    {"env": "SIMMER_MILACFT_CLUSTER_CAP", "type": "number", "default": 25, "range": [5, 200], "step": 5, "label": "Max open USD per region"},
+    {"env": "SIMMER_MILACFT_MAX_TRADES_PER_RUN", "type": "number", "default": 3, "range": [1, 10], "step": 1, "label": "Max trades per scan"},
+    {"env": "SIMMER_MILACFT_CADENCE_MIN", "type": "number", "default": 15, "range": [5, 60], "step": 5, "label": "Polling cadence (minutes)"},
+    {"env": "SIMMER_MILACFT_DAILY_LOSS_KILL", "type": "number", "default": 25, "range": [5, 100], "step": 5, "label": "Daily loss kill switch ($)"},
+    {"env": "SIMMER_MILACFT_DAILY_TRADE_KILL", "type": "number", "default": 10, "range": [3, 50], "step": 1, "label": "Daily trade kill switch (count)"}
+  ]
+}

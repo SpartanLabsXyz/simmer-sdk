@@ -1,0 +1,36 @@
+{
+  "emoji": "🎲",
+  "primaryEnv": "SIMMER_API_KEY",
+  "requires": {
+    "env": ["SIMMER_API_KEY"],
+    "pip": ["simmer-sdk>=0.17.0", "requests>=2.28"]
+  },
+  "envVars": [
+    {
+      "name": "SIMMER_API_KEY",
+      "required": true,
+      "description": "Your Simmer SDK API key, from simmer.markets/dashboard (SDK tab). Free tier works."
+    },
+    {
+      "name": "WALLET_PRIVATE_KEY",
+      "required": false,
+      "description": "Your Polymarket wallet private key, for external/OWS self-custody trading. Not needed in dry-run."
+    }
+  ],
+  "cron": null,
+  "autostart": false,
+  "automaton": {
+    "managed": true,
+    "entrypoint": "parlay_roller_trader.py"
+  },
+  "tunables": [
+    {
+      "env": "PARLAY_ROLLER_STAKE_USD",
+      "type": "number",
+      "default": 25,
+      "range": [1, 500],
+      "step": 1,
+      "label": "Initial stake (USDC) - the maximum you can lose"
+    }
+  ]
+}

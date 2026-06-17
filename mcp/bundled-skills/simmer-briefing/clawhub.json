@@ -1,0 +1,25 @@
+{
+  "emoji": "📊",
+  "primaryEnv": "SIMMER_API_KEY",
+  "requires": {
+    "env": [
+      "SIMMER_API_KEY"
+    ],
+    "pip": [
+      "simmer-sdk"
+    ]
+  },
+  "envVars": [
+    {
+      "name": "SIMMER_API_KEY",
+      "required": true,
+      "description": "Your Simmer SDK API key — get from simmer.markets/dashboard"
+    }
+  ],
+  "cron": null,
+  "autostart": false,
+  "automaton": {
+    "managed": false,
+    "entrypoint": null
+  }
+}

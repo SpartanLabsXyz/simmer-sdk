@@ -1,0 +1,299 @@
+# Simmer SDK API Reference
+
+Condensed reference for generating skills that use `SimmerClient`.
+
+## Installation
+
+```bash
+pip install simmer-sdk
+```
+
+## Client Setup
+
+```python
+from simmer_sdk import SimmerClient
+
+client = SimmerClient(
+    api_key="sk_live_...",   # Required: from SIMMER_API_KEY env var
+    venue="polymarket",       # "sim" (virtual $SIM), "polymarket" (real USDC), "kalshi" (real USD)
+    live=True,                # False = paper mode (simulated trades at real prices)
+)
+```
+
+The `venue` param sets default trading venue. Can be overridden per-trade.
+
+## Core Methods
+
+### Markets
+
+```python
+# List active markets (liquid first — recommended for trading discovery)
+markets = client.get_markets(status="active", sort="volume", limit=20)
+# Returns List[Market] dataclass objects
+
+# Keyword search (matches a specific market regardless of the browse window)
+markets = client.get_markets(q="bitcoin", limit=5)
+
+# Filter by trading venue ('sim' = all paper-tradeable markets; 'polymarket'/'kalshi' narrow to that real venue)
+markets = client.get_markets(venue="polymarket", limit=20)
+
+# Filter by tags (ALL-match, comma-separated)
+markets = client.get_markets(tags="world-cup", limit=50)
+
+# Get single market
+market = client.get_market_by_id("uuid")
+```
+
+**Note:** `get_markets()` accepts `status`, `import_source`, `limit`, `include`, `q`, plus keyword-only `venue`, `sort`, and `tags`. Unfiltered browse is recency-windowed and server-capped (a slice of all active markets), so use `sort="volume"`, `q=`, or `tags=` for discovery rather than paging an unsorted list (`ids=` is REST-only). **Default ordering is newest-first today but will flip to liquidity-first in an upcoming release — pin `sort="recent"` to keep newest-first.**
+
+**REST API market params** (via `client._request("GET", "/api/sdk/markets", params=...)`):
+`status`, `import_source`, `tags`, `q`, `venue` (`sim`/`polymarket`/`kalshi`), `sort` (`volume`, `recent`), `limit`, `offset`, `ids`, `include`, `max_hours_to_resolution`.
+
+### Market Fields (Market dataclass)
+
+```python
+market.id                  # UUID
+market.question            # "Will BTC hit $100k?"
+market.status              # "active", "resolved"
+market.current_probability # YES price 0.0-1.0
+market.external_price_yes  # Polymarket/Kalshi price (if imported)
+market.divergence          # Simmer AI price - external price
+market.volume_24h          # 24h trading volume
+market.resolves_at         # Resolution timestamp
+market.tags                # List of tags
+market.url                 # Market URL (always use this, don't construct)
+market.is_paid             # True if market charges taker fees (typically 10%)
+market.polymarket_token_id # For CLOB queries
+```
+
+### Trading
+
+```python
+# Buy (market order — default)
+result = client.trade(
+    market_id="uuid",
+    side="yes",              # "yes" or "no"
+    amount=10.0,             # USD to spend (required for buys)
+    source="sdk:my-skill",   # Tag for tracking (REQUIRED in generated skills)
+    reasoning="My thesis",   # Displayed publicly, builds reputation
+)
+
+# Buy (limit order — sits on the CLOB book until filled or cancelled)
+result = client.trade(
+    market_id="uuid",
+    side="yes",
+    amount=10.0,
+    price=0.35,              # Limit price (see Order Types below)
+    order_type="GTC",        # Good Till Cancelled (see Order Types below)
+    source="sdk:my-skill",
+    reasoning="Limit buy at 35c",
+)
+
+# Sell
+result = client.trade(
+    market_id="uuid",
+    side="yes",
+    action="sell",
+    shares=10.5,             # Number of shares to sell (required for sells)
+    source="sdk:my-skill",
+)
+```
+
+### Order Types
+
+| Type | Behavior | Use when |
+|------|----------|----------|
+| `FAK` | Fill And Kill (default). Fills what's available immediately, cancels the rest. | Standard trades — get filled now, accept partial fills |
+| `FOK` | Fill Or Kill. Execute fully or cancel entirely — no partial fills. | All-or-nothing entries |
+| `GTC` | Good Till Cancelled. Limit order sits on the CLOB book until filled or manually cancelled. | Limit orders — patient entries, maker rebates |
+| `GTD` | Good Till Date. Limit order with an expiry timestamp. | Time-bound limit orders |
+
+**`price=` semantics (Polymarket only, ignored for sim venue):**
+- For `side="yes"`: `price` is the YES token price (e.g., `price=0.35` = buy YES at 35c)
+- For `side="no"`: `price` is the NO token price (e.g., `price=0.65` = buy NO at 65c — this is NOT `1 - yes_price`)
+- Range: 0.01 to 0.99
+
+**GTC/GTD fill tracking:** `result.fill_status` will be `"submitted"` (order on book, `cost=$0` is correct — no fill yet). Use `result.order_id` to check or cancel: `client.cancel_order(order_id)`. The order fills asynchronously; check positions later to confirm.
+
+**Maker vs taker:** GTC limit orders earn maker rebates (~1.12%). FAK/FOK pay taker fees (~1.12%). Over many trades, the 2.24pp spread compounds significantly.
+
+**TradeResult fields:**
+```python
+result.success          # bool — order accepted (not necessarily filled)
+result.trade_id         # UUID string
+result.shares_bought    # float (shares acquired)
+result.shares_requested # float (shares requested — compare for partial fills)
+result.cost             # float (USD spent)
+result.fill_status      # "filled" | "submitted" | "unconfirmed" | "failed"
+result.order_id         # CLOB order ID (for GTC/GTD — use with cancel_order())
+result.order_status     # Polymarket order status: "matched", "live", "delayed"
+result.fully_filled     # bool — shares_bought >= shares_requested
+result.error            # string (if failed)
+result.simulated        # bool (True = paper trade)
+result.skip_reason      # string (why trade was skipped, if applicable)
+```
+
+**Fill status:** `success=True` means order accepted, not filled. Check `fill_status` for the real state. `"submitted"` = GTC order on book (cost=$0 is correct). `"unconfirmed"` = fill settling (~5-15s). `"filled"` = confirmed with final shares/cost.
+
+**Before selling:** Check `status == "active"` (resolved markets can't be sold — redeem instead). Check shares >= 5 (Polymarket minimum). Always fetch fresh positions before selling.
+
+**Auto risk monitors:** Every buy automatically gets a 50% stop-loss (take-profit is off by default — prediction markets resolve naturally). Server-side, no skill code needed. Defaults are configurable per-position via `POST /api/sdk/positions/{market_id}/monitor` or globally via `PATCH /api/sdk/user/settings`. Only implement manual `execute_sell()` if the skill has custom exit logic (e.g. signal reversal, threshold-based exits). Most skills can rely on the auto monitors and skip sell logic entirely.
+
+### Positions
+
+```python
+positions = client.get_positions()  # Returns List[Position] dataclass
+# Convert to dicts:
+from dataclasses import asdict
+pos_dicts = [asdict(p) for p in positions]
+```
+
+**Position fields:**
+```python
+pos.market_id, pos.question, pos.shares_yes, pos.shares_no
+pos.current_price    # YES price 0-1
+pos.current_value    # Current value in USD
+pos.cost_basis       # Total cost paid
+pos.avg_cost         # Average entry price
+pos.pnl              # Profit/loss
+pos.venue            # "sim" or "polymarket"
+pos.currency         # "$SIM" or "USDC"
+pos.status           # "active" or "resolved"
+pos.resolves_at      # Resolution timestamp
+pos.sources          # List of source tags
+```
+
+### Portfolio
+
+```python
+portfolio = client.get_portfolio()
+# Returns dict:
+# balance_usdc, total_exposure, positions_count, pnl_total, concentration, by_source
+```
+
+### Position Sizing
+
+```python
+from simmer_sdk.sizing import size_position
+
+amount = size_position(
+    p_win=0.65,              # Estimated probability of winning
+    market_price=0.50,       # Current market YES price
+    bankroll=1000.0,         # Available capital
+    kelly_multiplier=0.25,   # Fraction of Kelly (0.25 = Quarter-Kelly)
+    max_fraction=0.03,       # Cap at 3% of bankroll (default: 0.95)
+    min_ev=0.02,             # Minimum expected value to trade (default: 0.02)
+)
+# Returns: dollar amount to trade, or 0.0 if below min_ev threshold
+```
+
+**`max_fraction`** caps the position as a fraction of bankroll, regardless of Kelly output. Use this for per-strategy risk limits:
+- `0.03` = 3% of bankroll per trade (conservative, e.g., Lunar quant style)
+- `0.10` = 10% cap (moderate)
+- `0.95` = default (effectively uncapped by fraction)
+
+**`kelly_multiplier`** scales the Kelly-optimal bet. Common values: `0.25` (Quarter-Kelly, most popular), `0.5` (Half-Kelly), `1.0` (full Kelly — aggressive, high variance).
+
+These are exposed as env-var tunables via `SIZING_CONFIG_SCHEMA` (see skill-template.md). Users can override them without touching code.
+
+### Market Context (Pre-Trade)
+
+```python
+context = client.get_market_context("uuid")
+# Returns dict with:
+# market: {time_to_resolution, ...}
+# warnings: ["MARKET RESOLVED", ...]
+# discipline: {warning_level: "none"|"mild"|"severe", flip_flop_warning: "..."}
+# slippage: {estimates: [{slippage_pct: 0.05, ...}]}
+# edge: {recommendation: "TRADE"|"HOLD"|"SKIP", user_edge: 0.15, suggested_threshold: 0.10}
+# is_paid, fee_rate_bps, fee_note
+```
+
+Use this before placing a trade — not for scanning. ~2-3s per call.
+
+### Market Import
+
+```python
+# Discover importable markets
+results = client.list_importable_markets(
+    q="bitcoin", venue="polymarket", min_volume=50000, limit=20
+)
+
+# Import a Polymarket market
+result = client.import_market("https://polymarket.com/event/...")
+```
+
+Import quota: 10/day free, 50/day Pro.
+
+### Top Holders (Polymarket)
+
+```python
+# Get largest position holders for a market
+holders = client.get_top_holders(market.polymarket_condition_id, limit=10)
+for h in holders:
+    print(f"{h['display_name']}: {h['amount']:.0f} shares ({h['outcome']})")
+```
+
+Calls the public Polymarket data API directly (free, no auth). Returns list of dicts with `address`, `display_name`, `amount`, `outcome`, `profile_url`. Use for pre-trade research — see who else holds positions and how large.
+
+**Note:** `polymarket_condition_id` is available on Market objects. It's the 0x hex condition ID, NOT the Simmer UUID or the CLOB token ID.
+
+### Price History
+
+```python
+history = client.get_price_history("uuid")
+# List of {price_yes: float, timestamp: str, ...}
+```
+
+### Briefing (Heartbeat)
+
+REST-only — no SDK method. Use `client._request()`:
+
+```python
+briefing = client._request("GET", "/api/sdk/briefing", params={"since": "2026-02-08T00:00:00Z"})
+# Returns: portfolio, positions (active/resolved_since/expiring_soon/significant_moves),
+# opportunities (new_markets/high_divergence), risk_alerts, performance
+```
+
+## Trading Venues
+
+| Venue | Currency | Notes |
+|-------|----------|-------|
+| `simmer` | $SIM (virtual) | Default. AMM (instant fills, no spread). |
+| `polymarket` | USDC.e (real) | Orderbook. Requires `WALLET_PRIVATE_KEY` env var. |
+| `kalshi` | USD (real) | Pro plan only. Requires `SOLANA_PRIVATE_KEY` env var. |
+
+**Important:** $SIM uses AMM (no spread). Real venues have 2-5% bid/ask spreads plus fees (`is_paid` markets charge 10% taker fee). Even apparent edges may not survive real-world spreads, fees, and latency.
+
+## Polymarket Constraints
+
+- Minimum order: 5 shares
+- Minimum tick: $0.01
+- USDC.e on Polygon (not native USDC)
+- Some markets charge 10% taker fee (`is_paid: true`)
+
+## Rate Limits
+
+| Endpoint | Free | Pro |
+|----------|------|-----|
+| `/api/sdk/trade` | 60/min | 180/min |
+| `/api/sdk/markets` | 60/min | 180/min |
+| `/api/sdk/context` | 12/min | 36/min |
+| `/api/sdk/positions` | 6/min | 18/min |
+| `/api/sdk/portfolio` | 6/min | 18/min |
+| Market imports | 10/day | 50/day |
+
+## Direct Polymarket Data (No Auth)
+
+```python
+# Orderbook depth
+# GET https://clob.polymarket.com/book?token_id=<polymarket_token_id>
+
+# Midpoint price
+# GET https://clob.polymarket.com/midpoint?token_id=<token_id>
+
+# Price history
+# GET https://clob.polymarket.com/prices-history?market=<token_id>&interval=1w&fidelity=60
+```
+
+Get `polymarket_token_id` from the market response. Use these for read-only data; always use Simmer for trades.
