@@ -5,6 +5,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+
+- **New community skill: `polymarket-world-cup-delta-pairs`.** Scans all World Cup markets via `tags="world-cup"` (targeted filter — not a bulk `limit=700` scan), groups markets by team, and surfaces implied-probability discrepancies between correlated markets at different tournament stages (group → advance → final → champion). Flags structurally-inverted pairs where a later stage is priced higher than an earlier one. Research/analysis tool — does not auto-trade.
+
 ### Fixed
 
 - **`polymarket-soccer-shock-ladder`: `--venue sim` no longer emits per-rung placement errors.** The sim/LMSR venue has no order book, so limit-price rungs cannot be placed. The skill now detects `venue=sim` and skips order placement entirely — logging the computed ladder as `[shock-ladder] venue=sim: order book absent — computed ladder shown, NOT executed` — then deletes the signal normally. Previously every rung failed with a cryptic SDK error even when using sim as a smoke test. `--venue polymarket` behavior is unchanged.
