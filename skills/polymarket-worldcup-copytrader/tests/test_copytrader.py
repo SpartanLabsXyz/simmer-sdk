@@ -73,6 +73,15 @@ def _make_skill_module(leaders_response, plan_response=None, trade_success=True,
     mock_client.auto_redeem.return_value = []
     mock_client.ensure_can_trade.return_value = {"ok": True, "max_safe_size": 30.0, "balance": 100.0}
     mock_client.trade.return_value = mock_trade_result
+    mock_client.get_portfolio.return_value = {
+        "sim": {"pnl": -18.68, "total_exposure": 324.90},
+        "by_source": {
+            "sdk:wc-copytrader": {
+                "realized_pnl": -10.52,
+                "unrealized_pnl": -8.16,
+            }
+        },
+    }
 
     if plan_response is None:
         plan_response = {
@@ -972,6 +981,17 @@ class TestLivePriceBound(unittest.TestCase):
         mod.run(dry_run=False, venue="sim")
         mock_client.trade.assert_called_once()
         self.assertIsNone(mock_client.trade.call_args[1].get("price"))
+
+    def test_terminal_summary_includes_accounting(self):
+        mod, mock_client = _make_skill_module(leaders_response=_leaders_response())
+        _, captured = _run_capturing(mod, dry_run=False, venue="sim")
+        mock_client.get_portfolio.assert_called_with(venue="sim")
+        summary = [line for line in captured if "WC Copytrader run complete" in line][-1]
+        self.assertIn("1/1 trades executed", summary)
+        self.assertIn("0 failed", summary)
+        self.assertIn("portfolio_pnl=$-18.68", summary)
+        self.assertIn("realized=$-10.52", summary)
+        self.assertIn("unrealized=$-8.16", summary)
 
     def test_dry_run_unaffected_by_missing_estimated_price(self):
         plan = self._plan(include_price=False)

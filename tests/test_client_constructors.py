@@ -7,6 +7,7 @@ suspicious surface area.
 """
 
 import pytest
+import warnings
 
 from simmer_sdk.client import SimmerClient
 
@@ -48,6 +49,25 @@ def test_from_env_only_api_key(monkeypatch):
     assert client.api_key == "sk_live_test_xyz"
     assert client._private_key is None
     assert client._ows_wallet is None
+
+
+def test_from_env_sim_read_only_ignores_wallet_env_without_warnings(monkeypatch, caplog):
+    """Default SIM/read-only construction should not warn about unused wallets."""
+    monkeypatch.setenv("SIMMER_API_KEY", "sk_live_test_quiet")
+    monkeypatch.setenv("OWS_WALLET", "missing-ows-wallet")
+    monkeypatch.setenv("WALLET_PRIVATE_KEY", "0x" + "a" * 64)
+    monkeypatch.setenv("SIMMER_PRIVATE_KEY", "0x" + "b" * 64)
+    monkeypatch.setenv("SOLANA_PRIVATE_KEY", "not-a-solana-key")
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        client = SimmerClient.from_env()
+
+    assert client.venue == "sim"
+    assert client._ows_wallet is None
+    assert client._private_key is None
+    assert caught == []
+    assert not [r for r in caplog.records if r.levelname == "WARNING"]
 
 
 def test_from_env_raises_when_api_key_missing(monkeypatch):

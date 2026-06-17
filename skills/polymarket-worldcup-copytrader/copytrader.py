@@ -211,6 +211,39 @@ def _resolve_venue(cli_venue: str = None) -> str:
     return cli_venue or _config.get("venue") or "sim"
 
 
+def _portfolio_summary_line(client, venue: str) -> str:
+    """Best-effort terminal accounting summary for autonomous run logs."""
+    try:
+        portfolio = client.get_portfolio(venue=venue) or {}
+    except Exception as e:
+        return f"portfolio=unavailable ({type(e).__name__})"
+
+    bucket = portfolio.get(venue) or {}
+    if venue == "sim":
+        realized = unrealized = None
+        for stats in (portfolio.get("by_source") or {}).values():
+            if not isinstance(stats, dict):
+                continue
+            realized = (realized or 0.0) + float(stats.get("realized_pnl") or 0.0)
+            unrealized = (unrealized or 0.0) + float(stats.get("unrealized_pnl") or 0.0)
+        pnl = bucket.get("pnl", portfolio.get("sim_pnl"))
+        parts = [
+            f"portfolio_pnl=${float(pnl or 0):.2f}",
+            f"exposure=${float(bucket.get('total_exposure') or 0):.2f}",
+        ]
+        if realized is not None or unrealized is not None:
+            parts.append(f"realized=${float(realized or 0):.2f}")
+            parts.append(f"unrealized=${float(unrealized or 0):.2f}")
+        return " | ".join(parts)
+
+    pnl = bucket.get("pnl", portfolio.get("pnl_total"))
+    exposure = bucket.get("total_exposure", portfolio.get("total_exposure"))
+    return (
+        f"portfolio_pnl=${float(pnl or 0):.2f} | "
+        f"exposure=${float(exposure or 0):.2f}"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Leader fetch
 # ---------------------------------------------------------------------------
@@ -634,8 +667,13 @@ def run(dry_run: bool = True, venue: str = None) -> None:
 
     plan["trades_executed"] = executed
     _emit_automaton(plan, executed)
+    failed = len([t for t in trades if t.get("success") is False])
+    accounting = _portfolio_summary_line(client, effective_venue)
     print(f"\n{'─' * 50}")
-    print(f"✅ WC Copytrader run complete — {executed}/{len(trades)} trades executed.")
+    print(
+        f"✅ WC Copytrader run complete — {executed}/{len(trades)} trades executed "
+        f"({failed} failed) | {accounting}"
+    )
 
 
 def _emit_automaton(plan: dict, trades_executed: int) -> None:
