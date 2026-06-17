@@ -50,9 +50,12 @@ class FakeClient:
             return {"ok": True}
         return {}
 
-    def trade(self, **kw):  # must NOT be called in dry-run
+    def trade(self, **kw):  # must NOT be called in dry-run or venue=sim
         self.traded.append(kw)
-        raise AssertionError("trade() called in dry-run")
+        raise AssertionError("trade() called unexpectedly")
+
+    def get_open_orders(self):  # must NOT be called for venue=sim
+        raise AssertionError("get_open_orders() called for venue=sim")
 
 
 # --- config ---
@@ -128,3 +131,27 @@ def test_run_once_empty_is_noop():
     client = FakeClient(pending=[])
     assert t.run_once(client, t.Config(_args())) == 0
     assert client.deleted == []
+
+
+# --- venue=sim guard ---
+
+def test_venue_sim_no_trades_no_open_orders_and_deletes(capsys):
+    """venue=sim must never call trade() or get_open_orders(), even with --live."""
+    client = FakeClient()
+    cfg = t.Config(_args(venue="sim", live=True))
+    out = t.process_signal(client, _signal(), cfg)
+    assert out.startswith("handled:")
+    assert client.traded == []                        # no orders placed
+    assert client.deleted == ["mkt-1:1750000000.0"]  # signal cleaned up
+    captured = capsys.readouterr()
+    assert "order book absent" in captured.out
+
+
+def test_venue_sim_dryrun_no_trades_and_deletes():
+    """venue=sim + dry-run also places no trades (belt-and-suspenders)."""
+    client = FakeClient()
+    cfg = t.Config(_args(venue="sim", live=False))
+    out = t.process_signal(client, _signal(), cfg)
+    assert out.startswith("handled:")
+    assert client.traded == []
+    assert client.deleted == ["mkt-1:1750000000.0"]
