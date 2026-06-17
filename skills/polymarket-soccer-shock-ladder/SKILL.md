@@ -7,7 +7,7 @@ tags:
   - soccer
 metadata:
   author: Simmer (@simmer_markets)
-  version: "0.1.4"
+  version: "0.1.5"
   displayName: World Cup Shock Ladder
   difficulty: intermediate
   simmer:
