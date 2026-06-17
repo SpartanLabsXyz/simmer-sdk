@@ -342,9 +342,9 @@ class SimmerClient:
         # venue is set explicitly via the `venue=` arg (or from_env(venue=...))
         # and defaults to "sim" (paper). NOTE: the TRADING_VENUE env var is
         # intentionally NOT read here — do not reintroduce a log that implies
-        # an env var controls the venue. Surface the active mode truthfully at
-        # info level; constructing a client for read-only SIM reporting should
-        # not emit warning-level noise.
+        # an env var controls the venue. SIM construction is info-level so
+        # read-only reporting clients do not emit warning-level noise; live
+        # venues still warn because they can touch real funds.
         if venue == "sim":
             logger.info(
                 "venue='sim' — PAPER trading with virtual $SIM (no real money). "
@@ -352,7 +352,7 @@ class SimmerClient:
                 "SimmerClient.from_env(venue='polymarket')."
             )
         else:
-            logger.info("venue='%s' — LIVE trading with real funds.", venue)
+            logger.warning("venue='%s' — LIVE trading with real funds.", venue)
         self._private_key: Optional[str] = None  # EVM private key (Polymarket)
         self._wallet_address: Optional[str] = None  # EVM wallet address
         self._wallet_linked: Optional[bool] = None  # Cached linking status
