@@ -411,12 +411,12 @@ class SimmerClient:
             import warnings
             _wallet_key = (
                 os.environ.get(self.PRIVATE_KEY_ENV_VAR)
-                if venue == "polymarket" and not _ignore_env_wallets
+                if not _ignore_env_wallets
                 else None
             )
             _legacy_key = (
                 os.environ.get(self.PRIVATE_KEY_ENV_VAR_LEGACY)
-                if venue == "polymarket" and not _ignore_env_wallets
+                if not _ignore_env_wallets
                 else None
             )
             if _wallet_key and _legacy_key and _wallet_key != _legacy_key:
