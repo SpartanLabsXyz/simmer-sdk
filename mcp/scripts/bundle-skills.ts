@@ -19,7 +19,10 @@ const skillsDir = path.resolve(mcpDir, '..', 'skills');
 const outDir = path.resolve(mcpDir, 'bundled-skills');
 const checkMode = process.argv.includes('--check');
 
-const SKIP = new Set(['__pycache__', 'node_modules', '.DS_Store']);
+// config.json is gitignored per-user skill config (.gitignore: **/config.json) —
+// it exists in a dev's working tree but never in a clean checkout, so bundling it
+// makes the committed bundle un-reproducible on CI (extra: drift). Never bundle it.
+const SKIP = new Set(['__pycache__', 'node_modules', '.DS_Store', 'config.json']);
 
 function copyDir(src: string, dest: string): void {
   fs.mkdirSync(dest, { recursive: true });
