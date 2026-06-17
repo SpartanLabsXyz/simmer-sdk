@@ -113,15 +113,19 @@ class Placement:
 
 
 def place_ladder(client, signal: dict, rungs: List[Rung], cfg: Config) -> List[Placement]:
-    """Place the 4 GTC limit buys (or log them in dry-run). Returns placements."""
+    """Place the 4 GTC limit buys (or log them in dry-run/sim). Returns placements."""
     market_id = signal["market_id"]
     side = signal["side"].lower()
     placements: List[Placement] = []
+    if cfg.venue == "sim":
+        print("[shock-ladder] venue=sim: order book absent — computed ladder shown, "
+              "NOT executed (use --venue polymarket to trade).")
     for r in rungs:
         shares_est = round(r.stake / r.price, 2) if r.price > 0 else 0.0
         tag = f"{r.label} {r.stake:.2f} USD @ {r.price:.3f} (~{shares_est:.1f} sh)"
-        if not cfg.live:
-            print(f"[shock-ladder] DRY-RUN would place BUY {side.upper()} {tag}")
+        if not cfg.live or cfg.venue == "sim":
+            label = "DRY-RUN" if not cfg.live else "sim"
+            print(f"[shock-ladder] {label} would place BUY {side.upper()} {tag}")
             placements.append(Placement(r, None, shares_est))
             continue
         try:
@@ -155,10 +159,11 @@ def manage_lifecycle(client, signal: dict, placements: List[Placement], cfg: Con
     side = signal["side"].lower()
     live_rungs = [p for p in placements if p.order_id or not cfg.live]
 
-    if not cfg.live:
+    if not cfg.live or cfg.venue == "sim":
         for p in live_rungs:
             ep = exit_price(p.rung.price, cfg.exit_cents)
-            print(f"[shock-ladder] DRY-RUN on fill of {p.rung.label} would place SELL "
+            label = "DRY-RUN" if not cfg.live else "sim"
+            print(f"[shock-ladder] {label} on fill of {p.rung.label} would place SELL "
                   f"{side.upper()} {p.shares:.1f} sh @ {ep:.3f} (+{cfg.exit_cents:.0f}¢)")
         return
 
@@ -191,6 +196,8 @@ def manage_lifecycle(client, signal: dict, placements: List[Placement], cfg: Con
 
 
 def _place_exit(client, signal: dict, p: Placement, side: str, cfg: Config) -> None:
+    if cfg.venue == "sim":
+        return  # order book absent; manage_lifecycle already returned early
     ep = exit_price(p.rung.price, cfg.exit_cents)
     try:
         res = client.trade(
