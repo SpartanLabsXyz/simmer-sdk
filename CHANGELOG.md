@@ -5,6 +5,16 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.20.3] - 2026-06-18
+
+### Added
+
+- **`client.activate_combo_dw(agent_id=None)` — deposit-wallet combos.** A one-time, gasless setup that approves the Polymarket combo exchange to spend a deposit wallet's pUSD and combo position tokens, so DW users (managed-DW + per-agent) can place combos — not just plain EOA / self-custody wallets. Signs the approval batch locally (raw key; OWS combo signing not yet supported) and the server relays it under our builder credentials. Idempotent. User-primary (`agent_id=None`) and per-agent (`agent_id=...`) scopes. The `polymarket-combo-builder` skill documents it and adds a `--activate-combo` CLI step.
+
+### Changed
+
+- **`place_combo` now supports deposit wallets.** DW combos were previously blocked; they now place once the deposit wallet has run `activate_combo_dw()`. Before a live DW placement the SDK runs a best-effort on-chain allowance check and raises a clear "run `activate_combo_dw()` first" error instead of letting the order fail at settlement. Per-agent API keys now resolve their deposit-wallet identity for combos (sig_type 3 / maker = DW), matching the regular trade path.
+
 ### Fixed
 
 - **`polymarket-soccer-shock-ladder`: `--venue sim` no longer emits per-rung placement errors.** The sim/LMSR venue has no order book, so limit-price rungs cannot be placed. The skill now detects `venue=sim` and skips order placement entirely — logging the computed ladder as `[shock-ladder] venue=sim: order book absent — computed ladder shown, NOT executed` — then deletes the signal normally. Previously every rung failed with a cryptic SDK error even when using sim as a smoke test. `--venue polymarket` behavior is unchanged.
