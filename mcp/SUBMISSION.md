@@ -17,11 +17,11 @@ Paste-ready content for listing simmer-mcp on Smithery.ai and the official MCP R
 
 > simmer-mcp gives any MCP-compatible client (Claude Code, Claude Desktop, Cursor, Windsurf, etc.) access to Simmer — agent-native trading infrastructure for prediction markets. The server provides three tiers of tools:
 >
-> **Free (no API key):** Browse 21 bundled trading skills with full documentation, and troubleshoot Simmer API errors with live pattern matching.
+> **Free (no API key):** Browse the core bundled Simmer skills with full documentation, and troubleshoot Simmer API errors with live pattern matching.
 >
 > **Pro (requires SIMMER_API_KEY):** Run autoresearch experiment loops (init, run, log, backtest) to optimize trading strategies with git-integrated tracking and confidence scoring. Execute trades with a safety triple-gate (dry_run + venue + env flag). Get agent briefings, search markets, and analyze market context with edge calculations.
 >
-> **Per-skill execution:** 21 bundled trading skills executable directly as MCP tools — paper or live mode.
+> **Per-skill execution:** Core bundled Simmer skills are available directly as MCP tools. Situational strategy skills install on demand from ClawHub so they stay current outside the npm bundle.
 >
 > Get your API key from simmer.markets/dashboard.
 
@@ -31,7 +31,7 @@ Paste-ready content for listing simmer-mcp on Smithery.ai and the official MCP R
 
 | Tool | Description |
 |---|---|
-| `list_skills` | List all bundled Simmer trading skills with tier, version, and Pro requirements |
+| `list_skills` | List core bundled Simmer skills with tier, version, and Pro requirements |
 | `get_skill_docs` | Get full SKILL.md documentation for a specific skill |
 | `troubleshoot_error` | Look up a Simmer API error and get a fix (live API + local fallback) |
 
@@ -48,7 +48,7 @@ Paste-ready content for listing simmer-mcp on Smithery.ai and the official MCP R
 | `simmer_get_markets` | Search and list markets with filtering by venue, status, tags |
 | `simmer_get_market_context` | Rich market context: price history, positions, edge analysis, TRADE/HOLD recommendation |
 | `simmer_cancel_order` | Cancel an open order (managed wallets, requires SIMMER_MCP_ALLOW_LIVE) |
-| `simmer_<slug>` x 21 | Execute a specific bundled trading skill in paper or live mode |
+| `simmer_<slug>` x 5 | Read or execute a specific core bundled Simmer skill in paper or live mode |
 
 ### MCP Resources
 

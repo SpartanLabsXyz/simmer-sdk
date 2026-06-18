@@ -84,12 +84,12 @@ test("tools/list without SIMMER_API_KEY returns exactly 3 free tools", async () 
   assert.ok(names.includes("troubleshoot_error"), "troubleshoot_error missing");
 });
 
-test("tools/list with SIMMER_API_KEY returns 19+ tools (free + autoresearch + per-skill)", async () => {
+test("tools/list with SIMMER_API_KEY returns core bundle plus raw market tools", async () => {
   const resp = await mcpCall("tools/list", {}, { SIMMER_API_KEY: "sk_test_key" });
   assert.ok(!resp.error, `Expected no error, got: ${JSON.stringify(resp.error)}`);
   const tools = (resp.result?.tools ?? []) as Array<{ name: string }>;
-  // 3 free + 4 autoresearch + 19 bundled skills = 26
-  assert.ok(tools.length >= 19, `Expected >= 19 tools with API key, got ${tools.length}`);
+  // 3 free + 4 autoresearch + 9 raw market/trade/data + 5 core bundled skills = 21
+  assert.equal(tools.length, 21, `Expected 21 tools with API key, got ${tools.length}: ${tools.map((t) => t.name).join(", ")}`);
   const names = tools.map((t) => t.name);
   // Free tools always present
   assert.ok(names.includes("list_skills"), "list_skills missing");
@@ -99,8 +99,16 @@ test("tools/list with SIMMER_API_KEY returns 19+ tools (free + autoresearch + pe
   assert.ok(names.includes("run_experiment"), "run_experiment missing");
   assert.ok(names.includes("log_experiment"), "log_experiment missing");
   assert.ok(names.includes("backtest_experiment"), "backtest_experiment missing");
-  // At least one per-skill tool
-  assert.ok(names.some((n) => n.startsWith("simmer_")), "no simmer_* per-skill tools found");
+  // Raw market/trade tools
+  assert.ok(names.includes("simmer_get_markets"), "simmer_get_markets missing");
+  assert.ok(names.includes("simmer_get_market_context"), "simmer_get_market_context missing");
+  assert.ok(names.includes("simmer_trade"), "simmer_trade missing");
+  // Core bundled skills
+  assert.ok(names.includes("simmer_preflight"), "simmer_preflight missing");
+  assert.ok(names.includes("simmer_simmer_wallet_setup"), "simmer_simmer_wallet_setup missing");
+  // Long-tail strategy skills are installed from ClawHub on demand, not bundled.
+  assert.equal(names.includes("simmer_polymarket_combo_builder"), false);
+  assert.equal(names.includes("simmer_polymarket_soccer_shock_ladder"), false);
 });
 
 // --- resources/list ---

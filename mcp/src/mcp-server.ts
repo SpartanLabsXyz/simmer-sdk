@@ -216,7 +216,7 @@ const server = new McpServer({
 
 server.tool(
   "list_skills",
-  "List all Simmer trading skills available in this MCP server. Returns slug, name, version, tier, and whether the skill requires a Pro plan.",
+  "List core Simmer skills bundled in this MCP server. Situational strategy skills install on demand from ClawHub.",
   {},
   async () => {
     const list = listSkills(skills);
@@ -913,7 +913,7 @@ async function main() {
   ].join(" | ");
 
   const freeCount = 3;
-  const proCount = simmer ? 9 + skills.length : 0; // 4 autoresearch + 5 raw primitives
+  const proCount = simmer ? 13 + skills.length : 0; // 4 autoresearch + 9 raw market/trade/data tools
   const totalTools = freeCount + proCount;
   const tier = simmer ? "free + autoresearch + per-skill" : "free only";
 
