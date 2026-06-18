@@ -39,6 +39,7 @@ class Market:
     question: str
     status: str
     current_probability: float
+    outcome: Optional[bool] = None  # None = pending, True = YES won, False = NO won
     import_source: Optional[str] = None
     external_price_yes: Optional[float] = None
     divergence: Optional[float] = None
@@ -60,6 +61,7 @@ class Market:
     best_ask_size: Optional[float] = None  # Shares available at best_ask
     spread: Optional[float] = None  # best_ask - best_bid; null if either side null
     quote_ts: Optional[float] = None  # Epoch-second snapshot time (~30s freshness)
+    quote_age_seconds: Optional[float] = None  # Age of quote_ts at server response time
 
 
 @dataclass
@@ -1831,6 +1833,7 @@ class SimmerClient:
             question=m["question"],
             status=m.get("status", "active"),
             current_probability=m.get("current_probability", 0.5),
+            outcome=m.get("outcome"),
             import_source=m.get("import_source"),
             external_price_yes=m.get("external_price_yes"),
             divergence=m.get("divergence"),
@@ -1851,6 +1854,7 @@ class SimmerClient:
             best_ask_size=m.get("best_ask_size"),
             spread=m.get("spread"),
             quote_ts=m.get("quote_ts"),
+            quote_age_seconds=m.get("quote_age_seconds"),
         )
 
     def trade(
