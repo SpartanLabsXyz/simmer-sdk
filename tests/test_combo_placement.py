@@ -71,15 +71,19 @@ def test_validation_dw_requires_address():
                        leg_position_ids=LEGS, size_usdc=1.0, signature_type=3, dry_run=True)
 
 
-def test_dw_live_is_gated():
-    """A live DW combo (sig3, dry_run=False) is blocked with a clear message
-    until Polymarket whitelists the combo exchange on the DW relayer."""
-    with pytest.raises(cb.ComboPlacementError, match="not available yet"):
+def test_dw_live_explicitly_disabled():
+    """DW combos are SUPPORTED now (proven on-chain). The module default
+    (allow_deposit_wallet=True) allows them; passing allow_deposit_wallet=False
+    explicitly disables a DW combo with a clear message that points at
+    activate_combo_dw(). (The SimmerClient gates on the on-chain approval
+    pre-check; this is the low-level module's opt-out.)"""
+    with pytest.raises(cb.ComboPlacementError, match="activate_combo_dw"):
         cb.place_combo(
             creds={"apiKey": "k", "secret": "s", "passphrase": "p"},
             private_key=TEST_PK, eoa_address=TEST_EOA,
             leg_position_ids=LEGS, size_usdc=1.0, signature_type=3,
             deposit_wallet_address=TEST_DW, dry_run=False,  # live
+            allow_deposit_wallet=False,  # explicit opt-out
         )
 
 

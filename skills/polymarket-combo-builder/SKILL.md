@@ -1,6 +1,6 @@
 ---
 name: polymarket-combo-builder
-description: Build an atomic Polymarket combo (parlay) - pick 2+ binary market legs, get live combined odds quoted over RFQ, and place the whole thing as ONE signed order. Every leg must hit to win; any single leg losing is a total loss of the stake. Live placement works with EOA / self-custody wallets today; deposit-wallet live is blocked pending Polymarket. Dry-run by default (a local plan, not a paper fill). Sports-general (World Cup ready).
+description: Build an atomic Polymarket combo (parlay) - pick 2+ binary market legs, get live combined odds quoted over RFQ, and place the whole thing as ONE signed order. Every leg must hit to win; any single leg losing is a total loss of the stake. Live placement works with EOA / self-custody wallets, and with deposit wallets after a one-time activate_combo_dw() setup. Dry-run by default (a local plan, not a paper fill). Sports-general (World Cup ready).
 category: world-cup
 tags:
   - world-cup
@@ -8,7 +8,7 @@ tags:
   - combo
 metadata:
   author: Simmer (@simmer_markets)
-  version: "0.1.0"
+  version: "0.1.1"
   displayName: Combo Builder
   difficulty: beginner
 ---
@@ -23,9 +23,8 @@ whole stake.
 
 This is the atomic combo — distinct from the leg-by-leg
 `polymarket-worldcup-parlay-roller`. **Live placement works with EOA /
-self-custody wallets today.** Deposit-wallet dry-run + signing paths exist, but
-**live deposit-wallet combos are blocked** until Polymarket enables
-combo-exchange approvals for deposit wallets (details below).
+self-custody wallets, and with deposit wallets** after a one-time
+`activate_combo_dw()` setup (details below).
 
 Read [DISCLAIMER.md](./DISCLAIMER.md) before going live. This is a framework,
 not an edge, and it runs in **dry-run by default**. Dry-run is a **local plan**
@@ -74,24 +73,36 @@ configured wallet (`WALLET_PRIVATE_KEY`) and a live Simmer client.
 
 ## Wallet support
 
-- **EOA** (`signature_type 0`): standard self-custody key. **Works today.**
-- **Deposit wallet** (`signature_type 3` / POLY_1271): signing works, but live
-  combos are **not yet available** — see below.
+- **EOA** (`signature_type 0`): standard self-custody key. **Works today**, no
+  extra setup.
+- **Deposit wallet** (`signature_type 3` / POLY_1271): **works after a one-time
+  `activate_combo_dw()`** — see below.
 
 OWS-signed wallets are not yet supported for combos — use a raw
-`WALLET_PRIVATE_KEY` (the deposit-wallet owner key) for now.
+`WALLET_PRIVATE_KEY` (the deposit-wallet owner key) for now. This applies to
+both placing combos and `activate_combo_dw()`.
 
-### ⚠️ Deposit wallets: not enabled yet (pending Polymarket)
+### Deposit wallets: one-time combo activation
 
-Combos settle on a separate exchange that your wallet must approve first. A
-**deposit wallet** can only approve contracts through Polymarket's relayer
-(its `execute` is `onlyFactory` → `onlyOperator`), and that relayer **doesn't
-yet permit approving the combo exchange** — so a deposit-wallet combo signs
-correctly but would fail at on-chain settlement. The skill detects this and
-**blocks a live deposit-wallet combo with a clear message** rather than letting
-it fail confusingly. This auto-resolves once Polymarket whitelists the combo
-exchange on the deposit-wallet relayer. **EOA / self-custody wallets are
-unaffected and work today.** (Dry-run works for all wallet types.)
+Combos settle on a **separate exchange** that your wallet must approve first.
+The standard DW activation (`activate_polymarket_dw()`) does **not** set this —
+combo approval is opt-in. Run it once per deposit wallet:
+
+```python
+client.activate_combo_dw()              # user-primary DW
+client.activate_combo_dw(agent_id="…")  # per-agent (Elite) DW
+```
+
+This signs the combo-exchange approval batch locally and Simmer's server
+relays it **gaslessly** under our builder credentials (it approves the combo
+exchange to spend the DW's pUSD + combo position tokens). It is idempotent —
+safe to re-run. After it completes, `place_combo(..., dry_run=False)` settles
+normally for the deposit wallet.
+
+Before a live DW placement the SDK runs a quick on-chain pre-check and, if the
+combo approval is missing, raises a clear **"run `client.activate_combo_dw()`
+first"** error instead of letting the order fail at settlement. (Dry-run works
+for all wallet types with no activation.)
 
 ## Notes
 

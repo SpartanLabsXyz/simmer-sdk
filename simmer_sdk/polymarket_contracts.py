@@ -75,6 +75,19 @@ NEG_RISK_CTF_COLLATERAL_ADAPTER = "0xadA2005600Dec949baf300f4C6120000bDB6eAab"  
 
 
 # ============================================================
+# Combo (parlay) infrastructure
+# ============================================================
+# Combos settle on their own exchange + position-token contract, distinct
+# from the V2 CLOB spenders. A deposit wallet must approve COMBO_EXCHANGE to
+# spend its pUSD (ERC20) AND its combo position tokens (ERC1155 on
+# COMBO_POSITION_MANAGER — NOT the CTF; combo position tokens live there,
+# Polymarket-confirmed 2026-06-18). Mirrors the server
+# `simmer_v3/polymarket_contracts.py` COMBO_* constants.
+COMBO_EXCHANGE = "0xe3333700cA9d93003F00f0F71f8515005F6c00Aa"
+COMBO_POSITION_MANAGER = "0x006F54F7f9A22e0000CC2AB60031000000ae9fEF"
+
+
+# ============================================================
 # Convenience aliases
 # ============================================================
 USDC_E = V1_COLLATERAL_TOKEN    # same address, named by role
@@ -171,3 +184,14 @@ def redemption_spenders() -> list[str]:
     routed through the adapter contracts. Both V1 and V2 wallets need these.
     """
     return [CTF_COLLATERAL_ADAPTER, NEG_RISK_CTF_COLLATERAL_ADAPTER]
+
+
+def combo_spenders() -> list[str]:
+    """Spenders a deposit wallet must approve to trade combos (parlays).
+
+    Just the combo exchange today. Kept separate from active_spenders() so
+    the standard DW activation cascade is unchanged — combo approval is an
+    opt-in extra (run `client.activate_combo_dw()`) for users who actually
+    build combos. Mirrors the server `combo_spenders()`.
+    """
+    return [COMBO_EXCHANGE]

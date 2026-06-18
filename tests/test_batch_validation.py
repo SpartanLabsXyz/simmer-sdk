@@ -69,6 +69,29 @@ def test_approval_valid_passes():
     validate_dw_approval_calls([_set_approval(CONDITIONAL_TOKENS, SPENDER)])
 
 
+def test_combo_approval_pairs_pass():
+    """activate_combo_dw()'s batch — pUSD.approve(COMBO_EXCHANGE) +
+    COMBO_POSITION_MANAGER.setApprovalForAll(COMBO_EXCHANGE) — must pass the
+    client-side validator, else the SDK would refuse to sign the (honest)
+    combo approval batch the server returns. Mirror of the server's
+    get_allowed_dw_approval_targets() combo additions."""
+    from simmer_sdk.polymarket_contracts import COMBO_EXCHANGE, COMBO_POSITION_MANAGER
+    validate_dw_approval_calls([
+        _approve(PUSD, COMBO_EXCHANGE),
+        _set_approval(COMBO_POSITION_MANAGER, COMBO_EXCHANGE),
+    ])
+
+
+def test_combo_ctf_to_exchange_rejected():
+    """The ERC1155 combo leg is on COMBO_POSITION_MANAGER, NOT the CTF — combo
+    position tokens live on the Position Manager. CTF→COMBO_EXCHANGE is not a
+    whitelisted pair (approving it is a no-op that would strand a fill), so the
+    validator must refuse it."""
+    from simmer_sdk.polymarket_contracts import COMBO_EXCHANGE
+    with pytest.raises(BatchValidationError, match="not a known approval pair"):
+        validate_dw_approval_calls([_set_approval(CONDITIONAL_TOKENS, COMBO_EXCHANGE)])
+
+
 def test_approval_to_attacker_spender_rejected():
     with pytest.raises(BatchValidationError, match="not a known approval pair"):
         validate_dw_approval_calls([_approve(PUSD, ATTACKER)])

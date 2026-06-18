@@ -1213,12 +1213,13 @@ class SimmerClient:
         OWS-signed wallets are not yet supported for combos — raw-key /
         external-EOA (incl. deposit-wallet owner key) only for now.
 
-        **Deposit-wallet limitation:** DW combos sign correctly but a DW can't
-        yet APPROVE the combo exchange (Polymarket's relayer rejects it —
-        DW.execute is onlyFactory->Factory.proxy onlyOperator), so a live DW
-        combo is blocked with a clear error until Polymarket whitelists the
-        combo exchange on the deposit-wallet relayer. EOA wallets work today.
-        Pass ``allow_deposit_wallet=True`` to override once that's enabled.
+        **Deposit-wallet combos:** supported. A DW must first approve the
+        combo exchange once via :meth:`activate_combo_dw` (the standard DW
+        activation does NOT set this — combos settle on a separate exchange).
+        Before a real DW placement this method does a best-effort on-chain
+        check and raises a clear "run activate_combo_dw() first" error if the
+        combo approval is missing, rather than letting the order fail at
+        settlement on a missing allowance. EOA wallets need no extra approval.
 
         Args:
             leg_position_ids: chosen-side CTF token id per leg (>= 2), from
@@ -1227,6 +1228,10 @@ class SimmerClient:
             side: combo position side ("YES" or "NO"; currently YES-only upstream).
             direction: "BUY" or "SELL".
             dry_run: default True (no money). False = real placement.
+            allow_deposit_wallet: escape hatch — when True, skip the on-chain
+                combo-approval pre-check for a DW placement (use only if you've
+                already activated combos and want to avoid the extra RPC read,
+                or the check is misbehaving). DW combos are allowed either way.
 
         Returns the dry-run plan, or ``{status, tx_hash, rfq_id}`` on a fill.
         """
@@ -1247,6 +1252,15 @@ class SimmerClient:
                 "builds the plan but never signs or sends. Set WALLET_PRIVATE_KEY."
             )
 
+        # Per-agent API keys carry their DW state on /api/sdk/agents/me, NOT
+        # /api/sdk/settings (which only sees the user-primary wallet). Without
+        # this load a per-agent DW key resolves uses_dw=False and would sign an
+        # EOA combo (sig_type 0) instead of the DW combo (sig_type 3) — the
+        # order's maker would be the agent EOA, not its deposit wallet.
+        # Idempotent (guarded by _per_agent_dw_loaded); a no-op for
+        # user-primary keys (whose DW state is already set from settings).
+        self._load_per_agent_dw_state()
+
         uses_dw = bool(self._uses_deposit_wallet and self._deposit_wallet_address)
         signature_type = 3 if uses_dw else 0
         dw = self._deposit_wallet_address if uses_dw else None
@@ -1256,6 +1270,25 @@ class SimmerClient:
                 "place_combo(dry_run=False) requires the client in live mode. "
                 "Refusing to place a real combo from a non-live client."
             )
+
+        # Deposit-wallet combo-approval pre-check. DW combos settle on the
+        # combo exchange (COMBO_EXCHANGE), which the standard DW activation
+        # does NOT approve. Without the approval the order signs fine but
+        # fails at on-chain settlement on a missing pUSD allowance — a
+        # confusing failure. Catch it early with a clear pointer to
+        # activate_combo_dw(). Best-effort: an RPC hiccup falls through to
+        # placement rather than blocking a valid trade. Skippable via
+        # allow_deposit_wallet=True.
+        if uses_dw and not dry_run and not allow_deposit_wallet:
+            approved = self._combo_dw_approved(dw)
+            if approved is False:
+                raise ValueError(
+                    "Deposit-wallet combos require a one-time combo-exchange "
+                    "approval that isn't set yet. Run client.activate_combo_dw() "
+                    "first (it approves the combo exchange to spend this DW's "
+                    "pUSD + combo position tokens), then retry. To skip this "
+                    "check, pass allow_deposit_wallet=True."
+                )
 
         # Derive CLOB L2 creds for the resolved identity only for a real
         # placement (network call). dry_run stays fully offline.
@@ -1280,8 +1313,47 @@ class SimmerClient:
             deposit_wallet_address=dw, signature_type=signature_type,
             direction=direction, side=side, builder_code=builder_code,
             max_retries=max_retries, on_status=on_status, dry_run=dry_run,
-            allow_deposit_wallet=allow_deposit_wallet,
+            # DW combos are allowed; the client already ran the approval
+            # pre-check above, so the module-level block must not re-fire.
+            allow_deposit_wallet=True,
         )
+
+    def _combo_dw_approved(self, dw_address: str) -> Optional[bool]:
+        """Best-effort on-chain check: has ``dw_address`` approved the combo
+        exchange to spend its pUSD?
+
+        Reads ``pUSD.allowance(dw, COMBO_EXCHANGE)`` via Simmer's Polygon RPC
+        proxy. A BUY combo spends pUSD, so a non-zero allowance is the gating
+        approval that ``activate_combo_dw()`` sets (it sets the ERC1155
+        operator approval in the same batch, so pUSD allowance is a faithful
+        proxy for "combos activated").
+
+        Returns:
+            True  — pUSD allowance to the combo exchange is non-zero.
+            False — allowance is zero (combos not activated).
+            None  — couldn't determine (RPC error / unexpected response);
+                    callers treat None as "don't block".
+        """
+        try:
+            from .polymarket_contracts import PUSD, COMBO_EXCHANGE
+
+            owner = dw_address.lower().replace("0x", "").rjust(64, "0")
+            spender = COMBO_EXCHANGE.lower().replace("0x", "").rjust(64, "0")
+            # ERC20 allowance(address,address) selector 0xdd62ed3e
+            data = "0xdd62ed3e" + owner + spender
+            resp = self._request("POST", "/api/rpc/polygon", json={
+                "jsonrpc": "2.0",
+                "method": "eth_call",
+                "params": [{"to": PUSD, "data": data}, "latest"],
+                "id": 1,
+            })
+            result = resp.get("result")
+            if not result or result == "0x":
+                return None
+            return int(result, 16) > 0
+        except Exception as exc:
+            print(f"[SimmerSDK] combo-approval pre-check skipped (RPC): {exc}")
+            return None
 
     def _cancel_orders_for_token(self, token_id: str):
         """Cancel all open orders for a token using local py_clob_client."""
@@ -5587,6 +5659,138 @@ class SimmerClient:
         )
 
         print(f"[DW-Activate] Done — {len(calls)} approval(s) set.")
+        return {"already_set": False, "calls_count": len(calls), "success": True}
+
+    def activate_combo_dw(self, agent_id: Optional[str] = None) -> Dict[str, Any]:
+        """Activate Polymarket **combo** (parlay) trading for a Deposit Wallet.
+
+        One-time setup that approves the combo exchange to spend this DW's
+        pUSD (ERC20) and combo position tokens (ERC1155 on the combo Position
+        Manager), so ``place_combo(...)`` can settle on-chain for the
+        deposit-wallet (signature_type 3) cohort. Mirrors
+        ``activate_polymarket_dw`` but requests the combo approval batch
+        (``{combo: true}``).
+
+        Combos settle on their own exchange (``COMBO_EXCHANGE``), distinct
+        from the V2 CLOB spenders — so this is required even for a DW that
+        already completed ``activate_polymarket_dw()``. It is kept OUT of the
+        standard activation cascade so non-combo users don't pay the extra
+        approval. The combo approvals are idempotent on-chain (re-running is a
+        no-op), and the batch also completes standard CLOB activation as a
+        side effect if that hasn't been done.
+
+        Two scopes (same routing as ``activate_polymarket_dw``):
+
+        - **User-primary** (default, ``agent_id=None``):
+          ``/api/user/wallet/external/dw-approvals/*``.
+        - **Per-agent** (``agent_id="..."``):
+          ``/api/user/agent/{agent_id}/wallet/external/dw-approvals/*``.
+
+        Raw-key only — OWS combo signing is not yet supported (matches
+        ``place_combo``). The combo approval batch is signed locally with
+        ``WALLET_PRIVATE_KEY`` / ``private_key``; the key never leaves the
+        process and the server relays the batch gaslessly under its builder
+        HMAC.
+
+        Requires:
+        - WALLET_PRIVATE_KEY env var or ``private_key`` constructor arg
+        - Account upgraded to a Deposit Wallet (per-agent: the agent's DW)
+        - eth-account installed
+
+        Returns:
+            Dict with keys ``already_set`` (bool), ``calls_count`` (int),
+            ``success`` (bool).
+
+        Raises:
+            ValueError: if no raw private key is configured
+            ImportError: if eth-account is not installed
+
+        Example (user-primary, raw key):
+            client = SimmerClient(api_key="sk_live_...")  # WALLET_PRIVATE_KEY in env
+            client.activate_combo_dw()
+            # now DW combos settle:
+            client.place_combo(leg_ids, 10.0, dry_run=False)
+        """
+        # OWS combo signing is not yet supported — require a raw key (matches
+        # place_combo's gate). An OWS-only client can't activate combos.
+        if not self._private_key:
+            raise ValueError(
+                "activate_combo_dw() requires a raw EOA private key (the "
+                "deposit-wallet owner key). Set WALLET_PRIVATE_KEY env var or "
+                "pass private_key= to the constructor. OWS combo signing is "
+                "not yet supported."
+            )
+        try:
+            from eth_account import Account  # noqa: F401 — early dep check
+        except ImportError:
+            raise ImportError(
+                "eth-account is required for activate_combo_dw(). "
+                "Install with: pip install eth-account"
+            )
+
+        if agent_id:
+            _dw_base = (
+                f"/api/user/agent/{agent_id}/wallet/external/dw-approvals"
+            )
+        else:
+            _dw_base = "/api/user/wallet/external/dw-approvals"
+
+        # Step 1 — prepare with {combo: true}. The server appends the combo
+        # approvals unconditionally (idempotent on-chain), so unlike the base
+        # method this rarely short-circuits to already_set; the short-circuit
+        # is kept defensively in case the server starts checking combo state.
+        if agent_id:
+            print(f"[Combo-Activate] Preparing combo approval batch (per-agent {agent_id})…")
+        else:
+            print("[Combo-Activate] Preparing combo approval batch…")
+        prepare = self._request(
+            "POST",
+            f"{_dw_base}/prepare",
+            json={"combo": True},
+        )
+
+        if prepare.get("already_set"):
+            print("[Combo-Activate] Combo approvals already set — nothing to do.")
+            return {"already_set": True, "calls_count": 0, "success": True}
+
+        typed_data = prepare.get("typed_data")
+        nonce = prepare.get("nonce")
+        deadline = prepare.get("deadline")
+        calls = prepare.get("calls", [])
+
+        if not typed_data or not nonce or deadline is None or not calls:
+            raise RuntimeError(
+                f"Unexpected prepare response — missing required fields. "
+                f"Got keys: {list(prepare.keys())}"
+            )
+
+        # Validate the server-supplied batch BEFORE signing — same client-side
+        # guard as the base method. The SDK validator accepts the combo
+        # (token, COMBO_EXCHANGE) pairs (see batch_validation.py), so an honest
+        # server's combo batch passes while anything else is refused.
+        from .batch_validation import validate_dw_approval_calls
+        validate_dw_approval_calls(calls)
+
+        print("[Combo-Activate] Signing combo approval batch locally…")
+        from eth_account import Account
+        signed = Account.sign_typed_data(self._private_key, full_message=typed_data)
+        signature = signed.signature.hex()
+        if not signature.startswith("0x"):
+            signature = "0x" + signature
+
+        print("[Combo-Activate] Submitting to relayer…")
+        self._request(
+            "POST",
+            f"{_dw_base}/submit",
+            json={
+                "signature": signature,
+                "nonce": nonce,
+                "deadline": deadline,
+                "calls": calls,
+            },
+        )
+
+        print(f"[Combo-Activate] Done — {len(calls)} combo approval(s) set.")
         return {"already_set": False, "calls_count": len(calls), "success": True}
 
     def wrap_on_dw(self) -> Dict[str, Any]:
