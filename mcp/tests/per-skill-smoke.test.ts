@@ -29,10 +29,14 @@ test("bundled-skills directory exists", () => {
   assert.ok(fs.existsSync(BUNDLED_SKILLS_DIR), `bundled-skills not found at ${BUNDLED_SKILLS_DIR}`);
 });
 
-test("discovers at least 10 Tier B trading skills", () => {
+test("bundles only the audited core allowlist", () => {
   const skills = discoverSkills(BUNDLED_SKILLS_DIR);
-  const trading = skills.filter((s) => s.tier === "trading");
-  assert.ok(trading.length >= 10, `expected >= 10 trading skills, found ${trading.length}: ${trading.map((s) => s.slug).join(", ")}`);
+  assert.deepEqual(
+    skills.map((s) => s.slug).sort(),
+    ["preflight", "simmer", "simmer-briefing", "simmer-skill-builder", "simmer-wallet-setup"],
+  );
+  assert.equal(skills.some((s) => s.slug === "polymarket-combo-builder"), false);
+  assert.equal(skills.some((s) => s.slug === "polymarket-soccer-shock-ladder"), false);
 });
 
 test("all Tier B skills have entrypoint file on disk", () => {

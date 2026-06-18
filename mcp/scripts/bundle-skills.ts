@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
- * Copies skill directories from simmer-sdk/skills/ into mcp/bundled-skills/.
+ * Copies the vetted core skill allowlist from simmer-sdk/skills/ into
+ * mcp/bundled-skills/.
  * Run via: npm run bundle-skills
  * Hooked as prepack so bundled-skills/ is always fresh before npm publish.
  *
@@ -18,6 +19,16 @@ const mcpDir = path.resolve(__dirname, '..');
 const skillsDir = path.resolve(mcpDir, '..', 'skills');
 const outDir = path.resolve(mcpDir, 'bundled-skills');
 const checkMode = process.argv.includes('--check');
+
+const CORE_BUNDLED_SKILLS = new Set([
+  // Core identity/onboarding skills that must work offline and stay pinned to
+  // the npm package version. Long-tail strategies install from ClawHub on demand.
+  'simmer',
+  'simmer-wallet-setup',
+  'simmer-briefing',
+  'preflight',
+  'simmer-skill-builder',
+]);
 
 // config.json is gitignored per-user skill config (.gitignore: **/config.json) —
 // it exists in a dev's working tree but never in a clean checkout, so bundling it
@@ -111,6 +122,11 @@ function buildBundle(targetDir: string): { count: number; skipped: number } {
   for (const entry of fs.readdirSync(skillsDir, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
     if (SKIP.has(entry.name)) continue;
+    if (!CORE_BUNDLED_SKILLS.has(entry.name)) {
+      console.log(`[bundle-skills] skipping ${entry.name}: not in core allowlist`);
+      skipped++;
+      continue;
+    }
     const skillDir = path.join(skillsDir, entry.name);
     const skipReason = getSkipReason(skillDir);
     if (skipReason !== null) {

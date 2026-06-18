@@ -48,7 +48,7 @@ npm pack --dry-run
 
 # 6. Startup log looks correct
 SIMMER_API_KEY="" node dist/mcp-server.js </dev/null 2>&1 | head -5
-# Expected: [simmer-mcp] v<version> | tools: 3 (free only) | skills: 19 bundled
+# Expected: [simmer-mcp] v<version> | tools: 3 (free only) | skills: 5 bundled
 ```
 
 ## Test structure

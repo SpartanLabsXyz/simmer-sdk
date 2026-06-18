@@ -913,7 +913,7 @@ async function main() {
   ].join(" | ");
 
   const freeCount = 3;
-  const proCount = simmer ? 9 + skills.length : 0; // 4 autoresearch + 5 raw primitives
+  const proCount = simmer ? 13 + skills.length : 0; // 4 autoresearch + 5 raw primitives + 4 portfolio/fleet tools
   const totalTools = freeCount + proCount;
   const tier = simmer ? "free + autoresearch + per-skill" : "free only";
 

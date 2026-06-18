@@ -38,8 +38,8 @@ Get your API key from [simmer.markets/dashboard](https://simmer.markets/dashboar
 
 | Tool | Description |
 |---|---|
-| `list_skills` | List all bundled Simmer trading skills with tier and Pro requirements |
-| `get_skill_docs` | Get full SKILL.md for a specific skill |
+| `list_skills` | List core Simmer skills bundled with this MCP package |
+| `get_skill_docs` | Get full SKILL.md for a bundled skill, or the ClawHub install command for an unbundled skill |
 | `troubleshoot_error` | Look up a Simmer API error and get a fix |
 
 ### Pro (requires SIMMER_API_KEY)
@@ -105,25 +105,22 @@ By default, `simmer-mcp` resolves the Python binary in this order:
 
 Replace the path with the output of `which python3` (or your venv's `bin/python`) on your system.
 
-## Bundled skills (20)
+## Bundled core skills (5)
 
-Trading skills included in this package. Each has a corresponding `simmer_<slug>` MCP tool when `SIMMER_API_KEY` is set:
+Foundational skills included in this package for offline, pinned startup behavior. Each has a corresponding `simmer_<slug>` MCP tool when `SIMMER_API_KEY` is set:
 
-- `polymarket-fast-loop` — High-frequency Polymarket market maker
-- `polymarket-ai-divergence` — AI signal vs market price divergence
-- `polymarket-mert-sniper` — Sniping mispriced markets
-- `polymarket-signal-sniper` — Signal-based sniper
-- `polymarket-dca-eval-trader` — Three-tranche Polymarket DCA eval-envelope planner
-- `polymarket-fast-scaler` — Position scaling on conviction
-- `polymarket-market-maker` — Two-sided GTC quoting
-- `polymarket-copytrading` — Copy top traders
-- `polymarket-btc-up-down-trader` — BTC direction trader
-- `polymarket-nothing-ever-happens` — Status-quo bias strategy
-- `polymarket-weather-trader` — Weather market specialist
-- `polymarket-elon-tweets` — Elon tweet signal trader
-- `kalshi-weather-trader` — Kalshi weather markets
+- `simmer` — Simmer identity, safety rails, and SDK quick start
+- `simmer-wallet-setup` — wallet setup and activation guidance
+- `simmer-briefing` — daily portfolio and risk check-in pattern
+- `preflight` — executable pre-trade readiness check
+- `simmer-skill-builder` — build and validate custom Simmer skills
 
-And 7 instruction-only (Tier A) skills for agent context.
+Long-tail strategy skills stay out of the npm bundle and install from ClawHub on demand:
+
+```bash
+npx clawhub@latest install polymarket-combo-builder
+npx clawhub@latest install polymarket-soccer-shock-ladder
+```
 
 ## Requirements
 

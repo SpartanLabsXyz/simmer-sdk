@@ -39,7 +39,14 @@ export function getSkillDocs(skills: Skill[], slug: string): ToolResponse {
   if (!skill) {
     const available = skills.map((s) => s.slug).join(", ");
     return {
-      content: [{ type: "text", text: `Skill "${slug}" not found. Available: ${available}` }],
+      content: [{
+        type: "text",
+        text:
+          `Skill "${slug}" is not bundled in this slim simmer-mcp package.\n\n` +
+          `Install the latest copy from ClawHub on demand:\n\n` +
+          `npx clawhub@latest install ${slug}\n\n` +
+          `Bundled core skills: ${available}`,
+      }],
       isError: true,
     };
   }
