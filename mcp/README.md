@@ -38,7 +38,7 @@ Get your API key from [simmer.markets/dashboard](https://simmer.markets/dashboar
 
 | Tool | Description |
 |---|---|
-| `list_skills` | List all bundled Simmer trading skills with tier and Pro requirements |
+| `list_skills` | List the bundled core Simmer skills with tier and Pro requirements |
 | `get_skill_docs` | Get full SKILL.md for a specific skill |
 | `troubleshoot_error` | Look up a Simmer API error and get a fix |
 
@@ -50,7 +50,7 @@ Get your API key from [simmer.markets/dashboard](https://simmer.markets/dashboar
 | `run_experiment` | Run a shell command as a timed experiment |
 | `log_experiment` | Record experiment result (keep/discard/crash) with git commit |
 | `backtest_experiment` | Replay historical trades against new config (server-side) |
-| `simmer_<slug>` × 19 | Execute a specific trading skill in paper or live mode |
+| `simmer_<slug>` × 5 | Execute a bundled core skill in paper or live mode |
 
 ### MCP Resources
 
@@ -105,25 +105,24 @@ By default, `simmer-mcp` resolves the Python binary in this order:
 
 Replace the path with the output of `which python3` (or your venv's `bin/python`) on your system.
 
-## Bundled skills (20)
+## Bundled skills (5)
 
-Trading skills included in this package. Each has a corresponding `simmer_<slug>` MCP tool when `SIMMER_API_KEY` is set:
+The npm package intentionally ships only a small pinned core. Long-tail strategy
+skills are installed on demand from ClawHub so users get the latest published
+copy instead of a stale npm snapshot. The MCP server still includes the built-in
+raw tools (`simmer_trade`, `simmer_get_markets`, `simmer_get_briefing`,
+`simmer_get_market_context`, and `simmer_cancel_order`) independent of this
+bundle.
 
-- `polymarket-fast-loop` — High-frequency Polymarket market maker
-- `polymarket-ai-divergence` — AI signal vs market price divergence
-- `polymarket-mert-sniper` — Sniping mispriced markets
-- `polymarket-signal-sniper` — Signal-based sniper
-- `polymarket-dca-eval-trader` — Three-tranche Polymarket DCA eval-envelope planner
-- `polymarket-fast-scaler` — Position scaling on conviction
-- `polymarket-market-maker` — Two-sided GTC quoting
-- `polymarket-copytrading` — Copy top traders
-- `polymarket-btc-up-down-trader` — BTC direction trader
-- `polymarket-nothing-ever-happens` — Status-quo bias strategy
-- `polymarket-weather-trader` — Weather market specialist
-- `polymarket-elon-tweets` — Elon tweet signal trader
-- `kalshi-weather-trader` — Kalshi weather markets
+- `simmer` — Simmer overview and agent identity
+- `simmer-wallet-setup` — real-money wallet setup
+- `simmer-mcp-setup` — MCP bootstrap instructions
+- `preflight` — trading-readiness checks
+- `polymarket-btc-up-down-trader` — simple baseline Polymarket strategy
 
-And 7 instruction-only (Tier A) skills for agent context.
+Install situational strategies such as `polymarket-combo-builder`,
+`polymarket-soccer-shock-ladder`, copytraders, weather traders, and DCA
+strategies from [ClawHub](https://clawhub.ai/skills?q=simmer).
 
 ## Requirements
 

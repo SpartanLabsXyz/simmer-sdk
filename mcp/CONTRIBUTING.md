@@ -8,7 +8,7 @@ npm install
 npm run bundle-skills   # bundles skills + snapshots into dist artefacts
 npm run check:bundle-skills  # verifies bundled-skills matches ../skills
 npm run build           # TypeScript → dist/
-npm test                # build + all tests (104 tests)
+npm test                # build + all tests
 ```
 
 `bundled-skills/` is committed intentionally. When any file under `../skills/`
@@ -31,15 +31,15 @@ printf '%s\n{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}\n
 SIMMER_API_KEY="" node dist/mcp-server.js 2>/dev/null | grep '"id":2'
 # Expected: tools array with 3 entries (list_skills, get_skill_docs, troubleshoot_error)
 
-# 3. Pro-tier: 19+ tools (with API key)
+# 3. Pro-tier: core bundle + raw trade/market tools (with API key)
 printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"smoke","version":"0.0.1"}}}\n{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}\n{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}\n' | \
 SIMMER_API_KEY="sk_test_any" node dist/mcp-server.js 2>/dev/null | grep '"id":2'
-# Expected: tools array with 26 entries (3 + 4 autoresearch + 19 per-skill)
+# Expected: raw trade/market tools plus 5 bundled core per-skill tools.
 
 # 4. Resources present
 printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"smoke","version":"0.0.1"}}}\n{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}\n{"jsonrpc":"2.0","id":2,"method":"resources/list","params":{}}\n' | \
 SIMMER_API_KEY="" node dist/mcp-server.js 2>/dev/null | grep '"id":2'
-# Expected: resources array with 2+ simmer:// URIs
+# Expected: method-not-found; static resources were removed in v3.1.0.
 
 # 5. Pack check — verify no sensitive files included
 npm pack --dry-run
@@ -48,7 +48,7 @@ npm pack --dry-run
 
 # 6. Startup log looks correct
 SIMMER_API_KEY="" node dist/mcp-server.js </dev/null 2>&1 | head -5
-# Expected: [simmer-mcp] v<version> | tools: 3 (free only) | skills: 19 bundled
+# Expected: [simmer-mcp] v<version> | tools: 3 (free only) | skills: 5 bundled
 ```
 
 ## Test structure

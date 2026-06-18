@@ -36,7 +36,7 @@ So: MCP and SDK are different shapes, both legitimate. MCP runs pre-built strate
 - `SIMMER_API_KEY` plumbed into the MCP subprocess
 - Simmer tools visible to your agent:
   - **3 free utility tools** (always available): `list_skills`, `get_skill_docs`, `troubleshoot_error`
-  - **A catalog of per-skill execution tools** — one tool per bundled Simmer trading skill (Polymarket strategies, Kalshi weather trading, sentiment/copytrading skills, plus utilities like `preflight`). The catalog grows over time — call `list_skills` to see what's currently available, or browse the live catalog at [clawhub.ai/skills?q=simmer](https://clawhub.ai/skills?q=simmer).
+  - **A small pinned core catalog** — setup, wallet, preflight, and a baseline Polymarket tool are bundled. Situational strategies (combo, shock-ladder, copytrading, weather, DCA, etc.) install on demand from [clawhub.ai/skills?q=simmer](https://clawhub.ai/skills?q=simmer) so agents get the latest published copy.
   - **4 Pro-gated autoresearch tools** (`init_experiment`, `run_experiment`, `log_experiment`, `backtest_experiment`) — only registered if you're on the Pro plan.
 
 ## Step 1 — confirm you have an API key
@@ -245,7 +245,7 @@ The agent should respond with the 3 utility tools plus per-skill execution tools
 - `list_skills`
 - `get_skill_docs`
 - `troubleshoot_error`
-- A catalog of per-skill execution tools (one per bundled Simmer trading skill). The exact count depends on how many skills are currently bundled — have the agent call `list_skills` for the up-to-date inventory.
+- A small catalog of bundled core per-skill tools. For situational strategies, install the current skill from ClawHub and follow its SKILL.md.
 
 Then ask the agent to do something safe that exercises the API:
 > Use the simmer tools to show me a few of the most active markets on the sim venue.

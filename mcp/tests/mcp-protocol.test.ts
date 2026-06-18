@@ -84,12 +84,13 @@ test("tools/list without SIMMER_API_KEY returns exactly 3 free tools", async () 
   assert.ok(names.includes("troubleshoot_error"), "troubleshoot_error missing");
 });
 
-test("tools/list with SIMMER_API_KEY returns 19+ tools (free + autoresearch + per-skill)", async () => {
+test("tools/list with SIMMER_API_KEY returns core tools and excludes long-tail skills", async () => {
   const resp = await mcpCall("tools/list", {}, { SIMMER_API_KEY: "sk_test_key" });
   assert.ok(!resp.error, `Expected no error, got: ${JSON.stringify(resp.error)}`);
   const tools = (resp.result?.tools ?? []) as Array<{ name: string }>;
-  // 3 free + 4 autoresearch + 19 bundled skills = 26
-  assert.ok(tools.length >= 19, `Expected >= 19 tools with API key, got ${tools.length}`);
+  // Keep this as a floor because raw/read tool count can grow independently
+  // from the bundled skill count.
+  assert.ok(tools.length >= 17, `Expected >= 17 tools with API key, got ${tools.length}`);
   const names = tools.map((t) => t.name);
   // Free tools always present
   assert.ok(names.includes("list_skills"), "list_skills missing");
@@ -99,8 +100,16 @@ test("tools/list with SIMMER_API_KEY returns 19+ tools (free + autoresearch + pe
   assert.ok(names.includes("run_experiment"), "run_experiment missing");
   assert.ok(names.includes("log_experiment"), "log_experiment missing");
   assert.ok(names.includes("backtest_experiment"), "backtest_experiment missing");
-  // At least one per-skill tool
-  assert.ok(names.some((n) => n.startsWith("simmer_")), "no simmer_* per-skill tools found");
+  // Raw trade primitives remain available even as long-tail strategy skills move to ClawHub.
+  assert.ok(names.includes("simmer_trade"), "simmer_trade missing");
+  assert.ok(names.includes("simmer_get_markets"), "simmer_get_markets missing");
+  assert.ok(names.includes("simmer_get_briefing"), "simmer_get_briefing missing");
+  // Core per-skill tools remain bundled.
+  assert.ok(names.includes("simmer_polymarket_btc_up_down_trader"), "core BTC skill missing");
+  assert.ok(names.includes("simmer_preflight"), "preflight skill missing");
+  // Long-tail skills are intentionally installed on demand from ClawHub.
+  assert.ok(!names.includes("simmer_polymarket_combo_builder"), "combo builder should not be bundled");
+  assert.ok(!names.includes("simmer_polymarket_soccer_shock_ladder"), "shock ladder should not be bundled");
 });
 
 // --- resources/list ---

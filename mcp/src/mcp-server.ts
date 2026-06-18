@@ -216,7 +216,7 @@ const server = new McpServer({
 
 server.tool(
   "list_skills",
-  "List all Simmer trading skills available in this MCP server. Returns slug, name, version, tier, and whether the skill requires a Pro plan.",
+  "List the core Simmer skills bundled in this MCP server. Long-tail strategies install on demand from ClawHub. Returns slug, name, version, tier, and whether the skill requires a Pro plan.",
   {},
   async () => {
     const list = listSkills(skills);
@@ -231,8 +231,8 @@ server.tool(
 
 server.tool(
   "get_skill_docs",
-  "Get the full SKILL.md documentation for a specific Simmer skill. Includes description, parameters, usage examples, and troubleshooting tips.",
-  { slug: z.string().describe("Skill slug (e.g. 'polymarket-fast-loop')") },
+  "Get the full SKILL.md documentation for a bundled core Simmer skill. Includes description, parameters, usage examples, and troubleshooting tips.",
+  { slug: z.string().describe("Bundled skill slug (e.g. 'preflight')") },
   async ({ slug }) => {
     const r = getSkillDocs(skills, slug);
     return r;

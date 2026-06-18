@@ -19,6 +19,18 @@ const skillsDir = path.resolve(mcpDir, '..', 'skills');
 const outDir = path.resolve(mcpDir, 'bundled-skills');
 const checkMode = process.argv.includes('--check');
 
+// Keep the npm package small and drift-resistant. The MCP server exposes base
+// trade/market tools in TypeScript; bundled skills are only the pinned core
+// playbooks/runnables every agent needs before installing situational skills
+// on demand from ClawHub.
+const CORE_BUNDLED_SKILLS = new Set([
+  'simmer',
+  'simmer-wallet-setup',
+  'simmer-mcp-setup',
+  'preflight',
+  'polymarket-btc-up-down-trader',
+]);
+
 // config.json is gitignored per-user skill config (.gitignore: **/config.json) —
 // it exists in a dev's working tree but never in a clean checkout, so bundling it
 // makes the committed bundle un-reproducible on CI (extra: drift). Never bundle it.
@@ -111,6 +123,11 @@ function buildBundle(targetDir: string): { count: number; skipped: number } {
   for (const entry of fs.readdirSync(skillsDir, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
     if (SKIP.has(entry.name)) continue;
+    if (!CORE_BUNDLED_SKILLS.has(entry.name)) {
+      console.log(`[bundle-skills] skipping ${entry.name}: not in core bundle allowlist`);
+      skipped++;
+      continue;
+    }
     const skillDir = path.join(skillsDir, entry.name);
     const skipReason = getSkipReason(skillDir);
     if (skipReason !== null) {
