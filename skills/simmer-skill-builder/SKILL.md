@@ -3,7 +3,7 @@ name: simmer-skill-builder
 description: Generate complete, installable OpenClaw trading skills from natural language strategy descriptions. Use when your human wants to create a new trading strategy, build a bot, generate a skill, automate a trade idea, turn a tweet into a strategy, or asks "build me a skill that...". Produces a full skill folder (SKILL.md + Python script + config) ready to install and run.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.3.8"
+  version: "1.3.9"
   displayName: Simmer Skill Builder
   difficulty: beginner
 ---
@@ -140,6 +140,8 @@ If the strategy uses an external data source:
   - `GET https://clob.polymarket.com/prices-history?market=<token_id>&interval=1w&fidelity=60` — price history
   - Get `polymarket_token_id` from the Simmer market response.
 - **Other APIs (Synth, NOAA, Binance, RSS, etc.):** Ask your human to provide the relevant API docs, or web-fetch them if you have access.
+
+> **Reusable interface to an external source (Bring Your Own Data).** Inline API calls (above) are fine for a single source the skill hits occasionally. If the strategy leans heavily on an external source the human already has access to — and they want a clean, agent-native interface they can reuse — point them at [Bring Your Own Data](https://docs.simmer.markets/skills/byo-data-source): generate a dedicated CLI/MCP for that source with Printing Press and register it as an agent tool. **Authorized sources only** (their own keys/subscriptions/accounts) — Simmer never touches the data. Keep generating the skill with inline calls; this is an optional upgrade the human runs themselves, not something this builder scaffolds.
 
 ### Step 4: Generate the Skill
 
