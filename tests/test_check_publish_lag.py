@@ -1,8 +1,19 @@
+import importlib.util
+import sys
 from pathlib import Path
 
 import pytest
 
-from scripts import check_publish_lag
+
+ROOT = Path(__file__).resolve().parents[1]
+SPEC = importlib.util.spec_from_file_location(
+    "check_publish_lag", ROOT / "scripts" / "check_publish_lag.py"
+)
+assert SPEC is not None
+assert SPEC.loader is not None
+check_publish_lag = importlib.util.module_from_spec(SPEC)
+sys.modules[SPEC.name] = check_publish_lag
+SPEC.loader.exec_module(check_publish_lag)
 
 
 def write_package_files(root: Path, npm_version: str, pypi_version: str) -> None:
