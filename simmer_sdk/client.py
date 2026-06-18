@@ -1252,6 +1252,15 @@ class SimmerClient:
                 "builds the plan but never signs or sends. Set WALLET_PRIVATE_KEY."
             )
 
+        # Per-agent API keys carry their DW state on /api/sdk/agents/me, NOT
+        # /api/sdk/settings (which only sees the user-primary wallet). Without
+        # this load a per-agent DW key resolves uses_dw=False and would sign an
+        # EOA combo (sig_type 0) instead of the DW combo (sig_type 3) — the
+        # order's maker would be the agent EOA, not its deposit wallet.
+        # Idempotent (guarded by _per_agent_dw_loaded); a no-op for
+        # user-primary keys (whose DW state is already set from settings).
+        self._load_per_agent_dw_state()
+
         uses_dw = bool(self._uses_deposit_wallet and self._deposit_wallet_address)
         signature_type = 3 if uses_dw else 0
         dw = self._deposit_wallet_address if uses_dw else None

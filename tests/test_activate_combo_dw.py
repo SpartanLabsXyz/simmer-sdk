@@ -167,6 +167,23 @@ def test_place_combo_dw_precheck_skipped_when_allow_flag():
         assert "activate_combo_dw" not in str(ei.value)
 
 
+def test_place_combo_loads_per_agent_dw_state_for_sig3():
+    """Regression (caught in E3 live verify): a per-agent API key carries its DW
+    state on /api/sdk/agents/me, not /api/sdk/settings. place_combo must load it
+    so the combo signs as sig_type 3 (maker=DW), not EOA sig0. Before the fix the
+    dry-run plan resolved sig0 / maker=EOA."""
+    client = _make_client(dw=False, live=True)  # settings says no DW (user-primary view)
+    me_payload = {
+        "per_agent_wallet_address": "0xEOA",
+        "per_agent_deposit_wallet_address": FAKE_DW,
+        "per_agent_dw_active": True,
+    }
+    with patch.object(client, "_request", return_value=me_payload):
+        plan = client.place_combo(leg_position_ids=["111", "222"], size_usdc=1.0, dry_run=True)
+    assert plan["identity"]["signature_type"] == 3
+    assert plan["identity"]["maker_address"] == FAKE_DW
+
+
 def test_combo_dw_approved_decodes_allowance():
     client = _make_client(dw=True)
     # Non-zero allowance → approved
