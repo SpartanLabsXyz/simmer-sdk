@@ -117,8 +117,17 @@ def run(live: bool):
             direction=direction, dry_run=False,
             on_status=lambda s: print(f"  [{s}]"),
         )
+    except ValueError as e:
+        # Deposit-wallet combos need a one-time approval; the SDK pre-check
+        # raises ValueError pointing at activate_combo_dw(). Surface the CLI
+        # equivalent.
+        if "activate_combo_dw" in str(e):
+            sys.exit(
+                f"\nCombo not placed: {e}\n\n"
+                "  -> Run once for this wallet:  python combo_builder.py --activate-combo\n"
+            )
+        raise
     except ComboPlacementError as e:
-        # Most common: deposit-wallet combos aren't enabled yet (see below).
         sys.exit(f"\nCombo not placed: {e}")
     print("Result:")
     print(json.dumps(result, indent=2))
@@ -126,13 +135,36 @@ def run(live: bool):
         print(f"\nFilled. tx: https://polygonscan.com/tx/{result['tx_hash']}")
 
 
+def activate_combo():
+    """One-time deposit-wallet combo activation (approves the combo exchange).
+
+    EOA / self-custody wallets need no activation — this is only for deposit
+    wallets (signature_type 3). Idempotent and gasless (server-relayed).
+    """
+    from simmer_sdk.client import SimmerClient
+
+    api_key = os.getenv("SIMMER_API_KEY")
+    if not api_key:
+        sys.exit("Set SIMMER_API_KEY (simmer.markets/dashboard -> SDK tab).")
+    client = SimmerClient(api_key=api_key, venue="polymarket", live=True)
+    print("=== Activating deposit-wallet combos (one-time) ===")
+    result = client.activate_combo_dw()
+    print(json.dumps(result, indent=2))
+    print("\nDone. You can now place deposit-wallet combos with --live.")
+
+
 def main():
     ap = argparse.ArgumentParser(description="Place an atomic Polymarket combo (parlay).")
     ap.add_argument("--live", action="store_true", help="Place for real (money path). Default: dry-run.")
     ap.add_argument("--legs", action="store_true", help="Browse combo-eligible legs and exit.")
+    ap.add_argument("--activate-combo", action="store_true",
+                    help="One-time: approve the combo exchange for a deposit wallet, then exit.")
     args = ap.parse_args()
     if args.legs:
         browse_legs()
+        return
+    if args.activate_combo:
+        activate_combo()
         return
     run(live=args.live)
 

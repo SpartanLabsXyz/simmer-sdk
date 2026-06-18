@@ -109,7 +109,9 @@ def validate_dw_approval_calls(calls: list) -> None:
         PUSD,
         V2_FEE_ESCROW,
         CTF_COLLATERAL_ADAPTER,
+        COMBO_POSITION_MANAGER,
         active_spenders,
+        combo_spenders,
         redemption_spenders,
     )
 
@@ -117,12 +119,22 @@ def validate_dw_approval_calls(calls: list) -> None:
 
     pusd_l = PUSD.lower()
     ctf_l = CONDITIONAL_TOKENS.lower()
+    combo_pm_l = COMBO_POSITION_MANAGER.lower()
     allowed_pairs: set[tuple[str, str]] = set()
     for spender in active_spenders():
         s = spender.lower()
         allowed_pairs.add((pusd_l, s))   # pUSD → spender (ERC20 approve)
         allowed_pairs.add((ctf_l, s))    # CTF  → spender (ERC1155 setApprovalForAll)
     allowed_pairs.add((pusd_l, V2_FEE_ESCROW.lower()))
+    # Combo (parlay) approvals — opt-in, set by activate_combo_dw(). pUSD →
+    # combo exchange (ERC20 approve) + combo Position Manager → combo exchange
+    # (ERC1155 setApprovalForAll). Mirror of the server's
+    # get_allowed_dw_approval_targets() combo additions. NOTE the ERC1155 leg
+    # is on COMBO_POSITION_MANAGER (combo position tokens live there), NOT CTF.
+    for spender in combo_spenders():
+        s = spender.lower()
+        allowed_pairs.add((pusd_l, s))
+        allowed_pairs.add((combo_pm_l, s))
     for adapter in redemption_spenders():
         allowed_pairs.add((ctf_l, adapter.lower()))
     allowed_pairs.add((pusd_l, CTF_COLLATERAL_ADAPTER.lower()))

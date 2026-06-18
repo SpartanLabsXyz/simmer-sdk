@@ -292,7 +292,7 @@ def place_combo(
     max_retries: int = 2,
     on_status: Optional[Callable[[str], None]] = None,
     dry_run: bool = True,
-    allow_deposit_wallet: bool = False,
+    allow_deposit_wallet: bool = True,
 ) -> Dict[str, Any]:
     """Place a combo via the requester RFQ WebSocket.
 
@@ -333,26 +333,21 @@ def place_combo(
     if dry_run:
         return plan
 
-    # Deposit-wallet gate. DW combo *identity + signing* work, but a DW cannot
-    # APPROVE the combo exchange: DepositWallet.execute is onlyFactory and
-    # DepositWalletFactory.proxy is onlyOperator (Polymarket's relayer only),
-    # and that relayer rejects approvals to the combo exchange 0xe333…
-    # ("operator not in the allowed list"). So a DW combo signs fine but fails
-    # at on-chain settlement on missing allowance. Block it with a clear
-    # message instead of a confusing settlement failure. Auto-overridable:
-    # once Polymarket whitelists 0xe333 on the DW relayer and the DW is
-    # approved, pass allow_deposit_wallet=True. (Verified 2026-06-16.)
+    # Deposit-wallet combos are SUPPORTED (proven end-to-end on-chain, E/D2,
+    # 2026-06-18). A DW must first approve the combo exchange once — the DW
+    # signs the approval batch locally and Simmer's server relays it under our
+    # builder HMAC (the combo (token, COMBO_EXCHANGE) pairs are whitelisted in
+    # the relay guard). That one-time setup is `client.activate_combo_dw()`;
+    # the SimmerClient also runs an on-chain pre-check before placing. At this
+    # low-level module entry `allow_deposit_wallet` defaults True. Passing it
+    # False explicitly disables DW combos (kept for back-compat / testing).
     if signature_type == 3 and not allow_deposit_wallet:
         raise ComboPlacementError(
-            "Deposit-wallet combos are not available yet. A deposit wallet can "
-            "only approve contracts via Polymarket's relayer (DW.execute is "
-            "onlyFactory -> Factory.proxy is onlyOperator), and that relayer "
-            "currently rejects approvals to the combo exchange 0xe3333700…  "
-            "('operator not in the allowed list'). So the order would sign but "
-            "fail at settlement on a missing allowance. EOA / self-custody "
-            "wallets work today. This auto-resolves once Polymarket whitelists "
-            "the combo exchange on the deposit-wallet relayer; pass "
-            "allow_deposit_wallet=True to override once your DW is approved."
+            "Deposit-wallet combos are disabled for this call "
+            "(allow_deposit_wallet=False). DW combos are supported — approve "
+            "the combo exchange once with client.activate_combo_dw(), then "
+            "place via the SimmerClient (which gates on the approval), or pass "
+            "allow_deposit_wallet=True here."
         )
 
     return asyncio.run(_place_combo_ws(
