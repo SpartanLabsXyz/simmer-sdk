@@ -723,8 +723,8 @@ def parse_temperature_bucket(outcome_name: str) -> tuple:
 #                  (or skip if REQUIRE_SOURCE_AGREEMENT=true).
 #   - wide       → temp spread > MAX_SOURCE_SPREAD_F, or buckets non-adjacent.
 #                  Always skip.
-#   - missing_secondary → no secondary available (intl today). Behave per
-#                  REQUIRE_SOURCE_AGREEMENT flag.
+#   - missing_secondary → no secondary available (intl today). Cap to
+#                  MAX_CANARY_USD (or skip if REQUIRE_SOURCE_AGREEMENT=true).
 
 def _bucket_for_temp(temp, all_markets):
     """Find the market whose bucket contains the given temperature."""
