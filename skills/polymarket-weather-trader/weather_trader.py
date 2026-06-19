@@ -723,8 +723,8 @@ def parse_temperature_bucket(outcome_name: str) -> tuple:
 #                  (or skip if REQUIRE_SOURCE_AGREEMENT=true).
 #   - wide       → temp spread > MAX_SOURCE_SPREAD_F, or buckets non-adjacent.
 #                  Always skip.
-#   - missing_secondary → no secondary available (intl today). Behave per
-#                  REQUIRE_SOURCE_AGREEMENT flag.
+#   - missing_secondary → no secondary available (intl today). Cap to
+#                  MAX_CANARY_USD (or skip if REQUIRE_SOURCE_AGREEMENT=true).
 
 def _bucket_for_temp(temp, all_markets):
     """Find the market whose bucket contains the given temperature."""
@@ -803,7 +803,8 @@ def apply_source_tier_to_sizing(tier, base_size):
     if tier == 'missing_secondary':
         if REQUIRE_SOURCE_AGREEMENT:
             return (None, "no secondary source; REQUIRE_SOURCE_AGREEMENT=true")
-        return (base_size, "no secondary source — single-source mode")
+        capped = min(base_size, MAX_CANARY_USD)
+        return (capped, f"no secondary source — canary cap ${MAX_CANARY_USD:.2f}")
     if tier == 'wide':
         return (None, f"source spread > {MAX_SOURCE_SPREAD_F}°F equivalent — skip")
     if tier == 'adjacent':

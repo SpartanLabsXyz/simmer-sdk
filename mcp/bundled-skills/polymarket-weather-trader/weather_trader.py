@@ -803,7 +803,8 @@ def apply_source_tier_to_sizing(tier, base_size):
     if tier == 'missing_secondary':
         if REQUIRE_SOURCE_AGREEMENT:
             return (None, "no secondary source; REQUIRE_SOURCE_AGREEMENT=true")
-        return (base_size, "no secondary source — single-source mode")
+        capped = min(base_size, MAX_CANARY_USD)
+        return (capped, f"no secondary source — canary cap ${MAX_CANARY_USD:.2f}")
     if tier == 'wide':
         return (None, f"source spread > {MAX_SOURCE_SPREAD_F}°F equivalent — skip")
     if tier == 'adjacent':

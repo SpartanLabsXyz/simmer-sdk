@@ -5,6 +5,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Fixed
+
+- **`polymarket-weather-trader`: international markets now capped at canary size.** Positions on international stations (Tokyo, Madrid, Ankara, etc.) use Open-Meteo as the sole source with no secondary cross-check. Previously these `missing_secondary` positions were sized at the full position size, producing outsized losses from unverified single-source forecasts. They now cap at `MAX_CANARY_USD` (default $2.00), matching the same protective ceiling used for adjacent-bucket disagreements. Set `SIMMER_WEATHER_REQUIRE_SOURCE_AGREEMENT=true` to skip them entirely.
+
 ## [0.20.3] - 2026-06-18
 
 ### Added
