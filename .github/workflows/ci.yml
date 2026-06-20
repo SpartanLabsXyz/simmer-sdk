@@ -82,3 +82,29 @@ jobs:
       - name: Build + test MCP package
         working-directory: mcp
         run: npm test
+
+  skill-example-bind:
+    # Bind every documented SDK example (SKILL.md + README) against the shipped
+    # source. Catches the class of bug where an example uses a kwarg/method the
+    # package rejects — a copy-paste TypeError for builders. Never executes
+    # example code (AST + inspect.signature().bind_partial). See
+    # scripts/check_skill_examples.py. Sibling of simmer-docs' SDK Example Bind.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install SDK (editable) + pytest
+        run: pip install -e . pytest
+
+      - name: Self-test the example-bind checker
+        run: pytest scripts/test_check_skill_examples.py -q
+
+      - name: Bind documented SDK examples against the shipped source
+        run: python scripts/check_skill_examples.py skills/ README.md
