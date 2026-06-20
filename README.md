@@ -30,15 +30,17 @@ SKILL_SLUG = "my-skill-slug"   # Must match your ClawHub slug
 TRADE_SOURCE = f"sdk:{SKILL_SLUG}"
 
 _client = None
-def get_client():
+def get_client(live: bool = False):
     global _client
     if _client is None:
         venue = os.environ.get("TRADING_VENUE", "sim")
-        _client = SimmerClient(api_key=os.environ["SIMMER_API_KEY"], venue=venue)
+        # `live` controls paper vs real execution and is a constructor arg, not a
+        # per-trade flag. live=False => paper preview (no real order placed).
+        _client = SimmerClient(api_key=os.environ["SIMMER_API_KEY"], venue=venue, live=live)
     return _client
 
 def run(live: bool = False):
-    client = get_client()
+    client = get_client(live)
 
     # Find markets. Unfiltered browse is windowed to the newest ~1,000 active
     # markets — filter with sort="volume", q="...", or tags="..." to reach the rest.
@@ -53,12 +55,11 @@ def run(live: bool = False):
             market_id=markets[0].id,
             side="yes",
             amount=10.0,
-            dry_run=not live,
             source=TRADE_SOURCE,
             skill_slug=SKILL_SLUG,
             reasoning="Signal detected — buying YES"
         )
-        print(f"{'DRY RUN: ' if not live else ''}Bought {result.shares_bought:.2f} shares")
+        print(f"{'PAPER: ' if not live else ''}Bought {result.shares_bought:.2f} shares")
 
 if __name__ == "__main__":
     import sys
@@ -246,7 +247,7 @@ amount = size_position(
     min_ev=0.03,        # skip trades with edge < 3%
 )
 if amount > 0:
-    client.trade(market_id=..., side="BUY", outcome="YES",
+    client.trade(market_id=..., side="yes",
                  amount=amount, reasoning="Kelly: 70% vs 55%, +15% edge")
 ```
 
