@@ -119,6 +119,8 @@ Only foundational skills are included in this package. Each has a corresponding
 
 Situational strategies such as combo, shock-ladder, copytrading, weather, and
 DCA install on demand from ClawHub instead of shipping inside the npm bundle.
+See [CORE_BUNDLE_DECISION.md](./CORE_BUNDLE_DECISION.md) for the canonical
+allowlist decision and rationale.
 
 ## Requirements
 
