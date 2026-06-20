@@ -178,10 +178,16 @@ class TestApplySourceTier(unittest.TestCase):
         self.assertIsNone(size)
         self.assertIn("spread", reason.lower())
 
-    def test_missing_secondary_default_allows(self):
+    def test_missing_secondary_caps_to_canary(self):
+        # SIM-3412: missing secondary → canary cap, not full size.
         size, reason = wt.apply_source_tier_to_sizing("missing_secondary", 5.0)
-        self.assertEqual(size, 5.0)
-        self.assertIn("single-source", reason.lower())
+        self.assertEqual(size, 2.0)
+        self.assertIn("canary", reason.lower())
+
+    def test_missing_secondary_under_canary_not_capped_up(self):
+        # Canary cap is a ceiling, not a floor.
+        size, _ = wt.apply_source_tier_to_sizing("missing_secondary", 1.0)
+        self.assertEqual(size, 1.0)
 
     def test_missing_secondary_with_require_agreement_skips(self):
         wt.REQUIRE_SOURCE_AGREEMENT = True
