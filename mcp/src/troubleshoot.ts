@@ -24,7 +24,7 @@ const LOCAL_FALLBACK: Array<{ patterns: string[]; fix: string }> = [
   },
   {
     patterns: ["daily trade limit", "trades/day"],
-    fix: "Daily trade limit counts across all venues (sim + real). Raise via PATCH /api/sdk/user/settings with max_trades_per_day (Free: up to 1,000, Pro: up to 5,000). Sells are exempt.",
+    fix: "Daily trade limit counts across all venues (sim + real). Free users can self-raise this to 1,000/day (no upgrade needed) via PATCH /api/sdk/user/settings with max_trades_per_day; Pro raises the ceiling to 5,000. Sell orders are never blocked by this limit (you can always exit), but completed trades of either side count toward the daily total.",
   },
 ];
 
