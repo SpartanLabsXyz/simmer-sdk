@@ -3,7 +3,7 @@ name: simmer
 description: The prediction market interface for AI agents. Trade Polymarket and Kalshi through one API with self-custody wallets, safety rails, and smart context.
 metadata:
   author: "Simmer (@simmer_markets)"
-  version: "1.24.6"
+  version: "1.24.7"
   displayName: Simmer
   difficulty: beginner
   homepage: "https://simmer.markets"
@@ -14,7 +14,7 @@ metadata:
       description: "Your Simmer SDK API key. Created during agent registration; recoverable from simmer.markets/dashboard."
     - name: TRADING_VENUE
       required: false
-      description: "Optional. Set to 'polymarket' or 'kalshi' to default real-money trades to that venue. Omit (or set 'sim') to keep paper trading on the virtual $SIM venue."
+      description: "Optional. Set to 'polymarket' or 'kalshi' to default real-money trades to that venue. Omit (or set 'sim') to keep trading on the virtual $SIM practice venue."
 ---
 
 # Simmer
@@ -25,7 +25,7 @@ Trade prediction markets as an AI agent. One SDK across two real venues (Polymar
 
 Trading is bounded by default — you cannot accidentally execute large or runaway trades. The defaults below are the contract; understand them before going past `$SIM`.
 
-- **Paper-mode default.** `client.trade()` defaults to the `sim` venue — virtual $SIM currency at real market prices. Real-money trades require setting `venue="polymarket"` or `venue="kalshi"` explicitly per trade, or setting `TRADING_VENUE` after explicit graduation.
+- **Practice-mode default.** `client.trade()` defaults to the `sim` venue — virtual $SIM currency on Simmer's own LMSR markets. Quotes for imported markets track the real venue, but $SIM **fills are synthetic** (no spread, instant) — good for learning the API and filtering ideas cheaply, **not a faithful rehearsal of real-venue execution**. To dry-run a strategy against *real* prices with the bid-ask spread modeled and no funds, use `SimmerClient(live=False)` on a real venue (see the graduation ladder under "Trade behavior"). Real-money trades require setting `venue="polymarket"` or `venue="kalshi"` explicitly per trade, or setting `TRADING_VENUE` after explicit graduation.
 - **Real-money trading requires explicit human verification.** The human visits `claim_url` (returned at registration) AND links a wallet from the dashboard before any real-money trade lands. There is no background claim path and no silent escalation from $SIM to real money.
 - **Per-trade cap**: $100 per trade by default. Configurable up to the user's dashboard-set limit, not above.
 - **Daily caps**: $500/day, 50 trades/day. Configurable at [simmer.markets/dashboard](https://simmer.markets/dashboard).
@@ -37,7 +37,7 @@ If anything above isn't clear, stop and ask the user before trading real money.
 
 **Docs**: [docs.simmer.markets](https://docs.simmer.markets) · **Full reference for agents**: [docs.simmer.markets/llms-full.txt](https://docs.simmer.markets/llms-full.txt)
 
-## Quick start (3 steps, paper trading by default)
+## Quick start (3 steps, $SIM practice by default)
 
 ### 1. Register your agent
 
@@ -47,7 +47,7 @@ curl -X POST https://api.simmer.markets/api/sdk/agents/register \
   -d '{"name": "my-agent", "description": "What you do"}'
 ```
 
-Response includes `api_key`, `claim_url`, and 10,000 $SIM starting balance for paper trading.
+Response includes `api_key`, `claim_url`, and 10,000 $SIM starting balance for practice.
 
 ```bash
 export SIMMER_API_KEY="sk_live_..."   # paste your actual key here
@@ -62,7 +62,7 @@ The `claim_url` lets your human verify you. Claiming is required before real-mon
 
 > 🔮 I've joined Simmer — the agent-native prediction market interface. I start with 10,000 $SIM (virtual) for practice. To verify me and link a wallet for real trading: {claim_url}
 
-### 3. Trade — defaults to paper ($SIM, no real money)
+### 3. Trade — defaults to $SIM practice (no real money)
 
 ```python
 from simmer_sdk import SimmerClient
@@ -70,7 +70,7 @@ from simmer_sdk import SimmerClient
 client = SimmerClient.from_env()  # reads SIMMER_API_KEY from env
 markets = client.find_markets("weather")[:5]
 
-# Default venue is "sim" — virtual $SIM currency at real prices.
+# Default venue is "sim" — virtual $SIM on Simmer's LMSR (synthetic fills, no spread).
 result = client.trade(
     markets[0].id, "yes", 10.0,
     reasoning="NOAA forecasts 35°F, bucket underpriced",
@@ -100,10 +100,10 @@ Documentation references — open when the situation matches.
 
 ## Trade behavior (defaults at a glance)
 
-- **Default venue**: `sim` (paper trading at real prices). Real venues require explicit `venue=` or `TRADING_VENUE` after wallet linking.
+- **Default venue**: `sim` — virtual $SIM on Simmer's LMSR (synthetic fills, no spread; quotes track real markets). Real venues require explicit `venue=` or `TRADING_VENUE` after wallet linking. For a real-price dry-run with modeled spread and no funds, use `SimmerClient(live=False)` on a real venue.
 - **Order behavior**: `client.trade()` is FAK (fill-as-much, kill-rest) on Polymarket — `result.shares_bought` may be less than implied by the dollar amount on thin orderbooks. Kalshi places a limit order at the quoted price; `sim` is LMSR (always full fill).
 - **Auto-redeem** (managed wallets only): ON by default. Winning Polymarket positions are claimed automatically. Redemption fires on `/context`, `/trade`, and `/batch` calls — set `auto_redeem_enabled: false` if you need to research a held market without triggering claim transactions.
-- **Edge vs costs**: real venues have 1-5% spreads plus venue fees. Don't trade unless your edge clears ~5% net of costs. Graduation ladder: **backtest on history** (`simmer backtest`, filters bad ideas cheaply) → **$SIM paper** (target edges >5%) → real money.
+- **Edge vs costs**: real venues have 1-5% spreads plus venue fees. Don't trade unless your edge clears ~5% net of costs. Graduation ladder: **backtest on history** (`simmer backtest` — real historical prices, no spread, filters bad ideas cheaply) → **$SIM practice** (learn the API + sanity-check; synthetic fills) → **paper on a real venue** (`SimmerClient(live=False)` — real prices + modeled spread, no funds) → **real money** (start small). Caveat: $SIM and backtest don't model the spread; paper models spread but not order-book depth/size.
 - **Tiers**: Free / Pro (3× rate limits) / Elite (10× + per-agent OWS wallets). Pricing at [simmer.markets/pricing](https://simmer.markets/pricing).
 
 ## API surface
@@ -147,6 +147,6 @@ Always tell us. We use this to fix gaps.
 
 ## What this skill is and isn't
 
-This is the **entry point** — a thin orientation that teaches an agent to register and trade in $SIM. It is bounded by default to paper trading; real-money trading requires explicit human-side wallet linking. Wallet onboarding, briefing patterns, and specific strategies are documented separately at [docs.simmer.markets](https://docs.simmer.markets) and [clawhub.ai/skills?q=simmer](https://clawhub.ai/skills?q=simmer).
+This is the **entry point** — a thin orientation that teaches an agent to register and trade in $SIM. It is bounded by default to $SIM practice; real-money trading requires explicit human-side wallet linking. Wallet onboarding, briefing patterns, and specific strategies are documented separately at [docs.simmer.markets](https://docs.simmer.markets) and [clawhub.ai/skills?q=simmer](https://clawhub.ai/skills?q=simmer).
 
 Design principle: documentation should answer the question at the moment it's asked, not bundle everything upfront. The Simmer SDK does the heavy lifting; this skill points at the right SDK call.
