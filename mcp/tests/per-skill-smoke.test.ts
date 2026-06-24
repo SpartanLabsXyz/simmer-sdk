@@ -16,6 +16,13 @@ import { runSkillProcess } from "../src/skill-runner.ts";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const BUNDLED_SKILLS_DIR = path.join(__dirname, "../bundled-skills");
+const CORE_SKILLS = [
+  "preflight",
+  "simmer",
+  "simmer-briefing",
+  "simmer-mcp-setup",
+  "simmer-wallet-setup",
+];
 
 function detectPython3(): string | null {
   const r = spawnSync("python3", ["--version"], { timeout: 3000 });
@@ -29,10 +36,19 @@ test("bundled-skills directory exists", () => {
   assert.ok(fs.existsSync(BUNDLED_SKILLS_DIR), `bundled-skills not found at ${BUNDLED_SKILLS_DIR}`);
 });
 
-test("discovers at least 10 Tier B trading skills", () => {
+test("bundled-skills contains only the core allowlist", () => {
   const skills = discoverSkills(BUNDLED_SKILLS_DIR);
-  const trading = skills.filter((s) => s.tier === "trading");
-  assert.ok(trading.length >= 10, `expected >= 10 trading skills, found ${trading.length}: ${trading.map((s) => s.slug).join(", ")}`);
+  assert.deepEqual(
+    skills.map((s) => s.slug).sort(),
+    CORE_SKILLS,
+  );
+});
+
+test("long-tail strategy skills are not bundled", () => {
+  const skills = discoverSkills(BUNDLED_SKILLS_DIR);
+  const slugs = new Set(skills.map((s) => s.slug));
+  assert.equal(slugs.has("polymarket-combo-builder"), false);
+  assert.equal(slugs.has("polymarket-soccer-shock-ladder"), false);
 });
 
 test("all Tier B skills have entrypoint file on disk", () => {

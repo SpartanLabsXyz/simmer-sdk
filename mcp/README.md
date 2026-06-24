@@ -38,7 +38,7 @@ Get your API key from [simmer.markets/dashboard](https://simmer.markets/dashboar
 
 | Tool | Description |
 |---|---|
-| `list_skills` | List all bundled Simmer trading skills with tier and Pro requirements |
+| `list_skills` | List the core bundled Simmer skills with tier and Pro requirements |
 | `get_skill_docs` | Get full SKILL.md for a specific skill |
 | `troubleshoot_error` | Look up a Simmer API error and get a fix |
 
@@ -50,7 +50,8 @@ Get your API key from [simmer.markets/dashboard](https://simmer.markets/dashboar
 | `run_experiment` | Run a shell command as a timed experiment |
 | `log_experiment` | Record experiment result (keep/discard/crash) with git commit |
 | `backtest_experiment` | Replay historical trades against new config (server-side) |
-| `simmer_<slug>` × 19 | Execute a specific trading skill in paper or live mode |
+| `simmer_<slug>` × 5 | Read or execute a core bundled Simmer skill in paper or live mode |
+| Raw market/trade tools | `simmer_get_markets`, `simmer_get_market_context`, `simmer_get_briefing`, `simmer_trade`, portfolio and position tools |
 
 ### MCP Resources
 
@@ -64,7 +65,7 @@ None as of v3.1.0. The previous `simmer://docs/api-reference` and `simmer://docs
 | `SIMMER_API_URL` | No | Override API base URL (default: `https://api.simmer.markets`) |
 | `SIMMER_MCP_PYTHON` | No | Absolute path to the Python binary to use for skill execution (see [Pinning a Python interpreter](#pinning-a-python-interpreter)) |
 | `AUTORESEARCH_MAX_EXPERIMENTS` | No | Cap experiments per session (default: 50) |
-| `SIMMER_MCP_ALLOW_LIVE` | No | Set `true` to allow live trading via per-skill tools |
+| `SIMMER_MCP_ALLOW_LIVE` | No | Set `true` to allow live trading via guarded trade tools |
 | `SIMMER_MCP_ALLOW_EXTRA_ARGS` | No | Set `true` to pass `extra_args` through to skill CLI |
 
 ## Pinning a Python interpreter
@@ -105,25 +106,21 @@ By default, `simmer-mcp` resolves the Python binary in this order:
 
 Replace the path with the output of `which python3` (or your venv's `bin/python`) on your system.
 
-## Bundled skills (20)
+## Bundled skills (5)
 
-Trading skills included in this package. Each has a corresponding `simmer_<slug>` MCP tool when `SIMMER_API_KEY` is set:
+Only foundational skills are included in this package. Each has a corresponding
+`simmer_<slug>` MCP tool when `SIMMER_API_KEY` is set:
 
-- `polymarket-fast-loop` — High-frequency Polymarket market maker
-- `polymarket-ai-divergence` — AI signal vs market price divergence
-- `polymarket-mert-sniper` — Sniping mispriced markets
-- `polymarket-signal-sniper` — Signal-based sniper
-- `polymarket-dca-eval-trader` — Three-tranche Polymarket DCA eval-envelope planner
-- `polymarket-fast-scaler` — Position scaling on conviction
-- `polymarket-market-maker` — Two-sided GTC quoting
-- `polymarket-copytrading` — Copy top traders
-- `polymarket-btc-up-down-trader` — BTC direction trader
-- `polymarket-nothing-ever-happens` — Status-quo bias strategy
-- `polymarket-weather-trader` — Weather market specialist
-- `polymarket-elon-tweets` — Elon tweet signal trader
-- `kalshi-weather-trader` — Kalshi weather markets
+- `simmer` — Simmer overview and identity
+- `simmer-wallet-setup` — Real-money wallet setup guidance
+- `simmer-mcp-setup` — MCP runtime setup guidance
+- `simmer-briefing` — Agent briefing and heartbeat guidance
+- `preflight` — Trade-readiness check before real-money orders
 
-And 7 instruction-only (Tier A) skills for agent context.
+Situational strategies such as combo, shock-ladder, copytrading, weather, and
+DCA install on demand from ClawHub instead of shipping inside the npm bundle.
+See [CORE_BUNDLE_DECISION.md](./CORE_BUNDLE_DECISION.md) for the canonical
+allowlist decision and rationale.
 
 ## Requirements
 

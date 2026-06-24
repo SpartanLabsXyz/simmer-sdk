@@ -1,11 +1,11 @@
 ---
 name: simmer-mcp-setup
-version: "0.1.2"
+version: "0.1.3"
 published: true
 description: One-shot bootstrap for the Simmer MCP server. Detects your agent runtime (Claude Code / Cursor / OpenClaw / Hermes / Codex), installs simmer-mcp via npm, writes the right MCP config, prompts a restart, and verifies the tool handshake. Use after registering an agent on simmer.markets to run pre-built Simmer trading strategies through your MCP-aware agent.
 metadata:
   author: "Simmer (@simmer_markets)"
-  version: "0.1.2"
+  version: "0.1.3"
   displayName: Simmer MCP Setup
   difficulty: beginner
   primaryEnv: SIMMER_API_KEY
@@ -21,9 +21,9 @@ One-shot bootstrap that wires the Simmer MCP server into your agent runtime. Rea
 
 ## What the Simmer MCP is (and isn't)
 
-The Simmer MCP gives your agent a catalog of **pre-built Simmer trading skills** it can invoke as tools — strategies like `polymarket_copytrading`, `polymarket_fast_loop`, `kalshi_weather_trader`, etc. — plus utility tools (skill discovery, error troubleshooting).
+The Simmer MCP gives your agent raw market/trade tools plus a small pinned catalog of **core Simmer skills** it can invoke as tools. Strategy skills such as `polymarket-copytrading`, `polymarket-fast-loop`, and `kalshi-weather-trader` install on demand from ClawHub instead of shipping inside the npm package.
 
-**What this MCP is for:** running pre-baked Simmer trading strategies through your agent. Ask *"run the `polymarket_copytrading` skill on the top 3 markets in dry-run mode"* and Claude Code (or Cursor / OpenClaw / etc.) invokes it. Each skill runs as a subprocess that calls the Simmer API. Real trades land on the configured venue — paper `sim` by default, real venues require an explicit triple opt-in (`dry_run=false` + `trading_venue=polymarket|kalshi` + `SIMMER_MCP_ALLOW_LIVE=true` env var on the MCP server).
+**What this MCP is for:** querying markets, checking account state, placing guarded direct trades, and running the core bundled Simmer playbooks through your agent. For situational strategies, ask the agent to install the current ClawHub skill first (for example, `clawhub install polymarket-copytrading`) and then follow that skill's instructions. Real trades land on the configured venue — paper `sim` by default, real venues require an explicit triple opt-in (`dry_run=false` + `venue=polymarket|kalshi` + `SIMMER_MCP_ALLOW_LIVE=true` env var on the MCP server).
 
 **What this MCP doesn't do (yet):** expose raw trade primitives like `place_order` or `get_briefing` as standalone tools. Ad-hoc operations like *"buy $10 yes on this BTC market"* or *"show me my current portfolio"* aren't possible through MCP today — those still need the [Python SDK](https://clawhub.ai/skills/simmer), which exposes `client.trade()`, `client.get_briefing()`, etc. directly. Raw MCP primitives are a tracked follow-up.
 
@@ -36,7 +36,8 @@ So: MCP and SDK are different shapes, both legitimate. MCP runs pre-built strate
 - `SIMMER_API_KEY` plumbed into the MCP subprocess
 - Simmer tools visible to your agent:
   - **3 free utility tools** (always available): `list_skills`, `get_skill_docs`, `troubleshoot_error`
-  - **A catalog of per-skill execution tools** — one tool per bundled Simmer trading skill (Polymarket strategies, Kalshi weather trading, sentiment/copytrading skills, plus utilities like `preflight`). The catalog grows over time — call `list_skills` to see what's currently available, or browse the live catalog at [clawhub.ai/skills?q=simmer](https://clawhub.ai/skills?q=simmer).
+  - **Core Simmer skill tools** — the npm package bundles only foundational, pinned skills (`simmer`, `simmer-wallet-setup`, `simmer-mcp-setup`, `simmer-briefing`, and `preflight`). Situational strategies such as combo, shock-ladder, copytrading, weather, and DCA install on demand from ClawHub so they stay current.
+  - **Raw market/trade tools** — `simmer_get_markets`, `simmer_get_market_context`, `simmer_get_briefing`, `simmer_trade`, portfolio/position tools, and guarded order cancellation.
   - **4 Pro-gated autoresearch tools** (`init_experiment`, `run_experiment`, `log_experiment`, `backtest_experiment`) — only registered if you're on the Pro plan.
 
 ## Step 1 — confirm you have an API key
@@ -241,11 +242,12 @@ Don't trust "looks installed" — verify with a real tool call.
 Ask your agent:
 > What simmer tools can you see? List them.
 
-The agent should respond with the 3 utility tools plus per-skill execution tools:
+The agent should respond with the 3 utility tools, raw market/trade tools, and the core bundled skill tools:
 - `list_skills`
 - `get_skill_docs`
 - `troubleshoot_error`
-- A catalog of per-skill execution tools (one per bundled Simmer trading skill). The exact count depends on how many skills are currently bundled — have the agent call `list_skills` for the up-to-date inventory.
+- Core bundled skill tools (`simmer_simmer`, `simmer_simmer_wallet_setup`, `simmer_simmer_mcp_setup`, `simmer_simmer_briefing`, `simmer_preflight`)
+- Raw market/trade tools (`simmer_get_markets`, `simmer_get_market_context`, `simmer_get_briefing`, `simmer_trade`, and portfolio/position tools)
 
 Then ask the agent to do something safe that exercises the API:
 > Use the simmer tools to show me a few of the most active markets on the sim venue.

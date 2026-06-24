@@ -19,6 +19,18 @@ const skillsDir = path.resolve(mcpDir, '..', 'skills');
 const outDir = path.resolve(mcpDir, 'bundled-skills');
 const checkMode = process.argv.includes('--check');
 
+// Keep the npm package pinned to the small foundational surface agents need
+// before they can install situational strategies from ClawHub.
+export const CORE_SKILL_ALLOWLIST = [
+  'simmer',
+  'simmer-wallet-setup',
+  'simmer-mcp-setup',
+  'simmer-briefing',
+  'preflight',
+] as const;
+
+const coreSkillAllowlist = new Set<string>(CORE_SKILL_ALLOWLIST);
+
 // config.json is gitignored per-user skill config (.gitignore: **/config.json) —
 // it exists in a dev's working tree but never in a clean checkout, so bundling it
 // makes the committed bundle un-reproducible on CI (extra: drift). Never bundle it.
@@ -39,6 +51,9 @@ function copyDir(src: string, dest: string): void {
 }
 
 function getSkipReason(skillDir: string): string | null {
+  const slug = path.basename(skillDir);
+  if (!coreSkillAllowlist.has(slug)) return 'not in core MCP allowlist';
+
   const manifestPath = path.join(skillDir, 'clawhub.json');
   if (!fs.existsSync(manifestPath)) return 'missing clawhub.json';
 

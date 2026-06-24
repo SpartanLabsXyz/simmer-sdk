@@ -1,3 +1,0 @@
-x402[httpx,evm]>=1.0.0
-httpx>=0.25.0
-eth-account>=0.10.0
