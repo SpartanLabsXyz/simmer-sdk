@@ -3264,7 +3264,14 @@ class SimmerClient:
             - total: {positions_count, total_exposure} summed across venues
             - balance_usdc, sim_balance, sim_pnl, positions_count, total_exposure:
               legacy flat fields (deprecated but still populated)
-            - by_source: Breakdown by trade source (polymarket only)
+            - by_source: Per-strategy breakdown keyed by trade source. For
+              venue="sim", each entry carries realized_pnl, unrealized_pnl,
+              exposure, positions, and trade_count (exact, ledger-derived) —
+              this is the intended path for per-strategy realized/unrealized
+              P&L attribution; do not rebuild it from get_trades() rows (the
+              per-trade pnl field is a fill attribute, not an accounting one).
+              Polymarket/Kalshi entries are exposure-only (per-source realized
+              P&L for real venues is not yet available).
 
         Example:
             # Cross-venue (default):
