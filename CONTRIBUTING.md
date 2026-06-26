@@ -13,6 +13,21 @@ This repo is the **Python SDK and official skills** for Simmer. Contributions we
 
 **For new features or API changes**, open an issue first so we can align before you write code.
 
+## Editing a core skill
+
+A handful of core skills (`simmer`, `simmer-wallet-setup`, `simmer-mcp-setup`, `simmer-briefing`, `preflight`) live here under `skills/` and are the canonical source for two generated copies:
+
+- the **MCP bundle** at `mcp/bundled-skills/` — committed, so it must be regenerated in the same PR;
+- the **website** `public/skill.md` — auto-generated on the website build; don't hand-edit it.
+
+So when you change a file under `skills/`, also run:
+
+```bash
+cd mcp && npm run bundle-skills   # regenerates mcp/bundled-skills/
+```
+
+and commit the resulting bundle change. CI's `mcp-build` job runs `check:bundle-skills` and **fails the PR if the committed bundle is stale** — this is the most common surprise red check on skill edits. See [mcp/CONTRIBUTING.md](mcp/CONTRIBUTING.md) for details.
+
 ## AI-assisted PRs welcome
 
 Built this with Claude, Codex, or another AI tool? Great — just note it in the PR description. We care that the code is correct and you understand what it does, not how it was written.
