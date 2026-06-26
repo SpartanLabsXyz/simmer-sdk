@@ -827,12 +827,19 @@ def _process_reactor_signal(client, signal: dict) -> bool:
         reason=None,
     )
 
-    # Delete the signal to prevent reprocessing on the next poll. Non-fatal:
-    # if the delete fails, the 60s TTL will clean it up; worst case we'd
-    # re-process the same tx_hash once, which client.trade() handles via
-    # idempotency on the server-side trade path.
+    # Delete the signal to prevent reprocessing on the next poll. Maker-leg
+    # signals (SIM-3297) are keyed by a leg-scoped signal_id (e.g.
+    # "{tx_hash}:maker:{leg}:{maker}:{token}"), so we MUST delete by the
+    # server-provided signal_id — deleting by the bare tx_hash would never match
+    # the maker key and the signal would re-execute on every poll until its TTL.
+    # The reactor path runs trade(..., allow_rebuy=True), so a missed delete
+    # genuinely re-trades; this is not covered by trade-path idempotency.
+    # Falls back to tx_hash for taker signals and older servers that don't return
+    # signal_id. The server route accepts the colon-laden id via a :path param.
+    # Non-fatal: a failed delete is TTL-bounded.
+    signal_id = signal.get("signal_id") or tx_hash
     try:
-        client._request("DELETE", f"/api/sdk/reactor/pending/{tx_hash}")
+        client._request("DELETE", f"/api/sdk/reactor/pending/{signal_id}")
     except Exception as e:
         print(f"[reactor] delete warn for {tx_short}...: {type(e).__name__}: {e}")
 
