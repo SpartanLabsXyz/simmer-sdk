@@ -25,9 +25,9 @@ The Simmer MCP gives your agent raw market/trade tools plus a small pinned catal
 
 **What this MCP is for:** querying markets, checking account state, placing guarded direct trades, and running the core bundled Simmer playbooks through your agent. For situational strategies, ask the agent to install the current ClawHub skill first (for example, `clawhub install polymarket-copytrading`) and then follow that skill's instructions. Real trades land on the configured venue — paper `sim` by default, real venues require an explicit triple opt-in (`dry_run=false` + `venue=polymarket|kalshi` + `SIMMER_MCP_ALLOW_LIVE=true` env var on the MCP server).
 
-**What this MCP doesn't do (yet):** expose raw trade primitives like `place_order` or `get_briefing` as standalone tools. Ad-hoc operations like *"buy $10 yes on this BTC market"* or *"show me my current portfolio"* aren't possible through MCP today — those still need the [Python SDK](https://clawhub.ai/skills/simmer), which exposes `client.trade()`, `client.get_briefing()`, etc. directly. Raw MCP primitives are a tracked follow-up.
+**Raw trade primitives (added in MCP v3.3.0):** the MCP now exposes raw primitives as standalone tools alongside the per-skill executors — `simmer_get_markets`, `simmer_get_market_context`, `simmer_get_briefing`, `simmer_trade`, `simmer_cancel_order`, and `get_portfolio`/`get_positions`/`get_expiring_positions`. So ad-hoc operations like *"show me Polymarket markets for the world cup"* or *"place a $2 paper YES on this market"* now work directly through MCP. `simmer_trade` is **paper-by-default** — live execution needs the triple gate (`dry_run=false` + a live `trading_venue` + `SIMMER_MCP_ALLOW_LIVE=true`). The [Python SDK](https://clawhub.ai/skills/simmer) still offers the fullest primitive surface (`client.trade()`, `client.get_briefing()`, etc.) for custom logic.
 
-So: MCP and SDK are different shapes, both legitimate. MCP runs pre-built strategies through your agent with safety defaults; SDK builds custom logic with full primitive access.
+So: MCP and SDK are different shapes, both legitimate. MCP runs pre-built strategies *and* raw primitives through your agent with safety defaults; the SDK builds custom logic with full primitive access.
 
 ## What you'll have at the end
 
