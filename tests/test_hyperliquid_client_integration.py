@@ -25,6 +25,21 @@ def test_hyperliquid_property_builds_adapter(monkeypatch):
     assert c.hyperliquid is venue
 
 
+def test_hyperliquid_from_env_uses_wallet_private_key(monkeypatch):
+    monkeypatch.setenv("SIMMER_API_KEY", "test")
+    monkeypatch.setenv("WALLET_PRIVATE_KEY", TEST_KEY)
+    monkeypatch.delenv("OWS_WALLET", raising=False)
+    monkeypatch.delenv("SIMMER_PRIVATE_KEY", raising=False)
+    monkeypatch.setattr(
+        "simmer_sdk.version_check.check_server_version_compatibility",
+        lambda *args, **kwargs: None,
+    )
+
+    c = SimmerClient.from_env(venue="hyperliquid")
+
+    assert c._private_key == TEST_KEY
+
+
 def test_hyperliquid_testnet_env(monkeypatch):
     pytest.importorskip("hyperliquid", reason="requires the [hyperliquid] extra")
     monkeypatch.setenv("SIMMER_HYPERLIQUID_TESTNET", "1")

@@ -247,7 +247,8 @@ class SimmerClient:
         private_key: Optional[str] = None,
         ows_wallet: Optional[str] = None,
         live: bool = True,
-        starting_balance: float = 10_000.0
+        starting_balance: float = 10_000.0,
+        _ignore_env_wallets: bool = False,
     ):
         """
         Initialize the Simmer client.
@@ -343,10 +344,11 @@ class SimmerClient:
         # venue is set explicitly via the `venue=` arg (or from_env(venue=...))
         # and defaults to "sim" (paper). NOTE: the TRADING_VENUE env var is
         # intentionally NOT read here — do not reintroduce a log that implies
-        # an env var controls the venue. Surface the active mode truthfully so
-        # callers never mistake paper ($SIM) trades for live ones, or vice versa.
+        # an env var controls the venue. SIM construction is info-level so
+        # read-only reporting clients do not emit warning-level noise; live
+        # venues still warn because they can touch real funds.
         if venue == "sim":
-            logger.warning(
+            logger.info(
                 "venue='sim' — PAPER trading with virtual $SIM (no real money). "
                 "For LIVE trading pass venue='polymarket' per trade, or "
                 "SimmerClient.from_env(venue='polymarket')."
@@ -380,8 +382,9 @@ class SimmerClient:
         # Used to decide whether to inject wallet_address into the trade payload — see
         # _execute_polymarket_trade(). When None, the check has not yet been performed.
 
-        # OWS wallet: param > env var > fall through to raw key
-        _ows_env = os.environ.get("OWS_WALLET")
+        # OWS wallet: explicit param always wins. Some construction helpers
+        # intentionally ignore ambient wallet env vars for read-only SIM use.
+        _ows_env = None if _ignore_env_wallets else os.environ.get("OWS_WALLET")
         effective_ows = ows_wallet or _ows_env
         if effective_ows:
             try:
@@ -408,8 +411,16 @@ class SimmerClient:
         # Check WALLET_PRIVATE_KEY first, fall back to deprecated SIMMER_PRIVATE_KEY
         if not self._ows_wallet:
             import warnings
-            _wallet_key = os.environ.get(self.PRIVATE_KEY_ENV_VAR)
-            _legacy_key = os.environ.get(self.PRIVATE_KEY_ENV_VAR_LEGACY)
+            _wallet_key = (
+                os.environ.get(self.PRIVATE_KEY_ENV_VAR)
+                if not _ignore_env_wallets
+                else None
+            )
+            _legacy_key = (
+                os.environ.get(self.PRIVATE_KEY_ENV_VAR_LEGACY)
+                if not _ignore_env_wallets
+                else None
+            )
             if _wallet_key and _legacy_key and _wallet_key != _legacy_key:
                 warnings.warn(
                     "Both WALLET_PRIVATE_KEY and SIMMER_PRIVATE_KEY are set with different values. "
@@ -437,8 +448,8 @@ class SimmerClient:
                         self._wallet_address[:10] + "..." if self._wallet_address else "unknown"
                     )
 
-        # Solana key: Auto-detect from environment for Kalshi trading
-        if os.environ.get(self.SOLANA_PRIVATE_KEY_ENV_VAR):
+        # Solana key: Auto-detect from environment for Kalshi trading only.
+        if venue == "kalshi" and os.environ.get(self.SOLANA_PRIVATE_KEY_ENV_VAR):
             self._solana_key_available = True
             # Derive wallet address (deferred until needed to avoid import if not used)
             try:
@@ -522,14 +533,15 @@ class SimmerClient:
             except Exception as e:
                 logger.warning("Risk alert check failed: %s", e)
 
-        # Server-side SDK version compatibility check (fail-quiet).
-        # Emits DeprecationWarning if the server says this SDK version is
-        # deprecated or blocked.  One call per client instance, no re-check.
-        try:
-            from .version_check import check_server_version_compatibility
-            check_server_version_compatibility(self.base_url, _sdk_version, self._session)
-        except Exception as e:
-            logger.debug("SDK version check setup error — ignoring: %s", e)
+        # Server-side SDK version compatibility check (fail-quiet). The
+        # warning is about real-venue signing compatibility, so do not emit it
+        # for SIM/read-only client construction.
+        if venue != "sim":
+            try:
+                from .version_check import check_server_version_compatibility
+                check_server_version_compatibility(self.base_url, _sdk_version, self._session)
+            except Exception as e:
+                logger.debug("SDK version check setup error — ignoring: %s", e)
 
     def __repr__(self):
         return f"SimmerClient(venue={self.venue!r}, base_url={self.base_url!r})"
@@ -570,6 +582,9 @@ class SimmerClient:
                 "Get an API key at simmer.markets/dashboard → SDK tab, "
                 "then export SIMMER_API_KEY=sk_live_... in your environment."
             )
+        venue = kwargs.get("venue", "sim")
+        if venue in ("sim", "simmer", "sandbox") and "private_key" not in kwargs and "ows_wallet" not in kwargs:
+            kwargs["_ignore_env_wallets"] = True
         return cls(api_key=api_key, **kwargs)
 
     @classmethod
