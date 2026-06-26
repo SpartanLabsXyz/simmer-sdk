@@ -3,7 +3,7 @@ name: polymarket-copytrading
 description: Mirror positions from top Polymarket traders. Polling mode (free) for portfolio-style copying, Reactor mode (Pro) for event-driven real-time mirroring via Simmer's on-chain signal infrastructure.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.12.0"
+  version: "1.12.1"
   displayName: Polymarket Copytrading
   difficulty: beginner
 ---
@@ -177,6 +177,7 @@ Reactor mode polls Simmer for pre-resolved whale trade signals derived from real
 - **Fixed per-event sizing.** `mirror_fraction` × whale size, capped at `max_size`. No conviction tiering, no rebalance math.
 - **Server-side watchlist filter.** Your watchlist + `min_size` are stored in Simmer's reactor config and applied on the server before events reach your skill — you only see matches.
 - **Pre-resolved signals.** The server resolves Polymarket condition IDs to Simmer market UUIDs before writing the signal — the skill receives trade-ready payloads.
+- **Mirrors maker AND taker fills (v1.12.1+).** The reactor copies a whale's trade whether they took liquidity (market order) or posted it (a resting limit order). Earlier versions only saw market-order fills, so feeds for whales who mostly post limit orders were quiet — those pick up on v1.12.1+. Your `mirror_fraction` / `max_size` / `daily_cap` still bound exposure, so more complete copying never exceeds your configured caps.
 - **Two run modes.** Loop mode (default, polls every 2s) or `--once` for cron-style single poll and exit.
 - **Circuit breaker.** 5 consecutive trade failures → signals are skipped until the next success. Prevents runaway failures from draining your wallet.
 - **Server-side dedup.** Signals have a 60-second TTL in Redis and are deleted after successful execution. No local state files needed.

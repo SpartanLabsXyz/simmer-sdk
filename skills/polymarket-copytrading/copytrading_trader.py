@@ -862,7 +862,11 @@ def _poll_reactor_once(client) -> int:
     loop can recycle the session.
     """
     try:
-        resp = client._request("GET", "/api/sdk/reactor/pending")
+        # caps=maker announces this skill can handle maker-leg signals (it deletes
+        # by the full signal_id, below). The server only delivers maker-fill
+        # signals to clients that announce this, so older skills never receive
+        # signals they can't clean up. (SIM-3297)
+        resp = client._request("GET", "/api/sdk/reactor/pending", params={"caps": "maker"})
     except (ConnectionError, OSError) as e:
         print(f"[reactor] poll failed: {type(e).__name__}: {e}")
         raise _ConnectionError(str(e)) from e
