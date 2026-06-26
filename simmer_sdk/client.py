@@ -3245,14 +3245,22 @@ class SimmerClient:
 
         Returns:
             Dict containing:
-            - trades: List of trade rows, each tagged with `venue`
+            - trades: List of trade rows. Each row carries:
+                - `venue`: where the trade executed — 'sim', 'polymarket',
+                  or 'kalshi'. Sim trades are always 'sim'.
+                - `market_source`: which underlying venue the market mirrors —
+                  'polymarket', 'kalshi', or None (native Simmer market). For
+                  sim trades this is the field that tells you the origin venue
+                  (since `venue` is always 'sim'); for real trades it mirrors
+                  `venue`.
             - total_count: Total matching trades across all filtered venues
 
         Example:
             # Cross-venue (default):
             history = client.get_trades(limit=20)
             for t in history['trades']:
-                print(f"{t['venue']}: {t['side']} {t['shares']}")
+                # market_source distinguishes the origin venue of sim trades
+                print(f"{t['venue']} ({t['market_source']}): {t['side']} {t['shares']}")
 
             # Single venue:
             poly_trades = client.get_trades(venue="polymarket")
