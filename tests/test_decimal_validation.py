@@ -105,3 +105,30 @@ class TestSharesDecimalQuantization:
         client = _make_client()
         with pytest.raises(ValueError, match="too small to place an order"):
             client.trade("m1", "yes", shares=0.000004, action="sell")
+
+
+class TestSharesBuyGuard:
+    """shares must not be passed on buy orders — fail loud instead of silently ignoring."""
+
+    def test_shares_on_buy_raises(self):
+        client = _make_client()
+        with pytest.raises(ValueError, match="shares is for sell orders only"):
+            client.trade("m1", "yes", amount=10.0, shares=5.0, action="buy")
+
+    def test_shares_on_default_buy_raises(self):
+        """action defaults to 'buy', so passing shares without action should also raise."""
+        client = _make_client()
+        with pytest.raises(ValueError, match="shares is for sell orders only"):
+            client.trade("m1", "yes", amount=10.0, shares=5.0)
+
+    def test_shares_zero_on_buy_allowed(self):
+        """shares=0 (default) on a buy is fine — no guard triggered."""
+        client = _make_client()
+        result = client.trade("m1", "yes", amount=10.0, shares=0)
+        assert result.success
+
+    def test_shares_on_sell_still_works(self):
+        """The sell path is unaffected by the buy guard."""
+        client = _make_client()
+        result = client.trade("m1", "yes", shares=5.0, action="sell")
+        assert result.success
