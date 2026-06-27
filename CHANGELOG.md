@@ -5,6 +5,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-06-27
+
 ### Added
 
 - **`TradeResult.fee_rate_bps` — taker fee rate now surfaces on trade results.** The server's quoted taker fee rate (in basis points) is now mapped through to `TradeResult.fee_rate_bps`. Previously the field was absent and `getattr(result, "fee_rate_bps", None)` always returned `None`. Currently `0` on Polymarket (fees are waived), but will reflect the real rate when fees go live.
