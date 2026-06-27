@@ -5,6 +5,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+
+- **`TradeResult.fee_rate_bps` — taker fee rate now surfaces on trade results.** The server's quoted taker fee rate (in basis points) is now mapped through to `TradeResult.fee_rate_bps`. Previously the field was absent and `getattr(result, "fee_rate_bps", None)` always returned `None`. Currently `0` on Polymarket (fees are waived), but will reflect the real rate when fees go live.
+- **`TradeResult.fill_price` — alias for `new_price`.** A `fill_price` property now exposes the effective fill price per share alongside the existing `new_price` field for clarity.
+
 ### Fixed
 
 - **`polymarket-weather-trader`: international markets now capped at canary size.** Positions on international stations (Tokyo, Madrid, Ankara, etc.) use Open-Meteo as the sole source with no secondary cross-check. Previously these `missing_secondary` positions were sized at the full position size, producing outsized losses from unverified single-source forecasts. They now cap at `MAX_CANARY_USD` (default $2.00), matching the same protective ceiling used for adjacent-bucket disagreements. Set `SIMMER_WEATHER_REQUIRE_SOURCE_AGREEMENT=true` to skip them entirely.
