@@ -136,6 +136,7 @@ class TradeResult:
     fill_status: str = "unknown"  # Server fill status: "filled", "submitted", "unconfirmed", "failed"
     order_id: Optional[str] = None  # CLOB order ID for GTC/GTD orders — use with cancel_order()
     retryable: bool = True  # False when server knows retrying is futile (position cleared on-chain)
+    fee_rate_bps: Optional[float] = None  # Taker fee rate in basis points (0 on Polymarket today)
 
     @property
     def shares_filled(self) -> float:
@@ -148,6 +149,11 @@ class TradeResult:
         if self.shares_requested <= 0:
             return self.success
         return self.shares_filled >= self.shares_requested
+
+    @property
+    def fill_price(self) -> float:
+        """Effective fill price (average price per share). Alias for new_price."""
+        return self.new_price
 
 
 @dataclass
@@ -2277,6 +2283,7 @@ class SimmerClient:
                 fill_status=d.get("fill_status", "unknown"),
                 order_id=d.get("order_id"),
                 retryable=d.get("retryable", True),
+                fee_rate_bps=d.get("fee_rate_bps"),
             )
 
         result = _build_result(data)
