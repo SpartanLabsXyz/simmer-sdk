@@ -1967,7 +1967,10 @@ class SimmerClient:
             market_id: Market ID to trade on
             side: 'yes' or 'no'
             amount: Amount to spend (for buys) — USDC for polymarket/kalshi, $SIM for sim
-            shares: Number of shares to sell (for sells)
+            shares: Number of shares to sell (sells only). Not used for buys — pass
+                ``amount`` instead. For an exact buy size: set
+                ``amount = shares * price`` (add ~0.1% buffer to survive tick
+                round-down, or use ``dry_run=True`` to confirm exact fill count).
             action: 'buy' or 'sell' (default: 'buy')
             venue: Override client's default venue for this trade.
                 - "sim": Simmer LMSR, $SIM virtual currency ("simmer" accepted as alias)
@@ -2071,6 +2074,13 @@ class SimmerClient:
             raise ValueError("shares required for sell orders")
         if not is_sell and amount <= 0:
             raise ValueError("amount required for buy orders")
+        if not is_sell and shares > 0:
+            raise ValueError(
+                "shares is for sell orders only. For an exact buy size, pass an "
+                "explicit price and set amount = shares * price (add ~0.1% buffer "
+                "to survive tick round-down, or use dry_run=True to confirm exact "
+                "fill count)."
+            )
 
         # Quantize to the venue's input precision before submission. Maker
         # (USDC) accepts max 2 decimals; shares accept max 5. Planner / Kelly

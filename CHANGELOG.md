@@ -7,6 +7,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **`trade()`: passing `shares` on a buy order now raises `ValueError` immediately** instead of silently ignoring the value. Previously, calling `client.trade(..., shares=5, action="buy")` would discard `shares` and size the order from `amount`, making exact share-count buys impossible to achieve and producing no diagnostic signal. The error message directs callers to the correct pattern: set `amount = shares * price` (with a small buffer for tick rounding). The `shares` parameter docstring is updated to make clear it is for sells only.
+
 - **`polymarket-weather-trader`: international markets now capped at canary size.** Positions on international stations (Tokyo, Madrid, Ankara, etc.) use Open-Meteo as the sole source with no secondary cross-check. Previously these `missing_secondary` positions were sized at the full position size, producing outsized losses from unverified single-source forecasts. They now cap at `MAX_CANARY_USD` (default $2.00), matching the same protective ceiling used for adjacent-bucket disagreements. Set `SIMMER_WEATHER_REQUIRE_SOURCE_AGREEMENT=true` to skip them entirely.
 
 ## [0.20.3] - 2026-06-18
