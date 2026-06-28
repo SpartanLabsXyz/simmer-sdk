@@ -2,9 +2,10 @@
 (E3 — combo deposit-wallet publish).
 
 Pure unit tests — no network, no real signing. Covers:
-  - missing raw private key raises before any network call (OWS not supported)
+  - missing signing key raises before any network call
   - prepare is POSTed with {combo: true}, and the combo approval batch passes
     the client-side validator → sign → submit happy path
+  - OWS signing follows the same typed-data path as base DW activation
   - per-agent routing hits the agent dw-approvals endpoints
   - place_combo's on-chain pre-check blocks an unapproved DW with a pointer to
     activate_combo_dw(), and the _combo_dw_approved RPC helper decodes allowance
@@ -80,10 +81,9 @@ def _make_client(private_key=FAKE_PRIVATE_KEY, *, dw=False, live=False):
 # --- activate_combo_dw -----------------------------------------------------
 
 
-def test_requires_raw_private_key():
+def test_requires_signing_key():
     client = _make_client(private_key=None)
-    client._ows_wallet = "some-ows-wallet"  # OWS combo signing not supported
-    with pytest.raises(ValueError, match="raw EOA private key"):
+    with pytest.raises(ValueError, match="requires a signing key"):
         client.activate_combo_dw()
 
 
@@ -110,6 +110,28 @@ def test_prepare_sends_combo_flag_and_submits():
     assert body == {"combo": True}
     # then submit
     assert calls_seen[1][1].endswith("/dw-approvals/submit")
+
+
+def test_ows_signing_supported_for_combo_activation():
+    client = _make_client(private_key=None)
+    client._ows_wallet = "herman-v3"
+    submit_payload = {}
+
+    def fake_request(method, path, **kwargs):
+        if path.endswith("prepare"):
+            return PREPARE_COMBO
+        submit_payload.update(kwargs.get("json") or {})
+        return {"success": True, "all_set": True}
+
+    with patch.object(client, "_request", side_effect=fake_request):
+        with patch("simmer_sdk.ows_utils.ows_sign_typed_data", return_value="cafebabe") as sign:
+            result = client.activate_combo_dw()
+
+    assert result == {"already_set": False, "calls_count": 2, "success": True}
+    assert submit_payload["signature"] == "0xcafebabe"
+    signed_wallet, signed_message = sign.call_args.args
+    assert signed_wallet == "herman-v3"
+    assert '"DepositWalletBatch"' in signed_message
 
 
 def test_per_agent_routing():
