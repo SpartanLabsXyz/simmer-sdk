@@ -117,5 +117,6 @@ Get your API key from [simmer.markets/dashboard](https://simmer.markets/dashboar
 
 - [ ] Bump `package.json` version
 - [ ] Update tool counts above if tools changed
-- [ ] Publish to npm: `npm publish` (interactive OTP in separate terminal)
+- [ ] Merge to `main`; `.github/workflows/publish-packages.yml` publishes to npm
+      when the repo version is ahead of the registry
 - [ ] Smithery auto-tracks npm — no manual step unless metadata changed
