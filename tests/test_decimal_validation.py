@@ -132,3 +132,66 @@ class TestSharesBuyGuard:
         client = _make_client()
         result = client.trade("m1", "yes", shares=5.0, action="sell")
         assert result.success
+
+
+class TestPolymarketOrderTypeDefault:
+    """Omitted order_type should use the server/default route, not force FAK."""
+
+    def test_managed_wallet_omits_order_type_as_null(self):
+        client = _make_client()
+        result = client.trade("m1", "yes", amount=10.0, venue="polymarket")
+        assert result.success
+        assert client.sent_payloads[-1]["order_type"] is None
+
+    def test_explicit_fak_is_preserved(self):
+        client = _make_client()
+        result = client.trade(
+            "m1", "yes", amount=10.0, venue="polymarket", order_type="FAK"
+        )
+        assert result.success
+        assert client.sent_payloads[-1]["order_type"] == "FAK"
+
+    def test_external_wallet_buy_signs_omitted_order_type_as_fak(self):
+        client = _make_client()
+        client._private_key = "0x" + "11" * 32
+        client._wallet_address = "0x" + "22" * 20
+        client._is_agent_wallet_registered = lambda: False
+        client._ensure_wallet_linked = lambda: None
+        client._warn_approvals_once = lambda: None
+
+        seen = {}
+
+        def fake_build_signed_order(*args, **kwargs):
+            seen["order_type"] = args[5]
+            return {"signature": "0xsigned"}
+
+        client._build_signed_order = fake_build_signed_order
+
+        result = client.trade("m1", "yes", amount=10.0, venue="polymarket")
+        assert result.success
+        assert seen["order_type"] == "FAK"
+        assert client.sent_payloads[-1]["order_type"] is None
+
+    def test_external_wallet_sell_signs_omitted_order_type_as_gtc(self):
+        client = _make_client()
+        client._private_key = "0x" + "11" * 32
+        client._wallet_address = "0x" + "22" * 20
+        client._is_agent_wallet_registered = lambda: False
+        client._ensure_wallet_linked = lambda: None
+        client._warn_approvals_once = lambda: None
+        client._get_holder_address = lambda *args, **kwargs: None
+
+        seen = {}
+
+        def fake_build_signed_order(*args, **kwargs):
+            seen["order_type"] = args[5]
+            return {"signature": "0xsigned"}
+
+        client._build_signed_order = fake_build_signed_order
+
+        result = client.trade(
+            "m1", "yes", shares=5.0, action="sell", venue="polymarket"
+        )
+        assert result.success
+        assert seen["order_type"] == "GTC"
+        assert client.sent_payloads[-1]["order_type"] is None

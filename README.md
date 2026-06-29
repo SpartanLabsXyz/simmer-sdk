@@ -122,6 +122,8 @@ client.trade(market_id, side="yes", amount=10.0, venue="polymarket")
 
 > **Spread caveat:** $SIM fills instantly (AMM, no spread). Real venues have orderbook spreads of 2–5%. Target edges >5% in $SIM before graduating to real money.
 
+> **Polymarket order types:** omit `order_type` for the SDK/server smart default: buys use `FAK` (fill what is available immediately), sells use `GTC` (rest on the book to improve fill rate on thin books). For structurally thin markets or maker-style limit entries, pass `order_type="GTC"` and an explicit `price`.
+
 ### Paper trading on real venues
 
 Pass `live=False` to simulate trades with real market prices — no wallet or USDC required. For Polymarket, fills model the CLOB bid-ask spread for realistic P&L. Resolved markets auto-settle (winning shares pay $1, losers $0).

@@ -91,8 +91,8 @@ CONFIG_SCHEMA = {
     "max_position_usd": {"env": "SIMMER_SKILLNAME_MAX_POSITION", "default": 5.00, "type": float},
     "max_trades_per_run": {"env": "SIMMER_SKILLNAME_MAX_TRADES", "default": 5, "type": int},
     "max_bankroll_fraction": {"env": "SIMMER_SKILLNAME_MAX_FRACTION", "default": 0.95, "type": float},
-    # Order type: "FAK" (market, default), "GTC" (limit on book), "FOK", "GTD"
-    "order_type": {"env": "SIMMER_SKILLNAME_ORDER_TYPE", "default": "FAK", "type": str},
+    # Order type: "GTC" (limit on book), "FAK" (immediate-or-cancel), "FOK", "GTD"
+    "order_type": {"env": "SIMMER_SKILLNAME_ORDER_TYPE", "default": "GTC", "type": str},
     # Position sizing knobs (SIMMER_POSITION_SIZING, SIMMER_KELLY_MULTIPLIER, SIMMER_MIN_EV)
     **SIZING_CONFIG_SCHEMA,
 }
@@ -150,7 +150,7 @@ SLIPPAGE_MAX_PCT = 0.15
 MAX_POSITION_USD = _config["max_position_usd"]
 MAX_TRADES_PER_RUN = _config["max_trades_per_run"]
 MAX_BANKROLL_FRACTION = _config["max_bankroll_fraction"]  # Bankroll-% cap (0.03 = 3%)
-ORDER_TYPE = _config["order_type"]                # "FAK" (market), "GTC" (limit), "FOK", "GTD"
+ORDER_TYPE = _config["order_type"]                # "GTC" (limit), "FAK" (immediate-or-cancel), "FOK", "GTD"
 POSITION_SIZING = _config["position_sizing"]      # from SIZING_CONFIG_SCHEMA
 KELLY_MULTIPLIER = _config["kelly_multiplier"]    # from SIZING_CONFIG_SCHEMA
 MIN_EV = _config["min_ev"]                        # from SIZING_CONFIG_SCHEMA
