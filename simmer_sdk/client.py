@@ -1958,7 +1958,7 @@ class SimmerClient:
         shares: float = 0,
         action: str = "buy",
         venue: Optional[str] = None,
-        order_type: str = "FAK",
+        order_type: Optional[str] = None,
         price: Optional[float] = None,
         reasoning: Optional[str] = None,
         source: Optional[str] = None,
@@ -1984,7 +1984,8 @@ class SimmerClient:
                 - "kalshi": Real Kalshi trading via DFlow, USDC on Solana
                   (requires SOLANA_PRIVATE_KEY env var with base58 secret key)
                 - None: Use client's default venue
-            order_type: Order type for Polymarket trades (default: "FAK").
+            order_type: Order type for Polymarket trades. Leave as ``None`` to
+                use Simmer's action-aware default: GTC for sells, FAK for buys.
                 - "FAK": Fill And Kill - fill what you can immediately, cancel rest (recommended for bots)
                 - "FOK": Fill Or Kill - fill 100% immediately or cancel entirely
                 - "GTC": Good Till Cancelled - limit order, stays on book until filled
@@ -2057,7 +2058,7 @@ class SimmerClient:
         effective_venue = venue or self.venue
         if effective_venue not in self.VENUES:
             raise ValueError(f"Invalid venue '{effective_venue}'. Must be one of: {self.VENUES}")
-        if order_type not in self.ORDER_TYPES:
+        if order_type is not None and order_type not in self.ORDER_TYPES:
             raise ValueError(f"Invalid order_type '{order_type}'. Must be one of: {self.ORDER_TYPES}")
         if action not in ("buy", "sell"):
             raise ValueError(f"Invalid action '{action}'. Must be 'buy' or 'sell'")
@@ -2241,10 +2242,12 @@ class SimmerClient:
             _sell_holder = None
             if is_sell and effective_venue == "polymarket":
                 _sell_holder = self._get_holder_address(market_id, side)
-            # Sign order locally
+            # Sign order locally. Polymarket signed orders need a concrete order
+            # type; mirror the server-side omitted-order_type default here.
+            signing_order_type = order_type or ("GTC" if is_sell else "FAK")
             signed_order = self._build_signed_order(
                 market_id, side, amount if not is_sell else 0,
-                shares if is_sell else 0, action, order_type, price,
+                shares if is_sell else 0, action, signing_order_type, price,
                 holder_address=_sell_holder,
             )
             if signed_order:
