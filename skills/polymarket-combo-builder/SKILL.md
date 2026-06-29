@@ -69,7 +69,8 @@ python combo_builder.py --legs     # browse combo-eligible legs (no config neede
 ```
 
 Dry-run opens no socket, signs nothing, and moves no money. `--live` requires a
-configured wallet (`WALLET_PRIVATE_KEY`) and a live Simmer client.
+configured wallet (`WALLET_PRIVATE_KEY` or `OWS_WALLET`) and a live Simmer
+client.
 
 ## Wallet support
 
@@ -78,9 +79,12 @@ configured wallet (`WALLET_PRIVATE_KEY`) and a live Simmer client.
 - **Deposit wallet** (`signature_type 3` / POLY_1271): **works after a one-time
   `activate_combo_dw()`** — see below.
 
-OWS-signed wallets are not yet supported for combos — use a raw
-`WALLET_PRIVATE_KEY` (the deposit-wallet owner key) for now. This applies to
-both placing combos and `activate_combo_dw()`.
+OWS-signed deposit wallets can run the `activate_combo_dw()` setup headlessly
+with the same local OWS vault used for standard DW activation. Live combo order
+placement still requires the SDK's combo signing path to support that wallet
+type; if placement rejects your OWS setup, use a raw `WALLET_PRIVATE_KEY` for
+the wallet that owns the deposit wallet until OWS combo order signing is
+available.
 
 ### Deposit wallets: one-time combo activation
 
@@ -93,11 +97,12 @@ client.activate_combo_dw()              # user-primary DW
 client.activate_combo_dw(agent_id="…")  # per-agent (Elite) DW
 ```
 
-This signs the combo-exchange approval batch locally and Simmer's server
-relays it **gaslessly** under our builder credentials (it approves the combo
-exchange to spend the DW's pUSD + combo position tokens). It is idempotent —
-safe to re-run. After it completes, `place_combo(..., dry_run=False)` settles
-normally for the deposit wallet.
+This signs the combo-exchange approval batch locally with your raw key or OWS
+vault, and Simmer's server relays it **gaslessly** under our builder
+credentials (it approves the combo exchange to spend the DW's pUSD + combo
+position tokens). It is idempotent — safe to re-run. After it completes,
+`place_combo(..., dry_run=False)` settles normally for supported deposit-wallet
+signers.
 
 Before a live DW placement the SDK runs a quick on-chain pre-check and, if the
 combo approval is missing, raises a clear **"run `client.activate_combo_dw()`

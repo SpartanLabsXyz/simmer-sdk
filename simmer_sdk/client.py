@@ -12,7 +12,7 @@ import logging
 import requests
 from typing import Optional, List, Dict, Any, Callable
 from dataclasses import dataclass
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
@@ -744,7 +744,9 @@ class SimmerClient:
         """Verify local skill entrypoint hash matches the backend-published hash.
 
         Raises RuntimeError on mismatch. Logs warning and allows on NULL hash
-        or backend unreachable.
+        or backend unreachable. If the Simmer backend hash is stale but the
+        local entrypoint matches the live ClawHub file exactly, logs a warning
+        and allows the official install to run.
         """
         try:
             from pathlib import Path
@@ -794,6 +796,37 @@ class SimmerClient:
                         return
 
                     if local_hash != published_hash:
+                        try:
+                            live_url = (
+                                "https://clawhub.ai/api/v1/skills/"
+                                f"{quote(self._skill_slug, safe='')}/file?path={quote(entrypoint, safe='')}"
+                            )
+                            live_resp = requests.get(live_url, timeout=5)
+                            if live_resp.status_code == 200:
+                                live_content = live_resp.text
+                                live_hash = hashlib.sha256(
+                                    live_content.encode("utf-8")
+                                ).hexdigest()
+                                if local_hash == live_hash:
+                                    logger.warning(
+                                        "Skill '%s' local entrypoint matches "
+                                        "ClawHub live content, but Simmer "
+                                        "backend content_hash is stale "
+                                        "(local=%s..., backend=%s...). "
+                                        "Allowing official install to run.",
+                                        self._skill_slug,
+                                        local_hash[:12],
+                                        published_hash[:12],
+                                    )
+                                    return
+                        except Exception as e:
+                            logger.debug(
+                                "ClawHub live hash fallback failed for skill "
+                                "'%s': %s",
+                                self._skill_slug,
+                                e,
+                            )
+
                         raise RuntimeError(
                             f"Skill '{self._skill_slug}' entrypoint integrity check failed. "
                             f"Local hash ({local_hash[:12]}...) does not match published hash "
@@ -5736,24 +5769,24 @@ class SimmerClient:
         - **Per-agent** (``agent_id="..."``):
           ``/api/user/agent/{agent_id}/wallet/external/dw-approvals/*``.
 
-        Raw-key only — OWS combo signing is not yet supported (matches
-        ``place_combo``). The combo approval batch is signed locally with
-        ``WALLET_PRIVATE_KEY`` / ``private_key``; the key never leaves the
-        process and the server relays the batch gaslessly under its builder
-        HMAC.
+        The combo approval batch is signed locally with ``WALLET_PRIVATE_KEY``
+        / ``private_key`` or with the configured OWS wallet; the key never
+        leaves the process / OWS vault and the server relays the batch
+        gaslessly under its builder HMAC.
 
         Requires:
-        - WALLET_PRIVATE_KEY env var or ``private_key`` constructor arg
+        - WALLET_PRIVATE_KEY env var / ``private_key`` constructor arg,
+          OR OWS_WALLET env var / ``ows_wallet`` constructor arg
         - Account upgraded to a Deposit Wallet (per-agent: the agent's DW)
-        - eth-account installed
+        - eth-account installed for the raw-key path
 
         Returns:
             Dict with keys ``already_set`` (bool), ``calls_count`` (int),
             ``success`` (bool).
 
         Raises:
-            ValueError: if no raw private key is configured
-            ImportError: if eth-account is not installed
+            ValueError: if no signing key is configured
+            ImportError: if eth-account is not installed and using raw-key signing
 
         Example (user-primary, raw key):
             client = SimmerClient(api_key="sk_live_...")  # WALLET_PRIVATE_KEY in env
@@ -5761,22 +5794,21 @@ class SimmerClient:
             # now DW combos settle:
             client.place_combo(leg_ids, 10.0, dry_run=False)
         """
-        # OWS combo signing is not yet supported — require a raw key (matches
-        # place_combo's gate). An OWS-only client can't activate combos.
-        if not self._private_key:
+        if not self._private_key and not self._ows_wallet:
             raise ValueError(
-                "activate_combo_dw() requires a raw EOA private key (the "
-                "deposit-wallet owner key). Set WALLET_PRIVATE_KEY env var or "
-                "pass private_key= to the constructor. OWS combo signing is "
-                "not yet supported."
+                "activate_combo_dw() requires a signing key. "
+                "Set WALLET_PRIVATE_KEY env var, pass private_key to the "
+                "constructor, or configure an OWS wallet (OWS_WALLET env var "
+                "or ows_wallet arg)."
             )
-        try:
-            from eth_account import Account  # noqa: F401 — early dep check
-        except ImportError:
-            raise ImportError(
-                "eth-account is required for activate_combo_dw(). "
-                "Install with: pip install eth-account"
-            )
+        if self._private_key:
+            try:
+                from eth_account import Account  # noqa: F401 — early dep check
+            except ImportError:
+                raise ImportError(
+                    "eth-account is required for activate_combo_dw(). "
+                    "Install with: pip install eth-account"
+                )
 
         if agent_id:
             _dw_base = (
@@ -5822,11 +5854,17 @@ class SimmerClient:
         validate_dw_approval_calls(calls)
 
         print("[Combo-Activate] Signing combo approval batch locally…")
-        from eth_account import Account
-        signed = Account.sign_typed_data(self._private_key, full_message=typed_data)
-        signature = signed.signature.hex()
-        if not signature.startswith("0x"):
-            signature = "0x" + signature
+        if self._private_key:
+            from eth_account import Account
+            signed = Account.sign_typed_data(self._private_key, full_message=typed_data)
+            signature = signed.signature.hex()
+            if not signature.startswith("0x"):
+                signature = "0x" + signature
+        else:
+            from simmer_sdk.ows_utils import ows_sign_typed_data
+            import json as _json
+            sig = ows_sign_typed_data(self._ows_wallet, _json.dumps(typed_data))
+            signature = sig if sig.startswith("0x") else "0x" + sig
 
         print("[Combo-Activate] Submitting to relayer…")
         self._request(
