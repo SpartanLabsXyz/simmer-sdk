@@ -1,0 +1,133 @@
+name: Publish Packages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "pyproject.toml"
+      - "simmer_sdk/**"
+      - "mcp/**"
+      - "skills/**"
+      - "scripts/check_publish_lag.py"
+      - "scripts/plan_package_publish.py"
+      - ".github/workflows/publish-packages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: publish-packages-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    name: Plan publishes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      npm_publish_needed: ${{ steps.plan.outputs.npm_publish_needed }}
+      npm_repo_version: ${{ steps.plan.outputs.npm_repo_version }}
+      npm_published_version: ${{ steps.plan.outputs.npm_published_version }}
+      pypi_publish_needed: ${{ steps.plan.outputs.pypi_publish_needed }}
+      pypi_repo_version: ${{ steps.plan.outputs.pypi_repo_version }}
+      pypi_published_version: ${{ steps.plan.outputs.pypi_published_version }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Compare repo versions with registries
+        id: plan
+        run: python3 scripts/plan_package_publish.py
+
+  publish-mcp:
+    name: Publish simmer-mcp to npm
+    needs: plan
+    if: needs.plan.outputs.npm_publish_needed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: mcp
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python SDK for MCP tests
+        working-directory: .
+        run: pip install -e .
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify bundled skill content is fresh
+        run: npm run check:bundle-skills
+
+      - name: Build and test
+        run: npm test
+
+      - name: Publish npm package
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --provenance --access public
+
+  publish-sdk:
+    name: Publish simmer-sdk to PyPI
+    needs: plan
+    if: needs.plan.outputs.pypi_publish_needed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build tooling
+        run: python -m pip install --upgrade build
+
+      - name: Build wheel and sdist
+        run: python -m build
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          password: ${{ secrets.PYPI_API_TOKEN }}
+
+  verify:
+    name: Verify registries caught up
+    needs: [plan, publish-mcp, publish-sdk]
+    if: always() && (needs.plan.outputs.npm_publish_needed == 'true' || needs.plan.outputs.pypi_publish_needed == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Check publish lag
+        run: python3 scripts/check_publish_lag.py
