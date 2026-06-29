@@ -5,6 +5,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-06-29
+
 ### Changed
 
 - **`trade()` no longer forces `order_type="FAK"` when callers omit it.** Omitted Polymarket order types now flow through as `None` so the backend's smart default applies (GTC for sells, FAK for buys). External-wallet signing still needs a concrete CLOB order type, so the SDK mirrors the same rule locally before signing. We are not flipping all buys to GTC: the audit found first-party thin-market skills already pass GTC explicitly, while changing every implicit buy to a resting order would be a larger backwards-compatibility break for callers expecting immediate-or-cancel behavior. Docs now recommend explicit `order_type="GTC"` plus `price` for thin books and maker-style limit entries. (SIM-2508)
