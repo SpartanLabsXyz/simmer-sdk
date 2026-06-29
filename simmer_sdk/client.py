@@ -801,7 +801,7 @@ class SimmerClient:
                                 "https://clawhub.ai/api/v1/skills/"
                                 f"{quote(self._skill_slug, safe='')}/file?path={quote(entrypoint, safe='')}"
                             )
-                            live_resp = self._session.get(live_url, timeout=5)
+                            live_resp = requests.get(live_url, timeout=5)
                             if live_resp.status_code == 200:
                                 live_content = live_resp.text
                                 live_hash = hashlib.sha256(

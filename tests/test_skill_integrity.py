@@ -20,9 +20,8 @@ class _Resp:
 
 
 class _Session:
-    def __init__(self, backend_hash: str, live_text: str):
+    def __init__(self, backend_hash: str):
         self.backend_hash = backend_hash
-        self.live_text = live_text
         self.urls = []
 
     def get(self, url, **kwargs):
@@ -39,7 +38,7 @@ class _Session:
                     ]
                 },
             )
-        return _Resp(200, text=self.live_text)
+        raise AssertionError(f"unexpected session request: {url}")
 
 
 def _write_skill(tmp_path: Path, entrypoint_text: str) -> Path:
@@ -61,20 +60,40 @@ def _client(session) -> SimmerClient:
     return client
 
 
-def test_skill_integrity_allows_backend_hash_lag_when_clawhub_live_matches(tmp_path):
+def test_skill_integrity_allows_backend_hash_lag_when_clawhub_live_matches(
+    tmp_path, monkeypatch
+):
     entrypoint = "print('official current skill')\n"
     stale_hash = hashlib.sha256(b"old published content").hexdigest()
-    session = _Session(backend_hash=stale_hash, live_text=entrypoint)
+    session = _Session(backend_hash=stale_hash)
+    external_requests = []
+
+    def fake_requests_get(url, **kwargs):
+        external_requests.append((url, kwargs))
+        return _Resp(200, text=entrypoint)
+
+    monkeypatch.setattr("simmer_sdk.client.requests.get", fake_requests_get)
 
     _client(session)._verify_skill_integrity(_write_skill(tmp_path, entrypoint))
 
-    assert any("clawhub.ai/api/v1/skills/polymarket-combo-builder/file" in u for u in session.urls)
+    assert session.urls == ["https://api.simmer.example.com/api/sdk/skills"]
+    assert len(external_requests) == 1
+    live_url, kwargs = external_requests[0]
+    assert "clawhub.ai/api/v1/skills/polymarket-combo-builder/file" in live_url
+    assert kwargs == {"timeout": 5}
 
 
-def test_skill_integrity_still_rejects_local_file_that_matches_neither_hash(tmp_path):
+def test_skill_integrity_still_rejects_local_file_that_matches_neither_hash(
+    tmp_path, monkeypatch
+):
     entrypoint = "print('locally modified')\n"
     stale_hash = hashlib.sha256(b"old published content").hexdigest()
-    session = _Session(backend_hash=stale_hash, live_text="print('official current skill')\n")
+    session = _Session(backend_hash=stale_hash)
+
+    def fake_requests_get(url, **kwargs):
+        return _Resp(200, text="print('official current skill')\n")
+
+    monkeypatch.setattr("simmer_sdk.client.requests.get", fake_requests_get)
 
     with pytest.raises(RuntimeError, match="entrypoint integrity check failed"):
         _client(session)._verify_skill_integrity(_write_skill(tmp_path, entrypoint))
