@@ -3,6 +3,11 @@
   "version": "3.4.7",
   "description": "MCP server for Simmer — skill discovery, execution, autoresearch, and AI market tools",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SpartanLabsXyz/simmer-sdk.git",
+    "directory": "mcp"
+  },
   "bin": {
     "simmer-mcp": "./dist/mcp-server.js"
   },
