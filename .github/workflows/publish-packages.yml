@@ -59,11 +59,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # No registry-url: setup-node's registry-url writes an _authToken placeholder
+      # into .npmrc (NODE_AUTH_TOKEN=XXXXX-…), and npm then tries token-auth with that
+      # bogus value and 404s instead of falling through to OIDC trusted publishing.
+      # Unscoped package defaults to the npmjs.org registry anyway.
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "22"
-          registry-url: "https://registry.npmjs.org"
 
       - name: Set up Python
         uses: actions/setup-python@v5
