@@ -83,9 +83,14 @@ jobs:
       - name: Build and test
         run: npm test
 
-      - name: Publish npm package
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      # OIDC trusted publishing requires npm >= 11.5.1; node 22 ships npm 10.x.
+      - name: Upgrade npm for trusted publishing
+        run: npm install -g npm@latest
+
+      # No NODE_AUTH_TOKEN: npm authenticates via OIDC trusted publishing.
+      # Register the trusted publisher on npmjs.com → simmer-mcp → Settings
+      # (GitHub owner SpartanLabsXyz / repo simmer-sdk / workflow publish-packages.yml).
+      - name: Publish npm package (OIDC trusted publishing)
         run: npm publish --provenance --access public
 
   publish-sdk:
@@ -109,10 +114,11 @@ jobs:
       - name: Build wheel and sdist
         run: python -m build
 
-      - name: Publish to PyPI
+      # No password: authenticates via OIDC trusted publishing.
+      # Register the trusted publisher on pypi.org → simmer-sdk → Publishing
+      # (GitHub owner SpartanLabsXyz / repo simmer-sdk / workflow publish-packages.yml).
+      - name: Publish to PyPI (OIDC trusted publishing)
         uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          password: ${{ secrets.PYPI_API_TOKEN }}
 
   verify:
     name: Verify registries caught up
