@@ -5,6 +5,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.22.1] - 2026-06-30
+
+### Changed
+
+- No functional change. Validation release to exercise the new OIDC trusted-publishing CI path (PyPI + npm) end-to-end. (Refs SIM-3650)
+
 ## [0.22.0] - 2026-06-29
 
 ### Changed
