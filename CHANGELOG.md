@@ -5,6 +5,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Changed
+
+- **Positioning copy refresh** — `SKILL.md` description and opening paragraph updated to agent-layer framing: "one identity, one self-custody wallet, one cross-venue track record … and a loop that makes strategies better over time." `README.md` opening paragraph and bullet list updated to match. No behavioral change.
+
 ## [0.22.1] - 2026-06-30
 
 ### Changed
