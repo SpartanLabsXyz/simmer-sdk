@@ -40,11 +40,18 @@ class HyperliquidVenue:
     """VenueAdapter implementation for Hyperliquid HIP-4 outcome markets.
 
     Args:
-        signer: a ``HyperliquidSigner`` (RawKey or OWS). Its ``address`` is the
-            account that holds positions and signs orders.
+        signer: a ``HyperliquidSigner`` (RawKey or OWS). It signs orders and
+            user actions.
         is_mainnet: True for ``api.hyperliquid.xyz``, False for testnet.
         base_url: override the API host (defaults by ``is_mainnet``).
         vault_address: optional sub-account/vault to trade on behalf of.
+        main_address: account-of-record for reads. Defaults to the signer
+            address for raw-key parity. In the recommended delegated setup,
+            instantiate the venue with the main key for ``approve_agent`` /
+            builder-fee approvals, then instantiate a separate agent-key venue
+            with ``main_address`` set to the main account for trading and
+            position/balance/order reads. Keep one venue instance per key and
+            avoid concurrent ``place_order`` calls on the same instance.
     """
 
     venue = "hyperliquid"
@@ -55,10 +62,12 @@ class HyperliquidVenue:
         is_mainnet: bool = True,
         base_url: Optional[str] = None,
         vault_address: Optional[str] = None,
+        main_address: Optional[str] = None,
         timeout: float = DEFAULT_TIMEOUT,
     ):
         self._signer = signer
-        self.address = signer.address
+        self.signer_address = signer.address
+        self.address = main_address or signer.address
         self.is_mainnet = is_mainnet
         self.base_url = base_url or (MAINNET_API_URL if is_mainnet else TESTNET_API_URL)
         self.vault_address = vault_address
@@ -99,6 +108,7 @@ class HyperliquidVenue:
         tif: str = "Gtc",
         reduce_only: bool = False,
         cloid: Optional[str] = None,
+        builder: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Place a HIP-4 order.
 
@@ -112,13 +122,22 @@ class HyperliquidVenue:
             tif: "Gtc" (resting), "Ioc", or "Alo" (post-only).
             reduce_only: only reduce an existing position.
             cloid: optional client order id (hex string).
+            builder: optional Hyperliquid builder attribution object. It is
+                included in the signed action, not attached after signing.
 
         Returns the parsed ``/exchange`` response. On a resting order the
         ``oid`` is under ``response.data.statuses[i]``.
         """
         asset = outcome_asset_id(outcome_id, side)
         action = build_order_action(
-            asset, is_buy, limit_px, size, reduce_only=reduce_only, tif=tif, cloid=cloid
+            asset,
+            is_buy,
+            limit_px,
+            size,
+            reduce_only=reduce_only,
+            tif=tif,
+            cloid=cloid,
+            builder=builder,
         )
         nonce = now_ms()
         signature = self._signer.sign_l1_action(

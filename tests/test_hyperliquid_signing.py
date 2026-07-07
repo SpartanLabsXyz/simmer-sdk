@@ -62,6 +62,17 @@ def test_build_order_action_wire_shape():
     assert wire["t"] == {"limit": {"tif": "Gtc"}}
 
 
+def test_build_order_action_includes_builder():
+    asset = outcome_asset_id(173, "yes")
+    builder = {"b": "0x" + "12" * 20, "f": 10}
+
+    action = build_order_action(
+        asset, is_buy=True, limit_px=0.05, sz=10.0, builder=builder
+    )
+
+    assert action["builder"] == builder
+
+
 def test_build_cancel_action_shape():
     asset = outcome_asset_id(173, "yes")
     action = build_cancel_action(asset, oid=12345)
