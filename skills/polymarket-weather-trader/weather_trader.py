@@ -1454,8 +1454,10 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
 
     events = {}
     for market in markets:
-        # Group by event_id if available, otherwise derive from question
-        event_key = market.get("event_id")
+        # Group by event_ref (canonical parent-event id, set on every import
+        # path) — legacy event_id was missing on SDK-imported markets, which
+        # split sibling temperature buckets into separate groups.
+        event_key = market.get("event_ref") or market.get("event_id")
         if not event_key:
             # Fall back: parse question to derive (location, date) grouping key
             info = parse_weather_event(market.get("event_name") or market.get("question", ""))
