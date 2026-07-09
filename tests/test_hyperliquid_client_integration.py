@@ -7,6 +7,7 @@ import pytest
 from simmer_sdk.client import SimmerClient
 
 TEST_KEY = "0x" + "33" * 32
+MAIN_ADDR = "0x" + "cd" * 20
 
 
 def test_venue_registered():
@@ -45,6 +46,14 @@ def test_hyperliquid_testnet_env(monkeypatch):
     monkeypatch.setenv("SIMMER_HYPERLIQUID_TESTNET", "1")
     c = SimmerClient(api_key="test", private_key=TEST_KEY)
     assert c.hyperliquid.is_mainnet is False
+
+
+def test_hyperliquid_main_address_env(monkeypatch):
+    pytest.importorskip("hyperliquid", reason="requires the [hyperliquid] extra")
+    monkeypatch.setenv("SIMMER_HYPERLIQUID_MAIN_ADDRESS", MAIN_ADDR)
+    c = SimmerClient(api_key="test", private_key=TEST_KEY)
+    assert c.hyperliquid.address == MAIN_ADDR
+    assert c.hyperliquid.signer_address != MAIN_ADDR
 
 
 def test_hyperliquid_property_without_signer_raises(monkeypatch):

@@ -686,7 +686,10 @@ class SimmerClient:
         WALLET_PRIVATE_KEY — HL is EVM-key-based, no new key needed). Orders
         sign and submit locally to ``api.hyperliquid.xyz``; the Simmer server
         is not in the execution path. Set ``SIMMER_HYPERLIQUID_TESTNET=1`` to
-        target testnet. Requires the ``[hyperliquid]`` extra.
+        target testnet. Set ``SIMMER_HYPERLIQUID_MAIN_ADDRESS`` when using an
+        approved agent key so reads default to the main account of record while
+        orders are signed by the agent key. Requires the ``[hyperliquid]``
+        extra.
 
         Note: this is the direct venue adapter. Unified ``trade(venue=
         "hyperliquid")`` routing (with server-side fill recording) lands in a
@@ -711,7 +714,10 @@ class SimmerClient:
             is_mainnet = os.environ.get(
                 "SIMMER_HYPERLIQUID_TESTNET", ""
             ).lower() not in ("1", "true", "yes")
-            self._hyperliquid_venue = HyperliquidVenue(signer, is_mainnet=is_mainnet)
+            main_address = os.environ.get("SIMMER_HYPERLIQUID_MAIN_ADDRESS") or None
+            self._hyperliquid_venue = HyperliquidVenue(
+                signer, is_mainnet=is_mainnet, main_address=main_address
+            )
         return self._hyperliquid_venue
 
     # ==========================================

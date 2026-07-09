@@ -14,6 +14,7 @@ from simmer_sdk.venue_adapter import VenueAdapter
 
 TEST_KEY = "0x" + "22" * 32
 TEST_ADDR = Account.from_key(TEST_KEY).address
+MAIN_ADDR = "0x" + "ab" * 20
 
 
 class _FakeResp:
@@ -41,6 +42,15 @@ def test_conforms_to_venue_adapter_protocol(monkeypatch):
     assert isinstance(v, VenueAdapter)
     assert v.venue == "hyperliquid"
     assert v.address == TEST_ADDR
+    assert v.signer_address == TEST_ADDR
+
+
+def test_main_address_override_sets_account_of_record():
+    v = HyperliquidVenue(
+        RawKeyHyperliquidSigner(TEST_KEY), is_mainnet=True, main_address=MAIN_ADDR
+    )
+    assert v.signer_address == TEST_ADDR
+    assert v.address == MAIN_ADDR
 
 
 def test_place_order_posts_signed_action(monkeypatch):
@@ -57,6 +67,24 @@ def test_place_order_posts_signed_action(monkeypatch):
     assert set(body["signature"]) == {"r", "s", "v"}
     assert body["nonce"] > 0
     assert out["response"]["data"]["statuses"][0]["resting"]["oid"] == 999
+
+
+def test_place_order_posts_signed_action_with_builder(monkeypatch):
+    calls = []
+    builder = {"b": "0x" + "12" * 20, "f": 10}
+    v = _venue(monkeypatch, calls, {"status": "ok", "response": {"type": "order"}})
+
+    v.place_order(
+        size=10.0,
+        limit_px=0.05,
+        is_buy=True,
+        outcome_id=173,
+        side="yes",
+        builder=builder,
+    )
+
+    (_, body) = calls[0]
+    assert body["action"]["builder"] == builder
 
 
 def test_exchange_error_status_raises(monkeypatch):
@@ -96,6 +124,28 @@ def test_get_positions_extracts_asset_positions(monkeypatch):
     state = {"assetPositions": [{"position": {"coin": "#1730", "szi": "5.0"}}], "marginSummary": {}}
     v = _venue(monkeypatch, [], state)
     assert v.get_positions() == state["assetPositions"]
+
+
+def test_reads_default_to_main_address(monkeypatch):
+    calls = []
+    state = {"assetPositions": [], "marginSummary": {}}
+
+    def _fake_post(url, json=None, timeout=None):
+        calls.append((url, json))
+        return _FakeResp(200, state)
+
+    monkeypatch.setattr("simmer_sdk.hyperliquid_venue.requests.post", _fake_post)
+    v = HyperliquidVenue(
+        RawKeyHyperliquidSigner(TEST_KEY), is_mainnet=True, main_address=MAIN_ADDR
+    )
+
+    v.get_positions()
+    v.get_balances()
+    v.get_open_orders()
+
+    assert calls[0][1] == {"type": "clearinghouseState", "user": MAIN_ADDR}
+    assert calls[1][1] == {"type": "clearinghouseState", "user": MAIN_ADDR}
+    assert calls[2][1] == {"type": "openOrders", "user": MAIN_ADDR}
 
 
 def test_get_balances_parses_margin_summary(monkeypatch):

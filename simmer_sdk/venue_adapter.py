@@ -31,7 +31,7 @@ class VenueAdapter(Protocol):
     #: Stable venue identifier, e.g. "hyperliquid".
     venue: str
 
-    #: The address that signs and holds positions for this adapter instance.
+    #: The account-of-record address for default reads on this adapter instance.
     address: str
 
     def place_order(
