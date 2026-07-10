@@ -3290,6 +3290,10 @@ class SimmerClient:
         venue: str = "all",
         limit: int = 50,
         offset: int = 0,
+        market_id: Optional[str] = None,
+        since: Optional[str] = None,
+        until: Optional[str] = None,
+        include_failed: bool = False,
     ) -> Optional[Dict[str, Any]]:
         """
         Get trade history across venues.
@@ -3301,17 +3305,36 @@ class SimmerClient:
                 filter. Each row in the response is tagged with `venue`.
             limit: Max trades to return (1-200, default 50)
             offset: Pagination offset (default 0)
+            market_id: Optional UUID — filter results to a single market.
+                Applies to both sim and real trade branches.
+            since: ISO-8601 datetime string (e.g. "2025-01-01T00:00:00Z").
+                Only include trades at or after this time.
+            until: ISO-8601 datetime string. Only include trades at or before
+                this time.
+            include_failed: When True, include failed/cancelled/expired real
+                trades in addition to the default successful statuses. Each
+                such row carries ``failure_category`` (normalized bucket from
+                trade_failure_taxonomy) and ``failure_reason`` (a sanitized
+                human-readable message — never contains raw API responses).
+                superseded rows are always excluded. Default: False.
 
         Returns:
             Dict containing:
             - trades: List of trade rows. Each row carries:
-                - `venue`: where the trade executed — 'sim', 'polymarket',
+                - ``venue``: where the trade executed — 'sim', 'polymarket',
                   or 'kalshi'. Sim trades are always 'sim'.
-                - `market_source`: which underlying venue the market mirrors —
+                - ``market_source``: which underlying venue the market mirrors —
                   'polymarket', 'kalshi', or None (native Simmer market). For
                   sim trades this is the field that tells you the origin venue
-                  (since `venue` is always 'sim'); for real trades it mirrors
-                  `venue`.
+                  (since ``venue`` is always 'sim'); for real trades it mirrors
+                  ``venue``.
+                - ``status``: trade status string.
+                - ``failure_category``: normalized failure bucket (e.g.
+                  'insufficient_balance', 'market_closed') — populated only on
+                  failed/cancelled/expired rows when include_failed=True,
+                  otherwise None.
+                - ``failure_reason``: sanitized human-readable failure message —
+                  populated only alongside failure_category, otherwise None.
             - total_count: Total matching trades across all filtered venues
 
         Example:
@@ -3323,12 +3346,30 @@ class SimmerClient:
 
             # Single venue:
             poly_trades = client.get_trades(venue="polymarket")
+
+            # Narrow to one market with a time range:
+            market_history = client.get_trades(
+                market_id="<uuid>",
+                since="2025-06-01T00:00:00Z",
+                until="2025-07-01T00:00:00Z",
+            )
+
+            # Include failed trades for accounting reconciliation:
+            all_trades = client.get_trades(include_failed=True, limit=200)
+            for t in all_trades['trades']:
+                if t['failure_category']:
+                    print(f"FAILED ({t['failure_category']}): {t['failure_reason']}")
         """
-        return self._request(
-            "GET",
-            "/api/sdk/trades",
-            params={"venue": venue, "limit": limit, "offset": offset},
-        )
+        params: Dict[str, Any] = {"venue": venue, "limit": limit, "offset": offset}
+        if market_id is not None:
+            params["market_id"] = market_id
+        if since is not None:
+            params["since"] = since
+        if until is not None:
+            params["until"] = until
+        if include_failed:
+            params["include_failed"] = "true"
+        return self._request("GET", "/api/sdk/trades", params=params)
 
     def get_portfolio(self, venue: str = "all") -> Optional[Dict[str, Any]]:
         """

@@ -5,6 +5,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.22.2] - 2026-07-10
+
+### Added
+
+- **`get_trades()` now supports server-side filtering.** Four new optional keyword arguments: `market_id` (filter to one market), `since` / `until` (ISO-8601 datetime range on created_at), and `include_failed` (surface failed/cancelled/expired trades). All parameters are backward-compatible — callers that omit them see identical behavior to 0.22.1. When `include_failed=True`, each failed row carries `failure_category` (a normalized bucket describing the failure class) and `failure_reason` (a sanitized human-readable message); raw API error responses are never exposed.
+
 ## [0.22.1] - 2026-06-30
 
 ### Changed
