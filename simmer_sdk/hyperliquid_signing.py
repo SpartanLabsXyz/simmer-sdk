@@ -79,11 +79,14 @@ def build_order_action(
     reduce_only: bool = False,
     tif: str = "Gtc",
     cloid: Optional[str] = None,
+    builder: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Build a single-order HL exchange action (the object that gets hashed).
 
     ``tif`` is the time-in-force: "Gtc" (resting), "Ioc", or "Alo" (post-only).
     Prices/sizes are formatted to HL's wire rules by the SDK primitives.
+    ``builder`` is passed through to the official SDK so builder attribution is
+    embedded in the signed action hash.
     """
     signing = _hl_signing()
     order = {
@@ -98,7 +101,7 @@ def build_order_action(
 
         order["cloid"] = Cloid.from_str(cloid)
     wire = signing.order_request_to_order_wire(order, asset)
-    return signing.order_wires_to_order_action([wire])
+    return signing.order_wires_to_order_action([wire], builder=builder)
 
 
 def build_cancel_action(asset: int, oid: int) -> Dict[str, Any]:
