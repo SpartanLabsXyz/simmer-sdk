@@ -3371,6 +3371,70 @@ class SimmerClient:
             params["include_failed"] = "true"
         return self._request("GET", "/api/sdk/trades", params=params)
 
+    def get_outcomes(
+        self,
+        skill_slug: Optional[str] = None,
+        since: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Get settlement-accurate trade outcome summary for a skill.
+
+        Returns both v1 cash-flow fields (back-compat) and v2 settlement-accurate
+        fields sourced from the venue-dispatch realized outcome helper.
+
+        v1 fields (cash-flow, all venues, back-compat):
+          - ``trades``: total executed trade count
+          - ``pnl``: net cash-flow P&L (sell proceeds minus buy costs)
+          - ``wins``: sell-row count with positive cash-flow
+          - ``losses``: sell-row count with zero or negative cash-flow
+
+        v2 fields (settlement-accurate, resolved markets only):
+          - ``settled_pnl``: sum of realized P&L across all resolved markets
+          - ``resolved_markets``: number of resolved markets with positions
+          - ``settled_wins``: resolved markets with positive realized P&L
+          - ``settled_losses``: resolved markets with zero or negative realized P&L
+          - ``confidence_breakdown``: dict mapping confidence tag to row count.
+            Tags: ``settlement`` (PolyNode v3 on-chain), ``native`` (sim venue),
+            ``mirror`` (market mirror + trade netting — less authoritative).
+
+        The v2 fields fix a key limitation of v1: a buy held to resolution
+        and settled as a winner shows up as a win in v2 but never appears in
+        v1 wins (which only count sell rows). Use v2 fields for autoresearch
+        metric verification and skill-health verdicts; v1 fields remain for
+        backward compatibility.
+
+        Args:
+            skill_slug: Skill slug to filter by. When omitted, defaults to the
+                current running skill (``SKILL_SLUG`` env var or skill.md slug).
+                Pass an explicit slug to query a different skill's outcomes.
+            since: ISO-8601 datetime string (e.g. ``"2026-01-01T00:00:00Z"``).
+                Only include trades placed at or after this time. Applies to
+                both v1 (cash-flow) and v2 (settlement window) fields.
+
+        Returns:
+            Dict with v1 and v2 outcome fields, or ``None`` on request failure.
+
+        Example::
+
+            # Verify metric before logging an autoresearch experiment
+            outcomes = client.get_outcomes()
+            if outcomes:
+                print(f"Settled P&L: {outcomes['settled_pnl']:.2f}")
+                print(f"Resolved markets: {outcomes['resolved_markets']}")
+                print(f"Win rate: {outcomes['settled_wins']} / {outcomes['resolved_markets']}")
+                print(f"Confidence breakdown: {outcomes['confidence_breakdown']}")
+        """
+        slug = skill_slug or self._skill_slug
+        if not slug:
+            raise ValueError(
+                "skill_slug is required — pass it explicitly or run from a skill "
+                "with a SKILL.md that declares the slug."
+            )
+        params: Dict[str, Any] = {"skill": slug}
+        if since is not None:
+            params["since"] = since
+        return self._request("GET", "/api/sdk/outcomes", params=params)
+
     def get_portfolio(self, venue: str = "all") -> Optional[Dict[str, Any]]:
         """
         Get portfolio summary with per-venue buckets + legacy flat fields.

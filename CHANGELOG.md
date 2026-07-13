@@ -5,6 +5,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.22.3] - 2026-07-13
+
+### Added
+
+- **`client.get_outcomes()` — settlement-accurate skill outcome summary.** New SDK method for autoresearch metric verification and skill-health signals. Returns v1 cash-flow fields (`trades`, `pnl`, `wins`, `losses`) for backward compatibility, plus new v2 settlement-accurate fields sourced from the venue-dispatch realized outcome helper: `settled_pnl` (sum of realized P&L across all resolved markets), `resolved_markets`, `settled_wins`, `settled_losses`, and `confidence_breakdown` (count by data-source confidence tag: `settlement`, `native`, `mirror`). The v2 fields correctly attribute buys held to resolution as wins — a buy-and-hold winner now appears in `settled_wins` where v1 `wins` only ever counted sell rows. Accepts optional `skill_slug` (defaults to the running skill's slug) and `since` (ISO-8601 datetime range filter).
+
 ## [0.22.2] - 2026-07-10
 
 ### Added
