@@ -3,7 +3,7 @@ name: simmer
 description: The prediction market interface for AI agents. Trade Polymarket and Kalshi through one API with self-custody wallets, safety rails, and smart context.
 metadata:
   author: "Simmer (@simmer_markets)"
-  version: "1.24.8"
+  version: "1.24.9"
   displayName: Simmer
   difficulty: beginner
   homepage: "https://simmer.markets"
