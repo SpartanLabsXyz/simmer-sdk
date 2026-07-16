@@ -50,7 +50,7 @@ This skill needs `SIMMER_API_KEY` to wire into the MCP config. Three cases:
 ```
 If "OK", skip to Step 2.
 
-**Case B — key from prior dashboard registration.** Get it from [simmer.markets/dashboard](https://simmer.markets/dashboard) → your agent → **API key** tab. Paste it in (don't pipe from clipboard — pastes can pick up trailing characters):
+**Case B — key from prior dashboard registration.** Get it from [simmer.markets/dashboard](https://simmer.markets/dashboard?ref=sdk-skill&utm_campaign=sdk-skill) → your agent → **API key** tab. Paste it in (don't pipe from clipboard — pastes can pick up trailing characters):
 ```bash
 read -s -p 'SIMMER_API_KEY: ' KEY && export SIMMER_API_KEY=$KEY
 ```
@@ -263,7 +263,7 @@ The `sim` venue is paper money — no real funds at risk. If this returns market
 
 **Tools listed but API calls return 401.**
 - `SIMMER_API_KEY` env didn't make it into the MCP subprocess. The env block in the config has to be a direct value, not a `$VAR` reference — most MCP clients don't expand shell vars at server-launch time.
-- Verify the key value: `printenv SIMMER_API_KEY | cut -c1-20` — must start with `sk_live_`. A common silent failure: install commands that use `pbpaste` or clipboard-read primitives can write the *install command text itself* as the key value when the user copies the command after copying the key. Fix: get a fresh key from [simmer.markets/dashboard](https://simmer.markets/dashboard), then `export SIMMER_API_KEY="sk_live_..."` typed/pasted directly.
+- Verify the key value: `printenv SIMMER_API_KEY | cut -c1-20` — must start with `sk_live_`. A common silent failure: install commands that use `pbpaste` or clipboard-read primitives can write the *install command text itself* as the key value when the user copies the command after copying the key. Fix: get a fresh key from [simmer.markets/dashboard](https://simmer.markets/dashboard?ref=sdk-skill&utm_campaign=sdk-skill), then `export SIMMER_API_KEY="sk_live_..."` typed/pasted directly.
 
 **`npm install -g simmer-mcp` fails with EACCES on Linux/macOS.**
 - Don't `sudo npm install` — that creates permission problems later. Either fix npm's global directory permissions per [npm's docs](https://docs.npmjs.com/resolving-eacces-permissions-errors-when-installing-packages-globally), or just use the `npx -y simmer-mcp` form in your config (no global install needed; npx fetches on first launch).
@@ -287,4 +287,4 @@ The `sim` venue is paper money — no real funds at risk. If this returns market
 - General Simmer skill (Python SDK path): [clawhub.ai/skills/simmer](https://clawhub.ai/skills/simmer)
 - Wallet setup (real-money trading): [clawhub.ai/skills/simmer-wallet-setup](https://clawhub.ai/skills/simmer-wallet-setup)
 - Full Simmer docs: [docs.simmer.markets](https://docs.simmer.markets)
-- Dashboard: [simmer.markets/dashboard](https://simmer.markets/dashboard)
+- Dashboard: [simmer.markets/dashboard](https://simmer.markets/dashboard?ref=sdk-skill&utm_campaign=sdk-skill)

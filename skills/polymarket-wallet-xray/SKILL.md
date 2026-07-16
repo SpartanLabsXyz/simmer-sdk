@@ -329,5 +329,5 @@ All metrics and analysis patterns used here are derived from that work. If you f
 
 - **Full Simmer API Reference:** [docs.simmer.markets/api/overview](https://docs.simmer.markets/api/overview)
 - **Original Analysis:** [The Autopsy: How to Read the Mind of a Polymarket Whale](https://x.com/thejayden/status/2020891572389224878)
-- **Dashboard:** [simmer.markets/dashboard](https://simmer.markets/dashboard)
+- **Dashboard:** [simmer.markets/dashboard](https://simmer.markets/dashboard?ref=sdk-skill&utm_campaign=sdk-skill)
 - **Support:** [Telegram](https://t.me/+m7sN0OLM_780M2Fl)

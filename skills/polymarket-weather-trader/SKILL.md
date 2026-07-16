@@ -22,9 +22,9 @@ This skill executes real-money trades on Polymarket only when the `--live` flag 
 
 - **Dry-run is the default.** `python weather_trader.py` (no flag) shows opportunities but executes no trades. The `--live` flag is required for real-money execution. There is no "auto-graduate" path.
 - **`$SIM` paper sandbox option.** Set `TRADING_VENUE=sim` to trade Simmer's $SIM virtual currency at real prices — useful for validating the strategy without USDC exposure.
-- **Real-money trading requires explicit human verification.** A wallet must be linked at [simmer.markets/dashboard](https://simmer.markets/dashboard) before any real trade lands. Without a linked wallet the SDK rejects real-money order construction.
+- **Real-money trading requires explicit human verification.** A wallet must be linked at [simmer.markets/dashboard](https://simmer.markets/dashboard?ref=sdk-skill&utm_campaign=sdk-skill) before any real trade lands. Without a linked wallet the SDK rejects real-money order construction.
 - **Per-trade cap.** `SIMMER_WEATHER_MAX_POSITION_USD` defaults to `$2.00` per trade. Configurable via env var, capped at the user's dashboard-set platform per-trade limit.
-- **Daily caps.** Platform-level daily caps apply (max trades/day, max USD/day). Set at [simmer.markets/dashboard](https://simmer.markets/dashboard) → SDK settings.
+- **Daily caps.** Platform-level daily caps apply (max trades/day, max USD/day). Set at [simmer.markets/dashboard](https://simmer.markets/dashboard?ref=sdk-skill&utm_campaign=sdk-skill) → SDK settings.
 - **Auto stop-loss is ON by default.** Server-side risk monitor watches every buy. Threshold is configurable per user at simmer.markets/dashboard → Settings → Auto Risk Monitor. **It cannot protect against gap-resolution, though:** weather temperature buckets jump straight to about 0 at resolution rather than decaying through your stop, so a percentage stop has no price to trigger on and no liquidity to exit into. Size for the full loss, not for the stop. See [DISCLAIMER.md](./DISCLAIMER.md).
 - **Strategy-side safeguards.** Beyond platform risk monitors, this skill checks flip-flop, slippage (`SIMMER_WEATHER_SLIPPAGE_MAX`, default 15%), time-decay, and resolved-market status before every order. Disable only with `--no-safeguards` (not recommended).
 - **Reversibility.** Open positions exit automatically when price > `SIMMER_WEATHER_EXIT_THRESHOLD` (default `0.45`), or via `client.cancel_order()` / a manual sell.
@@ -37,7 +37,7 @@ Weather market outcomes are discrete: a temperature bucket ("34-35°F") either m
 
 **Test before going live.** The `$SIM` venue gives you a fully virtual sandbox at real market prices — recommended before any `--live` run.
 
-**Risk monitor.** Stop-loss and take-profit thresholds are user settings (configurable at [simmer.markets/dashboard](https://simmer.markets/dashboard) → Settings → Auto Risk Monitor), shared across all skills under that user account. Per-position overrides via `client.set_monitor(market_id, side, stop_loss_pct=..., take_profit_pct=...)`.
+**Risk monitor.** Stop-loss and take-profit thresholds are user settings (configurable at [simmer.markets/dashboard](https://simmer.markets/dashboard?ref=sdk-skill&utm_campaign=sdk-skill) → Settings → Auto Risk Monitor), shared across all skills under that user account. Per-position overrides via `client.set_monitor(market_id, side, stop_loss_pct=..., take_profit_pct=...)`.
 
 **External wallet users**: monitors emit alerts via the briefing endpoint — your agent must be running for sells to execute. Managed wallet users: server executes directly.
 
@@ -231,6 +231,6 @@ All trades are tagged with `source: "sdk:weather"`. This means:
 
 **"External wallet requires a pre-signed order"** — `WALLET_PRIVATE_KEY` is not set. Fix: `export WALLET_PRIVATE_KEY=0x<your-polymarket-wallet-private-key>`. The SDK signs orders automatically when this env var is present — do not attempt to sign orders manually.
 
-**"Balance shows $0 but I have funds on Polygon"** — Polymarket V2 (live 2026-04-28) uses **pUSD** (PolyUSD, 1:1 backed by USDC.e). Migrate at [simmer.markets/dashboard](https://simmer.markets/dashboard) (~30s). Full guide: [docs.simmer.markets/v2-migration](https://docs.simmer.markets/v2-migration).
+**"Balance shows $0 but I have funds on Polygon"** — Polymarket V2 (live 2026-04-28) uses **pUSD** (PolyUSD, 1:1 backed by USDC.e). Migrate at [simmer.markets/dashboard](https://simmer.markets/dashboard?ref=sdk-skill&utm_campaign=sdk-skill) (~30s). Full guide: [docs.simmer.markets/v2-migration](https://docs.simmer.markets/v2-migration).
 
 **"API key invalid"** — get a new key from simmer.markets/dashboard → SDK tab.
