@@ -36,11 +36,11 @@ from datetime import datetime, timezone
 POLYMARKET_V2_CUTOVER_UTC = datetime(2026, 4, 28, 11, 0, 0, tzinfo=timezone.utc)
 
 # ============================================================
-# Chain + shared constants (unchanged V1 → V2)
+# Chain + shared/legacy constants
 # ============================================================
 POLYGON_CHAIN_ID = 137
 CONDITIONAL_TOKENS = "0x4D97DCd97eC945f40cF65F87097ACe5EA0476045"  # CTF, unchanged
-NEG_RISK_ADAPTER = "0xd91E80cF2E7be2e162c6513ceD06f1dD0dA35296"   # unchanged
+NEG_RISK_ADAPTER = "0xd91E80cF2E7be2e162c6513ceD06f1dD0dA35296"   # legacy; retired by PM 2026-07-18
 
 
 # ============================================================
@@ -133,7 +133,7 @@ def get_active_addresses() -> ActiveAddresses:
             ctf_exchange=V2_CTF_EXCHANGE,
             neg_risk_exchange_primary=V2_NEG_RISK_EXCHANGE_A,
             neg_risk_exchange_secondary=V2_NEG_RISK_EXCHANGE_B,
-            neg_risk_adapter=NEG_RISK_ADAPTER,
+            neg_risk_adapter=NEG_RISK_CTF_COLLATERAL_ADAPTER,
             collateral_token=V2_COLLATERAL_TOKEN,
             eip712_order_domain_version=V2_EIP712_ORDER_DOMAIN_VERSION,
             version="v2",
@@ -152,15 +152,18 @@ def get_active_addresses() -> ActiveAddresses:
 def active_spenders() -> list[str]:
     """Contract addresses that need token allowances for active trading.
 
-    V1: 3 spenders (CTF Exchange, Neg Risk CTF Exchange, Neg Risk Adapter).
-    V2: 4 spenders (adds a second Neg Risk Exchange for multi-outcome capacity).
+    V1: 3 spenders (CTF Exchange, Neg Risk CTF Exchange, legacy Neg Risk Adapter).
+    V2: 3 spenders (CTF Exchange V2, Neg Risk Exchange A/B). The retired
+    legacy NegRiskAdapter is not a V2 active spender; the new collateral
+    adapter is covered by redemption_spenders().
     """
     addrs = get_active_addresses()
     spenders = [
         addrs.ctf_exchange,
         addrs.neg_risk_exchange_primary,
-        addrs.neg_risk_adapter,
     ]
+    if addrs.version == "v1":
+        spenders.append(addrs.neg_risk_adapter)
     if addrs.neg_risk_exchange_secondary:
         spenders.append(addrs.neg_risk_exchange_secondary)
     return spenders
