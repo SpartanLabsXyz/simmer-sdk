@@ -685,7 +685,7 @@ class SimmerClient:
         return cls(api_key=api_key, ows_wallet=name, **kwargs)
 
     def _assert_not_readonly(self, method: str) -> None:
-        if self._readonly:
+        if getattr(self, "_readonly", False):
             raise RuntimeError(
                 f"SimmerClient.readonly() cannot call {method} because it may "
                 "submit orders or mutate account state. Construct a regular "
