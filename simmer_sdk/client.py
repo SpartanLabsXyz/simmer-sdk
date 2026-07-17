@@ -2824,16 +2824,26 @@ class SimmerClient:
             market_id: Market ID
 
         Returns:
-            Market object or None if not found
+            Market object, or None if the market does not exist (HTTP 404).
+
+        Raises:
+            requests.exceptions.RequestException: on timeouts, connection
+                failures, rate limits, or server errors. Before 0.23.0 these
+                were swallowed and returned as None — indistinguishable from
+                "market not found", which made transient network failures look
+                like markets losing their status/outcome fields. Catch and
+                retry these; only a None return means the market doesn't exist.
         """
         try:
             data = self._request("GET", f"/api/sdk/markets/{market_id}")
-            m = data.get("market")
-            if not m:
+        except requests.exceptions.HTTPError as e:
+            if e.response is not None and e.response.status_code == 404:
                 return None
-            return self._parse_market(m)
-        except Exception:
+            raise
+        m = data.get("market")
+        if not m:
             return None
+        return self._parse_market(m)
 
     def find_markets(self, query: str) -> List[Market]:
         """
@@ -3175,7 +3185,13 @@ class SimmerClient:
         if self._looks_like_polymarket_condition_id(market_id):
             return market_id
 
-        market = self.get_market_by_id(market_id)
+        # Transport errors fall through to the context lookup below —
+        # get_market_by_id raises on transient failures since 0.23.0, but this
+        # resolver has a second source and should keep trying it.
+        try:
+            market = self.get_market_by_id(market_id)
+        except requests.exceptions.RequestException:
+            market = None
         if market and market.polymarket_condition_id:
             return market.polymarket_condition_id
 
