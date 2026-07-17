@@ -40,7 +40,9 @@ markets = client.get_markets(venue="polymarket", limit=20)
 # Filter by tags (ALL-match, comma-separated)
 markets = client.get_markets(tags="world-cup", limit=50)
 
-# Get single market
+# Get single market. Returns None ONLY if the market doesn't exist (404).
+# SDK >=0.23.0: transient errors (timeout/5xx/429) raise instead of returning
+# None — wrap in try/except and retry if your loop must survive network blips.
 market = client.get_market_by_id("uuid")
 ```
 

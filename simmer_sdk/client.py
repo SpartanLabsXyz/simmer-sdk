@@ -3185,12 +3185,14 @@ class SimmerClient:
         if self._looks_like_polymarket_condition_id(market_id):
             return market_id
 
-        # Transport errors fall through to the context lookup below —
+        # Fetch/parse errors fall through to the context lookup below —
         # get_market_by_id raises on transient failures since 0.23.0, but this
-        # resolver has a second source and should keep trying it.
+        # resolver has a second source and should keep trying it. Broad catch
+        # is deliberate: a malformed payload (parse KeyError) should also fall
+        # through, matching the pre-0.23.0 fallback semantics.
         try:
             market = self.get_market_by_id(market_id)
-        except requests.exceptions.RequestException:
+        except Exception:
             market = None
         if market and market.polymarket_condition_id:
             return market.polymarket_condition_id

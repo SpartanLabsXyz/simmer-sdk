@@ -19,7 +19,6 @@ from simmer_sdk.client import SimmerClient
 
 def _make_client():
     client = SimmerClient.__new__(SimmerClient)
-    client.base_url = "https://api.simmer.markets"
     client._request = MagicMock()
     return client
 
@@ -103,3 +102,17 @@ def test_condition_id_resolver_falls_back_to_context_on_transport_error():
     condition_id = client._resolve_polymarket_condition_id("m1")
 
     assert condition_id == "0x" + "ab" * 32
+
+
+def test_condition_id_resolver_falls_back_to_context_on_parse_error():
+    """A malformed 200 body (parse KeyError) must also fall through to the
+    context lookup, matching pre-0.23.0 fallback semantics."""
+    client = _make_client()
+    client.get_market_by_id = MagicMock(side_effect=KeyError("question"))
+    client.get_market_context = MagicMock(
+        return_value={"market": {"polymarket_condition_id": "0x" + "cd" * 32}}
+    )
+
+    condition_id = client._resolve_polymarket_condition_id("m1")
+
+    assert condition_id == "0x" + "cd" * 32
