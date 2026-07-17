@@ -5,6 +5,16 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+
+- **`SimmerClient.readonly()` for validation and status probes.** The default
+  live Polymarket constructor still auto-processes pending external-wallet
+  risk exits by design, because the server cannot sign for self-custody users.
+  New `readonly()` construction skips that init-time risk-exit path and guards
+  order/risk-exit submission methods, so API-key checks, preflight, and status
+  scripts can inspect account state without submitting orders. The bundled
+  preflight skill and SDK status scripts now use the readonly path.
+
 ## [0.22.3] - 2026-07-13
 
 ### Added

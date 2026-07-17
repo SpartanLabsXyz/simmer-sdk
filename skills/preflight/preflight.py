@@ -66,7 +66,7 @@ def run(
         return 2
 
     try:
-        client = SimmerClient(api_key=api_key, venue=_venue)
+        client = SimmerClient.readonly(api_key=api_key, venue=_venue)
     except ValueError as e:
         print(f"ERROR: {e}", file=sys.stderr)
         return 2

@@ -114,11 +114,16 @@ client = SimmerClient(api_key="sk_live_...", venue="sim")
 # Real trading on Polymarket
 client = SimmerClient(api_key="sk_live_...", venue="polymarket")
 
+# Read-only validation/status client. Does not process constructor-time risk exits.
+client = SimmerClient.readonly(api_key="sk_live_...", venue="polymarket")
+
 # Override venue for a single trade
 client.trade(market_id, side="yes", amount=10.0, venue="polymarket")
 ```
 
 `TRADING_VENUE` environment variable is read at client init — OpenClaw skills use this to select venue at startup without code changes.
+
+> **Constructor side effect:** for live Polymarket clients with `WALLET_PRIVATE_KEY` or `OWS_WALLET`, regular `SimmerClient(...)` construction checks pending risk alerts and may submit stop-loss/take-profit exit orders. This is intentional for self-custody safety: Simmer's server cannot sign those exits. Use `SimmerClient.readonly(...)` for API-key validation, preflight/status checks, and other non-trading paths.
 
 > **Spread caveat:** $SIM fills instantly (AMM, no spread). Real venues have orderbook spreads of 2–5%. Target edges >5% in $SIM before graduating to real money.
 
@@ -217,6 +222,7 @@ print(report["summary"]["pnl"], report["summary"]["hit_rate"])
 | `link_wallet()` | Link external EVM wallet for Polymarket |
 | `set_approvals()` | Set Polymarket token approvals |
 | `activate_polymarket_dw(agent_id=None)` | Set Polymarket Deposit Wallet on-chain CLOB approvals — user-primary (no arg) or per-agent (`agent_id=...`). See note. |
+| `readonly()` | Constructor for validation/status clients that must not process constructor-time risk exits or submit orders |
 | `troubleshoot()` | Look up any error and get a fix (no auth required) |
 
 > **Per-agent wallets (Elite tier):** activating a per-agent (Elite dedicated) wallet takes **two** calls, approvals first: `activate_polymarket_dw(agent_id=...)` sets the deposit wallet's on-chain CLOB approvals, then `update_agent_wallet_creds(...)` caches the CLOB creds. OWS callers use `update_agent_wallet_creds(ows_wallet_name="...")`; raw-key callers with `WALLET_PRIVATE_KEY` use `update_agent_wallet_creds(agent_id="...")`. **Both approvals and cached creds are required before trading** — caching creds alone does not set on-chain allowances, so trades fail at the relayer with "insufficient allowance". See the `simmer-wallet-setup` skill for the full flow. (`set_approvals()` is the user-primary EOA path and is a no-op for per-agent deposit wallets.)
