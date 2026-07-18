@@ -150,7 +150,13 @@ def apply_longshot_correction(raw_prob):
 def evaluate_and_trade(market_id, raw_prob, confidence, side, reasoning, live=False):
     """Apply bias correction, size, and execute if edge survives."""
     client = get_client(live=live)
-    market = client.get_market_by_id(market_id)
+    try:
+        market = client.get_market_by_id(market_id)
+    except Exception as e:
+        # SDK >=0.23.0 raises on transient errors (timeout/5xx/429) instead of
+        # returning None — skip this market and let the next cycle retry.
+        print(f"  Market {market_id} fetch failed ({e}), skipping")
+        return None
     if not market:
         print(f"  Market {market_id} not found")
         return None

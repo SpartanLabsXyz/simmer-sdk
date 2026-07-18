@@ -15,6 +15,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   scripts can inspect account state without submitting orders. The bundled
   preflight skill and SDK status scripts now use the readonly path.
 
+## [0.23.0] - 2026-07-17
+
+### Changed
+
+- **`get_market_by_id()` no longer swallows errors.** Previously every exception — timeouts, connection failures, rate limits, server errors — was caught and returned as `None`, indistinguishable from "market not found". Agents polling a market saw its `status`/`outcome`/`resolves_at` appear to flip to null whenever a call transiently failed, which looked like unstable API data. Now `None` is returned **only** on HTTP 404 (the market genuinely doesn't exist); all other failures raise the underlying `requests` exception so callers can retry. If your code relied on the old silent-`None` behavior, wrap the call in `try/except requests.exceptions.RequestException`. (SIM-4025)
+>>>>>>> origin/main
+
 ## [0.22.3] - 2026-07-13
 
 ### Added
