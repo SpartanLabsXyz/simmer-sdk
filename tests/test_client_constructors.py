@@ -117,6 +117,78 @@ def test_from_env_forwards_kwargs(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# readonly()
+# ---------------------------------------------------------------------------
+
+
+def test_readonly_skips_constructor_risk_exits_for_live_polymarket_wallet(monkeypatch):
+    """readonly() construction must not fetch/process pending risk exits."""
+    monkeypatch.delenv("OWS_WALLET", raising=False)
+    monkeypatch.setenv("WALLET_PRIVATE_KEY", "0x" + "a" * 64)
+    monkeypatch.setattr(
+        "simmer_sdk.client.SimmerClient._validate_and_set_wallet",
+        lambda self, key: setattr(self, "_wallet_address", "0x" + "1" * 40),
+    )
+    monkeypatch.setattr(
+        "simmer_sdk.version_check.check_server_version_compatibility",
+        lambda *args, **kwargs: None,
+    )
+
+    called = []
+
+    def fail_if_called(self, alerts=None):
+        called.append(alerts)
+        raise AssertionError("readonly construction processed risk alerts")
+
+    monkeypatch.setattr(
+        "simmer_sdk.client.SimmerClient._process_risk_alerts",
+        fail_if_called,
+    )
+
+    client = SimmerClient.readonly(api_key="sk_live_test", venue="polymarket")
+
+    assert client.venue == "polymarket"
+    assert client._readonly is True
+    assert called == []
+
+
+def test_default_constructor_still_processes_risk_exits_for_live_polymarket_wallet(monkeypatch):
+    """The external-wallet safety net stays default-on for regular clients."""
+    monkeypatch.delenv("OWS_WALLET", raising=False)
+    monkeypatch.setenv("WALLET_PRIVATE_KEY", "0x" + "a" * 64)
+    monkeypatch.setattr(
+        "simmer_sdk.client.SimmerClient._validate_and_set_wallet",
+        lambda self, key: setattr(self, "_wallet_address", "0x" + "1" * 40),
+    )
+    monkeypatch.setattr(
+        "simmer_sdk.version_check.check_server_version_compatibility",
+        lambda *args, **kwargs: None,
+    )
+
+    called = []
+    monkeypatch.setattr(
+        "simmer_sdk.client.SimmerClient._process_risk_alerts",
+        lambda self, alerts=None: called.append(alerts),
+    )
+
+    client = SimmerClient(api_key="sk_live_test", venue="polymarket")
+
+    assert client._readonly is False
+    assert called == [None]
+
+
+def test_readonly_rejects_trade_calls(monkeypatch):
+    """A readonly client should fail closed if accidentally used to trade."""
+    monkeypatch.delenv("WALLET_PRIVATE_KEY", raising=False)
+    monkeypatch.delenv("OWS_WALLET", raising=False)
+
+    client = SimmerClient.readonly(api_key="sk_live_test")
+
+    with pytest.raises(RuntimeError, match="readonly"):
+        client.trade("market-id", "yes", amount=1.0)
+
+
+# ---------------------------------------------------------------------------
 # with_ows_wallet()
 # ---------------------------------------------------------------------------
 

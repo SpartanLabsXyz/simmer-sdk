@@ -31,7 +31,7 @@ def main():
         sys.exit(1)
 
     try:
-        client = SimmerClient.from_env()
+        client = SimmerClient.readonly()
     except Exception as e:
         print(f"Error: {e}")
         print("   Set SIMMER_API_KEY or get your key from: https://simmer.markets/dashboard")

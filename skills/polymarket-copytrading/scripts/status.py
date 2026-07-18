@@ -27,7 +27,7 @@ def get_client(api_key: str):
             print("Error: simmer-sdk not installed. Run: pip install simmer-sdk")
             sys.exit(1)
         venue = os.environ.get("TRADING_VENUE", "polymarket")
-        _client = SimmerClient(api_key=api_key, venue=venue)
+        _client = SimmerClient.readonly(api_key=api_key, venue=venue)
     return _client
 
 def api_request(api_key: str, endpoint: str) -> dict:

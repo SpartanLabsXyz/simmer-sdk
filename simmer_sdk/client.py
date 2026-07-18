@@ -255,6 +255,7 @@ class SimmerClient:
         live: bool = True,
         starting_balance: float = 10_000.0,
         _ignore_env_wallets: bool = False,
+        _readonly: bool = False,
     ):
         """
         Initialize the Simmer client.
@@ -281,6 +282,9 @@ class SimmerClient:
                 realistic P&L. Positions auto-settle when markets resolve.
             starting_balance: Virtual starting capital for paper trading
                 (default: 10,000). Only used when live=False.
+            _readonly: Internal flag used by SimmerClient.readonly(). Read-only
+                clients preserve venue/read behavior but never auto-process
+                risk exits or submit orders.
             private_key: Optional EVM wallet private key for Polymarket trading.
                 When provided, orders are signed locally instead of server-side.
                 This enables trading with your own Polymarket wallet.
@@ -324,6 +328,7 @@ class SimmerClient:
             venue = "sim"
 
         self.api_key = api_key
+        self._readonly = _readonly
         # base_url resolution: explicit arg > SIMMER_API_URL env > production.
         # Additive (SIM-3070): lets harnesses redirect unmodified skills.
         if base_url is None:
@@ -532,8 +537,16 @@ class SimmerClient:
                 venue, starting_balance
             )
 
-        # Auto-process risk alerts on init (external wallets only)
-        if self.live and (self._private_key or self._ows_wallet) and venue in ("polymarket",):
+        # Auto-process risk alerts on init (external wallets only). This is the
+        # default safety net for live self-custody agents; SimmerClient.readonly()
+        # opts out explicitly for validation/probe paths that must never submit
+        # orders as a construction side effect.
+        if (
+            not self._readonly
+            and self.live
+            and (self._private_key or self._ows_wallet)
+            and venue in ("polymarket",)
+        ):
             try:
                 self._process_risk_alerts()
             except Exception as e:
@@ -594,6 +607,36 @@ class SimmerClient:
         return cls(api_key=api_key, **kwargs)
 
     @classmethod
+    def readonly(cls, api_key: Optional[str] = None, **kwargs) -> "SimmerClient":
+        """Construct a client for validation and read-only API paths.
+
+        ``readonly()`` preserves normal venue selection and read endpoint
+        behavior, but it disables constructor-time risk-exit processing and
+        rejects order and risk-exit submission calls. Use this for API-key
+        checks, status probes, and preflight-style validation where
+        construction must not submit orders.
+
+        Args:
+            api_key: Optional SDK API key. If omitted, reads ``SIMMER_API_KEY``.
+            **kwargs: Optional keyword arguments forwarded to ``__init__``
+                (e.g. ``venue``, ``base_url``, ``live``).
+
+        Raises:
+            RuntimeError: If no API key is provided and ``SIMMER_API_KEY`` is
+                unset or empty.
+        """
+        if api_key is None:
+            api_key = os.environ.get("SIMMER_API_KEY")
+        if not api_key:
+            raise RuntimeError(
+                "No api_key provided and SIMMER_API_KEY environment variable "
+                "is not set. Get an API key at simmer.markets/dashboard → SDK "
+                "tab, then either pass api_key=... or export SIMMER_API_KEY."
+            )
+        kwargs["_readonly"] = True
+        return cls(api_key=api_key, **kwargs)
+
+    @classmethod
     def with_ows_wallet(
         cls,
         name: str,
@@ -640,6 +683,14 @@ class SimmerClient:
                 "tab, then either pass api_key=... or export SIMMER_API_KEY."
             )
         return cls(api_key=api_key, ows_wallet=name, **kwargs)
+
+    def _assert_not_readonly(self, method: str) -> None:
+        if getattr(self, "_readonly", False):
+            raise RuntimeError(
+                f"SimmerClient.readonly() cannot call {method} because it may "
+                "submit orders or mutate account state. Construct a regular "
+                "SimmerClient for trading."
+            )
 
     def _validate_and_set_wallet(self, private_key: str) -> None:
         """Validate private key format and derive wallet address."""
@@ -867,6 +918,7 @@ class SimmerClient:
 
         If alerts is provided, processes those directly. Otherwise fetches from /api/sdk/risk-alerts.
         """
+        self._assert_not_readonly("_process_risk_alerts()")
         if alerts is None:
             try:
                 response = self._request("GET", "/api/sdk/risk-alerts")
@@ -888,6 +940,20 @@ class SimmerClient:
             alert_venue = alert.get("venue")  # None for legacy alerts — falls back to client default
 
             try:
+                fresh_shares = self._risk_exit_fresh_shares(market_id, side, alert_venue)
+                if fresh_shares is None or fresh_shares <= 0:
+                    print(
+                        f"[SimmerSDK] Risk exit skipped for {market_id[:8]}... {side}: "
+                        "no matching live Polymarket position"
+                    )
+                    continue
+                if fresh_shares < shares:
+                    print(
+                        f"[SimmerSDK] Risk exit size adjusted for {market_id[:8]}... {side}: "
+                        f"alert={shares:.5f}, live_position={fresh_shares:.5f}"
+                    )
+                    shares = fresh_shares
+
                 # 1. Cancel open orders on this market (Polymarket only — token_id based)
                 if token_id:
                     self._cancel_orders_for_token(token_id)
@@ -921,6 +987,46 @@ class SimmerClient:
                 print(f"[SimmerSDK] Risk exit failed for {market_id[:8]}... {side}: {e}")
                 # Alert persists in Redis — will retry next cycle
 
+    def _risk_exit_fresh_shares(
+        self,
+        market_id: str,
+        side: str,
+        alert_venue: Optional[str],
+    ) -> Optional[float]:
+        """Return fresh held shares for a risk exit, or None if it is unsafe.
+
+        Risk alerts are async and can be stale. Before signing a sell, re-read
+        live positions and confirm the alert still matches a Polymarket holding.
+        """
+        if alert_venue not in (None, "polymarket"):
+            logger.warning(
+                "Risk exit alert for %s %s has unsupported venue=%r",
+                market_id,
+                side,
+                alert_venue,
+            )
+            return None
+
+        try:
+            positions = self.get_positions(venue="polymarket")
+        except Exception as exc:
+            logger.warning(
+                "Risk exit position re-check failed for %s %s: %s",
+                market_id,
+                side,
+                exc,
+            )
+            return None
+
+        for pos in positions:
+            if getattr(pos, "market_id", None) != market_id:
+                continue
+            if getattr(pos, "venue", None) not in (None, "polymarket"):
+                continue
+            shares = getattr(pos, f"shares_{side}", 0) or 0
+            return float(shares)
+        return None
+
     def get_briefing(self, since: str = None, process_risk_alerts: bool = True,
                      skill_versions: dict = None) -> dict:
         """Fetch the agent briefing and optionally process any triggered risk alerts.
@@ -952,6 +1058,7 @@ class SimmerClient:
         # Process triggered risk alerts if present and requested
         triggered = response.get("triggered_risk_alerts")
         if process_risk_alerts and triggered and self._private_key:
+            self._assert_not_readonly("get_briefing(process_risk_alerts=True)")
             self._process_risk_alerts(alerts=triggered)
 
         # Log skill update nudges
@@ -1295,6 +1402,8 @@ class SimmerClient:
 
         Returns the dry-run plan, or ``{status, tx_hash, rfq_id}`` on a fill.
         """
+        if not dry_run:
+            self._assert_not_readonly("place_combo(dry_run=False)")
         from simmer_sdk import combo as _combo
 
         if len(leg_position_ids) < 2:
@@ -2094,6 +2203,7 @@ class SimmerClient:
             client = SimmerClient(api_key="sk_live_...", venue="kalshi")
             result = client.trade(market_id, "yes", 10.0)  # Signs locally with Solana key
         """
+        self._assert_not_readonly("trade()")
         effective_venue = venue or self.venue
         if effective_venue not in self.VENUES:
             raise ValueError(f"Invalid venue '{effective_venue}'. Must be one of: {self.VENUES}")
@@ -3789,6 +3899,7 @@ class SimmerClient:
             # Stop-loss only
             client.set_monitor("market-id", "no", stop_loss_pct=0.30)
         """
+        self._assert_not_readonly("set_monitor()")
         payload: Dict[str, Any] = {"side": side}
         if stop_loss_pct is not None:
             payload["stop_loss_pct"] = stop_loss_pct
@@ -3826,6 +3937,7 @@ class SimmerClient:
         Example:
             client.delete_monitor("market-id", "yes")
         """
+        self._assert_not_readonly("delete_monitor()")
         return self._request("DELETE", f"/api/sdk/positions/{market_id}/monitor", params={"side": side})
 
     # ==========================================
@@ -4155,6 +4267,7 @@ class SimmerClient:
                     result = client.redeem(p['market_id'], p['redeemable_side'])
                     print(f"Redeemed: {result['tx_hash']}")
         """
+        self._assert_not_readonly("redeem()")
         # External + DW dispatch (added 0.17.0). Position lives on the deposit
         # wallet contract, so msg.sender of the redeem call must be the DW.
         # The legacy unsigned-tx path (returned for non-DW external wallets)
@@ -4372,6 +4485,7 @@ class SimmerClient:
                 else:
                     print(f"Failed {r['market_id']} {r['side']}: {r['error']}")
         """
+        self._assert_not_readonly("auto_redeem()")
         results = []
 
         # Refresh auto_redeem + cohort cache from /agents/me (5-min TTL, shared
@@ -4495,6 +4609,7 @@ class SimmerClient:
             )
             print(f"Created alert {alert['id']}")
         """
+        self._assert_not_readonly("create_alert()")
         return self._request("POST", "/api/sdk/alerts", json={
             "market_id": market_id,
             "side": side,
