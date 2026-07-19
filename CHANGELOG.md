@@ -7,6 +7,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **Agent-ergonomic SDK output modes (SIM-4047).** `get_markets()`,
+  `get_positions()`, and `get_trades()` now support opt-in
+  `response_mode="summary"`/`"compact"` output with minimal default fields,
+  definitive empty-state messages, and optional `include_hints=True` next-step
+  suggestions. `response_mode="toon"` also emits a TOON string for token-light
+  agent transcripts. `TradeResult` now carries additive `error_code`,
+  `error_hint`, and `next_steps` fields for common failure paths without
+  changing existing success/error semantics.
+
 - **`SimmerClient.readonly()` for validation and status probes.** The default
   live Polymarket constructor still auto-processes pending external-wallet
   risk exits by design, because the server cannot sign for self-custody users.
