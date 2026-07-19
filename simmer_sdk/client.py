@@ -2028,7 +2028,7 @@ class SimmerClient:
                 the historical ``List[Market]`` return. ``"summary"``/``"compact"``
                 returns a compact dict with counts and an explicit empty message;
                 ``"toon"`` also includes a TOON string.
-            fields: Compact-mode fields. Defaults to id, question, status, venue.
+            fields: Compact-mode fields. Defaults to id, question, status, import_source.
             include_hints: Add ``next_steps`` suggestions to compact/TOON output.
 
         Note:
