@@ -141,3 +141,49 @@ def test_trade_result_structures_common_failure_with_hint():
     assert result.error_code == "market_not_found"
     assert "get_markets" in result.error_hint
     assert result.next_steps == [result.error_hint]
+
+
+# ---------------------------------------------------------------------------
+# _structured_error branch ordering (CTO review, SIM-4047)
+# ---------------------------------------------------------------------------
+# Agents ACT on error_hint, so a mislabelled bucket routes them to the wrong
+# recovery call. The original ordering tested a bare "not found" first, which
+# shadowed position/agent/skill errors into market_not_found.
+
+import pytest
+from simmer_sdk.client import SimmerClient
+
+
+@pytest.mark.parametrize("message,expected_code", [
+    # position errors must NOT be swallowed by the market branch
+    ("position not found", "position_not_found"),
+    ("Position not found for this market", "position_not_found"),
+    ("No position found for this market", "position_not_found"),
+    ("Missing position", "position_not_found"),
+    # genuine market errors
+    ("Market not found", "market_not_found"),
+    ("market_id is required", "market_not_found"),
+    ("Unknown market not found in catalog", "market_not_found"),
+    # unrelated subjects must fall through to the generic bucket, not market
+    ("Agent not found", "request_failed"),
+    ("Skill not found", "request_failed"),
+    ("Order not found", "request_failed"),
+    # other buckets unchanged
+    ("Insufficient balance", "insufficient_balance"),
+    ("insufficient funds for this trade", "insufficient_balance"),
+    ("Unauthorized", "credentials_invalid"),
+    ("Invalid API key", "credentials_invalid"),
+    ("No liquidity available", "no_liquidity"),
+    ("Order not filled", "no_liquidity"),
+    ("", "request_failed"),
+    (None, "request_failed"),
+])
+def test_structured_error_buckets_by_most_specific_subject(message, expected_code):
+    assert SimmerClient._structured_error(message)["code"] == expected_code
+
+
+def test_structured_error_hint_points_at_the_matching_recovery_call():
+    """The hint must name the call that actually resolves that bucket."""
+    assert "get_positions" in SimmerClient._structured_error("position not found")["hint"]
+    assert "get_markets" in SimmerClient._structured_error("Market not found")["hint"]
+    assert "get_portfolio" in SimmerClient._structured_error("Insufficient balance")["hint"]

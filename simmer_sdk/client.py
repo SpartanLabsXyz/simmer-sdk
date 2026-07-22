@@ -1838,11 +1838,16 @@ class SimmerClient:
     def _structured_error(message: Optional[str]) -> Dict[str, str]:
         text = (message or "Unknown error").strip()
         lower = text.lower()
-        if "market_id" in lower or "market not found" in lower or "not found" in lower:
+        # Order matters: match the MOST SPECIFIC subject first. A bare
+        # "not found" test must never run before the position/agent/skill
+        # checks, or it swallows them — agents act on `hint`, so mislabelling
+        # "position not found" as market_not_found sends them to get_markets()
+        # when the real fix is get_positions().
+        if "position" in lower and ("not found" in lower or "no " in lower or "missing" in lower):
             return {
-                "code": "market_not_found",
+                "code": "position_not_found",
                 "message": text,
-                "hint": "Call get_markets(q=..., response_mode='summary') and retry with a returned market id.",
+                "hint": "Call get_positions(response_mode='summary') to confirm held shares before selling.",
             }
         if "insufficient" in lower and ("balance" in lower or "fund" in lower):
             return {
@@ -1862,11 +1867,18 @@ class SimmerClient:
                 "message": text,
                 "hint": "Refresh the market with get_market_by_id() or retry with a less aggressive price/size.",
             }
-        if "position" in lower and ("no " in lower or "missing" in lower):
+        # Market check last among the specific buckets, and deliberately narrow:
+        # "market not found" / "market_id", NOT a bare "not found" (which also
+        # matches agent/skill/order errors that need a different next step).
+        if (
+            "market not found" in lower
+            or "market_id" in lower
+            or ("market" in lower and "not found" in lower)
+        ):
             return {
-                "code": "position_not_found",
+                "code": "market_not_found",
                 "message": text,
-                "hint": "Call get_positions(response_mode='summary') to confirm held shares before selling.",
+                "hint": "Call get_markets(q=..., response_mode='summary') and retry with a returned market id.",
             }
         return {
             "code": "request_failed",
