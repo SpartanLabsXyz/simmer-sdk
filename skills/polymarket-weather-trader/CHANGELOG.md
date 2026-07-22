@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.23.4] - 2026-07-22
+
 ### Fixed
 - Added `EGLC` (London City Airport) to the international station coordinate map so Polymarket London weather markets that cite the official London City station can route to Open-Meteo instead of fail-closing as an unsupported station. This does not change markets whose Simmer/SDK metadata lacks usable `resolution_criteria`; those still fail closed.
 - `order_type=FOK` (Fill Or Kill) is now overridden to GTC, the same way `FAK` has been since v1.20.0. Weather markets are structurally illiquid — both FOK and FAK orders are cancelled immediately with no fill, creating a retry-loop that burns attempts on every run. The warning message now names the actual configured type (`FAK` or `FOK`) so it's actionable.
