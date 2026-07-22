@@ -10,7 +10,7 @@ import sys
 import time
 import logging
 import requests
-from typing import Optional, List, Dict, Any, Callable
+from typing import Optional, List, Dict, Any, Callable, Sequence, Union
 from dataclasses import dataclass
 from urllib.parse import quote, urlparse
 from datetime import datetime, timezone
@@ -137,6 +137,9 @@ class TradeResult:
     order_id: Optional[str] = None  # CLOB order ID for GTC/GTD orders — use with cancel_order()
     retryable: bool = True  # False when server knows retrying is futile (position cleared on-chain)
     fee_rate_bps: Optional[float] = None  # Taker fee rate in basis points (0 on Polymarket today)
+    error_code: Optional[str] = None  # Machine-readable failure bucket.
+    error_hint: Optional[str] = None  # Actionable next step for agents.
+    next_steps: Optional[List[str]] = None  # Optional contextual follow-up hints.
 
     @property
     def shares_filled(self) -> float:
@@ -1810,8 +1813,163 @@ class SimmerClient:
             json=json,
             timeout=timeout or 30
         )
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
+        except requests.exceptions.HTTPError as exc:
+            message = self._http_error_message(response, exc)
+            error = self._structured_error(message)
+            exc.simmer_error = error
+            exc.error_code = error["code"]
+            exc.error_hint = error["hint"]
+            raise
         return response.json()
+
+    @staticmethod
+    def _http_error_message(response: requests.Response, exc: Exception) -> str:
+        try:
+            body = response.json()
+        except ValueError:
+            body = {}
+        if isinstance(body, dict):
+            return str(body.get("error") or body.get("message") or exc)
+        return str(exc)
+
+    @staticmethod
+    def _structured_error(message: Optional[str]) -> Dict[str, str]:
+        text = (message or "Unknown error").strip()
+        lower = text.lower()
+        # Order matters: match the MOST SPECIFIC subject first. A bare
+        # "not found" test must never run before the position/agent/skill
+        # checks, or it swallows them — agents act on `hint`, so mislabelling
+        # "position not found" as market_not_found sends them to get_markets()
+        # when the real fix is get_positions().
+        if "position" in lower and ("not found" in lower or "no " in lower or "missing" in lower):
+            return {
+                "code": "position_not_found",
+                "message": text,
+                "hint": "Call get_positions(response_mode='summary') to confirm held shares before selling.",
+            }
+        if "insufficient" in lower and ("balance" in lower or "fund" in lower):
+            return {
+                "code": "insufficient_balance",
+                "message": text,
+                "hint": "Call get_portfolio() to check available balance before retrying with a smaller amount.",
+            }
+        if "unauthorized" in lower or "invalid api key" in lower or "credentials" in lower:
+            return {
+                "code": "credentials_invalid",
+                "message": text,
+                "hint": "Check the SDK API key and wallet credentials, then retry after re-authentication.",
+            }
+        if "liquidity" in lower or "not filled" in lower:
+            return {
+                "code": "no_liquidity",
+                "message": text,
+                "hint": "Refresh the market with get_market_by_id() or retry with a less aggressive price/size.",
+            }
+        # Market check last among the specific buckets, and deliberately narrow:
+        # "market not found" / "market_id", NOT a bare "not found" (which also
+        # matches agent/skill/order errors that need a different next step).
+        if (
+            "market not found" in lower
+            or "market_id" in lower
+            or ("market" in lower and "not found" in lower)
+        ):
+            return {
+                "code": "market_not_found",
+                "message": text,
+                "hint": "Call get_markets(q=..., response_mode='summary') and retry with a returned market id.",
+            }
+        return {
+            "code": "request_failed",
+            "message": text,
+            "hint": "Inspect the request inputs and retry; use include_hints=True for suggested follow-up calls.",
+        }
+
+    @staticmethod
+    def _normalize_fields(fields: Optional[Union[Sequence[str], str]], defaults: Sequence[str]) -> List[str]:
+        if fields is None:
+            return list(defaults)
+        if isinstance(fields, str):
+            return [part.strip() for part in fields.split(",") if part.strip()]
+        return [str(field) for field in fields]
+
+    @staticmethod
+    def _compact_row(row: Any, fields: Sequence[str]) -> Dict[str, Any]:
+        compact: Dict[str, Any] = {}
+        for field in fields:
+            if isinstance(row, dict):
+                compact[field] = row.get(field)
+            else:
+                compact[field] = getattr(row, field, None)
+        return compact
+
+    @staticmethod
+    def _toon(name: str, rows: Sequence[Dict[str, Any]], fields: Sequence[str]) -> str:
+        lines = [f"{name}[{len(rows)}]{{{','.join(fields)}}}:"]
+        for row in rows:
+            values = []
+            for field in fields:
+                value = row.get(field)
+                if isinstance(value, str):
+                    value = '"' + value.replace('"', '\\"') + '"'
+                elif value is None:
+                    value = "null"
+                values.append(str(value))
+            lines.append("  " + ",".join(values))
+        return "\n".join(lines)
+
+    @classmethod
+    def _list_response(
+        cls,
+        *,
+        name: str,
+        items: Sequence[Any],
+        response_mode: Optional[str],
+        fields: Optional[Union[Sequence[str], str]],
+        default_fields: Sequence[str],
+        total: Optional[int] = None,
+        empty_message: str,
+        include_hints: bool = False,
+        hints: Optional[List[str]] = None,
+    ) -> Any:
+        if response_mode in (None, "full"):
+            return list(items)
+        if response_mode not in ("summary", "compact", "toon"):
+            raise ValueError("response_mode must be one of: full, summary, compact, toon")
+
+        selected_fields = cls._normalize_fields(fields, default_fields)
+        compact_items = [cls._compact_row(item, selected_fields) for item in items]
+        count = len(compact_items)
+        resolved_total = count if total is None else total
+        message = (
+            empty_message
+            if count == 0
+            else f"Showing {count} of {resolved_total} {name}."
+        )
+        envelope: Dict[str, Any] = {
+            name: compact_items,
+            "count": count,
+            "total": resolved_total,
+            "message": message,
+        }
+        if response_mode == "toon":
+            envelope["format"] = "toon"
+            envelope["toon"] = cls._toon(name, compact_items, selected_fields)
+        if include_hints:
+            envelope["next_steps"] = hints or []
+        return envelope
+
+    @staticmethod
+    def _trade_next_steps(result: TradeResult) -> List[str]:
+        if result.success:
+            steps = ["Call get_positions(response_mode='summary') to verify exposure."]
+            if result.order_id:
+                steps.append(f"Call cancel_order('{result.order_id}') if you need to cancel the open order.")
+            return steps
+        if result.error_hint:
+            return [result.error_hint]
+        return ["Inspect result.error_code/result.error_hint before retrying the trade."]
 
     def _get_auto_redeem_positions_response(self) -> Optional[Dict[str, Any]]:
         """Fetch resolved positions for auto_redeem with one timeout-only retry.
@@ -1848,7 +2006,10 @@ class SimmerClient:
         venue: Optional[str] = None,
         sort: Optional[str] = None,
         tags: Optional[str] = None,
-    ) -> List[Market]:
+        response_mode: Optional[str] = None,
+        fields: Optional[Union[Sequence[str], str]] = None,
+        include_hints: bool = False,
+    ) -> Any:
         """
         Get available markets.
 
@@ -1875,6 +2036,12 @@ class SimmerClient:
             tags: Comma-separated tag filter (e.g. "world-cup" or "weather,crypto").
                 Keyword-only. Returns markets carrying ALL specified tags. Like ``q``,
                 applied before the result window.
+            response_mode: Optional output wrapper. ``None``/``"full"`` preserves
+                the historical ``List[Market]`` return. ``"summary"``/``"compact"``
+                returns a compact dict with counts and an explicit empty message;
+                ``"toon"`` also includes a TOON string.
+            fields: Compact-mode fields. Defaults to id, question, status, import_source.
+            include_hints: Add ``next_steps`` suggestions to compact/TOON output.
 
         Note:
             Unfiltered browse (no ``q``/``tags``) is capped and windowed server-side,
@@ -1904,8 +2071,21 @@ class SimmerClient:
             params["tags"] = tags
 
         data = self._request("GET", "/api/sdk/markets", params=params)
-
-        return [self._parse_market(m) for m in data.get("markets", [])]
+        markets = [self._parse_market(m) for m in data.get("markets", [])]
+        return self._list_response(
+            name="markets",
+            items=markets,
+            response_mode=response_mode,
+            fields=fields,
+            default_fields=("id", "question", "status", "import_source"),
+            total=data.get("total") or data.get("total_count"),
+            empty_message="No markets matched your filters.",
+            include_hints=include_hints,
+            hints=[
+                "Broaden q/tags or pass sort='volume' to find liquid markets.",
+                "Use get_market_by_id(market_id) for full details before trading.",
+            ],
+        )
 
     def get_candles(
         self,
@@ -2112,7 +2292,9 @@ class SimmerClient:
         source: Optional[str] = None,
         skill_slug: Optional[str] = None,
         allow_rebuy: bool = False,
-        signal_data: Optional[dict] = None
+        signal_data: Optional[dict] = None,
+        *,
+        include_hints: bool = False,
     ) -> TradeResult:
         """
         Execute a trade on a market.
@@ -2158,6 +2340,8 @@ class SimmerClient:
                 confidence (float 0-1), signal_source (string). Skill-specific
                 fields are freeform. Example: {"edge": 0.15, "confidence": 0.8,
                 "signal_source": "noaa", "forecast_temp": 35}
+            include_hints: Populate ``next_steps`` and structured error hints on
+                the returned TradeResult.
 
         Returns:
             TradeResult with execution details
@@ -2271,6 +2455,21 @@ class SimmerClient:
                     f"shares rounds to {shares} — too small to place an order"
                 )
 
+        def _failure_result(error: str, skip_reason: Optional[str] = None) -> TradeResult:
+            structured = self._structured_error(error)
+            result = TradeResult(
+                success=False,
+                market_id=market_id,
+                side=side,
+                error=error,
+                skip_reason=skip_reason,
+                error_code=structured["code"],
+                error_hint=structured["hint"],
+            )
+            if include_hints:
+                result.next_steps = self._trade_next_steps(result)
+            return result
+
         # Paper trading: simulate with real prices (no live API calls)
         if not self.live:
             return self._paper_trade(
@@ -2282,12 +2481,9 @@ class SimmerClient:
             held = self._get_held_markets()
             if market_id in held:
                 logger.debug("Rebuy skipped on %s: already hold position", market_id)
-                return TradeResult(
-                    success=False,
-                    market_id=market_id,
-                    side=side,
-                    error="Already hold position on this market. Pass allow_rebuy=True to override.",
-                    skip_reason="rebuy skipped",
+                return _failure_result(
+                    "Already hold position on this market. Pass allow_rebuy=True to override.",
+                    "rebuy skipped",
                 )
         if action == "buy" and source:
             held = self._get_held_markets()
@@ -2300,12 +2496,9 @@ class SimmerClient:
                         "Cross-skill conflict on %s: my_source=%r, other_sources=%r",
                         market_id, source, other_sources
                     )
-                    return TradeResult(
-                        success=False,
-                        market_id=market_id,
-                        side=side,
-                        error=f"Cross-skill conflict: {other_sources} already hold position on this market",
-                        skip_reason="conflicts skipped",
+                    return _failure_result(
+                        f"Cross-skill conflict: {other_sources} already hold position on this market",
+                        "conflicts skipped",
                     )
                 # Same-skill rebuy: already hold from this source
                 if not allow_rebuy and source in market_sources:
@@ -2313,12 +2506,9 @@ class SimmerClient:
                         "Rebuy skipped on %s: already hold position from source=%r",
                         market_id, source
                     )
-                    return TradeResult(
-                        success=False,
-                        market_id=market_id,
-                        side=side,
-                        error=f"Already hold position on this market (source: {source}). Pass allow_rebuy=True to override.",
-                        skip_reason="rebuy skipped",
+                    return _failure_result(
+                        f"Already hold position on this market (source: {source}). Pass allow_rebuy=True to override.",
+                        "rebuy skipped",
                     )
 
         # Validate price if provided
@@ -2428,7 +2618,9 @@ class SimmerClient:
         def _build_result(d):
             _pos = d.get("position") or {}
             _bal = _pos.get("sim_balance") if effective_venue == "sim" else None
-            return TradeResult(
+            _error = d.get("error")
+            _structured = self._structured_error(_error) if _error else {}
+            result = TradeResult(
                 success=d.get("success", False),
                 trade_id=d.get("trade_id"),
                 market_id=d.get("market_id", market_id),
@@ -2441,12 +2633,17 @@ class SimmerClient:
                 cost=d.get("cost", 0),
                 new_price=d.get("new_price", 0),
                 balance=_bal,
-                error=d.get("error"),
+                error=_error,
                 fill_status=d.get("fill_status", "unknown"),
                 order_id=d.get("order_id"),
                 retryable=d.get("retryable", True),
                 fee_rate_bps=d.get("fee_rate_bps"),
+                error_code=d.get("error_code") or _structured.get("code"),
+                error_hint=d.get("error_hint") or d.get("hint") or _structured.get("hint"),
             )
+            if include_hints:
+                result.next_steps = self._trade_next_steps(result)
+            return result
 
         result = _build_result(data)
 
@@ -2808,7 +3005,15 @@ class SimmerClient:
         self._position_holder_ts = _t.time()
         return positions
 
-    def get_positions(self, venue: Optional[str] = None, source: Optional[str] = None) -> List[Position]:
+    def get_positions(
+        self,
+        venue: Optional[str] = None,
+        source: Optional[str] = None,
+        *,
+        response_mode: Optional[str] = None,
+        fields: Optional[Union[Sequence[str], str]] = None,
+        include_hints: bool = False,
+    ) -> Any:
         """
         Get all positions for this agent.
 
@@ -2818,6 +3023,12 @@ class SimmerClient:
         Args:
             venue: Filter by venue ("sim" or "polymarket"). If None, returns both.
             source: Filter by trade source (e.g., "weather", "copytrading"). Partial match.
+            response_mode: Optional output wrapper. ``None``/``"full"`` preserves
+                the historical ``List[Position]`` return. ``"summary"``/``"compact"``
+                returns a compact dict with counts and an explicit empty message;
+                ``"toon"`` also includes a TOON string.
+            fields: Compact-mode fields. Defaults to market_id, venue, status, pnl.
+            include_hints: Add ``next_steps`` suggestions to compact/TOON output.
 
         Returns:
             List of Position objects with P&L info
@@ -2832,11 +3043,48 @@ class SimmerClient:
             self._settle_paper_positions()
             paper_positions = self._get_paper_positions()
             if paper_positions:
-                return paper_positions
+                return self._list_response(
+                    name="positions",
+                    items=paper_positions,
+                    response_mode=response_mode,
+                    fields=fields,
+                    default_fields=("market_id", "venue", "status", "pnl"),
+                    empty_message="No open positions matched your filters.",
+                    include_hints=include_hints,
+                    hints=[
+                        "Use get_markets(response_mode='summary') to find tradeable markets.",
+                        "Use trade(market_id=..., side=..., amount=...) to open a position.",
+                    ],
+                )
             if self.venue == "sim" and (venue is None or venue in ("sim", "all")):
-                return paper_positions
+                return self._list_response(
+                    name="positions",
+                    items=paper_positions,
+                    response_mode=response_mode,
+                    fields=fields,
+                    default_fields=("market_id", "venue", "status", "pnl"),
+                    empty_message="No open positions matched your filters.",
+                    include_hints=include_hints,
+                    hints=[
+                        "Use get_markets(response_mode='summary') to find tradeable markets.",
+                        "Use trade(market_id=..., side=..., amount=...) to open a position.",
+                    ],
+                )
 
-        return self._get_api_positions(venue=venue, source=source)
+        positions = self._get_api_positions(venue=venue, source=source)
+        return self._list_response(
+            name="positions",
+            items=positions,
+            response_mode=response_mode,
+            fields=fields,
+            default_fields=("market_id", "venue", "status", "pnl"),
+            empty_message="No open positions matched your filters.",
+            include_hints=include_hints,
+            hints=[
+                "Use get_markets(response_mode='summary') to find tradeable markets.",
+                "Use trade(market_id=..., side=..., amount=...) to open a position.",
+            ],
+        )
 
     _HELD_MARKETS_TTL = 30  # seconds
     _HOLDER_CACHE_TTL = 30  # seconds — same as held-markets TTL
@@ -3422,6 +3670,9 @@ class SimmerClient:
         since: Optional[str] = None,
         until: Optional[str] = None,
         include_failed: bool = False,
+        response_mode: Optional[str] = None,
+        fields: Optional[Union[Sequence[str], str]] = None,
+        include_hints: bool = False,
     ) -> Optional[Dict[str, Any]]:
         """
         Get trade history across venues.
@@ -3445,6 +3696,13 @@ class SimmerClient:
                 trade_failure_taxonomy) and ``failure_reason`` (a sanitized
                 human-readable message — never contains raw API responses).
                 superseded rows are always excluded. Default: False.
+            response_mode: Optional output wrapper. ``None``/``"full"`` preserves
+                the historical response dict with additive ``message`` metadata.
+                ``"summary"``/``"compact"`` returns only selected trade fields;
+                ``"toon"`` also includes a TOON string.
+            fields: Compact-mode trade fields. Defaults to trade_id, side, venue,
+                status, cost.
+            include_hints: Add ``next_steps`` suggestions.
 
         Returns:
             Dict containing:
@@ -3497,7 +3755,34 @@ class SimmerClient:
             params["until"] = until
         if include_failed:
             params["include_failed"] = "true"
-        return self._request("GET", "/api/sdk/trades", params=params)
+        data = self._request("GET", "/api/sdk/trades", params=params)
+        trades = list(data.get("trades") or [])
+        total = data.get("total_count", len(trades))
+        if response_mode in (None, "full"):
+            data.setdefault(
+                "message",
+                "No trades matched your filters." if not trades else f"Showing {len(trades)} of {total} trades.",
+            )
+            if include_hints:
+                data["next_steps"] = [
+                    "Use get_positions(response_mode='summary') to compare current exposure.",
+                    "Pass include_failed=True to inspect failed/cancelled trade attempts.",
+                ]
+            return data
+        return self._list_response(
+            name="trades",
+            items=trades,
+            response_mode=response_mode,
+            fields=fields,
+            default_fields=("trade_id", "side", "venue", "status", "cost"),
+            total=total,
+            empty_message="No trades matched your filters.",
+            include_hints=include_hints,
+            hints=[
+                "Use get_positions(response_mode='summary') to compare current exposure.",
+                "Pass include_failed=True to inspect failed/cancelled trade attempts.",
+            ],
+        )
 
     def get_outcomes(
         self,
