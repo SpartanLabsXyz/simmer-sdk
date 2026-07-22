@@ -18,10 +18,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `error_hint`, and `next_steps` fields for common failure paths without
   changing existing success/error semantics.
 
-- **Bundled skill fix — `polymarket-weather-trader` FOK orders (SIM-4069).**
-  The FAK→GTC override now also covers `FOK`. Weather markets are structurally
-  illiquid and FOK cancels on no-fill exactly like FAK, so FOK-configured runs
-  were generating benign order failures instead of resting orders.
+- **`polymarket-weather-trader` FOK orders (SIM-4069)** — *skill repo change,
+  NOT shipped in this wheel.* The FAK→GTC override now also covers `FOK`.
+  Weather markets are structurally illiquid and FOK cancels on no-fill exactly
+  like FAK, so FOK-configured runs generated benign order failures instead of
+  resting orders. `skills/` is excluded from the package (`include =
+  ["simmer_sdk*"]`); this reaches agents only via a ClawHub skill publish, which
+  is a separate release step.
 
 - **`SimmerClient.readonly()` for validation and status probes.** The default
   live Polymarket constructor still auto-processes pending external-wallet
