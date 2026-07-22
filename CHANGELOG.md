@@ -5,6 +5,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.24.0] - 2026-07-22
+
 ### Added
 
 - **Agent-ergonomic SDK output modes (SIM-4047).** `get_markets()`,
@@ -15,6 +17,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   agent transcripts. `TradeResult` now carries additive `error_code`,
   `error_hint`, and `next_steps` fields for common failure paths without
   changing existing success/error semantics.
+
+- **Bundled skill fix — `polymarket-weather-trader` FOK orders (SIM-4069).**
+  The FAK→GTC override now also covers `FOK`. Weather markets are structurally
+  illiquid and FOK cancels on no-fill exactly like FAK, so FOK-configured runs
+  were generating benign order failures instead of resting orders.
 
 - **`SimmerClient.readonly()` for validation and status probes.** The default
   live Polymarket constructor still auto-processes pending external-wallet
