@@ -46,26 +46,113 @@ def load_json(path: Path) -> dict[str, Any]:
         return json.load(fh)
 
 
-def changed_skill_dirs() -> set[Path]:
+def diff_base_ref() -> str:
     base = os.environ.get("GITHUB_BASE_REF")
     if base:
         base_ref = f"origin/{base}"
         try:
-            merge_base = run_git(["merge-base", "HEAD", base_ref])
-            diff = run_git(["diff", "--name-only", f"{merge_base}..HEAD"])
+            return run_git(["merge-base", "HEAD", base_ref])
         except subprocess.CalledProcessError:
-            diff = run_git(["diff", "--name-only", "HEAD~1..HEAD"])
+            return "HEAD~1"
+
+    return "HEAD~1"
+
+
+def changed_paths() -> list[str]:
+    base_ref = diff_base_ref()
+    if os.environ.get("GITHUB_BASE_REF"):
+        diff = run_git(["diff", "--name-only", f"{base_ref}..HEAD"])
     else:
         diff = run_git(["diff", "--name-only", "--cached"])
         if not diff:
-            diff = run_git(["diff", "--name-only", "HEAD~1..HEAD"])
+            diff = run_git(["diff", "--name-only", f"{base_ref}..HEAD"])
+
+    return [line for line in diff.splitlines() if line]
+
+
+def changed_skill_dirs(paths: list[str] | None = None) -> set[Path]:
+    paths = changed_paths() if paths is None else paths
 
     dirs: set[Path] = set()
-    for line in diff.splitlines():
+    for line in paths:
         parts = Path(line).parts
         if len(parts) >= 2 and parts[0] == "skills":
             dirs.add(SKILLS_DIR / parts[1])
     return dirs
+
+
+def extract_skill_metadata_version(text: str) -> str | None:
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return None
+
+    in_metadata = False
+    for line in lines[1:]:
+        stripped = line.strip()
+        if stripped == "---":
+            return None
+        if not stripped or stripped.startswith("#"):
+            continue
+
+        is_indented = line[:1].isspace()
+        if not is_indented:
+            in_metadata = stripped == "metadata:"
+            continue
+
+        if in_metadata:
+            key, sep, value = stripped.partition(":")
+            if sep and key == "version":
+                return value.strip().strip("\"'")
+
+    return None
+
+
+def git_file_at_ref(ref: str, path: str) -> str | None:
+    try:
+        return run_git(["show", f"{ref}:{path}"])
+    except subprocess.CalledProcessError:
+        return None
+
+
+def validate_skill_version_bumps(paths: list[str], base_ref: str) -> list[str]:
+    errors: list[str] = []
+
+    changed_slugs = {
+        Path(path).parts[1]
+        for path in paths
+        if len(Path(path).parts) >= 2 and Path(path).parts[0] == "skills"
+    }
+    for slug in sorted(changed_slugs):
+        skill_md = SKILLS_DIR / slug / "SKILL.md"
+        if not skill_md.exists():
+            continue
+
+        current_version = extract_skill_metadata_version(skill_md.read_text(encoding="utf-8"))
+        if current_version is None:
+            errors.append(
+                f"skills/{slug}/SKILL.md is missing metadata.version; add a skill "
+                "version so ClawHub can publish it"
+            )
+            continue
+
+        previous_text = git_file_at_ref(base_ref, f"skills/{slug}/SKILL.md")
+        previous_version = (
+            extract_skill_metadata_version(previous_text)
+            if previous_text is not None
+            else None
+        )
+
+        if previous_version is None:
+            continue
+
+        if current_version == previous_version:
+            display_version = current_version or "missing"
+            errors.append(
+                f"skills/{slug} changed but SKILL.md metadata.version did not change "
+                f"from {display_version}; bump the skill version so ClawHub can publish it"
+            )
+
+    return errors
 
 
 def pr_has_sensitive_approval_marker() -> bool:
@@ -202,14 +289,18 @@ def main() -> int:
     parser.add_argument("--all", action="store_true", help="check every skills/*/clawhub.json")
     args = parser.parse_args()
 
+    paths = [] if args.all else changed_paths()
+    base_ref = None if args.all else diff_base_ref()
     skill_dirs = (
         {path.parent for path in SKILLS_DIR.glob("*/clawhub.json")}
         if args.all
-        else changed_skill_dirs()
+        else changed_skill_dirs(paths)
     )
     pr_approved = pr_has_sensitive_approval_marker()
 
     errors: list[str] = []
+    if paths and base_ref is not None:
+        errors.extend(validate_skill_version_bumps(paths, base_ref))
     for skill_dir in sorted(skill_dirs):
         errors.extend(validate_skill(skill_dir, pr_approved))
 
