@@ -67,6 +67,25 @@ jobs:
             echo "No tests directory — skipping"
           fi
 
+  ows-constructor-tests:
+    name: OWS Constructor Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install SDK with OWS extra
+        run: pip install -e '.[ows]' pytest
+
+      - name: Run OWS constructor tests
+        run: pytest tests/test_client_constructors.py -q
+
   mcp-build:
     runs-on: ubuntu-latest
     timeout-minutes: 15

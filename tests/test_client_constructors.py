@@ -13,6 +13,9 @@ import logging
 from simmer_sdk.client import SimmerClient
 
 
+TEST_OWS_ADDRESS = "0xABCD1234abcd1234abcd1234abcd1234abcd1234"
+
+
 # ---------------------------------------------------------------------------
 # from_env()
 # ---------------------------------------------------------------------------
@@ -199,12 +202,16 @@ def test_with_ows_wallet_explicit_api_key(monkeypatch):
     monkeypatch.setenv("SIMMER_API_KEY", "env_key")
     monkeypatch.delenv("WALLET_PRIVATE_KEY", raising=False)
     monkeypatch.delenv("OWS_WALLET", raising=False)
+    monkeypatch.setattr(
+        "simmer_sdk.ows_utils.get_ows_wallet_address",
+        lambda name: TEST_OWS_ADDRESS,
+    )
 
-    # OWS import will likely fail in test env → _ows_wallet falls back to None,
-    # but the api_key wiring is what we're testing here.
     client = SimmerClient.with_ows_wallet("my-agent", api_key="explicit_key")
 
     assert client.api_key == "explicit_key"
+    assert client._ows_wallet == "my-agent"
+    assert client._wallet_address == TEST_OWS_ADDRESS
 
 
 def test_with_ows_wallet_env_fallback_api_key(monkeypatch):
@@ -212,10 +219,16 @@ def test_with_ows_wallet_env_fallback_api_key(monkeypatch):
     monkeypatch.setenv("SIMMER_API_KEY", "fallback_key")
     monkeypatch.delenv("WALLET_PRIVATE_KEY", raising=False)
     monkeypatch.delenv("OWS_WALLET", raising=False)
+    monkeypatch.setattr(
+        "simmer_sdk.ows_utils.get_ows_wallet_address",
+        lambda name: TEST_OWS_ADDRESS,
+    )
 
     client = SimmerClient.with_ows_wallet("my-agent")
 
     assert client.api_key == "fallback_key"
+    assert client._ows_wallet == "my-agent"
+    assert client._wallet_address == TEST_OWS_ADDRESS
 
 
 def test_with_ows_wallet_raises_when_api_key_missing(monkeypatch):
@@ -245,6 +258,10 @@ def test_with_ows_wallet_forwards_kwargs(monkeypatch):
     monkeypatch.setenv("SIMMER_API_KEY", "k")
     monkeypatch.delenv("WALLET_PRIVATE_KEY", raising=False)
     monkeypatch.delenv("OWS_WALLET", raising=False)
+    monkeypatch.setattr(
+        "simmer_sdk.ows_utils.get_ows_wallet_address",
+        lambda name: TEST_OWS_ADDRESS,
+    )
 
     client = SimmerClient.with_ows_wallet(
         "my-agent",
@@ -256,3 +273,5 @@ def test_with_ows_wallet_forwards_kwargs(monkeypatch):
     assert client.venue == "polymarket"
     assert client.base_url == "https://example.test"
     assert client.live is False
+    assert client._ows_wallet == "my-agent"
+    assert client._wallet_address == TEST_OWS_ADDRESS
