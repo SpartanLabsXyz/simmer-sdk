@@ -32,10 +32,16 @@ being silently dropped — a reduce-only flag that quietly becomes ``False`` on
 a closing order is a money-path bug. Use ``HyperliquidVenue`` for those.
 """
 
+from decimal import Decimal, InvalidOperation
 from typing import Any, Dict, List, Optional
+import math
 import re
 
-from simmer_sdk.hyperliquid_signing import HyperliquidSigner, now_ms
+from simmer_sdk.hyperliquid_signing import (
+    HyperliquidSigner,
+    build_cancel_action,
+    now_ms,
+)
 from simmer_sdk.hyperliquid_venue import (
     DEFAULT_TIMEOUT,
     HyperliquidVenue,
@@ -81,6 +87,15 @@ class PmxtHyperliquidVenue:
 
     Keep one venue instance per key and avoid concurrent ``place_order`` calls
     on the same instance — HL nonces are per-key and monotonic.
+
+    .. warning::
+       The nonce is a wall-clock millisecond (``now_ms``), so two orders signed
+       by the same key inside the same millisecond collide and Hyperliquid
+       accepts only one — a paired buy/sell could leave a naked leg. This is
+       pre-existing and shared with ``HyperliquidVenue`` (both stamp the same
+       way; the official SDK's ``get_timestamp_ms`` is the same expression) and
+       is tracked as its own fix — a signer-scoped monotonic allocator. Until
+       then, do not fan out rapid sequential orders on one key.
     """
 
     venue = "hyperliquid"
@@ -241,6 +256,23 @@ class PmxtHyperliquidVenue:
                 "cloid is not supported via pmxt construction (pmxt emits no 'c' "
                 "field); use HyperliquidVenue for client order ids"
             )
+        # Validate locally so the failure names the bad argument. Without this
+        # a string asset_id survives into pmxt (which parseInt's it) and comes
+        # back as an int, surfacing as a confusing "asset mismatch" from the
+        # gate instead of "you passed the wrong type".
+        if not isinstance(asset_id, int) or isinstance(asset_id, bool):
+            raise HyperliquidVenueError(
+                f"asset_id must be an int (HL's numeric asset id), got {asset_id!r}"
+            )
+        # isfinite is load-bearing: NaN fails every comparison, so a bare
+        # `size <= 0` would wave it through and it would serialize into the
+        # order as JSON `NaN`.
+        if not _is_positive_number(size):
+            raise HyperliquidVenueError(f"size must be a positive finite number, got {size!r}")
+        if not _is_positive_number(limit_px):
+            raise HyperliquidVenueError(
+                f"limit_px must be a positive finite number, got {limit_px!r}"
+            )
 
         order_type, want_tif = self._resolve_order_type(order_type, tif)
 
@@ -273,10 +305,9 @@ class PmxtHyperliquidVenue:
 
         Cancels are built natively — pmxt's construction surface adds nothing
         here (no builder attribution, no wire subtleties), so this goes through
-        the native cancel path with a raw asset id.
+        the native cancel path with a raw asset id. ``build_cancel_action`` is a
+        plain dict builder, so this needs no ``[hyperliquid]`` extra either.
         """
-        from simmer_sdk.hyperliquid_signing import build_cancel_action
-
         action = build_cancel_action(asset_id, order_id)
         nonce = now_ms()
         signature = self._signer.sign_l1_action(
@@ -367,7 +398,11 @@ class PmxtHyperliquidVenue:
         pmxt's ``floatToWire`` raises rather than rounding — a wire value that
         differs from what we asked is drift, not normalization.
         """
-        self._sidecar.assert_built_action(
+        # Called on the CLASS, not through ``self._sidecar``. The sidecar is an
+        # injectable transport seam; routing the gate through it would let an
+        # injected object replace verification policy with a no-op and put
+        # unverified actions in front of the key.
+        PmxtSidecarClient.assert_built_action(
             action,
             asset_id=asset_id,
             is_buy=is_buy,
@@ -413,11 +448,25 @@ class PmxtHyperliquidVenue:
             raise PmxtSidecarError(f"unexpected reduce_only on wire: r={wire.get('r')!r}")
 
 
+def _is_positive_number(x: Any) -> bool:
+    """True for a real, finite, strictly-positive number (NaN/inf excluded)."""
+    if not isinstance(x, (int, float)) or isinstance(x, bool):
+        return False
+    return math.isfinite(x) and x > 0
+
+
 def _wire_equals(wire_value: Any, requested: float) -> bool:
-    """True iff a wire string equals the requested number exactly."""
+    """True iff a wire string is the requested number, compared in DECIMAL.
+
+    Not ``float(wire) == float(requested)``: binary floats collapse distinct
+    decimal strings, so a drifted wire price of ``"0.10000000000000001"`` would
+    compare equal to a requested ``0.1`` and be signed. Decimal comparison is
+    what "exact" has to mean for a gate whose job is catching drift, while
+    still accepting genuine restyling like ``"1859.30"`` for ``1859.3``.
+    """
     if not isinstance(wire_value, str):
         return False
     try:
-        return float(wire_value) == float(requested)
-    except (TypeError, ValueError):
+        return Decimal(wire_value) == Decimal(str(requested))
+    except (TypeError, ValueError, InvalidOperation):
         return False

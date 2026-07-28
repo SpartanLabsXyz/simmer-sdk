@@ -132,10 +132,15 @@ class PmxtSidecarClient:
         orders = action.get("orders") or []
         if len(orders) != 1:
             raise PmxtSidecarError(f"expected exactly 1 order wire, got {len(orders)}")
+        # Types are checked exactly, not just values: Python's `==` treats
+        # `1.0 == 1` and `1 == True` as equal, but msgpack encodes them
+        # differently, so a type-drifted action would pass this gate and then
+        # fail opaquely at submit with a signature/hash error. Catch it here,
+        # where the message says what actually changed.
         wire = orders[0]
-        if wire.get("a") != asset_id:
+        if type(wire.get("a")) is not int or wire["a"] != asset_id:
             raise PmxtSidecarError(f"asset mismatch: wire a={wire.get('a')!r}, wanted {asset_id}")
-        if wire.get("b") != is_buy:
+        if type(wire.get("b")) is not bool or wire["b"] != is_buy:
             raise PmxtSidecarError(f"side mismatch: wire b={wire.get('b')!r}, wanted is_buy={is_buy}")
 
         if builder is None:
@@ -146,7 +151,12 @@ class PmxtSidecarClient:
             return
         want = {"b": builder.lower(), "f": builder_fee_tenths_bp}
         got = action.get("builder")
-        if got != want:
+        if (
+            not isinstance(got, dict)
+            or list(got.keys()) != ["b", "f"]
+            or type(got.get("f")) is not int
+            or got != want
+        ):
             raise PmxtSidecarError(f"builder mismatch: got {got!r}, wanted {want!r}")
 
 

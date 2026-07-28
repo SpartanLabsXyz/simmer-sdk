@@ -61,8 +61,11 @@ class _StubSigner:
 class _StubSidecar:
     """Stands in for PmxtSidecarClient; records params, returns a fixed action.
 
-    Uses the REAL ``assert_built_action`` so the pre-sign gate under test is the
-    shipped one, not a stub.
+    Deliberately exposes a NO-OP ``assert_built_action``. The sidecar is an
+    injectable transport seam, so if the venue ever dispatches the pre-sign gate
+    through the instance instead of calling the class, every gate test in this
+    file goes green while verifying nothing. This stub is what keeps that
+    regression impossible to miss.
     """
 
     base_url = "http://127.0.0.1:8080"
@@ -79,7 +82,9 @@ class _StubSidecar:
         self.params.append(params)
         return self._action
 
-    assert_built_action = staticmethod(PmxtSidecarClient.assert_built_action)
+    @staticmethod
+    def assert_built_action(*args, **kwargs):
+        return None
 
 
 class _FakeResp:
@@ -357,6 +362,60 @@ def test_rejects_multi_order_action(monkeypatch):
     _expect_rejected_before_signing(monkeypatch, doubled, "exactly 1 order")
 
 
+def test_gate_is_not_bypassable_via_the_injected_sidecar(monkeypatch):
+    """The sidecar is a transport seam; it must not be able to supply the
+    verification policy. `_StubSidecar.assert_built_action` is a no-op, so if
+    the venue dispatched the gate through the instance this would pass a
+    two-BUY-orders-on-the-wrong-asset action straight to the signer."""
+    hostile = dict(
+        FIXTURE_RAW,
+        orders=[
+            dict(FIXTURE_RAW["orders"][0], a=2, b=True),
+            dict(FIXTURE_RAW["orders"][0], a=2, b=True),
+        ],
+    )
+    _expect_rejected_before_signing(monkeypatch, hostile, "exactly 1 order")
+
+
+def test_rejects_type_drifted_asset(monkeypatch):
+    """`1.0 == 1` in Python but encodes differently in msgpack — catch it at
+    the gate, not as an opaque signature failure at submit."""
+    _expect_rejected_before_signing(monkeypatch, _mutated(a=1.0), "asset mismatch")
+
+
+def test_rejects_type_drifted_side(monkeypatch):
+    """`0 == False`, so an int side must not sneak past the bool check."""
+    _expect_rejected_before_signing(monkeypatch, _mutated(b=0), "side mismatch")
+
+
+def test_rejects_type_drifted_builder_fee(monkeypatch):
+    """`10.0 == 10` — an "exact" builder match must mean exact."""
+    floaty = dict(FIXTURE_RAW, builder={"b": BUILDER.lower(), "f": 10.0})
+    _expect_rejected_before_signing(monkeypatch, floaty, "builder mismatch")
+
+
+def test_rejects_sub_ulp_price_drift(monkeypatch):
+    """float('0.10000000000000001') == 0.1, so a float comparison would sign
+    a price we never asked for. The gate compares decimals."""
+    calls = []
+    v = _venue(monkeypatch, action=_mutated(p="0.10000000000000001"), capture=calls)
+    with pytest.raises(PmxtSidecarError, match="price mismatch"):
+        v.place_order(size=0.01, limit_px=0.1, is_buy=False, asset_id=1, order_type="market")
+    assert v._signer.calls == []
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf")])
+def test_rejects_non_finite_size_and_price(monkeypatch, bad):
+    """NaN fails every comparison, so a bare `<= 0` guard would wave it
+    through and serialize into the order as JSON NaN."""
+    v = _venue(monkeypatch)
+    with pytest.raises(HyperliquidVenueError, match="finite"):
+        v.place_order(size=bad, limit_px=1859.3, is_buy=False, asset_id=1, order_type="market")
+    with pytest.raises(HyperliquidVenueError, match="finite"):
+        v.place_order(size=0.01, limit_px=bad, is_buy=False, asset_id=1, order_type="market")
+    assert v._sidecar.params == []
+
+
 def test_price_comparison_is_exact_not_stringwise(monkeypatch):
     """pmxt's floatToWire raises rather than rounding, so '1859.30' == 1859.3
     is a legitimate equality — compare numerically, not as strings."""
@@ -395,6 +454,29 @@ def test_alo_post_only_is_rejected(monkeypatch):
     v = _venue(monkeypatch)
     with pytest.raises(HyperliquidVenueError, match="not reachable"):
         v.place_order(size=0.01, limit_px=1859.3, is_buy=True, asset_id=1, tif="Alo")
+
+
+@pytest.mark.parametrize(
+    "kw,match",
+    [
+        ({"asset_id": "1"}, "asset_id must be an int"),
+        ({"asset_id": True}, "asset_id must be an int"),
+        ({"size": 0}, "size must be a positive"),
+        ({"size": -1.0}, "size must be a positive"),
+        ({"limit_px": 0}, "limit_px must be a positive"),
+        ({"limit_px": -5.0}, "limit_px must be a positive"),
+    ],
+)
+def test_bad_arguments_fail_with_a_naming_error(monkeypatch, kw, match):
+    """The failure should name the bad argument, not surface later as an
+    inscrutable gate mismatch."""
+    v = _venue(monkeypatch)
+    args = dict(size=0.01, limit_px=1859.3, is_buy=False, asset_id=1, order_type="market")
+    args.update(kw)
+    with pytest.raises(HyperliquidVenueError, match=match):
+        v.place_order(**args)
+    assert v._sidecar.params == [], "bad arguments reached the sidecar"
+    assert v._signer.calls == []
 
 
 def test_unknown_order_type_is_rejected(monkeypatch):
@@ -466,7 +548,6 @@ def test_reads_accept_explicit_address_override(monkeypatch):
 
 
 def test_cancel_builds_natively_and_submits(monkeypatch):
-    pytest.importorskip("hyperliquid", reason="cancel wire construction uses the HL SDK")
     calls = []
     v = _venue(monkeypatch, capture=calls)
     v.cancel_order(order_id=999, asset_id=1)
