@@ -151,6 +151,16 @@ def next_nonce(address: str) -> int:
       value outruns the clock. HL rejects nonces too far in the future, so a
       sustained rate that high would eventually fail — far above anything the
       SDK does, and it fails closed rather than silently mis-trading.
+    - **Table growth.** One small entry per signing key ever used in the
+      process, never evicted. That is bounded by how many wallets the process
+      trades with (one, or a handful for per-agent cohorts), so it is left
+      unpruned deliberately: eviction logic on the nonce path would be a new
+      failure surface guarding against a size this deployment shape cannot
+      reach.
+
+    Note ``vault_address`` deliberately does NOT select the key. One API wallet
+    shares a single nonce set across its user, vault and subaccount actions, so
+    the signer address is the correct and only partition.
     """
     key = (address or "").lower()
     with _nonce_lock:
