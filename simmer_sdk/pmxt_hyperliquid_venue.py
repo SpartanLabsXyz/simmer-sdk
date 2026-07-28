@@ -32,7 +32,7 @@ being silently dropped — a reduce-only flag that quietly becomes ``False`` on
 a closing order is a money-path bug. Use ``HyperliquidVenue`` for those.
 """
 
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, localcontext
 from typing import Any, Dict, List, Optional
 import math
 import re
@@ -278,6 +278,19 @@ class PmxtHyperliquidVenue:
             raise HyperliquidVenueError(
                 f"limit_px must be a positive finite number, got {limit_px!r}"
             )
+        # Reject up front anything pmxt's own floatToWire would refuse to
+        # build, so the gate downstream is comparing exactly-representable
+        # values and the caller gets an error naming the real problem.
+        if not _is_wire_representable(size):
+            raise HyperliquidVenueError(
+                f"size {size!r} is not representable on the HL wire "
+                "(pmxt rounds to 8 decimal places)"
+            )
+        if not _is_wire_representable(limit_px):
+            raise HyperliquidVenueError(
+                f"limit_px {limit_px!r} is not representable on the HL wire "
+                "(pmxt rounds to 8 decimal places)"
+            )
 
         order_type, want_tif = self._resolve_order_type(order_type, tif)
 
@@ -476,6 +489,26 @@ def _is_positive_number(x: Any) -> bool:
     return math.isfinite(x) and x > 0
 
 
+def _is_wire_representable(x: float) -> bool:
+    """True iff ``x`` survives pmxt's ``floatToWire`` unchanged.
+
+    pmxt rounds to 8dp and then *throws* if that moved the value by 1e-12 or
+    more. Mirroring that rule here means anything reaching the gate is exactly
+    representable on the wire, so the gate's comparison is a true equality
+    rather than a tolerance. Without it, a drifted sidecar could return
+    ``"0.00000001"`` for a requested ``1.4e-8`` — a 29% smaller value — and the
+    quantized comparison would accept it even though real pmxt would have
+    refused to build it at all.
+    """
+    try:
+        with localcontext() as ctx:
+            ctx.prec = 60
+            rounded = float(Decimal(str(x)).quantize(_WIRE_QUANTUM))
+    except (TypeError, ValueError, InvalidOperation, ArithmeticError):
+        return False
+    return abs(rounded - x) < 1e-12 and rounded > 0
+
+
 def _wire_equals(wire_value: Any, requested: float) -> bool:
     """True iff a wire string is the requested number, compared in DECIMAL.
 
@@ -494,7 +527,18 @@ def _wire_equals(wire_value: Any, requested: float) -> bool:
     if not isinstance(wire_value, str):
         return False
     try:
-        want = Decimal(str(requested)).quantize(_WIRE_QUANTUM)
-        return Decimal(wire_value) == want
+        # Widen the context: the default 28 significant digits makes quantizing
+        # a large integer price raise, which would false-reject rather than
+        # merely be strict.
+        with localcontext() as ctx:
+            ctx.prec = 60
+            want = Decimal(str(requested)).quantize(_WIRE_QUANTUM)
+            got = Decimal(wire_value)
+        # A wire value of zero or less is never a valid price or size. pmxt
+        # will happily emit "0" for a positive-but-tiny request (5e-13 rounds
+        # to 0 within its own 1e-12 tolerance), and that must not be signed.
+        if want <= 0 or got <= 0:
+            return False
+        return got == want
     except (TypeError, ValueError, InvalidOperation, ArithmeticError):
         return False

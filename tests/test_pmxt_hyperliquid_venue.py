@@ -441,6 +441,39 @@ def test_rejects_drift_beyond_8dp_rounding(monkeypatch):
     _expect_rejected_before_signing(monkeypatch, _mutated(p="1859.4"), "price mismatch")
 
 
+def test_rejects_requests_pmxt_could_not_build(monkeypatch):
+    """pmxt's floatToWire throws if 8dp rounding moves a value by >= 1e-12.
+    Mirroring that means a drifted sidecar cannot return "0.00000001" for a
+    requested 1.4e-8 — a 29% smaller value — and have it accepted."""
+    v = _venue(monkeypatch)
+    with pytest.raises(HyperliquidVenueError, match="not representable"):
+        v.place_order(size=1.4e-8, limit_px=1859.3, is_buy=False, asset_id=1, order_type="market")
+    with pytest.raises(HyperliquidVenueError, match="not representable"):
+        v.place_order(size=0.01, limit_px=1.4e-8, is_buy=False, asset_id=1, order_type="market")
+    assert v._sidecar.params == []
+
+
+def test_rejects_positive_but_sub_wire_precision_values(monkeypatch):
+    """pmxt emits "0" for 5e-13 (inside its own 1e-12 tolerance). A zero price
+    must never be signed just because the request was nominally positive."""
+    v = _venue(monkeypatch)
+    with pytest.raises(HyperliquidVenueError, match="not representable"):
+        v.place_order(size=0.01, limit_px=5e-13, is_buy=False, asset_id=1, order_type="market")
+
+
+def test_rejects_zero_wire_value_from_the_sidecar(monkeypatch):
+    _expect_rejected_before_signing(monkeypatch, _mutated(p="0"), "price mismatch")
+
+
+def test_large_integer_price_is_not_falsely_rejected(monkeypatch):
+    """Decimal's default 28-digit context would raise while quantizing a large
+    integer price, turning a valid order into a refusal."""
+    calls = []
+    v = _venue(monkeypatch, action=_mutated(p="100000000000000000000"), capture=calls)
+    v.place_order(size=0.01, limit_px=1e20, is_buy=False, asset_id=1, order_type="market")
+    assert len(calls) == 1
+
+
 def test_rejects_unexpected_fields_inside_the_limit_type(monkeypatch):
     _expect_rejected_before_signing(
         monkeypatch,
