@@ -417,12 +417,59 @@ def test_rejects_non_finite_size_and_price(monkeypatch, bad):
 
 
 def test_price_comparison_is_exact_not_stringwise(monkeypatch):
-    """pmxt's floatToWire raises rather than rounding, so '1859.30' == 1859.3
-    is a legitimate equality — compare numerically, not as strings."""
+    """'1859.30' for 1859.3 is a legitimate restyle — compare numerically."""
     calls = []
     v = _venue(monkeypatch, action=_mutated(p="1859.30"), capture=calls)
     v.place_order(size=0.01, limit_px=1859.3, is_buy=False, asset_id=1, order_type="market")
     assert len(calls) == 1
+
+
+def test_accepts_pmxts_legitimate_8dp_rounding(monkeypatch):
+    """An arithmetic-derived price is the common case, not the exotic one:
+    0.1 + 0.2 is 0.30000000000000004, and pmxt's toFixed(8) legitimately emits
+    '0.3'. The gate must not reject its own pinned version's normalization."""
+    calls = []
+    v = _venue(monkeypatch, action=_mutated(p="0.3", s="0.3"), capture=calls)
+    v.place_order(
+        size=0.1 + 0.2, limit_px=0.1 + 0.2, is_buy=False, asset_id=1, order_type="market"
+    )
+    assert len(calls) == 1, "rejected a price pmxt is entitled to produce"
+
+
+def test_rejects_drift_beyond_8dp_rounding(monkeypatch):
+    """Tolerating 8dp rounding must not tolerate anything past it."""
+    _expect_rejected_before_signing(monkeypatch, _mutated(p="1859.4"), "price mismatch")
+
+
+def test_rejects_unexpected_fields_inside_the_limit_type(monkeypatch):
+    _expect_rejected_before_signing(
+        monkeypatch,
+        _mutated(t={"limit": {"tif": "Ioc", "unexpected": True}}),
+        "unexpected fields inside the limit",
+    )
+
+
+def test_rejects_non_bool_is_buy(monkeypatch):
+    """A truthy non-bool would pick a side by accident and then satisfy the
+    type-exact wire check anyway, since True == 1.0."""
+    v = _venue(monkeypatch)
+    with pytest.raises(HyperliquidVenueError, match="is_buy must be a bool"):
+        v.place_order(size=0.01, limit_px=1859.3, is_buy=1.0, asset_id=1, order_type="market")
+    assert v._sidecar.params == []
+
+
+@pytest.mark.parametrize(
+    "kw", [{"order_id": "999"}, {"order_id": True}, {"asset_id": "1"}, {"asset_id": True}]
+)
+def test_cancel_validates_wire_types(monkeypatch, kw):
+    """Cancel args go straight into the signed wire with nothing downstream to
+    catch them."""
+    v = _venue(monkeypatch)
+    args = dict(order_id=999, asset_id=1)
+    args.update(kw)
+    with pytest.raises(HyperliquidVenueError, match="must be an int"):
+        v.cancel_order(**args)
+    assert v._signer.calls == []
 
 
 # ---- unsupported capabilities fail loudly ---------------------------------

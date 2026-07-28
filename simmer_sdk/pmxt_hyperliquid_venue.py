@@ -264,6 +264,11 @@ class PmxtHyperliquidVenue:
             raise HyperliquidVenueError(
                 f"asset_id must be an int (HL's numeric asset id), got {asset_id!r}"
             )
+        # Must be a real bool: a truthy non-bool would pick a side by accident
+        # and then satisfy the gate's type-exact check anyway, because the gate
+        # compares the wire against this same value and `True == 1.0`.
+        if not isinstance(is_buy, bool):
+            raise HyperliquidVenueError(f"is_buy must be a bool, got {is_buy!r}")
         # isfinite is load-bearing: NaN fails every comparison, so a bare
         # `size <= 0` would wave it through and it would serialize into the
         # order as JSON `NaN`.
@@ -308,6 +313,13 @@ class PmxtHyperliquidVenue:
         the native cancel path with a raw asset id. ``build_cancel_action`` is a
         plain dict builder, so this needs no ``[hyperliquid]`` extra either.
         """
+        # Nothing downstream validates these — they go straight into the signed
+        # wire, so a string order_id would be signed and only then rejected by
+        # HL. `bool` is excluded explicitly since it is an int subclass.
+        for name, value in (("asset_id", asset_id), ("order_id", order_id)):
+            if not isinstance(value, int) or isinstance(value, bool):
+                raise HyperliquidVenueError(f"{name} must be an int, got {value!r}")
+
         action = build_cancel_action(asset_id, order_id)
         nonce = now_ms()
         signature = self._signer.sign_l1_action(
@@ -433,8 +445,12 @@ class PmxtHyperliquidVenue:
             raise PmxtSidecarError(
                 f"unexpected order type — only plain limit orders are built here: {wire.get('t')!r}"
             )
+        if list((wire["t"]["limit"] or {}).keys()) != ["tif"]:
+            raise PmxtSidecarError(
+                f"unexpected fields inside the limit order type: {wire['t']['limit']!r}"
+            )
 
-        got_tif = (wire["t"]["limit"] or {}).get("tif")
+        got_tif = wire["t"]["limit"].get("tif")
         if got_tif != want_tif:
             raise PmxtSidecarError(f"tif mismatch: wire {got_tif!r}, wanted {want_tif!r}")
 
@@ -446,6 +462,11 @@ class PmxtHyperliquidVenue:
 
         if wire.get("r") is not False:
             raise PmxtSidecarError(f"unexpected reduce_only on wire: r={wire.get('r')!r}")
+
+
+#: pmxt's ``floatToWire`` does ``x.toFixed(8)`` before stringifying, so eight
+#: decimal places is exactly the normalization it is entitled to apply.
+_WIRE_QUANTUM = Decimal("1e-8")
 
 
 def _is_positive_number(x: Any) -> bool:
@@ -463,10 +484,17 @@ def _wire_equals(wire_value: Any, requested: float) -> bool:
     compare equal to a requested ``0.1`` and be signed. Decimal comparison is
     what "exact" has to mean for a gate whose job is catching drift, while
     still accepting genuine restyling like ``"1859.30"`` for ``1859.3``.
+
+    But comparing decimals *exactly* rejects pmxt's legitimate 8dp rounding: an
+    ordinary arithmetic-derived price (``0.1 + 0.2``, for which pmxt emits
+    ``"0.3"``) would be refused, and mid-price arithmetic produces those
+    constantly. So quantize the REQUEST to pmxt's own 8dp and require the wire
+    to match that exactly — legitimate rounding passes, drift beyond it fails.
     """
     if not isinstance(wire_value, str):
         return False
     try:
-        return Decimal(wire_value) == Decimal(str(requested))
-    except (TypeError, ValueError, InvalidOperation):
+        want = Decimal(str(requested)).quantize(_WIRE_QUANTUM)
+        return Decimal(wire_value) == want
+    except (TypeError, ValueError, InvalidOperation, ArithmeticError):
         return False
