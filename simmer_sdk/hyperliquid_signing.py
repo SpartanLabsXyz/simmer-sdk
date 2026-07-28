@@ -22,6 +22,7 @@ it lives in the local OWS vault.
 """
 
 import json
+import threading
 import time
 from typing import Any, Dict, Optional, Protocol, runtime_checkable
 
@@ -111,14 +112,61 @@ def build_cancel_action(asset: int, oid: int) -> Dict[str, Any]:
 
 
 def now_ms() -> int:
-    """Millisecond timestamp used as the action nonce.
+    """Millisecond timestamp.
 
     Computed locally rather than via the official SDK's ``get_timestamp_ms``
     (which is the same ``int(time.time() * 1000)``) so that callers who never
     build a wire — e.g. the pmxt-constructed adapter, where pmxt builds the
-    action — do not need the ``[hyperliquid]`` extra just to stamp a nonce.
+    action — do not need the ``[hyperliquid]`` extra just to stamp one.
+
+    Do NOT use this directly as an action nonce; use ``next_nonce`` (below).
     """
     return int(time.time() * 1000)
+
+
+_nonce_lock = threading.Lock()
+_last_nonce_by_address: Dict[str, int] = {}
+
+
+def next_nonce(address: str) -> int:
+    """Allocate a strictly-increasing action nonce for ``address``.
+
+    A bare millisecond timestamp is not a safe nonce. Hyperliquid tracks
+    nonces per signing key and accepts a given value once, so two actions
+    signed by one key inside the same millisecond collide and only one is
+    accepted — a paired buy/sell could lose a leg and leave a naked position.
+    This is not only a threading concern: rapid *sequential* calls land in the
+    same millisecond routinely on a fast host.
+
+    So hand out ``max(now_ms(), last + 1)`` under a lock, keyed by signer
+    address. Keying by address rather than globally matches HL's own per-key
+    accounting and stops a busy key from skewing an idle one's nonces forward.
+
+    Bounds worth knowing:
+
+    - **Cross-process.** State is per-process, so two processes signing with
+      the SAME key can still collide. HL's guidance is a separate API/agent
+      key per process; do that rather than relying on this.
+    - **Sustained overload.** Above ~1000 actions/sec on one key the returned
+      value outruns the clock. HL rejects nonces too far in the future, so a
+      sustained rate that high would eventually fail — far above anything the
+      SDK does, and it fails closed rather than silently mis-trading.
+    - **Table growth.** One small entry per signing key ever used in the
+      process, never evicted. That is bounded by how many wallets the process
+      trades with (one, or a handful for per-agent cohorts), so it is left
+      unpruned deliberately: eviction logic on the nonce path would be a new
+      failure surface guarding against a size this deployment shape cannot
+      reach.
+
+    Note ``vault_address`` deliberately does NOT select the key. One API wallet
+    shares a single nonce set across its user, vault and subaccount actions, so
+    the signer address is the correct and only partition.
+    """
+    key = (address or "").lower()
+    with _nonce_lock:
+        nonce = max(now_ms(), _last_nonce_by_address.get(key, 0) + 1)
+        _last_nonce_by_address[key] = nonce
+        return nonce
 
 
 def _split_signature(sig_hex: str) -> Dict[str, Any]:

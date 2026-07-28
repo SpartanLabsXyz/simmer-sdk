@@ -37,9 +37,29 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   construction and submission are separable and both Hyperliquid adapters share
   one transport and error-handling implementation on the money path.
 - `hyperliquid_signing.now_ms()` no longer requires the `[hyperliquid]` extra.
-  It stamps a nonce with `int(time.time() * 1000)` — identical to the official
-  SDK's `get_timestamp_ms()` — so callers that never build a wire locally don't
-  pull in the SDK just for a timestamp.
+  It returns `int(time.time() * 1000)` — identical to the official SDK's
+  `get_timestamp_ms()` — so callers that never build a wire locally don't pull
+  in the SDK just for a timestamp.
+
+### Fixed
+
+- **Hyperliquid action nonces could collide (SIM-4223).** Both HL adapters
+  stamped the nonce with a bare wall-clock millisecond. Hyperliquid tracks
+  nonces per signing key and accepts each value once, so two actions signed by
+  one key inside the same millisecond collided and only one landed — a paired
+  buy/sell could lose a leg and leave a naked position. This was not only a
+  threading concern: rapid *sequential* orders land in the same millisecond
+  routinely on a fast host.
+
+  Nonces now come from `next_nonce(address)`, which returns
+  `max(now_ms(), last + 1)` under a lock, keyed by signer address so a busy key
+  cannot skew an idle one. Keyed to the *signer*, not the account-of-record,
+  matching HL's per-key accounting under delegated `approveAgent` setups.
+  Remaining bound, documented and unchanged: state is per-process, so give each
+  process its own agent key rather than sharing one across processes.
+
+  No live exposure at fix time — no Hyperliquid trades had been recorded — so
+  this lands before HL execution ships rather than after.
 
 ## [0.24.0] - 2026-07-22
 

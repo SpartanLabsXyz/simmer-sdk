@@ -240,6 +240,32 @@ def test_signs_the_pmxt_built_action_and_submits_to_hl(monkeypatch):
     assert out["response"]["data"]["statuses"][0]["filled"]["oid"] == 504113172815
 
 
+def test_consecutive_orders_get_distinct_nonces(monkeypatch):
+    """Back-to-back orders land in the same millisecond routinely. A repeated
+    nonce means HL accepts only one of them (SIM-4223)."""
+    calls = []
+    v = _venue(monkeypatch, capture=calls)
+    for _ in range(50):
+        v.place_order(
+            size=0.01, limit_px=1859.3, is_buy=False, asset_id=1, order_type="market"
+        )
+    nonces = [body["nonce"] for _, body in calls]
+    assert len(set(nonces)) == len(nonces), "two orders shared a nonce"
+    assert nonces == sorted(nonces)
+
+
+def test_nonce_is_keyed_to_the_signer_not_the_account(monkeypatch):
+    """Nonces are per signing key on HL, so an agent-key venue must allocate
+    against the agent address even though reads use main_address."""
+    import simmer_sdk.pmxt_hyperliquid_venue as mod
+
+    seen = []
+    monkeypatch.setattr(mod, "next_nonce", lambda addr: seen.append(addr) or 1)
+    v = _venue(monkeypatch, main_address=MAIN_ADDR)
+    v.place_order(size=0.01, limit_px=1859.3, is_buy=False, asset_id=1, order_type="market")
+    assert seen == [SIGNER_ADDR]
+
+
 def test_msgpack_key_order_survives_to_submission(monkeypatch):
     """Key order is hash-relevant; nothing between build and submit may reorder."""
     calls = []
