@@ -22,6 +22,7 @@ it lives in the local OWS vault.
 """
 
 import json
+import time
 from typing import Any, Dict, Optional, Protocol, runtime_checkable
 
 # HIP-4 asset encoding (matches simmer_v3/hyperliquid_client.py):
@@ -110,8 +111,14 @@ def build_cancel_action(asset: int, oid: int) -> Dict[str, Any]:
 
 
 def now_ms() -> int:
-    """Millisecond timestamp used as the action nonce."""
-    return _hl_signing().get_timestamp_ms()
+    """Millisecond timestamp used as the action nonce.
+
+    Computed locally rather than via the official SDK's ``get_timestamp_ms``
+    (which is the same ``int(time.time() * 1000)``) so that callers who never
+    build a wire — e.g. the pmxt-constructed adapter, where pmxt builds the
+    action — do not need the ``[hyperliquid]`` extra just to stamp a nonce.
+    """
+    return int(time.time() * 1000)
 
 
 def _split_signature(sig_hex: str) -> Dict[str, Any]:

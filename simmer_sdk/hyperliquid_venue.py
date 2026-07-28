@@ -83,7 +83,14 @@ class HyperliquidVenue:
             )
         return resp.json()
 
-    def _post_action(self, action: Dict[str, Any], signature: Dict[str, Any], nonce: int) -> Any:
+    def submit_action(self, action: Dict[str, Any], signature: Dict[str, Any], nonce: int) -> Any:
+        """Submit an already-signed action to ``/exchange``.
+
+        Public because construction and submission are separable: the
+        pmxt-constructed adapter (``PmxtHyperliquidVenue``, SIM-4222) builds its
+        action elsewhere but submits through this exact path, so there is one
+        transport + error-handling implementation on the money path.
+        """
         payload: Dict[str, Any] = {
             "action": action,
             "nonce": nonce,
@@ -143,7 +150,7 @@ class HyperliquidVenue:
         signature = self._signer.sign_l1_action(
             action, nonce, self.is_mainnet, vault_address=self.vault_address
         )
-        return self._post_action(action, signature, nonce)
+        return self.submit_action(action, signature, nonce)
 
     def cancel_order(self, *, order_id: int, outcome_id: int, side: str = "yes") -> Dict[str, Any]:
         """Cancel a resting order by its venue order id."""
@@ -153,7 +160,7 @@ class HyperliquidVenue:
         signature = self._signer.sign_l1_action(
             action, nonce, self.is_mainnet, vault_address=self.vault_address
         )
-        return self._post_action(action, signature, nonce)
+        return self.submit_action(action, signature, nonce)
 
     def get_positions(self, address: Optional[str] = None) -> List[Dict[str, Any]]:
         """Open positions for ``address`` (defaults to this adapter's address).
@@ -222,4 +229,4 @@ class HyperliquidVenue:
         # over agentName="" so this stays valid.
         if not agent_name:
             del action["agentName"]
-        return self._post_action(action, signature, nonce)
+        return self.submit_action(action, signature, nonce)

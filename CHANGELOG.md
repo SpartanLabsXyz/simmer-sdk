@@ -5,6 +5,42 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+
+- **Hyperliquid trading with pmxt-constructed orders (SIM-4222).**
+  `PmxtHyperliquidVenue` implements `VenueAdapter` against a self-hosted,
+  construction-only pmxt sidecar: pmxt builds the unsigned action, the SDK
+  verifies it, signs it locally (`HyperliquidSigner` — raw key or OWS), and
+  submits directly to Hyperliquid. No key ever reaches the sidecar and pmxt is
+  not in the money path. What it buys is outsourced construction maintenance
+  (asset universe, wire encoding, protocol drift); `HyperliquidVenue` stays as
+  the native anti-corruption fallback — same signer, same submit, same reads.
+  Built on `PmxtSidecarClient` (added in #290), which owns the envelope
+  validation and the `assert_built_action` pre-sign gate.
+
+  Every order is verified against what was asked for *before* it reaches the
+  key: asset, side, price, size, tif, and an exact match on the builder
+  `{b, f}` object. A drifted sidecar fails loudly rather than producing a
+  subtly wrong or silently unattributed order. `preflight()` runs the same gate
+  at startup so drift surfaces before the first trade, not during it.
+
+  `reduce_only`, `cloid`, and post-only (`Alo`) are **not supported on this
+  path** — pmxt's `buildOrder` hardcodes `r: false`, emits no `c`, and reaches
+  only `Gtc`/`Ioc`. Each raises rather than being silently dropped; use
+  `HyperliquidVenue` for those. The pmxt version is pinned (2.54.0) because the
+  dispatcher route is not in pmxt's OpenAPI; bumps re-record the contract-test
+  fixtures.
+
+### Changed
+
+- `HyperliquidVenue._post_action` is now the public `submit_action`, so
+  construction and submission are separable and both Hyperliquid adapters share
+  one transport and error-handling implementation on the money path.
+- `hyperliquid_signing.now_ms()` no longer requires the `[hyperliquid]` extra.
+  It stamps a nonce with `int(time.time() * 1000)` — identical to the official
+  SDK's `get_timestamp_ms()` — so callers that never build a wire locally don't
+  pull in the SDK just for a timestamp.
+
 ## [0.24.0] - 2026-07-22
 
 ### Added
