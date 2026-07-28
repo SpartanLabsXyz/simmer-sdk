@@ -25,7 +25,7 @@ from simmer_sdk.hyperliquid_signing import (
     TESTNET_API_URL,
     build_cancel_action,
     build_order_action,
-    now_ms,
+    next_nonce,
     outcome_asset_id,
 )
 
@@ -146,7 +146,7 @@ class HyperliquidVenue:
             cloid=cloid,
             builder=builder,
         )
-        nonce = now_ms()
+        nonce = next_nonce(self.signer_address)
         signature = self._signer.sign_l1_action(
             action, nonce, self.is_mainnet, vault_address=self.vault_address
         )
@@ -156,7 +156,7 @@ class HyperliquidVenue:
         """Cancel a resting order by its venue order id."""
         asset = outcome_asset_id(outcome_id, side)
         action = build_cancel_action(asset, order_id)
-        nonce = now_ms()
+        nonce = next_nonce(self.signer_address)
         signature = self._signer.sign_l1_action(
             action, nonce, self.is_mainnet, vault_address=self.vault_address
         )
@@ -206,7 +206,7 @@ class HyperliquidVenue:
         main key). The agent key can place/cancel orders but cannot withdraw —
         the recommended bot-host setup (P0 finding Q3).
         """
-        nonce = now_ms()
+        nonce = next_nonce(self.signer_address)
         action: Dict[str, Any] = {
             "type": "approveAgent",
             "agentAddress": agent_address,

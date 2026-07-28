@@ -40,7 +40,7 @@ import re
 from simmer_sdk.hyperliquid_signing import (
     HyperliquidSigner,
     build_cancel_action,
-    now_ms,
+    next_nonce,
 )
 from simmer_sdk.hyperliquid_venue import (
     DEFAULT_TIMEOUT,
@@ -85,17 +85,12 @@ class PmxtHyperliquidVenue:
         sidecar: inject a pre-built ``PmxtSidecarClient`` (tests, custom
             transport). Overrides ``sidecar_url``.
 
-    Keep one venue instance per key and avoid concurrent ``place_order`` calls
-    on the same instance — HL nonces are per-key and monotonic.
-
-    .. warning::
-       The nonce is a wall-clock millisecond (``now_ms``), so two orders signed
-       by the same key inside the same millisecond collide and Hyperliquid
-       accepts only one — a paired buy/sell could leave a naked leg. This is
-       pre-existing and shared with ``HyperliquidVenue`` (both stamp the same
-       way; the official SDK's ``get_timestamp_ms`` is the same expression) and
-       is tracked as SIM-4223 — a signer-scoped monotonic allocator. Until
-       then, do not fan out rapid sequential orders on one key.
+    Keep one venue instance per key — HL nonces are per signing key. Nonces
+    themselves are allocated by ``next_nonce`` (SIM-4223), which is monotonic
+    per signer address and thread-safe, so rapid or concurrent orders on one
+    key no longer collide. The remaining constraint is cross-PROCESS: two
+    processes signing with the same key can still collide, so give each process
+    its own agent key.
     """
 
     venue = "hyperliquid"
@@ -312,7 +307,7 @@ class PmxtHyperliquidVenue:
             want_tif=want_tif,
         )
 
-        nonce = now_ms()
+        nonce = next_nonce(self.signer_address)
         signature = self._signer.sign_l1_action(
             action, nonce, self.is_mainnet, vault_address=self.vault_address
         )
@@ -334,7 +329,7 @@ class PmxtHyperliquidVenue:
                 raise HyperliquidVenueError(f"{name} must be an int, got {value!r}")
 
         action = build_cancel_action(asset_id, order_id)
-        nonce = now_ms()
+        nonce = next_nonce(self.signer_address)
         signature = self._signer.sign_l1_action(
             action, nonce, self.is_mainnet, vault_address=self.vault_address
         )
