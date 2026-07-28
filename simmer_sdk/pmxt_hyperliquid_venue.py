@@ -94,7 +94,7 @@ class PmxtHyperliquidVenue:
        accepts only one — a paired buy/sell could leave a naked leg. This is
        pre-existing and shared with ``HyperliquidVenue`` (both stamp the same
        way; the official SDK's ``get_timestamp_ms`` is the same expression) and
-       is tracked as its own fix — a signer-scoped monotonic allocator. Until
+       is tracked as SIM-4223 — a signer-scoped monotonic allocator. Until
        then, do not fan out rapid sequential orders on one key.
     """
 
