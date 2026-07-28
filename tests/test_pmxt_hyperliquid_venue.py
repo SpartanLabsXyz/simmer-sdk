@@ -329,6 +329,29 @@ def test_rejects_missing_builder(monkeypatch):
     _expect_rejected_before_signing(monkeypatch, stripped, "builder mismatch")
 
 
+def test_rejects_unexpected_wire_field(monkeypatch):
+    """An upstream addition (a generated cloid, a trigger leg) must not be
+    signed blind just because the fields we check happen to be right."""
+    _expect_rejected_before_signing(
+        monkeypatch, _mutated(c="0x" + "aa" * 16), "unexpected order-wire fields"
+    )
+
+
+def test_rejects_unexpected_action_field(monkeypatch):
+    extra = dict(FIXTURE_RAW, expiresAfter=123)
+    _expect_rejected_before_signing(monkeypatch, extra, "unexpected action fields")
+
+
+def test_rejects_non_limit_order_type(monkeypatch):
+    """A trigger/TP-SL order shape reaching the signer would be a different
+    order from the one requested."""
+    _expect_rejected_before_signing(
+        monkeypatch,
+        _mutated(t={"trigger": {"isMarket": True, "triggerPx": "1800", "tpsl": "sl"}}),
+        "only plain limit orders",
+    )
+
+
 def test_rejects_multi_order_action(monkeypatch):
     doubled = dict(FIXTURE_RAW, orders=[FIXTURE_RAW["orders"][0]] * 2)
     _expect_rejected_before_signing(monkeypatch, doubled, "exactly 1 order")

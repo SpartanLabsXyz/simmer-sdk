@@ -376,7 +376,30 @@ class PmxtHyperliquidVenue:
         )
         wire = action["orders"][0]
 
-        got_tif = ((wire.get("t") or {}).get("limit") or {}).get("tif")
+        # "Never sign an action we have not verified" means the whole action,
+        # not just the fields we happen to check. An upstream addition — a
+        # generated cloid, a trigger/TP-SL leg — would otherwise be signed
+        # blind. Pinned version + contract tests make an exact key set the
+        # right strictness: a bump re-records fixtures, drift refuses to trade.
+        # This adapter always requests builder attribution, so the key set is
+        # fixed. Comparing lists also re-checks msgpack key ORDER, which is
+        # hash-relevant.
+        if list(action.keys()) != ["type", "orders", "grouping", "builder"]:
+            raise PmxtSidecarError(
+                f"unexpected action fields: got {list(action.keys())}, "
+                "wanted ['type', 'orders', 'grouping', 'builder']"
+            )
+        if list(wire.keys()) != ["a", "b", "p", "s", "r", "t"]:
+            raise PmxtSidecarError(
+                f"unexpected order-wire fields: got {list(wire.keys())}, "
+                "wanted ['a', 'b', 'p', 's', 'r', 't']"
+            )
+        if list((wire.get("t") or {}).keys()) != ["limit"]:
+            raise PmxtSidecarError(
+                f"unexpected order type — only plain limit orders are built here: {wire.get('t')!r}"
+            )
+
+        got_tif = (wire["t"]["limit"] or {}).get("tif")
         if got_tif != want_tif:
             raise PmxtSidecarError(f"tif mismatch: wire {got_tif!r}, wanted {want_tif!r}")
 
