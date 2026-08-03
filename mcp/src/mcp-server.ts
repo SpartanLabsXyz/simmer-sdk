@@ -102,6 +102,7 @@ import {
   reconstructState,
   appendJsonl,
   writeJsonl,
+  skillSlugWarning,
 } from "./core/state.js";
 import { runCommand } from "./core/runner.js";
 import { gitAutoCommit, gitRevert } from "./core/git.js";
@@ -553,6 +554,9 @@ if (simmer) {
       }
 
       text += `\n(${state.results.length} experiments total)`;
+
+      // Surfaces the silent "unknown" slug fallback (see skillSlugWarning).
+      text += skillSlugWarning(state.skillSlug);
 
       if (status === "keep") {
         const gitResult = await gitAutoCommit(workspaceDir, description, state.metricName, metric, secMetrics);

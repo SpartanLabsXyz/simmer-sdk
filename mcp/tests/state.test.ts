@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
-import { reconstructState, defaultState, appendJsonl, writeJsonl } from "../dist/core/state.js";
+import { reconstructState, defaultState, appendJsonl, writeJsonl, skillSlugWarning } from "../dist/core/state.js";
 
 let tmpDir: string;
 
@@ -103,5 +103,22 @@ describe("reconstructState", () => {
     const s = reconstructState(tmpDir);
     assert.equal(s.results.length, 1);
     assert.equal(s.results[0].metric, 10);
+  });
+});
+
+describe("skillSlugWarning", () => {
+  it("warns when the slug is unset — the silent 'unknown' fallback case", () => {
+    const warning = skillSlugWarning(null);
+    assert.ok(warning.includes("skill_slug is not set"), "should name the problem");
+    assert.ok(warning.includes("unknown"), "should say what the run was logged as");
+    assert.ok(warning.includes("init_experiment"), "should name the fix");
+  });
+
+  it("is silent once the slug is set", () => {
+    assert.equal(skillSlugWarning("polymarket-weather-trader"), "");
+  });
+
+  it("treats an empty-string slug as unset", () => {
+    assert.notEqual(skillSlugWarning(""), "");
   });
 });

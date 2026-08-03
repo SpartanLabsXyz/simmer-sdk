@@ -103,3 +103,23 @@ export function writeJsonl(workspaceDir: string, data: Record<string, unknown>):
   const jsonlPath = path.join(workspaceDir, "autoresearch.jsonl");
   fs.writeFileSync(jsonlPath, JSON.stringify(data) + "\n");
 }
+
+/**
+ * Warning appended to every run_experiment result when the session has no
+ * skill slug.
+ *
+ * `init_experiment` takes skill_slug as a required param, but if it was never
+ * called (or the jsonl config line is missing) the logger falls back to the
+ * placeholder "unknown". That silently breaks dashboard attribution, API
+ * resume state, and server-side backtest verification of `keep` runs — a user
+ * once logged 45 experiments into the "unknown" bucket with no hint that
+ * anything was wrong. Returns "" when the slug is set.
+ */
+export function skillSlugWarning(skillSlug: string | null): string {
+  if (skillSlug) return "";
+  return (
+    `\n\n⚠️ skill_slug is not set — this run was logged as "unknown".` +
+    `\n   Attribution, resume state, and server-side verification are all broken until you fix it.` +
+    `\n   Call init_experiment with skill_slug (e.g. "polymarket-weather-trader") to correct it.`
+  );
+}
