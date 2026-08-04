@@ -3,7 +3,7 @@ name: polymarket-copytrading
 description: Mirror positions from top Polymarket traders. Polling mode (free) for portfolio-style copying, Reactor mode (Pro) for event-driven real-time mirroring via Simmer's on-chain signal infrastructure.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.12.1"
+  version: "1.12.2"
   displayName: Polymarket Copytrading
   difficulty: beginner
 ---
@@ -211,7 +211,7 @@ Fields:
 | `min_size` | Minimum whale trade size to consider (shares) |
 | `max_size` | Cap on your mirror trade size (shares) |
 | `mirror_fraction` | Fraction of whale size to mirror (e.g. 0.01 = 1%) |
-| `daily_cap` | Max total spend per day in venue-native units |
+| `daily_cap` | Max total spend per day in venue-native units. Enforced by this skill at execution time. The server additionally stops proposing new signals once a day's proposed total exceeds 3x this value (runaway guard) — capped feeds show `skipped_daily_cap` entries in reactor status rather than going silent. |
 | `venue` | `sim` / `polymarket` / `kalshi` |
 | `enabled` | Pause reactor by setting `false` — server will stop delivering events |
 | `price_buffer` | Fraction added above whale's fill price for your buy order. Default 0.02 (2%). Prevents order failures on thin books after whale clears liquidity. Range 0–0.2. |
