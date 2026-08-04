@@ -1772,12 +1772,17 @@ class SimmerClient:
         self._approvals_checked = True
 
         try:
-            status = self.check_approvals()
+            approvals_address = (
+                self._deposit_wallet_address
+                if self._uses_deposit_wallet and self._deposit_wallet_address
+                else self._wallet_address
+            )
+            status = self.check_approvals(address=approvals_address)
             if not status.get("all_set", False):
                 logger.warning(
                     "Polymarket approvals may be missing for wallet %s. "
                     "Trade may fail. Use client.set_approvals() to set them.",
-                    self._wallet_address[:10] + "..."
+                    approvals_address[:10] + "..."
                 )
         except Exception as e:
             logger.debug("Could not check approvals: %s", e)
