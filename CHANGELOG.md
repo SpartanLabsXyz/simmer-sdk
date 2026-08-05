@@ -15,6 +15,16 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **MCP tool annotations: all 21 `simmer-mcp` tools now emit `readOnlyHint`/`destructiveHint`.**
+  Previously `annotations` was `null` on every tool, causing MCP clients that gate on annotations
+  (e.g. plan-mode / read-only mode) to fall back to name-based heuristics. Because Simmer tools
+  use a `simmer_` prefix rather than `get`/`list`, the heuristic misclassified five read-only tools
+  as writes and blocked them in plan mode. Annotations are now derived from the existing `mutates`
+  flag: `mutates:false` → `readOnlyHint:true`; `mutates:true` → `destructiveHint:true`.
+  `simmer_trade` carries an explicit override (`destructiveHint:true`) even though it is
+  registered `mutates:false` for paper-safe gate semantics — so clients correctly treat it as a
+  potential write regardless of the default dry-run mode.
+
 - **Hyperliquid trading with pmxt-constructed orders (SIM-4222).**
   `PmxtHyperliquidVenue` implements `VenueAdapter` against a self-hosted,
   construction-only pmxt sidecar: pmxt builds the unsigned action, the SDK

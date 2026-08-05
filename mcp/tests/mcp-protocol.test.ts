@@ -111,6 +111,53 @@ test("tools/list with SIMMER_API_KEY returns core bundle plus raw market tools",
   assert.equal(names.includes("simmer_polymarket_soccer_shock_ladder"), false);
 });
 
+// --- tool annotations ---
+
+test("tools/list: every tool carries non-null annotations with a boolean readOnlyHint", async () => {
+  const resp = await mcpCall("tools/list", {}, { SIMMER_API_KEY: "sk_test_key" });
+  assert.ok(!resp.error, `Expected no error, got: ${JSON.stringify(resp.error)}`);
+  type ToolEntry = { name: string; annotations?: { readOnlyHint?: unknown; destructiveHint?: unknown } };
+  const tools = (resp.result?.tools ?? []) as ToolEntry[];
+  for (const tool of tools) {
+    assert.ok(
+      tool.annotations != null,
+      `Tool "${tool.name}" has null/missing annotations`,
+    );
+    assert.equal(
+      typeof tool.annotations?.readOnlyHint,
+      "boolean",
+      `Tool "${tool.name}" annotations.readOnlyHint is not a boolean`,
+    );
+  }
+});
+
+test("tools/list: read-only tools have readOnlyHint:true; simmer_trade and simmer_cancel_order have destructiveHint:true", async () => {
+  const resp = await mcpCall("tools/list", {}, { SIMMER_API_KEY: "sk_test_key" });
+  assert.ok(!resp.error, `Expected no error, got: ${JSON.stringify(resp.error)}`);
+  type ToolEntry = { name: string; annotations?: { readOnlyHint?: boolean; destructiveHint?: boolean } };
+  const tools = (resp.result?.tools ?? []) as ToolEntry[];
+  const byName = Object.fromEntries(tools.map(t => [t.name, t.annotations]));
+
+  // Read-only tools — Odysseus misclassified these without annotations
+  const readOnlyTools = [
+    "list_skills", "get_skill_docs", "troubleshoot_error",
+    "simmer_get_markets", "simmer_get_briefing", "simmer_get_market_context",
+    "simmer_preflight",
+  ];
+  for (const name of readOnlyTools) {
+    assert.equal(byName[name]?.readOnlyHint, true, `${name}: expected readOnlyHint:true`);
+    assert.ok(!byName[name]?.destructiveHint, `${name}: expected no destructiveHint`);
+  }
+
+  // simmer_trade: mutates:false for paper-safe gate but CAN place live orders
+  assert.equal(byName["simmer_trade"]?.readOnlyHint, false, "simmer_trade: expected readOnlyHint:false");
+  assert.equal(byName["simmer_trade"]?.destructiveHint, true, "simmer_trade: expected destructiveHint:true");
+
+  // simmer_cancel_order: always mutates
+  assert.equal(byName["simmer_cancel_order"]?.readOnlyHint, false, "simmer_cancel_order: expected readOnlyHint:false");
+  assert.equal(byName["simmer_cancel_order"]?.destructiveHint, true, "simmer_cancel_order: expected destructiveHint:true");
+});
+
 // --- resources/list ---
 
 test("server does not register a resources capability (removed in v3.1.0)", async () => {

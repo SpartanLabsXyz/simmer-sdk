@@ -18,6 +18,13 @@
  *
  * Handlers receive ctx and must NOT re-read process.env — ctx is the single source
  * of truth for the live-trading decision.
+ *
+ * Wire annotations (MCP spec §3.3.2):
+ *   mutates:false  → readOnlyHint:true  (default)
+ *   mutates:true   → readOnlyHint:false + destructiveHint:true  (default)
+ * Override per-tool via the optional `annotations` field when the mutates-derived
+ * default is misleading (e.g. simmer_trade: mutates:false for paper-safety but
+ * can execute live trades, so it overrides to readOnlyHint:false/destructiveHint:true).
  */
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -34,6 +41,11 @@ export type ToolResult = {
   isError?: boolean;
 };
 
+export type WireAnnotations = {
+  readOnlyHint?: boolean;
+  destructiveHint?: boolean;
+};
+
 export type ToolDef<A> = {
   name: string;
   description: string | string[];
@@ -45,12 +57,20 @@ export type ToolDef<A> = {
    * false = tool may be paper-safe (e.g. simmer_trade dry-run); use ctx.allowLive internally.
    */
   mutates: boolean;
+  /**
+   * Optional: override the MCP wire annotations derived from `mutates`.
+   * Default mapping: mutates:false → {readOnlyHint:true}, mutates:true → {readOnlyHint:false, destructiveHint:true}.
+   * Use when the default is misleading — e.g. simmer_trade is mutates:false (paper-safe gate)
+   * but CAN place live trades, so it overrides to {readOnlyHint:false, destructiveHint:true}.
+   */
+  annotations?: WireAnnotations;
   handler: (args: A, ctx: ToolContext) => Promise<ToolResult>;
 };
 
 export interface RegistryEntry {
   name: string;
   mutates: boolean;
+  annotations: WireAnnotations;
 }
 
 /** Populated at registration time. Useful for introspection and tests. */
@@ -66,13 +86,19 @@ export function registerTool<A>(
   tool: ToolDef<A>,
   processEnv: Record<string, string | undefined> = process.env as Record<string, string | undefined>,
 ): void {
-  _toolRegistry.push({ name: tool.name, mutates: tool.mutates });
+  const wireAnnotations: WireAnnotations = tool.annotations ?? (
+    tool.mutates
+      ? { readOnlyHint: false, destructiveHint: true }
+      : { readOnlyHint: true }
+  );
+
+  _toolRegistry.push({ name: tool.name, mutates: tool.mutates, annotations: wireAnnotations });
   const desc = Array.isArray(tool.description) ? tool.description.join("\n") : tool.description;
 
   // Cast needed because McpServer.tool() has complex generic overloads;
   // our schema type (Record<string, any>) is structurally compatible at runtime.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (server.tool as any)(tool.name, desc, tool.schema, async (args: A) => {
+  (server.tool as any)(tool.name, desc, tool.schema, wireAnnotations, async (args: A) => {
     const allowLive = processEnv.SIMMER_MCP_ALLOW_LIVE === "true";
     if (tool.mutates && !allowLive) {
       return {

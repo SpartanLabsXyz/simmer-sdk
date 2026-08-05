@@ -7,24 +7,43 @@
  *   2. Gate: mutates=true + no env → errorBlocked, handler never called.
  *   3. Pass-through: mutates=false → handler always called, ctx.live=false.
  *   4. Live path: mutates=true + env → handler called, ctx.live=true.
+ *   5. Wire annotations: mutates flag maps to readOnlyHint/destructiveHint.
  */
 import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { registerTool, _toolRegistry } from "../dist/tool-registry.js";
-import type { ToolResult, ToolContext } from "../dist/tool-registry.js";
+import type { ToolResult, ToolContext, WireAnnotations } from "../dist/tool-registry.js";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 // ---------------------------------------------------------------------------
-// Minimal mock server
+// Minimal mock server — accepts both (name, desc, schema, handler) and
+// (name, desc, schema, annotations, handler) call shapes.
 // ---------------------------------------------------------------------------
 
 type CapturedHandler = (args: unknown) => Promise<ToolResult>;
 
-function makeMockServer(): { server: McpServer; getLastHandler: () => CapturedHandler } {
+function makeMockServer(): {
+  server: McpServer;
+  getLastHandler: () => CapturedHandler;
+  getLastAnnotations: () => WireAnnotations | null;
+} {
   let lastHandler: CapturedHandler | null = null;
+  let lastAnnotations: WireAnnotations | null = null;
   const server = {
-    tool(_name: string, _desc: string, _schema: unknown, handler: CapturedHandler) {
-      lastHandler = handler;
+    tool(
+      _name: string,
+      _desc: string,
+      _schema: unknown,
+      annotationsOrHandler: WireAnnotations | CapturedHandler,
+      maybeHandler?: CapturedHandler,
+    ) {
+      if (maybeHandler) {
+        lastAnnotations = annotationsOrHandler as WireAnnotations;
+        lastHandler = maybeHandler;
+      } else {
+        lastAnnotations = null;
+        lastHandler = annotationsOrHandler as CapturedHandler;
+      }
     },
   } as unknown as McpServer;
   return {
@@ -33,6 +52,7 @@ function makeMockServer(): { server: McpServer; getLastHandler: () => CapturedHa
       if (!lastHandler) throw new Error("No handler captured — was registerTool called?");
       return lastHandler;
     },
+    getLastAnnotations: () => lastAnnotations,
   };
 }
 
@@ -230,5 +250,64 @@ describe("registerTool live path — mutates:true with env", () => {
     const testArgs = { order_id: "ord_abc123" };
     await getLastHandler()(testArgs);
     assert.deepEqual(calls[0].args, testArgs, "handler should receive the original args");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 5. Wire annotations: mutates flag → readOnlyHint / destructiveHint
+// ---------------------------------------------------------------------------
+
+describe("registerTool wire annotations", () => {
+  it("mutates:false → readOnlyHint:true passed to server.tool()", () => {
+    const { server, getLastAnnotations } = makeMockServer();
+    registerTool(server, {
+      name: "_test_annot_read",
+      description: "test",
+      schema: {},
+      mutates: false,
+      handler: async (_args, _ctx) => ({ content: [{ type: "text" as const, text: "ok" }] }),
+    }, {});
+    assert.deepEqual(getLastAnnotations(), { readOnlyHint: true });
+  });
+
+  it("mutates:true → readOnlyHint:false + destructiveHint:true passed to server.tool()", () => {
+    const { server, getLastAnnotations } = makeMockServer();
+    registerTool(server, {
+      name: "_test_annot_write",
+      description: "test",
+      schema: {},
+      mutates: true,
+      handler: async (_args, _ctx) => ({ content: [{ type: "text" as const, text: "ok" }] }),
+    }, {});
+    assert.deepEqual(getLastAnnotations(), { readOnlyHint: false, destructiveHint: true });
+  });
+
+  it("explicit annotations override the mutates-derived default", () => {
+    const { server, getLastAnnotations } = makeMockServer();
+    registerTool(server, {
+      name: "_test_annot_override",
+      description: "test",
+      schema: {},
+      mutates: false,
+      annotations: { readOnlyHint: false, destructiveHint: true },
+      handler: async (_args, _ctx) => ({ content: [{ type: "text" as const, text: "ok" }] }),
+    }, {});
+    assert.deepEqual(getLastAnnotations(), { readOnlyHint: false, destructiveHint: true });
+  });
+
+  it("registry entry records the resolved annotations", () => {
+    const before = _toolRegistry.length;
+    const { server } = makeMockServer();
+    registerTool(server, {
+      name: "_test_annot_registry",
+      description: "test",
+      schema: {},
+      mutates: false,
+      annotations: { readOnlyHint: false, destructiveHint: true },
+      handler: async (_args, _ctx) => ({ content: [{ type: "text" as const, text: "ok" }] }),
+    }, {});
+    const entry = _toolRegistry.slice(before).find(e => e.name === "_test_annot_registry");
+    assert.ok(entry, "registry entry should exist");
+    assert.deepEqual(entry?.annotations, { readOnlyHint: false, destructiveHint: true });
   });
 });

@@ -219,6 +219,7 @@ server.tool(
   "list_skills",
   "List core Simmer skills bundled in this MCP server. Situational strategy skills install on demand from ClawHub.",
   {},
+  { readOnlyHint: true },
   async () => {
     const list = listSkills(skills);
     return {
@@ -234,6 +235,7 @@ server.tool(
   "get_skill_docs",
   "Get the full SKILL.md documentation for a specific Simmer skill. Includes description, parameters, usage examples, and troubleshooting tips.",
   { slug: z.string().describe("Skill slug (e.g. 'polymarket-fast-loop')") },
+  { readOnlyHint: true },
   async ({ slug }) => {
     const r = getSkillDocs(skills, slug);
     return r;
@@ -244,6 +246,7 @@ server.tool(
   "troubleshoot_error",
   "Look up a Simmer API error and get a fix. Pass the error message or JSON response from a failed API call. Returns a matched fix or falls back to docs.",
   { error_text: z.string().describe("The error message or response body from a failed Simmer API call") },
+  { readOnlyHint: true },
   async ({ error_text }) => {
     const r = await troubleshootError(error_text, apiUrl);
     const parts: string[] = [];
@@ -699,6 +702,11 @@ if (simmer) {
       source: z.string().optional().describe("Source tag for grouping trades (e.g. 'sdk:my-strategy')"),
     },
     mutates: false,
+    // simmer_trade is mutates:false so paper trades work without SIMMER_MCP_ALLOW_LIVE, but
+    // it CAN place real orders (dry_run=false + live venue + SIMMER_MCP_ALLOW_LIVE). Advertising
+    // readOnlyHint:true would be misleading to MCP clients that gate on annotations — override
+    // to destructiveHint:true so plan-mode clients treat it as a write regardless of paper default.
+    annotations: { readOnlyHint: false, destructiveHint: true },
     handler: async (args, ctx) => executeTrade(simmer!, args as Parameters<typeof executeTrade>[1], ctx),
   });
 
