@@ -153,9 +153,16 @@ def active_spenders() -> list[str]:
     """Contract addresses that need token allowances for active trading.
 
     V1: 3 spenders (CTF Exchange, Neg Risk CTF Exchange, legacy Neg Risk Adapter).
-    V2: 3 spenders (CTF Exchange V2, Neg Risk Exchange A/B). The retired
-    legacy NegRiskAdapter is not a V2 active spender; the new collateral
-    adapter is covered by redemption_spenders().
+    V2: 4 spenders (CTF Exchange V2, Neg Risk Exchange A/B, legacy Neg Risk
+    Adapter).
+
+    SIM-4377: the legacy NegRiskAdapter belongs in the V2 set. Polymarket's
+    2026-07-18 retirement covers relayer calls TARGETING the adapter
+    (redeem/convert) — not the pUSD allowance where the adapter is the
+    spender. The CLOB still gates neg-risk fills on that allowance
+    (get_balance_allowance enumerates it), so dropping it silently locks a
+    wallet out of every neg-risk market. Mirrors the server-side
+    simmer_v3/polymarket_contracts.py fix.
     """
     addrs = get_active_addresses()
     spenders = [
@@ -164,6 +171,10 @@ def active_spenders() -> list[str]:
     ]
     if addrs.version == "v1":
         spenders.append(addrs.neg_risk_adapter)
+    else:
+        # addrs.neg_risk_adapter is remapped to the NEW collateral adapter
+        # in V2 — name the legacy constant explicitly.
+        spenders.append(NEG_RISK_ADAPTER)
     if addrs.neg_risk_exchange_secondary:
         spenders.append(addrs.neg_risk_exchange_secondary)
     return spenders
