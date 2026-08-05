@@ -40,7 +40,7 @@ POLYMARKET_V2_CUTOVER_UTC = datetime(2026, 4, 28, 11, 0, 0, tzinfo=timezone.utc)
 # ============================================================
 POLYGON_CHAIN_ID = 137
 CONDITIONAL_TOKENS = "0x4D97DCd97eC945f40cF65F87097ACe5EA0476045"  # CTF, unchanged
-NEG_RISK_ADAPTER = "0xd91E80cF2E7be2e162c6513ceD06f1dD0dA35296"   # legacy; retired by PM 2026-07-18
+NEG_RISK_ADAPTER = "0xd91E80cF2E7be2e162c6513ceD06f1dD0dA35296"   # legacy approval target for neg-risk fills
 
 
 # ============================================================
@@ -153,19 +153,21 @@ def active_spenders() -> list[str]:
     """Contract addresses that need token allowances for active trading.
 
     V1: 3 spenders (CTF Exchange, Neg Risk CTF Exchange, legacy Neg Risk Adapter).
-    V2: 3 spenders (CTF Exchange V2, Neg Risk Exchange A/B). The retired
-    legacy NegRiskAdapter is not a V2 active spender; the new collateral
-    adapter is covered by redemption_spenders().
+    V2: 4 spenders (CTF Exchange V2, Neg Risk Exchange A/B, legacy NegRiskAdapter).
+    The new neg-risk collateral adapter is redemption-only and is covered by
+    redemption_spenders().
     """
     addrs = get_active_addresses()
     spenders = [
         addrs.ctf_exchange,
         addrs.neg_risk_exchange_primary,
     ]
-    if addrs.version == "v1":
-        spenders.append(addrs.neg_risk_adapter)
     if addrs.neg_risk_exchange_secondary:
         spenders.append(addrs.neg_risk_exchange_secondary)
+    if addrs.version == "v1":
+        spenders.append(addrs.neg_risk_adapter)
+    else:
+        spenders.append(NEG_RISK_ADAPTER)
     return spenders
 
 

@@ -43,15 +43,30 @@ def test_v1_flag_returns_three_spenders_usdce():
     assert collateral_token().lower() == "0x2791bca1f2de4661ed88a30c99a7a9449aa84174"
 
 
-def test_v2_explicit_returns_three_spenders_pusd():
+def test_v2_explicit_returns_four_spenders_pusd():
     _set_version("v2")
     from simmer_sdk.polymarket_contracts import (
-        is_v2_enabled, active_spenders, collateral_token, exchange_version_str,
+        is_v2_enabled,
+        active_spenders,
+        collateral_token,
+        exchange_version_str,
+        NEG_RISK_ADAPTER,
+        NEG_RISK_CTF_COLLATERAL_ADAPTER,
+        V2_CTF_EXCHANGE,
+        V2_NEG_RISK_EXCHANGE_A,
+        V2_NEG_RISK_EXCHANGE_B,
     )
     assert is_v2_enabled() is True
     assert exchange_version_str() == "v2"
-    # V2 keeps both NegRisk exchanges and drops the retired legacy adapter.
-    assert len(active_spenders()) == 3
+    # V2 keeps both NegRisk exchanges and the legacy adapter approval target.
+    spenders = {addr.lower() for addr in active_spenders()}
+    assert spenders == {
+        V2_CTF_EXCHANGE.lower(),
+        V2_NEG_RISK_EXCHANGE_A.lower(),
+        V2_NEG_RISK_EXCHANGE_B.lower(),
+        NEG_RISK_ADAPTER.lower(),
+    }
+    assert NEG_RISK_CTF_COLLATERAL_ADAPTER.lower() not in spenders
     # pUSD is the V2 collateral
     assert collateral_token().lower() == "0xc011a7e12a19f7b1f670d46f03b03f3342e82dfb"
 
@@ -166,33 +181,33 @@ def test_v2_approvals_count_and_tokens():
     _set_version("v2")  # explicit V2 (default is time-gated as of 0.12.2)
     from simmer_sdk.approvals import get_approval_transactions
     from simmer_sdk.polymarket_contracts import (
-        NEG_RISK_ADAPTER,
         V2_FEE_ESCROW,
         CTF_COLLATERAL_ADAPTER,
+        NEG_RISK_ADAPTER,
         NEG_RISK_CTF_COLLATERAL_ADAPTER,
     )
     txs = get_approval_transactions()
-    # 3 trading spenders × (pUSD + CTF) = 6, plus 4 V2 extras:
+    # 4 trading spenders × (pUSD + CTF) = 8, plus 4 V2 extras:
     #   pUSD → V2_FEE_ESCROW, CTF → CTF_COLLATERAL_ADAPTER,
     #   CTF → NEG_RISK_CTF_COLLATERAL_ADAPTER, pUSD → CTF_COLLATERAL_ADAPTER
-    assert len(txs) == 10
+    assert len(txs) == 12
     tokens = {tx["token"] for tx in txs}
     assert tokens == {"pUSD", "CTF"}
     spender_addrs = {tx["spender_address"] for tx in txs}
-    # Verify the 4 new extras are present (regression guard for SIM-1881)
+    # Verify legacy NegRiskAdapter approval is active and the V2 extras remain.
+    assert NEG_RISK_ADAPTER in spender_addrs
     assert V2_FEE_ESCROW in spender_addrs
     assert CTF_COLLATERAL_ADAPTER in spender_addrs
     assert NEG_RISK_CTF_COLLATERAL_ADAPTER in spender_addrs
-    assert NEG_RISK_ADAPTER not in spender_addrs
 
 
 def test_v2_get_required_approvals_tokens():
     _set_version("v2")
     from simmer_sdk.approvals import get_required_approvals
     from simmer_sdk.polymarket_contracts import (
-        NEG_RISK_ADAPTER,
         V2_FEE_ESCROW,
         CTF_COLLATERAL_ADAPTER,
+        NEG_RISK_ADAPTER,
         NEG_RISK_CTF_COLLATERAL_ADAPTER,
     )
     approvals = get_required_approvals()
@@ -201,15 +216,15 @@ def test_v2_get_required_approvals_tokens():
     assert "USDC" not in tokens
     assert "USDC.e" not in tokens
     assert tokens == {"pUSD", "CTF"}
-    # 3 trading spenders × (pUSD + CTF) = 6, plus 4 V2 extras = 10
+    # 4 trading spenders × (pUSD + CTF) = 8, plus 4 V2 extras = 12
     # (regression guard for SIM-1881 codex P2 — keeps metadata API in lockstep
     #  with get_approval_transactions() + get_missing_approval_transactions().)
-    assert len(approvals) == 10
+    assert len(approvals) == 12
     spender_addrs = {a["spender_address"] for a in approvals}
+    assert NEG_RISK_ADAPTER in spender_addrs
     assert V2_FEE_ESCROW in spender_addrs
     assert CTF_COLLATERAL_ADAPTER in spender_addrs
     assert NEG_RISK_CTF_COLLATERAL_ADAPTER in spender_addrs
-    assert NEG_RISK_ADAPTER not in spender_addrs
 
 
 # ==================== SignedOrder ====================

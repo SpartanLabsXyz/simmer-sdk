@@ -9,8 +9,8 @@ External wallets need to approve several spender contracts before trading.
 2. CTF Token (ERC1155) → same 3 spenders
 
 **V2 required approvals (starting 2026-04-28):**
-1. pUSD → 3 V2 spenders (CTF V2, NegRisk A, NegRisk B)
-2. CTF Token (ERC1155) → same 3 spenders
+1. pUSD → 4 V2 spenders (CTF V2, NegRisk A, NegRisk B, legacy NegRiskAdapter)
+2. CTF Token (ERC1155) → same 4 spenders
 3. pUSD → CollateralOfframp (for withdrawals that unwrap back to USDC.e)
 4. pUSD → V2_FEE_ESCROW (PolyNode fee collection; 2026-05-01 upgrade)
 5. CTF → CTF_COLLATERAL_ADAPTER (ERC1155; redemption adapter; 2026-05-01 upgrade)
@@ -93,6 +93,11 @@ _V2_SPENDERS = {
         "name": "Neg Risk Exchange B",
         "description": "Secondary V2 neg-risk exchange (additional multi-outcome capacity)",
     },
+    "legacy_neg_risk_adapter": {
+        "address": NEG_RISK_ADAPTER,
+        "name": "Legacy Neg Risk Adapter",
+        "description": "Legacy NegRiskAdapter still required by V2 neg-risk fills",
+    },
 }
 
 
@@ -163,8 +168,8 @@ def get_required_approvals() -> List[Dict[str, Any]]:
     """Get list of all required approvals for the active exchange version.
 
     V1 (flag off): USDC + USDC.e + CTF per 3 spenders = 9 approvals.
-    V2 (flag on, default on 0.10.0+): pUSD + CTF per 3 trading spenders (6)
-    plus 4 V2 extras (fee escrow + 2 CTF redemption adapters + pUSD adapter) = 10 approvals.
+    V2 (flag on, default on 0.10.0+): pUSD + CTF per 4 trading spenders (8)
+    plus 4 V2 extras (fee escrow + 2 CTF redemption adapters + pUSD adapter) = 12 approvals.
     """
     approvals: List[Dict[str, Any]] = []
     v2 = is_v2_enabled()

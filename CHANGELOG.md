@@ -43,6 +43,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **V2 `set_approvals()` restores the legacy NegRiskAdapter approval target (SIM-4379).**
+  Polymarket V2 neg-risk fills still require maker pUSD allowance to
+  `0xd91E80cF2E7be2e162c6513ceD06f1dD0dA35296`. The SDK now mirrors the server
+  spender set: CTF Exchange V2, NegRisk Exchange A, NegRisk Exchange B, and the
+  legacy NegRiskAdapter all get pUSD + CTF approvals. The new
+  `NEG_RISK_CTF_COLLATERAL_ADAPTER` remains redemption-only.
+
 - **Hyperliquid action nonces could collide (SIM-4223).** Both HL adapters
   stamped the nonce with a bare wall-clock millisecond. Hyperliquid tracks
   nonces per signing key and accepts each value once, so two actions signed by
