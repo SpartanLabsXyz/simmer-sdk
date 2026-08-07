@@ -93,6 +93,17 @@ _V2_SPENDERS = {
         "name": "Neg Risk Exchange B",
         "description": "Secondary V2 neg-risk exchange (additional multi-outcome capacity)",
     },
+    # SIM-4377: the legacy NegRiskAdapter is still a V2 trading spender.
+    # Polymarket's 2026-07-18 retirement covers relayer calls TARGETING the
+    # adapter (redeem/convert) — not the pUSD allowance where the adapter is
+    # the spender. The CLOB's get_balance_allowance enumerates it and gates
+    # every neg-risk fill on it; without this entry, set_approvals() builds
+    # a set that can never satisfy the server's strict on-chain check.
+    "neg_risk_adapter": {
+        "address": NEG_RISK_ADAPTER,
+        "name": "Neg Risk Adapter",
+        "description": "Legacy neg-risk adapter — still required as a pUSD/CTF spender for neg-risk fills",
+    },
 }
 
 
