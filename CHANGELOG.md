@@ -3,6 +3,10 @@
 All notable changes to `simmer-sdk` are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.24.2 (2026-08-07)
+
+- **Approvals warning now checks the deposit wallet, and stops handing DW users a no-op fix (SIM-4344).** `_warn_approvals_once()` called `check_approvals()` with no address, so it always checked the signer EOA. For deposit-wallet users approvals live on the DW, so the EOA is correctly empty and the warning fired every session on healthy accounts. It also told everyone to run `set_approvals()`, which signs from the EOA and does nothing for a DW user. Two customers chased this as a real fault while debugging unrelated rejections (SIM-4351, SIM-4377). Now checks the DW when `_uses_deposit_wallet`, and recommends `activate_polymarket_dw()` for that cohort. The remediation string matters more after this fix, not less: the warning no longer cries wolf, so users will act on it.
+
 ## 0.24.1 (2026-08-06)
 
 - **Restore the legacy NegRiskAdapter to V2 trading spenders (SIM-4377).** Polymarket's 2026-07-18 adapter retirement covers relayer calls targeting the adapter, not the pUSD/CTF allowances where it is the spender — the CLOB still gates every neg-risk fill on that allowance. `set_approvals()` now grants the full 12-tx V2 set again (was 10 after #281); wallets approved without it were silently locked out of neg-risk markets.
