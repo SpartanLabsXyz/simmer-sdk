@@ -1772,12 +1772,26 @@ class SimmerClient:
         self._approvals_checked = True
 
         try:
-            status = self.check_approvals()
+            approvals_address = (
+                self._deposit_wallet_address
+                if self._uses_deposit_wallet and self._deposit_wallet_address
+                else self._wallet_address
+            )
+            status = self.check_approvals(address=approvals_address)
             if not status.get("all_set", False):
+                # Remediation differs by cohort. `set_approvals()` signs from the
+                # EOA, which for a deposit-wallet user holds nothing — pointing
+                # them there sends them to a no-op at the exact moment they are
+                # debugging a real rejection (SIM-4344 / SIM-4351).
+                if self._uses_deposit_wallet and self._deposit_wallet_address:
+                    remedy = "Run client.activate_polymarket_dw() to set them."
+                else:
+                    remedy = "Run client.set_approvals() to set them."
                 logger.warning(
                     "Polymarket approvals may be missing for wallet %s. "
-                    "Trade may fail. Use client.set_approvals() to set them.",
-                    self._wallet_address[:10] + "..."
+                    "Trade may fail. %s",
+                    approvals_address[:10] + "...",
+                    remedy,
                 )
         except Exception as e:
             logger.debug("Could not check approvals: %s", e)
