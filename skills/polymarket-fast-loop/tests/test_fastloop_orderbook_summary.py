@@ -97,6 +97,33 @@ class TestFetchOrderbookSummary(unittest.TestCase):
         s = self._summary({"bids": _CLOB_BOOK["bids"], "asks": []})
         self.assertIsNone(s)
 
+    def test_unparseable_ask_price_does_not_fabricate_a_zero_touch(self):
+        # A level whose price is missing/garbage must be DROPPED, not defaulted
+        # to 0.0 — a zero-priced ask sorts to the front, yields a negative
+        # spread, and sails straight through the `> MAX_SPREAD_PCT` gate.
+        book = {
+            "bids": _CLOB_BOOK["bids"],
+            "asks": [{"size": "10"}, {"price": "junk", "size": "10"}] + _CLOB_BOOK["asks"],
+        }
+        s = self._summary(book)
+        self.assertAlmostEqual(s["best_ask"], 0.52)
+        self.assertGreater(s["spread_pct"], 0)
+        self.assertLess(s["spread_pct"], ft.MAX_SPREAD_PCT)
+
+    def test_malformed_size_deep_in_the_book_does_not_discard_the_summary(self):
+        # Sizes are parsed only for the five levels nearest the touch, so a bad
+        # size far from the touch can't return None — and a None return makes
+        # the caller skip the spread gate entirely (fail-open on a money gate).
+        deep_junk = [{"price": "0.05", "size": "not-a-number"}]
+        s = self._summary({"bids": deep_junk + _CLOB_BOOK["bids"], "asks": _CLOB_BOOK["asks"]})
+        self.assertIsNotNone(s)
+        self.assertAlmostEqual(s["best_bid"], 0.48)
+        self.assertAlmostEqual(s["bid_depth_usd"], 18.3)
+
+    def test_every_level_unparseable_returns_none(self):
+        s = self._summary({"bids": [{"price": "x"}], "asks": _CLOB_BOOK["asks"]})
+        self.assertIsNone(s)
+
 
 if __name__ == "__main__":
     unittest.main()

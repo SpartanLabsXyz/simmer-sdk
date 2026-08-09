@@ -271,6 +271,41 @@ def fetch_live_midpoint(token_id):
         return None
 
 
+def _book_levels_best_first(raw_levels, descending):
+    """Parse raw CLOB book levels and sort them best-price-first.
+
+    The CLOB returns bids LOW→HIGH and asks HIGH→LOW, so index [0] of the raw
+    response is the WORST price on each side — reading it as the touch inverts
+    the spread and makes a raw [:5] slice sum the levels FURTHEST from the
+    touch, which is what the MIN_BOOK_DEPTH_USD gate reads. Levels whose price
+    won't parse are dropped rather than defaulted to 0, so a malformed level
+    can't fabricate a zero-priced touch.
+    """
+    levels = []
+    for lvl in raw_levels:
+        try:
+            levels.append((float(lvl["price"]), lvl))
+        except (KeyError, TypeError, ValueError):
+            continue
+    levels.sort(key=lambda pair: pair[0], reverse=descending)
+    return levels
+
+
+def _book_depth_usd(levels, count=5):
+    """Sum price x size over the `count` levels nearest the touch.
+
+    Sizes are parsed here rather than during the sort so one malformed level
+    deep in the book can't discard the whole summary.
+    """
+    total = 0.0
+    for price, lvl in levels[:count]:
+        try:
+            total += price * float(lvl.get("size", 0))
+        except (TypeError, ValueError):
+            continue
+    return total
+
+
 def fetch_orderbook_summary(token_id):
     """Fetch order book and return spread + depth summary.
 
@@ -286,26 +321,24 @@ def fetch_orderbook_summary(token_id):
     if not bids or not asks:
         return None
 
-    try:
-        best_bid = float(bids[0]["price"])
-        best_ask = float(asks[0]["price"])
-        spread = best_ask - best_bid
-        mid = (best_ask + best_bid) / 2
-        spread_pct = spread / mid if mid > 0 else 0
-
-        # Sum depth (top 5 levels)
-        bid_depth = sum(float(b.get("size", 0)) * float(b.get("price", 0)) for b in bids[:5])
-        ask_depth = sum(float(a.get("size", 0)) * float(a.get("price", 0)) for a in asks[:5])
-
-        return {
-            "best_bid": best_bid,
-            "best_ask": best_ask,
-            "spread_pct": spread_pct,
-            "bid_depth_usd": bid_depth,
-            "ask_depth_usd": ask_depth,
-        }
-    except (KeyError, ValueError, IndexError, TypeError):
+    bid_levels = _book_levels_best_first(bids, descending=True)
+    ask_levels = _book_levels_best_first(asks, descending=False)
+    if not bid_levels or not ask_levels:
         return None
+
+    best_bid = bid_levels[0][0]
+    best_ask = ask_levels[0][0]
+    spread = best_ask - best_bid
+    mid = (best_ask + best_bid) / 2
+    spread_pct = spread / mid if mid > 0 else 0
+
+    return {
+        "best_bid": best_bid,
+        "best_ask": best_ask,
+        "spread_pct": spread_pct,
+        "bid_depth_usd": _book_depth_usd(bid_levels),
+        "ask_depth_usd": _book_depth_usd(ask_levels),
+    }
 
 
 # =============================================================================
