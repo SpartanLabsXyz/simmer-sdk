@@ -11,9 +11,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 - **Restore the legacy NegRiskAdapter to V2 trading spenders (SIM-4377).** Polymarket's 2026-07-18 adapter retirement covers relayer calls targeting the adapter, not the pUSD/CTF allowances where it is the spender — the CLOB still gates every neg-risk fill on that allowance. `set_approvals()` now grants the full 12-tx V2 set again (was 10 after #281); wallets approved without it were silently locked out of neg-risk markets.
 
-## [Unreleased]
-
-### Added
+## simmer-mcp v3.4.9 — 2026-08-09
 
 - **MCP tool annotations: all 21 `simmer-mcp` tools now emit `readOnlyHint`/`destructiveHint`.**
   Previously `annotations` was `null` on every tool, causing MCP clients that gate on annotations
@@ -28,6 +26,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   commit/revert on the working tree) and `init_experiment` (archives prior results, POSTs to
   the API). `backtest_experiment` is simulated only and stays read-only. `mutates` continues to
   govern the execution gate; `annotations` governs the wire protocol.
+
+## [Unreleased]
+
+### Added
 
 - **Hyperliquid trading with pmxt-constructed orders (SIM-4222).**
   `PmxtHyperliquidVenue` implements `VenueAdapter` against a self-hosted,
