@@ -279,6 +279,7 @@ if (simmer) {
       direction: z.enum(["lower", "higher"]).optional().describe('Whether "lower" or "higher" is better. Default: "higher"'),
     },
     mutates: false,
+    // Re-calling archives prior results, resets session state and POSTs to the API.
     annotations: { readOnlyHint: false, destructiveHint: true },
     handler: async ({ name, metric_name, skill_slug, metric_unit, direction }: {
       name: string;
@@ -380,6 +381,8 @@ if (simmer) {
       timeout_seconds: z.number().optional().describe("Kill after this many seconds (default: 600)"),
     },
     mutates: false,
+    // Executes an arbitrary shell command in the user's workspace. `mutates:false` only governs
+    // the SIMMER_MCP_ALLOW_LIVE gate — never advertise this as read-only on the wire.
     annotations: { readOnlyHint: false, destructiveHint: true },
     handler: async ({ command, timeout_seconds }: { command: string; timeout_seconds?: number }, _ctx) => {
       // Per-call Pro check — Codex CRITICAL #1
@@ -445,6 +448,7 @@ if (simmer) {
       force: z.boolean().optional().describe("Set true to allow adding a new secondary metric not previously tracked"),
     },
     mutates: false,
+    // Calls gitAutoCommit()/gitRevert() against the user's working tree and POSTs the result.
     annotations: { readOnlyHint: false, destructiveHint: true },
     handler: async ({ commit, metric, status, description, metrics: secondaryMetrics, asi, force }: {
       commit: string;
@@ -906,6 +910,11 @@ if (simmer) {
       description: buildToolDescription(capturedSkill),
       schema: buildToolSchema(capturedSkill),
       mutates: false,
+      // Blanket readOnlyHint:true (the mutates-derived default) is correct for the currently
+      // bundled set: Tier A skills return SKILL.md, and the one skill with an entrypoint
+      // (preflight) runs a read-only health check. NOT derivable from `entrypoint` — having an
+      // entrypoint means "executes", not "mutates". A bundled skill that executes AND writes
+      // needs an explicit read-only declaration in the skill manifest; see SIM-4439.
       handler: async (args, _ctx) => {
         return invokeSkillTool(capturedSkill, args as Record<string, unknown>);
       },

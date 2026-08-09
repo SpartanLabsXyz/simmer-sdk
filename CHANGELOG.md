@@ -21,9 +21,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   use a `simmer_` prefix rather than `get`/`list`, the heuristic misclassified five read-only tools
   as writes and blocked them in plan mode. Annotations are now derived from the existing `mutates`
   flag: `mutates:false` → `readOnlyHint:true`; `mutates:true` → `destructiveHint:true`.
-  `simmer_trade` carries an explicit override (`destructiveHint:true`) even though it is
-  registered `mutates:false` for paper-safe gate semantics — so clients correctly treat it as a
-  potential write regardless of the default dry-run mode.
+  Tools whose `mutates:false` exists only to keep them usable without `SIMMER_MCP_ALLOW_LIVE`,
+  but which do modify the caller's environment, carry an explicit override to
+  `readOnlyHint:false, destructiveHint:true`: `simmer_trade` (can place live orders),
+  `run_experiment` (executes a shell command in the workspace), `log_experiment` (git
+  commit/revert on the working tree) and `init_experiment` (archives prior results, POSTs to
+  the API). `backtest_experiment` is simulated only and stays read-only. `mutates` continues to
+  govern the execution gate; `annotations` governs the wire protocol.
 
 - **Hyperliquid trading with pmxt-constructed orders (SIM-4222).**
   `PmxtHyperliquidVenue` implements `VenueAdapter` against a self-hosted,

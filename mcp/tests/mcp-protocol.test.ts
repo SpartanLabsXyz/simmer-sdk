@@ -164,6 +164,10 @@ test("tools/list: read-only tools have readOnlyHint:true; simmer_trade and simme
     assert.equal(byName[name]?.readOnlyHint, false, `${name}: expected readOnlyHint:false`);
     assert.equal(byName[name]?.destructiveHint, true, `${name}: expected destructiveHint:true`);
   }
+
+  // backtest_experiment simulates only — no execution, no writes. Pins the boundary so a future
+  // blanket "all *_experiment tools are destructive" sweep doesn't silently swallow it.
+  assert.equal(byName["backtest_experiment"]?.readOnlyHint, true, "backtest_experiment: expected readOnlyHint:true");
 });
 
 // --- resources/list ---
