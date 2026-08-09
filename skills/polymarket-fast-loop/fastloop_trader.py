@@ -1178,16 +1178,26 @@ def run_fast_market_strategy(dry_run=True, positions_only=False, show_config=Fal
             return
     else:
         book = fetch_orderbook_summary(clob_tokens) if clob_tokens else None
-        if book:
-            log(f"  Spread: {book['spread_pct']:.1%} (bid ${book['best_bid']:.3f} / ask ${book['best_ask']:.3f})")
-            log(f"  Depth: ${book['bid_depth_usd']:.0f} bid / ${book['ask_depth_usd']:.0f} ask (top 5)")
-            if book["spread_pct"] > MAX_SPREAD_PCT:
-                log(f"  ⏸️  Spread {book['spread_pct']:.1%} > 10% — illiquid, skip")
-                if not quiet:
-                    print(f"📊 Summary: No trade (wide spread: {book['spread_pct']:.1%})")
-                skip_reasons.append("wide spread")
-                _emit_skip_report()
-                return
+        if book is None:
+            # Fail CLOSED. A missing book used to fall straight through the
+            # spread gate and trade unmeasured. Skipping costs one sprint
+            # cycle; trading blind crosses whatever spread is actually there,
+            # and on live sampling most books are wider than MAX_SPREAD_PCT.
+            log("  ⏸️  Order book unavailable — cannot verify spread, skip")
+            if not quiet:
+                print("📊 Summary: No trade (order book unavailable)")
+            skip_reasons.append("book unavailable")
+            _emit_skip_report()
+            return
+        log(f"  Spread: {book['spread_pct']:.1%} (bid ${book['best_bid']:.3f} / ask ${book['best_ask']:.3f})")
+        log(f"  Depth: ${book['bid_depth_usd']:.0f} bid / ${book['ask_depth_usd']:.0f} ask (top 5)")
+        if book["spread_pct"] > MAX_SPREAD_PCT:
+            log(f"  ⏸️  Spread {book['spread_pct']:.1%} > 10% — illiquid, skip")
+            if not quiet:
+                print(f"📊 Summary: No trade (wide spread: {book['spread_pct']:.1%})")
+            skip_reasons.append("wide spread")
+            _emit_skip_report()
+            return
 
     # Check minimum momentum (loose gate when fair-value mode is on — edge check filters there)
     _momentum_floor = 0.01 if USE_FAIR_VALUE else MIN_MOMENTUM_PCT
