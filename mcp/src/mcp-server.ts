@@ -219,6 +219,7 @@ server.tool(
   "list_skills",
   "List core Simmer skills bundled in this MCP server. Situational strategy skills install on demand from ClawHub.",
   {},
+  { readOnlyHint: true },
   async () => {
     const list = listSkills(skills);
     return {
@@ -234,6 +235,7 @@ server.tool(
   "get_skill_docs",
   "Get the full SKILL.md documentation for a specific Simmer skill. Includes description, parameters, usage examples, and troubleshooting tips.",
   { slug: z.string().describe("Skill slug (e.g. 'polymarket-fast-loop')") },
+  { readOnlyHint: true },
   async ({ slug }) => {
     const r = getSkillDocs(skills, slug);
     return r;
@@ -244,6 +246,7 @@ server.tool(
   "troubleshoot_error",
   "Look up a Simmer API error and get a fix. Pass the error message or JSON response from a failed API call. Returns a matched fix or falls back to docs.",
   { error_text: z.string().describe("The error message or response body from a failed Simmer API call") },
+  { readOnlyHint: true },
   async ({ error_text }) => {
     const r = await troubleshootError(error_text, apiUrl);
     const parts: string[] = [];
@@ -276,6 +279,8 @@ if (simmer) {
       direction: z.enum(["lower", "higher"]).optional().describe('Whether "lower" or "higher" is better. Default: "higher"'),
     },
     mutates: false,
+    // Re-calling archives prior results, resets session state and POSTs to the API.
+    annotations: { readOnlyHint: false, destructiveHint: true },
     handler: async ({ name, metric_name, skill_slug, metric_unit, direction }: {
       name: string;
       metric_name: string;
@@ -376,6 +381,9 @@ if (simmer) {
       timeout_seconds: z.number().optional().describe("Kill after this many seconds (default: 600)"),
     },
     mutates: false,
+    // Executes an arbitrary shell command in the user's workspace. `mutates:false` only governs
+    // the SIMMER_MCP_ALLOW_LIVE gate — never advertise this as read-only on the wire.
+    annotations: { readOnlyHint: false, destructiveHint: true },
     handler: async ({ command, timeout_seconds }: { command: string; timeout_seconds?: number }, _ctx) => {
       // Per-call Pro check — Codex CRITICAL #1
       try {
@@ -440,6 +448,8 @@ if (simmer) {
       force: z.boolean().optional().describe("Set true to allow adding a new secondary metric not previously tracked"),
     },
     mutates: false,
+    // Calls gitAutoCommit()/gitRevert() against the user's working tree and POSTs the result.
+    annotations: { readOnlyHint: false, destructiveHint: true },
     handler: async ({ commit, metric, status, description, metrics: secondaryMetrics, asi, force }: {
       commit: string;
       metric: number;
@@ -699,6 +709,11 @@ if (simmer) {
       source: z.string().optional().describe("Source tag for grouping trades (e.g. 'sdk:my-strategy')"),
     },
     mutates: false,
+    // simmer_trade is mutates:false so paper trades work without SIMMER_MCP_ALLOW_LIVE, but
+    // it CAN place real orders (dry_run=false + live venue + SIMMER_MCP_ALLOW_LIVE). Advertising
+    // readOnlyHint:true would be misleading to MCP clients that gate on annotations — override
+    // to destructiveHint:true so plan-mode clients treat it as a write regardless of paper default.
+    annotations: { readOnlyHint: false, destructiveHint: true },
     handler: async (args, ctx) => executeTrade(simmer!, args as Parameters<typeof executeTrade>[1], ctx),
   });
 
@@ -895,6 +910,11 @@ if (simmer) {
       description: buildToolDescription(capturedSkill),
       schema: buildToolSchema(capturedSkill),
       mutates: false,
+      // Blanket readOnlyHint:true (the mutates-derived default) is correct for the currently
+      // bundled set: Tier A skills return SKILL.md, and the one skill with an entrypoint
+      // (preflight) runs a read-only health check. NOT derivable from `entrypoint` — having an
+      // entrypoint means "executes", not "mutates". A bundled skill that executes AND writes
+      // needs an explicit read-only declaration in the skill manifest; see SIM-4439.
       handler: async (args, _ctx) => {
         return invokeSkillTool(capturedSkill, args as Record<string, unknown>);
       },
