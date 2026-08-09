@@ -316,15 +316,26 @@ def fetch_orderbook_summary(clob_token_ids):
         return None
 
     try:
-        best_bid = float(bids[0]["price"])
-        best_ask = float(asks[0]["price"])
+        # CLOB returns bids LOW→HIGH and asks HIGH→LOW, so index [0] is the
+        # WORST price on each side. Sort so best is first before reading.
+        bids = sorted(
+            ({"price": float(b.get("price", 0)), "size": float(b.get("size", 0))} for b in bids),
+            key=lambda x: x["price"],
+            reverse=True,
+        )
+        asks = sorted(
+            ({"price": float(a.get("price", 0)), "size": float(a.get("size", 0))} for a in asks),
+            key=lambda x: x["price"],
+        )
+        best_bid = bids[0]["price"]
+        best_ask = asks[0]["price"]
         spread = best_ask - best_bid
         mid = (best_ask + best_bid) / 2
         spread_pct = spread / mid if mid > 0 else 0
 
-        # Sum depth (top 5 levels)
-        bid_depth = sum(float(b.get("size", 0)) * float(b.get("price", 0)) for b in bids[:5])
-        ask_depth = sum(float(a.get("size", 0)) * float(a.get("price", 0)) for a in asks[:5])
+        # Sum depth (top 5 levels nearest the touch)
+        bid_depth = sum(b["size"] * b["price"] for b in bids[:5])
+        ask_depth = sum(a["size"] * a["price"] for a in asks[:5])
 
         return {
             "best_bid": best_bid,

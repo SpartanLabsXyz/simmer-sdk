@@ -51,6 +51,20 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **Fast-loop spread gate was inverted: it skipped liquid books and traded
+  thin ones.** `fetch_orderbook_summary` read `bids[0]`/`asks[0]` as best,
+  but the CLOB returns bids LOW→HIGH and asks HIGH→LOW (the ordering
+  simmer_v3's `polymarket_client.py` and `orderbook.py` both document and
+  sort for), so it computed worst-ask minus worst-bid — the full book width.
+  Any market with real depth blew through `MAX_SPREAD_PCT` and was skipped
+  as "illiquid", while near-empty one-level books computed a true touch
+  spread and passed: adverse selection toward exactly the books the gate
+  exists to avoid. Thin 5-minute sprint books (worst≈best) masked it. Now
+  sorts both sides before reading best, and sums top-5 depth from the touch
+  instead of the back of the book. Found during a Sentinel odds-tooling
+  survey of the SDK; `best_bid`/`best_ask`/depth were log-only, so the gate
+  was the only affected consumer.
+
 - **Hyperliquid action nonces could collide (SIM-4223).** Both HL adapters
   stamped the nonce with a bare wall-clock millisecond. Hyperliquid tracks
   nonces per signing key and accepts each value once, so two actions signed by
