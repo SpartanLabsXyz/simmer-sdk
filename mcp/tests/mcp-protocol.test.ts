@@ -156,6 +156,14 @@ test("tools/list: read-only tools have readOnlyHint:true; simmer_trade and simme
   // simmer_cancel_order: always mutates
   assert.equal(byName["simmer_cancel_order"]?.readOnlyHint, false, "simmer_cancel_order: expected readOnlyHint:false");
   assert.equal(byName["simmer_cancel_order"]?.destructiveHint, true, "simmer_cancel_order: expected destructiveHint:true");
+
+  // experiment tools: mutates:false (so they work without SIMMER_MCP_ALLOW_LIVE) but modify
+  // the user's workspace — run_experiment executes shell commands, log_experiment commits/reverts
+  // the working tree, init_experiment archives results and POSTs to the API
+  for (const name of ["run_experiment", "log_experiment", "init_experiment"]) {
+    assert.equal(byName[name]?.readOnlyHint, false, `${name}: expected readOnlyHint:false`);
+    assert.equal(byName[name]?.destructiveHint, true, `${name}: expected destructiveHint:true`);
+  }
 });
 
 // --- resources/list ---

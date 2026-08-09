@@ -279,6 +279,7 @@ if (simmer) {
       direction: z.enum(["lower", "higher"]).optional().describe('Whether "lower" or "higher" is better. Default: "higher"'),
     },
     mutates: false,
+    annotations: { readOnlyHint: false, destructiveHint: true },
     handler: async ({ name, metric_name, skill_slug, metric_unit, direction }: {
       name: string;
       metric_name: string;
@@ -379,6 +380,7 @@ if (simmer) {
       timeout_seconds: z.number().optional().describe("Kill after this many seconds (default: 600)"),
     },
     mutates: false,
+    annotations: { readOnlyHint: false, destructiveHint: true },
     handler: async ({ command, timeout_seconds }: { command: string; timeout_seconds?: number }, _ctx) => {
       // Per-call Pro check — Codex CRITICAL #1
       try {
@@ -443,6 +445,7 @@ if (simmer) {
       force: z.boolean().optional().describe("Set true to allow adding a new secondary metric not previously tracked"),
     },
     mutates: false,
+    annotations: { readOnlyHint: false, destructiveHint: true },
     handler: async ({ commit, metric, status, description, metrics: secondaryMetrics, asi, force }: {
       commit: string;
       metric: number;
