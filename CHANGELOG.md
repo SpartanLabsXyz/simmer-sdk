@@ -29,6 +29,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- **CI: publish-packages verify step no longer false-fails on successful releases.** The verify step now polls the npm and PyPI registries with a bounded retry (up to 120s, 10s interval) when this run just published a package, rather than reading once immediately after the publish step. npm's CDN-cached read path lags writes by seconds, so the single-read approach reliably returned stale data on real releases and left a red workflow run on main for releases that had fully succeeded.
+
 ### Added
 
 - **Hyperliquid trading with pmxt-constructed orders (SIM-4222).**

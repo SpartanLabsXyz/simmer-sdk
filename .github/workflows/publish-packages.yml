@@ -192,7 +192,7 @@ jobs:
     needs: [plan, publish-mcp, publish-sdk]
     if: always() && (needs.plan.outputs.npm_publish_needed == 'true' || needs.plan.outputs.pypi_publish_needed == 'true')
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
 
     steps:
       - uses: actions/checkout@v4
@@ -203,4 +203,13 @@ jobs:
           python-version: "3.12"
 
       - name: Check publish lag
-        run: python3 scripts/check_publish_lag.py
+        # Pass --retry-npm/--retry-pypi when this run just published a package so
+        # the verify step waits for CDN propagation instead of reading stale data.
+        env:
+          NPM_RESULT: ${{ needs.publish-mcp.result }}
+          PYPI_RESULT: ${{ needs.publish-sdk.result }}
+        run: |
+          args=""
+          [ "$NPM_RESULT" = "success" ] && args="$args --retry-npm"
+          [ "$PYPI_RESULT" = "success" ] && args="$args --retry-pypi"
+          python3 scripts/check_publish_lag.py $args
