@@ -910,11 +910,12 @@ if (simmer) {
       description: buildToolDescription(capturedSkill),
       schema: buildToolSchema(capturedSkill),
       mutates: false,
-      // Blanket readOnlyHint:true (the mutates-derived default) is correct for the currently
-      // bundled set: Tier A skills return SKILL.md, and the one skill with an entrypoint
-      // (preflight) runs a read-only health check. NOT derivable from `entrypoint` — having an
-      // entrypoint means "executes", not "mutates". A bundled skill that executes AND writes
-      // needs an explicit read-only declaration in the skill manifest; see SIM-4439.
+      // readOnlyHint is derived from the skill's `readOnly` field, which is computed at
+      // discovery time: Tier A (no entrypoint) → true; Tier B → from `read_only` frontmatter
+      // in SKILL.md, default false. This is NOT derivable from `entrypoint` alone — having
+      // an entrypoint means "executes", not "mutates" (preflight has an entrypoint and IS
+      // read-only). See SIM-4439.
+      annotations: { readOnlyHint: capturedSkill.readOnly },
       handler: async (args, _ctx) => {
         return invokeSkillTool(capturedSkill, args as Record<string, unknown>);
       },

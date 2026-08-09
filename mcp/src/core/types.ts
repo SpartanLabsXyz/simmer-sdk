@@ -94,4 +94,10 @@ export interface Skill {
   tunables: Tunable[];
   skillDir: string;
   hasDisclaimer: boolean;
+  /**
+   * Derived at discovery time from SKILL.md frontmatter `read_only` field.
+   * Tier A skills (no entrypoint) are always true. Tier B skills default to
+   * false unless `read_only: true` is explicitly declared in SKILL.md frontmatter.
+   */
+  readOnly: boolean;
 }

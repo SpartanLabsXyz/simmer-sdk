@@ -31,6 +31,7 @@ interface FrontmatterMeta {
 interface SkillMdFrontmatter {
   name?: string;
   description?: string;
+  read_only?: boolean;
   metadata?: FrontmatterMeta;
 }
 
@@ -56,6 +57,7 @@ function parseSkillMd(skillMdPath: string): SkillMdFrontmatter {
     } else {
       if (key === "name") frontmatter.name = value;
       else if (key === "description") frontmatter.description = value;
+      else if (key === "read_only") frontmatter.read_only = value === "true";
     }
   }
   return frontmatter;
@@ -121,6 +123,10 @@ export function discoverSkills(skillsRoot: string): Skill[] {
     const entrypoint = automaton.entrypoint;
     const frontmatter = parseSkillMd(path.join(dir, "SKILL.md"));
 
+    // Tier A (no entrypoint) is read-only by construction.
+    // Tier B requires explicit `read_only: true` in SKILL.md frontmatter; absent = false.
+    const readOnly = !entrypoint || frontmatter.read_only === true;
+
     skills.push({
       slug,
       toolName: slugToToolName(slug),
@@ -134,6 +140,7 @@ export function discoverSkills(skillsRoot: string): Skill[] {
       tunables: parseTunables(slug, manifest.tunables),
       skillDir: dir,
       hasDisclaimer: fs.existsSync(path.join(dir, "DISCLAIMER.md")),
+      readOnly,
     });
   }
   return skills;

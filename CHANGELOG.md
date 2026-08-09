@@ -29,6 +29,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### simmer-mcp
+
+- **Per-skill `readOnlyHint` derived from `read_only` SKILL.md frontmatter (SIM-4439).** Previously the per-skill tool loop registered every bundled skill with a hardcoded `readOnlyHint:true`, which was accurate by coincidence for the current bundle but would silently misclassify any future Tier B skill that executes and writes. `read_only: true` is now parsed from SKILL.md frontmatter; Tier A (instruction-only, no entrypoint) stays `true` by construction; Tier B (has entrypoint) defaults to `false` unless explicitly declared. `preflight` declares `read_only: true` since it only queries state. The `mutates` execution gate is unchanged.
+
 ### Added
 
 - **Hyperliquid trading with pmxt-constructed orders (SIM-4222).**
