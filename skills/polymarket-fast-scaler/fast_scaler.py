@@ -316,6 +316,26 @@ def fetch_live_midpoint(token_id):
         return None
 
 
+def _book_prices_best_first(raw_levels, descending):
+    """Parse raw CLOB book level prices and sort them best-first.
+
+    The CLOB returns bids LOW→HIGH and asks HIGH→LOW, so index [0] of the raw
+    response is the WORST price on each side — reading it as the touch computes
+    worst-ask minus worst-bid (the full book width) and inverts the
+    MAX_SPREAD_PCT gate. Levels whose price won't parse are dropped rather than
+    defaulted to 0, so a malformed level can't fabricate a zero-priced touch
+    (which would produce a negative spread that passes the gate).
+    """
+    prices = []
+    for lvl in raw_levels:
+        try:
+            prices.append(float(lvl["price"]))
+        except (KeyError, TypeError, ValueError):
+            continue
+    prices.sort(reverse=descending)
+    return prices
+
+
 def fetch_orderbook_spread(clob_token_ids):
     """Return spread_pct for the YES token, or None on failure."""
     if not clob_token_ids:
@@ -328,13 +348,14 @@ def fetch_orderbook_spread(clob_token_ids):
     asks = result.get("asks", [])
     if not bids or not asks:
         return None
-    try:
-        best_bid = float(bids[0]["price"])
-        best_ask = float(asks[0]["price"])
-        mid = (best_bid + best_ask) / 2
-        return (best_ask - best_bid) / mid if mid > 0 else None
-    except (KeyError, ValueError, IndexError, TypeError):
+    bid_prices = _book_prices_best_first(bids, descending=True)
+    ask_prices = _book_prices_best_first(asks, descending=False)
+    if not bid_prices or not ask_prices:
         return None
+    best_bid = bid_prices[0]
+    best_ask = ask_prices[0]
+    mid = (best_bid + best_ask) / 2
+    return (best_ask - best_bid) / mid if mid > 0 else None
 
 
 # =============================================================================

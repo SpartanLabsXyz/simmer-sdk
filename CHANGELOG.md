@@ -51,6 +51,33 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **Book-liquidity gates were inverted across three Polymarket skills: they
+  skipped liquid books and traded thin ones.** `polymarket-fast-loop`
+  (1.7.1), `polymarket-mert-sniper` (1.3.4) and `polymarket-fast-scaler`
+  (1.2.1) each read `bids[0]`/`asks[0]` as best bid/ask, but the CLOB returns
+  bids LOW→HIGH and asks HIGH→LOW (the ordering simmer_v3's
+  `polymarket_client.py` and `orderbook.py` both document and sort for), so
+  they computed worst-ask minus worst-bid — the full book width — and a raw
+  `[:5]` depth slice summed the levels *furthest* from the touch. Fast-loop
+  and fast-scaler blew through `MAX_SPREAD_PCT` on any market with real depth
+  and skipped it as "illiquid", while near-empty one-level books computed a
+  true touch spread and passed; mert-sniper's `MIN_BOOK_DEPTH_USD` thin-book
+  gate was measuring the back of the book. Net effect in all three: adverse
+  selection toward exactly the books the gates exist to avoid. Thin 5-minute
+  sprint books (worst≈best) masked it. All three now sort both sides before
+  reading the touch. Verified against the live CLOB: on a real book the old
+  read gave a 0.998 spread where the true touch spread was 0.001.
+
+  Hardened while fixing: levels whose price won't parse are dropped rather
+  than defaulted to `0`, since a zero-priced ask sorts to the front and
+  fabricates a negative spread that passes the gate; and sizes are parsed
+  only for the five levels nearest the touch, so one malformed level deep in
+  the book can't return `None` and make the caller skip the gate entirely.
+  Both are fail-open paths on a money gate.
+
+  Found during a Sentinel odds-tooling survey of the SDK (cross-repo review,
+  not a user report).
+
 - **Hyperliquid action nonces could collide (SIM-4223).** Both HL adapters
   stamped the nonce with a bare wall-clock millisecond. Hyperliquid tracks
   nonces per signing key and accepts each value once, so two actions signed by
