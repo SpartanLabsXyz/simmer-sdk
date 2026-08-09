@@ -67,6 +67,20 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **Retracts the wrong impact claim in the `polymarket-fast-loop@1.7.1` and
+  `polymarket-fast-scaler@1.2.1` ClawHub release notes** (republished as
+  1.7.3 / 1.2.3; no code change in either). Both claimed the inverted book
+  read made the skill "trade near-empty books". That is wrong in direction:
+  worst-ask minus worst-bid is always ≥ the touch spread, so the spread gate
+  could only ever be too *strict*, never too loose. Measured across 96 live
+  books, the old read rejected 96/96 where a correct read passes 24 — ~25% of
+  tradeable books skipped, and **zero** thin books wrongly traded.
+  `polymarket-mert-sniper@1.3.4`'s note needs no correction: it describes the
+  `MIN_BOOK_DEPTH_USD` gate, which genuinely can err toward over-trading
+  (ask-side depth overstated in 99% of books, crossing the $50 threshold in
+  1%). ClawHub has no affordance to amend a published changelog, so a patch
+  release is the only way to put the correction where readers look.
+
 - **Book-liquidity gates now fail CLOSED when the order book can't be
   fetched.** `polymarket-fast-loop` (1.7.2), `polymarket-mert-sniper` (1.3.5)
   and `polymarket-fast-scaler` (1.2.2) all traded on through a failed book
