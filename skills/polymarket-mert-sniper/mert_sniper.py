@@ -627,7 +627,13 @@ def run_mert_strategy(dry_run=True, positions_only=False, show_config=False,
                     skip_reasons.append("thin book")
                     continue
             else:
-                print(f"     Book:  unavailable (proceeding with caution)")
+                # Fail CLOSED. This previously proceeded "with caution", which
+                # in practice meant no caution at all: the depth gate is the
+                # only thing standing between this skill and a thin book, so
+                # an unavailable book is the moment it matters most.
+                print(f"     Skip: order book unavailable — cannot verify depth")
+                skip_reasons.append("book unavailable")
+                continue
 
         # Fee-aware EV check (entry fee only — Polymarket binary redemption is free).
         # mert-sniper has no external price signal, so "divergence from neutral" is not a

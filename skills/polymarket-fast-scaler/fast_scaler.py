@@ -837,7 +837,16 @@ def run_fast_scaler(dry_run=True, positions_only=False, show_config=False, quiet
         spread_pct = (pre_spread_cents / 100.0) / mid_est
         log(f"  Spread: {pre_spread_cents:.1f}¢ ({best.get('liquidity_tier', 'unknown')})")
     else:
-        spread_pct = fetch_orderbook_spread(clob_tokens) or 0.0
+        spread_pct = fetch_orderbook_spread(clob_tokens)
+        if spread_pct is None:
+            # Fail CLOSED. `or 0.0` used to turn a failed book fetch into a
+            # PERFECT zero spread, which cleared MAX_SPREAD_PCT every time —
+            # the gate was loudest exactly when it knew least. Skipping costs
+            # one sprint cycle; trading an unmeasured book crosses whatever
+            # spread happens to be there.
+            log("  ⏸️  Order book unavailable — cannot verify spread, skip")
+            _emit_automaton(signals=0, attempted=0, executed=0, skip_reason="book_unavailable")
+            return
         log(f"  Spread: {spread_pct:.1%} (live CLOB)")
 
     if spread_pct > MAX_SPREAD_PCT:

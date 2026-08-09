@@ -65,6 +65,18 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **Book-liquidity gates now fail CLOSED when the order book can't be
+  fetched.** `polymarket-fast-loop` (1.7.2), `polymarket-mert-sniper` (1.3.5)
+  and `polymarket-fast-scaler` (1.2.2) all traded on through a failed book
+  fetch. fast-scaler was the starkest: `fetch_orderbook_spread(...) or 0.0`
+  turned a fetch failure into a *perfect zero spread*, so `MAX_SPREAD_PCT`
+  cleared every time — the gate was most permissive exactly when it knew
+  least. fast-loop fell through its `if book:` with no else; mert-sniper
+  printed "proceeding with caution" and proceeded without any. All three now
+  skip the trade and record a `book unavailable` skip reason. Skipping costs
+  one cycle; trading an unmeasured book crosses whatever spread is actually
+  there, and live sampling shows most books sit wider than `MAX_SPREAD_PCT`.
+
 - **Book-liquidity gates read the book from the wrong end in three Polymarket
   skills, so they rejected tradeable markets.** `polymarket-fast-loop`
   (1.7.1), `polymarket-mert-sniper` (1.3.4) and `polymarket-fast-scaler`
