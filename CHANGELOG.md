@@ -63,22 +63,36 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   one cycle; trading an unmeasured book crosses whatever spread is actually
   there, and live sampling shows most books sit wider than `MAX_SPREAD_PCT`.
 
-- **Book-liquidity gates were inverted across three Polymarket skills: they
-  skipped liquid books and traded thin ones.** `polymarket-fast-loop`
+- **Book-liquidity gates read the book from the wrong end in three Polymarket
+  skills, so they rejected tradeable markets.** `polymarket-fast-loop`
   (1.7.1), `polymarket-mert-sniper` (1.3.4) and `polymarket-fast-scaler`
   (1.2.1) each read `bids[0]`/`asks[0]` as best bid/ask, but the CLOB returns
   bids LOW→HIGH and asks HIGH→LOW (the ordering simmer_v3's
   `polymarket_client.py` and `orderbook.py` both document and sort for), so
   they computed worst-ask minus worst-bid — the full book width — and a raw
-  `[:5]` depth slice summed the levels *furthest* from the touch. Fast-loop
-  and fast-scaler blew through `MAX_SPREAD_PCT` on any market with real depth
-  and skipped it as "illiquid", while near-empty one-level books computed a
-  true touch spread and passed; mert-sniper's `MIN_BOOK_DEPTH_USD` thin-book
-  gate was measuring the back of the book. Net effect in all three: adverse
-  selection toward exactly the books the gates exist to avoid. Thin 5-minute
-  sprint books (worst≈best) masked it. All three now sort both sides before
-  reading the touch. Verified against the live CLOB: on a real book the old
-  read gave a 0.998 spread where the true touch spread was 0.001.
+  `[:5]` depth slice summed the levels *furthest* from the touch. All three
+  now sort both sides before reading the touch. Verified against the live
+  CLOB: on a real book the old read gave a 0.998 spread where the true touch
+  spread was 0.001.
+
+  **Measured impact (96 live books sampled).** The `MAX_SPREAD_PCT` misread is
+  one-directional: worst-ask minus worst-bid is always ≥ the touch spread, so
+  the gate could only ever be *too strict*, never too loose. It flagged 96 of
+  96 sampled books as too wide; a correct read passes 24 of them. So the cost
+  was **~25% of tradeable books skipped**, and zero cases of a thin book being
+  wrongly traded. mert-sniper's `MIN_BOOK_DEPTH_USD` gate is the one that can
+  err the dangerous way — summing the back of the ask side *overstates* depth
+  (far asks are the priciest) in 99% of books — but it crossed the $50
+  threshold into "thin book wrongly passed" in only 1% of the sample. Thin
+  5-minute sprint books (worst≈best) mask the bug entirely; no live sprint
+  market had two-sided depth at sampling time, so the rate for the market
+  class these skills actually trade is **not** measured by the above.
+
+  This corrects the impact description first published with this entry, which
+  claimed the gates "traded thin ones" and caused "adverse selection toward
+  exactly the books the gates exist to avoid." The mechanism was real but the
+  direction was wrong for the two spread gates: the dominant harm was missed
+  opportunity, not bad fills.
 
   Hardened while fixing: levels whose price won't parse are dropped rather
   than defaulted to `0`, since a zero-priced ask sorts to the front and

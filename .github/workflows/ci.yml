@@ -118,6 +118,30 @@ jobs:
         working-directory: mcp
         run: npm test
 
+  skill-tests:
+    # Run each skill's own test suite. Until this job existed, CI ran only the
+    # root `tests/` directory, so every skills/*/tests file — preflight gates,
+    # orderbook-ordering regressions, venue routing — was never executed by CI
+    # and could rot silently. Each suite runs in its own pytest process; see
+    # the header of scripts/run_skill_tests.sh for why a single `pytest skills/`
+    # cannot work here.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install SDK (editable) + pytest
+        run: pip install -e . pytest
+
+      - name: Run every skill's test suite
+        run: bash scripts/run_skill_tests.sh
+
   skill-example-bind:
     # Bind every documented SDK example (SKILL.md + README) against the shipped
     # source. Catches the class of bug where an example uses a kwarg/method the
