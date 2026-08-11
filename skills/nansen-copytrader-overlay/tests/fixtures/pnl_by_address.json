@@ -1,0 +1,38 @@
+[
+  {
+    "market_id": "101",
+    "question": "Will Brazil win the 2026 World Cup?",
+    "side_held": "yes",
+    "net_buy_cost_usd": 1000.0,
+    "unrealized_value_usd": 0.0,
+    "total_pnl_usd": 850.0,
+    "market_resolved": true
+  },
+  {
+    "market_id": "102",
+    "question": "Will France win Group D?",
+    "side_held": "yes",
+    "net_buy_cost_usd": 500.0,
+    "unrealized_value_usd": 0.0,
+    "total_pnl_usd": 400.0,
+    "market_resolved": true
+  },
+  {
+    "market_id": "103",
+    "question": "Bitcoin above $100k by end of 2026?",
+    "side_held": "no",
+    "net_buy_cost_usd": 200.0,
+    "unrealized_value_usd": 0.0,
+    "total_pnl_usd": -200.0,
+    "market_resolved": true
+  },
+  {
+    "market_id": "104",
+    "question": "Will the US win the FIFWC knockout round?",
+    "side_held": "yes",
+    "net_buy_cost_usd": 300.0,
+    "unrealized_value_usd": 120.0,
+    "total_pnl_usd": 0.0,
+    "market_resolved": false
+  }
+]

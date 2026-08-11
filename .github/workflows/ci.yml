@@ -22,6 +22,26 @@ jobs:
       - name: Check repo versions are published
         run: python3 scripts/check_publish_lag.py
 
+  nansen-no-cli-guard:
+    name: Nansen Overlay (no-CLI guard)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # The adapter shelled out to the `nansen` CLI through two rounds of
+      # review before being ported to direct HTTPS. This guard is the lock on
+      # that regression. The skill's 109 tests run in the `skill-tests` job.
+      - name: Assert no subprocess/CLI path
+        run: |
+          if grep -rnE '\b(subprocess|Popen|check_output|os\.system|shutil\.which)\b' \
+               skills/nansen-copytrader-overlay --include='*.py'; then
+            echo "::error::subprocess/CLI path reintroduced - this skill must use direct HTTPS only"
+            exit 1
+          fi
+          echo "OK: no subprocess path"
+
   skill-governance:
     runs-on: ubuntu-latest
     timeout-minutes: 5
