@@ -100,6 +100,27 @@ def _cmd_insider_scan(args):
     print(json.dumps([s.as_dict() for s in signals], indent=2))
 
 
+def _positive_int(raw: str) -> int:
+    """argparse type for the credit caps: reject 0 and negatives at parse time.
+
+    Both caps spend the user's own Nansen credits, and both fail badly on a
+    nonpositive value (--max-calls 0 trips the guard on the first request;
+    --max-wallets 0 skips the cap and enriches everything). The library layer
+    raises ValueError for programmatic callers; this turns the CLI case into a
+    normal usage error instead of a traceback.
+    """
+    try:
+        value = int(raw)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"expected an integer, got {raw!r}")
+    if value < 1:
+        raise argparse.ArgumentTypeError(
+            f"must be >= 1, got {value} (this is a credit cap; 0 and negative "
+            "values would spend more credits, not fewer)"
+        )
+    return value
+
+
 def main():
     parser = argparse.ArgumentParser(
         prog="nansen_skill_cli",
@@ -121,10 +142,10 @@ def main():
     overlay.add_argument("--top-n", type=int, default=None)
     # Defaults come from the constants themselves so the help text can never
     # drift from the actual value again.
-    overlay.add_argument("--max-wallets", type=int, default=DEFAULT_MAX_WALLETS,
+    overlay.add_argument("--max-wallets", type=_positive_int, default=DEFAULT_MAX_WALLETS,
                           help="Hard cap on leaders enriched this run "
                                f"(credit guard, default {DEFAULT_MAX_WALLETS})")
-    overlay.add_argument("--max-calls", type=int, default=DEFAULT_MAX_CALLS_PER_RUN,
+    overlay.add_argument("--max-calls", type=_positive_int, default=DEFAULT_MAX_CALLS_PER_RUN,
                           help="Hard cap on Nansen calls this run "
                                f"(credit guard, default {DEFAULT_MAX_CALLS_PER_RUN})")
     overlay.add_argument("--live", action="store_true",
@@ -138,7 +159,7 @@ def main():
     )
     insider.add_argument("--market-id", nargs="*", default=None,
                           help="Market IDs to scan (default: auto-discover top markets)")
-    insider.add_argument("--top-markets", type=int, default=10)
+    insider.add_argument("--top-markets", type=_positive_int, default=10)
     insider.add_argument("--live", action="store_true",
                           help="NOT SUPPORTED YET — prints why and exits nonzero")
     insider.set_defaults(func=_cmd_insider_scan)

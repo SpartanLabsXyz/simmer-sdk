@@ -221,3 +221,16 @@ def test_wc_enrich_leaders_legacy_missing_proxy_address():
     result = wc.enrich_leaders(leaders, dry_run=True)
 
     assert "MISSING_PROXY_ADDRESS" in result[0]["reason_tags"]
+
+
+# --- max_wallets cap validation (simmer-sdk#306) --------------------------
+#
+# Same bug as the general overlay, in the World Cup variant. Greptile only
+# flagged the general one; this file carried the identical
+# `if max_wallets and ...` falsy-zero cap bypass.
+
+@pytest.mark.parametrize("bad", [0, -1, -30])
+def test_enrich_leaders_rejects_nonpositive_max_wallets(bad):
+    leaders = [{"proxy_address": f"0x{i:040x}", "wallet_score": 0.5} for i in range(6)]
+    with pytest.raises(ValueError, match="max_wallets must be >= 1"):
+        wc.enrich_leaders(leaders, market_id="1", max_wallets=bad)

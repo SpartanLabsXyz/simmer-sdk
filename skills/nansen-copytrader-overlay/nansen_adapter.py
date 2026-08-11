@@ -176,6 +176,15 @@ class CreditGuard:
 
     def __init__(self, max_calls: int = DEFAULT_MAX_CALLS_PER_RUN,
                  cache_ttl_s: float = DEFAULT_CACHE_TTL_S):
+        # A nonpositive budget is never what a caller means. It makes the very
+        # first request raise CreditGuardExceeded, which surfaces as a traceback
+        # rather than the tagged CREDIT_GUARD_EXHAUSTED recovery path the
+        # overlays implement. Fail here, where the number came from.
+        if max_calls < 1:
+            raise ValueError(
+                f"max_calls must be >= 1, got {max_calls}. A budget below 1 "
+                "trips the guard on the first call."
+            )
         self.max_calls = max_calls
         self.cache_ttl_s = cache_ttl_s
         self.calls_made = 0

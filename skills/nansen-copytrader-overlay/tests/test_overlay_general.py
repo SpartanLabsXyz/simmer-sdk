@@ -304,3 +304,27 @@ def test_enrich_leaders_top_n():
 
     assert len(result) == 3
     assert result[0]["adjusted_rank"] == 1
+
+
+# --- max_wallets cap validation (Greptile P1, simmer-sdk#306) -------------
+#
+# `if max_wallets and len(leaders) > max_wallets` made 0 falsy, so the cap
+# branch was skipped and EVERY leader got enriched; -1 became a slice bound
+# (ranked[:-1]), enriching all but the last. Both spent MORE of the caller's
+# credits than the number they passed. Reproduced by Greptile against the real
+# enrich_leaders path: 6 leaders + max_wallets=0 -> 6 enrichments, -1 -> 5.
+
+@pytest.mark.parametrize("bad", [0, -1, -30])
+def test_enrich_leaders_rejects_nonpositive_max_wallets(bad):
+    leaders = [{"proxy_address": f"0x{i:040x}", "wallet_score": 0.5} for i in range(6)]
+    with pytest.raises(ValueError, match="max_wallets must be >= 1"):
+        og.enrich_leaders(leaders, market_id="1", max_wallets=bad)
+
+
+def test_enrich_leaders_validates_before_spending_any_credits():
+    """The cap check must run before the first Nansen call, not after."""
+    leaders = [{"proxy_address": f"0x{i:040x}", "wallet_score": 0.5} for i in range(6)]
+    guard = CreditGuard(max_calls=40)
+    with pytest.raises(ValueError):
+        og.enrich_leaders(leaders, market_id="1", max_wallets=0, guard=guard)
+    assert guard.calls_made == 0

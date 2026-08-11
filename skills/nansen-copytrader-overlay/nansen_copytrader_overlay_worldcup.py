@@ -317,12 +317,21 @@ def enrich_leaders(
     if not leaders:
         return []
 
+    # See the same guard in the general overlay: 0 is falsy and skips the cap
+    # branch entirely, a negative value becomes a slice bound. Both enrich MORE
+    # wallets than the caller asked for, on the caller's own credits.
+    if max_wallets < 1:
+        raise ValueError(
+            f"max_wallets must be >= 1, got {max_wallets}. It is a hard credit "
+            "cap; 0 and negative values would enrich more wallets, not fewer."
+        )
+
     if guard is None:
         guard = CreditGuard()
 
     to_enrich = leaders
     skipped: list[dict] = []
-    if max_wallets and len(leaders) > max_wallets:
+    if len(leaders) > max_wallets:
         ranked = sorted(leaders, key=lambda l: float(l.get(base_score_key) or 0.0), reverse=True)
         to_enrich, skipped = ranked[:max_wallets], ranked[max_wallets:]
         logger.warning(

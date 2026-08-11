@@ -512,3 +512,21 @@ def test_pnl_by_market_scrubs_owner_placeholder():
 
     assert rows[0]["owner_address"] == ""
     assert rows[0]["address"] == "0xPROXY"
+
+
+# --- Credit-cap validation (Greptile P1, simmer-sdk#306) ------------------
+#
+# A nonpositive budget is never what a caller means, and both caps spend the
+# user's own Nansen credits. Before this guard, CreditGuard(max_calls=0) tripped
+# on the very first request and surfaced as a traceback rather than the tagged
+# CREDIT_GUARD_EXHAUSTED recovery path.
+
+@pytest.mark.parametrize("bad", [0, -1, -40])
+def test_credit_guard_rejects_nonpositive_budget(bad):
+    with pytest.raises(ValueError, match="max_calls must be >= 1"):
+        na.CreditGuard(max_calls=bad)
+
+
+def test_credit_guard_accepts_a_budget_of_one():
+    guard = na.CreditGuard(max_calls=1)
+    assert guard.max_calls == 1
