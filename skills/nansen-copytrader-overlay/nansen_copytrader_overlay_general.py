@@ -120,6 +120,13 @@ NO_ADJUSTMENT_DISCOUNT = 0.9
 DEFAULT_MAX_WALLETS = 30       # hard cap on leaders enriched per call
 DEFAULT_MARKET_LEADERBOARD_LIMIT = 100
 
+# ROI computed on a cost basis below this is treated as no cost basis at all.
+# min(1, roi/2) caps at 1.0, so a $1-cost wallet with $50 of PnL would score
+# the theoretical maximum — above every wallet with real capital at risk (max
+# observed real-cost score: 0.49). Degenerate evidence must not beat solid
+# evidence. $10 is deliberately low: it only has to exclude dust.
+MIN_COST_BASIS_USD = 10.0
+
 
 @dataclass
 class LeaderEnrichment:
@@ -239,16 +246,28 @@ def _compute_market_score(row: dict, rank: Optional[int], leaderboard_size: int)
     """
     tags: list[str] = []
     total_pnl = row.get("total_pnl_usd", 0.0)
-    roi = compute_roi(row.get("net_buy_cost_usd", 0.0), total_pnl)
+    cost = row.get("net_buy_cost_usd", 0.0) or 0.0
+    roi = compute_roi(cost, total_pnl)
 
     tags.append("MARKET_PROFITABLE" if total_pnl > 0 else "MARKET_UNPROFITABLE")
 
-    if roi is not None:
+    if roi is not None and cost >= MIN_COST_BASIS_USD:
         score = min(1.0, max(0.0, roi / 2.0))
     else:
-        # No cost basis to compute ROI (e.g. a fully airdropped/gifted
-        # position) — fall back to a coarse profit/loss signal.
-        score = 0.6 if total_pnl > 0 else 0.0
+        # No usable cost basis — either none at all (airdropped/gifted position)
+        # or dust below MIN_COST_BASIS_USD, where min(1, roi/2) would let a $1
+        # position score the theoretical maximum.
+        #
+        # The ROI component contributes ZERO here, not a flat stand-in. The old
+        # fallback of 0.6 sat ~6x above the typical measured ROI score (~0.09,
+        # max observed 0.49), so a wallet whose efficiency we could not compute
+        # outranked every wallet whose efficiency we measured — observed live
+        # 2026-08-12 as a 0-history wallet at adjusted_rank 1. Missing evidence
+        # must never score above the floor of measured evidence. The wallet
+        # keeps its profit/loss tag and stays eligible for the leaderboard-rank
+        # bonus below, because realised PnL rank is real evidence.
+        score = 0.0
+        tags.append("NO_COST_BASIS" if roi is None else "DUST_COST_BASIS")
 
     if rank is not None and leaderboard_size > 0:
         if (rank + 1) / leaderboard_size <= 0.2:

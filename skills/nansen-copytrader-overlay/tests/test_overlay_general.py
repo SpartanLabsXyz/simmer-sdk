@@ -117,11 +117,56 @@ def test_market_score_unprofitable():
     assert "MARKET_TOP_PNL" not in tags
 
 
-def test_market_score_no_cost_basis_but_profitable():
+def test_market_score_no_cost_basis_contributes_zero_roi_signal():
+    """
+    REGRESSION (observed live 2026-08-12): the old fallback scored an
+    uncomputable ROI at a flat 0.6 — ~6x the typical measured ROI score
+    (~0.09, max observed 0.49) — so a wallet with zero history and no cost
+    basis took adjusted_rank 1, above wallets with 45 resolved markets.
+    Missing evidence must never score above the floor of measured evidence.
+    """
     row = {"total_pnl_usd": 50.0, "net_buy_cost_usd": 0.0}
     score, tags = og._compute_market_score(row, rank=None, leaderboard_size=0)
-    assert score == 0.6
+    assert score == 0.0
     assert "MARKET_PROFITABLE" in tags
+    assert "NO_COST_BASIS" in tags
+
+
+def test_market_score_no_cost_basis_never_beats_measured_roi():
+    """The wallet the overlay knows least about must not outrank a measured one."""
+    unknown = {"total_pnl_usd": 5_000.0, "net_buy_cost_usd": 0.0}
+    measured = {"total_pnl_usd": 8.0, "net_buy_cost_usd": 400.0}  # ROI = 2% — mediocre
+    s_unknown, _ = og._compute_market_score(unknown, rank=0, leaderboard_size=10)
+    s_measured, _ = og._compute_market_score(measured, rank=0, leaderboard_size=10)
+    assert s_unknown <= s_measured
+
+
+def test_market_score_dust_cost_basis_cannot_hit_the_cap():
+    """
+    min(1, roi/2) caps at 1.0, so a $1-cost wallet with $50 PnL (ROI 50x) would
+    score the theoretical maximum while the best real-cost wallet observed
+    scores 0.49. Dust below MIN_COST_BASIS_USD is treated as no cost basis.
+    """
+    dust = {"total_pnl_usd": 50.0, "net_buy_cost_usd": 1.0}
+    score, tags = og._compute_market_score(dust, rank=None, leaderboard_size=0)
+    assert score == 0.0
+    assert "DUST_COST_BASIS" in tags
+
+
+def test_market_score_min_cost_basis_boundary_is_real_evidence():
+    """At exactly MIN_COST_BASIS_USD the ROI is measured and scores normally."""
+    row = {"total_pnl_usd": og.MIN_COST_BASIS_USD, "net_buy_cost_usd": og.MIN_COST_BASIS_USD}
+    score, tags = og._compute_market_score(row, rank=None, leaderboard_size=0)  # ROI = 1.0
+    assert score == 0.5
+    assert "NO_COST_BASIS" not in tags and "DUST_COST_BASIS" not in tags
+
+
+def test_market_score_rank_bonus_still_applies_without_cost_basis():
+    """Leaderboard rank is real evidence and survives the missing-ROI floor."""
+    row = {"total_pnl_usd": 50.0, "net_buy_cost_usd": 0.0}
+    score, tags = og._compute_market_score(row, rank=0, leaderboard_size=10)
+    assert score == 0.15
+    assert "MARKET_TOP_PNL" in tags
 
 
 # ---------------------------------------------------------------------------

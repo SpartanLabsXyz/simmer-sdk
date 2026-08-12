@@ -7,7 +7,7 @@ tags:
   - nansen
 metadata:
   author: Simmer (@simmer_markets)
-  version: "0.2.1"
+  version: "0.2.2"
   displayName: Nansen Copytrader Overlay
   difficulty: intermediate
   simmer:
@@ -149,7 +149,16 @@ owner, which is treated as absent.
 | `owner_address` (optional) | General on-chain wallet quality | `historical-balances` |
 
 A leader missing `proxy_address` is tagged `MISSING_PROXY_ADDRESS` and
-skipped (kept at its original score, discounted). Missing `owner_address`
+skipped (kept at its original score, discounted).
+
+A leader whose market position has **no usable cost basis** — none at all
+(airdropped/gifted) or dust under \$10 — is tagged `NO_COST_BASIS` /
+`DUST_COST_BASIS` and its ROI component contributes **zero** rather than a
+flat stand-in. It keeps its profit/loss tag and stays eligible for the
+leaderboard-rank bonus (realised PnL rank is real evidence). Rationale: the
+typical *measured* ROI score is ~0.09, so any generous default for an
+uncomputable ROI would rank the wallets we know least about above the ones we
+measured. Missing `owner_address`
 is tagged `MISSING_OWNER_ADDRESS` for the record but does **not** gate the
 secondary signal — every call in that path is proxy-keyed.
 
