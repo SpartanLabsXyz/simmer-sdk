@@ -267,6 +267,78 @@ def test_enrich_leaders_max_wallets_caps_enrichment():
     assert len(capped) == 3
 
 
+def test_unmeasured_leaders_never_outrank_measured_ones():
+    """
+    REGRESSION (observed live 2026-08-12): an unmeasured leader keeps
+    base*NO_ADJUSTMENT_DISCOUNT (0.9) while a measured one gets
+    0.5*base + 0.5*quality, which only exceeds 0.9 when quality > 0.8. Ranking
+    them on score alone therefore promoted wallets we could not evaluate above
+    nearly every wallet we did — with 100 leaders and max_wallets=8, the 8
+    enriched landed at ranks 25-38 while unmeasured wallets took ranks 1-4.
+
+    Absence of evidence must not outrank evidence.
+    """
+    market_rows = [market_row(f"0xW{i}", 100.0, 50.0) for i in range(6)]
+    # Unmeasured leaders carry the HIGHEST base scores, so a score-only sort
+    # would put them on top.
+    leaders = [{"proxy_address": f"0xW{i}", "owner_address": f"0xO{i}",
+                "wallet_score": 1.0 - i * 0.1} for i in range(6)]
+
+    with patch("nansen_copytrader_overlay_general.pnl_by_market", return_value=market_rows), \
+         patch("nansen_copytrader_overlay_general.address_summary",
+               return_value=summary(resolved_count=1)), \
+         patch("time.sleep"):
+        result = og.enrich_leaders(leaders, market_id="42", dry_run=True, max_wallets=2)
+
+    measured = [r for r in result if r["nansen_measured"]]
+    unmeasured = [r for r in result if not r["nansen_measured"]]
+    assert measured and unmeasured, "test needs both blocks present"
+
+    worst_measured_rank = max(r["adjusted_rank"] for r in measured)
+    best_unmeasured_rank = min(r["adjusted_rank"] for r in unmeasured)
+    assert worst_measured_rank < best_unmeasured_rank, (
+        f"an unmeasured leader ranked {best_unmeasured_rank}, above a measured "
+        f"one at {worst_measured_rank}"
+    )
+
+
+def test_fully_enriched_ranking_is_unchanged_by_the_block_sort():
+    """The intended path — every leader measured — must order purely on score."""
+    market_rows = [market_row(f"0xW{i}", 100.0, 50.0) for i in range(3)]
+    leaders = [{"proxy_address": f"0xW{i}", "owner_address": f"0xO{i}",
+                "wallet_score": 0.3 * (i + 1)} for i in range(3)]
+
+    with patch("nansen_copytrader_overlay_general.pnl_by_market", return_value=market_rows), \
+         patch("nansen_copytrader_overlay_general.address_summary",
+               return_value=summary(resolved_count=1)), \
+         patch("time.sleep"):
+        result = og.enrich_leaders(leaders, market_id="42", dry_run=True)
+
+    assert all(r["nansen_measured"] for r in result)
+    scores = [r["adjusted_score"] for r in result]
+    assert scores == sorted(scores, reverse=True)
+    assert [r["adjusted_rank"] for r in result] == list(range(1, len(result) + 1))
+
+
+def test_top_n_prefers_measured_leaders():
+    """top_n truncation must not hand back wallets we never evaluated."""
+    market_rows = [market_row(f"0xW{i}", 100.0, 50.0) for i in range(6)]
+    leaders = [{"proxy_address": f"0xW{i}", "owner_address": f"0xO{i}",
+                "wallet_score": 1.0 - i * 0.1} for i in range(6)]
+
+    with patch("nansen_copytrader_overlay_general.pnl_by_market", return_value=market_rows), \
+         patch("nansen_copytrader_overlay_general.address_summary",
+               return_value=summary(resolved_count=1)), \
+         patch("time.sleep"):
+        result = og.enrich_leaders(leaders, market_id="42", dry_run=True,
+                                   max_wallets=2, top_n=2)
+
+    assert len(result) == 2
+    assert all(r["nansen_measured"] for r in result), (
+        "top_n returned an unmeasured leader while measured ones existed"
+    )
+
+
 def test_enrich_leaders_credit_guard_exhaustion_keeps_remaining_at_original_score():
     market_rows = [market_row(f"0xW{i}", 100.0, 50.0) for i in range(3)]
     leaders = [{"proxy_address": f"0xW{i}", "owner_address": f"0xO{i}", "wallet_score": 0.5}

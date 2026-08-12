@@ -109,6 +109,12 @@ MAX_CONCENTRATION = 0.70  # concentration above this gets max penalty
 # or the market fetch itself failed) — in each case we don't have a real
 # signal to blend, so the leader's original score should barely move rather
 # than take a ~50% haircut.
+#
+# This score is NOT comparable with a blended one, and must never be ranked
+# against it — see _blend_and_rank. For base=1.0 it yields 0.9, while a measured
+# leader yields 0.5 + 0.5*quality, which only exceeds 0.9 when quality > 0.8.
+# Ranking the two together therefore promotes every wallet we could not measure
+# above almost every wallet we did.
 NO_ADJUSTMENT_DISCOUNT = 0.9
 
 DEFAULT_MAX_WALLETS = 30       # hard cap on leaders enriched per call
@@ -401,14 +407,16 @@ def _blend_and_rank(
     output = []
     for leader, enrichment in enriched_pairs:
         base = float(leader.get(base_score_key) or 0.0)
+        measured = _has_usable_signal(enrichment)
 
-        if _has_usable_signal(enrichment):
+        if measured:
             adjusted = 0.5 * base + 0.5 * enrichment.quality_score
         else:
             adjusted = base * NO_ADJUSTMENT_DISCOUNT
 
         output.append({
             **leader,
+            "nansen_measured": measured,
             "nansen_features": {
                 "market_score": enrichment.market_score,
                 "market_total_pnl_usd": enrichment.market_total_pnl_usd,
@@ -428,7 +436,20 @@ def _blend_and_rank(
             "dry_run": dry_run,
         })
 
-    output.sort(key=lambda x: x["adjusted_score"], reverse=True)
+    # Measured leaders rank as one block, ABOVE every unmeasured one.
+    #
+    # The two scores are not on the same scale: an unmeasured leader keeps
+    # base*0.9, a measured one gets 0.5*base + 0.5*quality, and the latter only
+    # wins when quality > 0.8. Sorting them together therefore promotes wallets
+    # we could not evaluate above nearly every wallet we did — the opposite of
+    # what this overlay is for. Observed live 2026-08-12: with 100 leaders and
+    # max_wallets=8, the 8 enriched landed at ranks 25-38 while unmeasured
+    # wallets took ranks 1-4.
+    #
+    # Absence of evidence must not outrank evidence. Within each block the
+    # ordering is unchanged, so a fully-enriched call (the intended use) behaves
+    # exactly as before.
+    output.sort(key=lambda x: (x["nansen_measured"], x["adjusted_score"]), reverse=True)
     for i, item in enumerate(output):
         item["adjusted_rank"] = i + 1
 

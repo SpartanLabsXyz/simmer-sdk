@@ -7,7 +7,7 @@ tags:
   - nansen
 metadata:
   author: Simmer (@simmer_markets)
-  version: "0.2.0"
+  version: "0.2.1"
   displayName: Nansen Copytrader Overlay
   difficulty: intermediate
   simmer:
@@ -153,6 +153,22 @@ skipped (kept at its original score, discounted). Missing `owner_address`
 is tagged `MISSING_OWNER_ADDRESS` for the record but does **not** gate the
 secondary signal — every call in that path is proxy-keyed.
 
+## Measured leaders always rank above unmeasured ones
+
+Each returned leader carries `nansen_measured`. Leaders with a usable Nansen
+signal are ranked as one block **above** every leader without one; within each
+block the order is by `adjusted_score`.
+
+This matters whenever your leader list is longer than `max_wallets`, or when
+some lookups fail. The two scores are not on the same scale — an unmeasured
+leader keeps `base * 0.9`, a measured one gets `0.5*base + 0.5*quality`, which
+only exceeds `0.9` when quality is above `0.8`. Ranking them together would
+promote wallets the overlay could not evaluate above nearly every wallet it
+did, which is the opposite of the point.
+
+If every leader is measured (the intended use), ranking is purely by
+`adjusted_score` and this rule changes nothing.
+
 ## Credit guards (hard, not advisory)
 
 Nansen bills per call against **your** key, so every enrichment run is
@@ -160,7 +176,8 @@ protected by:
 
 - **`max_wallets`** (default 30): leaders beyond the cap are never
   enriched — they keep their original score, tagged
-  `CREDIT_GUARD_MAX_WALLETS`.
+  `CREDIT_GUARD_MAX_WALLETS`, and are **ranked below every leader that was
+  measured** (see below).
 - **`CreditGuard(max_credits=...)`** (default 45): a hard ceiling on the
   **credits** spent across the whole run, with a 5-minute TTL cache so
   re-fetching the same market/wallet doesn't double-spend. It charges the real
