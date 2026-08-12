@@ -1,5 +1,7 @@
 import importlib.util
 import sys
+import time
+import types
 from pathlib import Path
 
 import pytest
@@ -51,20 +53,24 @@ def test_check_package_outcomes(repo_version: str, published_version: str, expec
     assert check_publish_lag.check_package("simmer-mcp", repo_version, published_version) is expected
 
 
+def make_args(**kwargs):
+    defaults = {
+        "root": None,
+        "npm_published_version": None,
+        "pypi_published_version": None,
+        "retry_npm": False,
+        "retry_pypi": False,
+    }
+    defaults.update(kwargs)
+    return type("Args", (), defaults)()
+
+
 def test_main_fails_when_either_registry_lags(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     write_package_files(tmp_path, npm_version="3.4.10", pypi_version="0.20.0")
     monkeypatch.setattr(
         check_publish_lag,
         "parse_args",
-        lambda: type(
-            "Args",
-            (),
-            {
-                "root": tmp_path,
-                "npm_published_version": "3.4.9",
-                "pypi_published_version": "0.20.0",
-            },
-        )(),
+        lambda: make_args(root=tmp_path, npm_published_version="3.4.9", pypi_published_version="0.20.0"),
     )
 
     assert check_publish_lag.main() == 1
@@ -77,15 +83,89 @@ def test_main_passes_when_repo_matches_or_is_behind(
     monkeypatch.setattr(
         check_publish_lag,
         "parse_args",
-        lambda: type(
-            "Args",
-            (),
-            {
-                "root": tmp_path,
-                "npm_published_version": "3.4.4",
-                "pypi_published_version": "0.20.1",
-            },
-        )(),
+        lambda: make_args(root=tmp_path, npm_published_version="3.4.4", pypi_published_version="0.20.1"),
     )
 
     assert check_publish_lag.main() == 0
+
+
+def test_retry_succeeds_once_registry_propagates(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Retry loop should pass once the registry returns the expected version."""
+    write_package_files(tmp_path, npm_version="3.4.10", pypi_version="0.20.0")
+
+    call_count = 0
+
+    def fake_fetch_npm(pkg):
+        nonlocal call_count
+        call_count += 1
+        return "3.4.10" if call_count >= 2 else "3.4.9"
+
+    monkeypatch.setattr(check_publish_lag, "fetch_npm_latest", fake_fetch_npm)
+    monkeypatch.setattr(check_publish_lag, "fetch_pypi_latest", lambda pkg: "0.20.0")
+    monkeypatch.setattr(
+        check_publish_lag,
+        "time",
+        types.SimpleNamespace(monotonic=time.monotonic, sleep=lambda s: None),
+    )
+    monkeypatch.setattr(
+        check_publish_lag,
+        "parse_args",
+        lambda: make_args(root=tmp_path, retry_npm=True, retry_pypi=False),
+    )
+
+    assert check_publish_lag.main() == 0
+    assert call_count == 2
+
+
+def test_retry_fails_after_timeout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Retry loop should give up and fail if registry never propagates within deadline."""
+    write_package_files(tmp_path, npm_version="3.4.10", pypi_version="0.20.0")
+
+    # Make time.monotonic() advance past the deadline on the second call.
+    start = time.monotonic()
+    tick = 0
+
+    def fake_monotonic():
+        nonlocal tick
+        tick += 1
+        # First call: sets deadline. Subsequent calls: already past deadline.
+        return start if tick == 1 else start + check_publish_lag.RETRY_MAX_SECS + 1
+
+    monkeypatch.setattr(check_publish_lag, "fetch_npm_latest", lambda pkg: "3.4.9")
+    monkeypatch.setattr(check_publish_lag, "fetch_pypi_latest", lambda pkg: "0.20.0")
+    monkeypatch.setattr(
+        check_publish_lag,
+        "time",
+        types.SimpleNamespace(monotonic=fake_monotonic, sleep=lambda s: None),
+    )
+    monkeypatch.setattr(
+        check_publish_lag,
+        "parse_args",
+        lambda: make_args(root=tmp_path, retry_npm=True, retry_pypi=False),
+    )
+
+    assert check_publish_lag.main() == 1
+
+
+def test_no_retry_reads_once(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Without retry flag, registry is read exactly once regardless of result."""
+    write_package_files(tmp_path, npm_version="3.4.10", pypi_version="0.20.0")
+
+    fetch_count = 0
+
+    def fake_fetch_npm(pkg):
+        nonlocal fetch_count
+        fetch_count += 1
+        return "3.4.9"  # stale — would need retry to pass
+
+    monkeypatch.setattr(check_publish_lag, "fetch_npm_latest", fake_fetch_npm)
+    monkeypatch.setattr(check_publish_lag, "fetch_pypi_latest", lambda pkg: "0.20.0")
+    monkeypatch.setattr(
+        check_publish_lag,
+        "parse_args",
+        lambda: make_args(root=tmp_path, retry_npm=False, retry_pypi=False),
+    )
+
+    result = check_publish_lag.main()
+    assert fetch_count == 1
+    assert result == 1
