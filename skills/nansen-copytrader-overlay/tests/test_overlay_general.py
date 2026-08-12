@@ -272,7 +272,7 @@ def test_enrich_leaders_credit_guard_exhaustion_keeps_remaining_at_original_scor
     leaders = [{"proxy_address": f"0xW{i}", "owner_address": f"0xO{i}", "wallet_score": 0.5}
                for i in range(3)]
 
-    guard = CreditGuard(max_calls=1)  # exhausted after the single pnl_by_market call
+    guard = CreditGuard(max_credits=5)  # one pnl_by_market call (5 credits) exhausts the budget
 
     with patch("nansen_copytrader_overlay_general.pnl_by_market", return_value=market_rows), \
          patch("nansen_copytrader_overlay_general.address_summary",
@@ -324,7 +324,7 @@ def test_enrich_leaders_rejects_nonpositive_max_wallets(bad):
 def test_enrich_leaders_validates_before_spending_any_credits():
     """The cap check must run before the first Nansen call, not after."""
     leaders = [{"proxy_address": f"0x{i:040x}", "wallet_score": 0.5} for i in range(6)]
-    guard = CreditGuard(max_calls=40)
+    guard = CreditGuard(max_credits=40)
     with pytest.raises(ValueError):
         og.enrich_leaders(leaders, market_id="1", max_wallets=0, guard=guard)
-    assert guard.calls_made == 0
+    assert guard.credits_spent == 0

@@ -359,8 +359,8 @@ def enrich_leaders(
                 except CreditGuardExceeded:
                     guard_exhausted = True
                     logger.warning(
-                        "Credit guard exhausted (max_calls=%d) mid-run — remaining "
-                        "leaders keep their original score", guard.max_calls,
+                        "Credit guard exhausted (max_credits=%d) mid-run — remaining "
+                        "leaders keep their original score", guard.max_credits,
                     )
                     enrichment = WCLeaderEnrichment(
                         address=proxy or leader.get("wallet_address", ""),
@@ -382,8 +382,8 @@ def enrich_leaders(
                 except CreditGuardExceeded:
                     guard_exhausted = True
                     logger.warning(
-                        "Credit guard exhausted (max_calls=%d) mid-run — remaining "
-                        "leaders keep their original score", guard.max_calls,
+                        "Credit guard exhausted (max_credits=%d) mid-run — remaining "
+                        "leaders keep their original score", guard.max_credits,
                     )
                     enrichment = WCLeaderEnrichment(
                         address=proxy or leader.get("wallet_address", ""),

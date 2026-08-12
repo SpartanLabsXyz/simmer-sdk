@@ -314,12 +314,12 @@ def test_account_is_a_free_get_and_takes_no_guard():
 # ---------------------------------------------------------------------------
 
 def test_credit_guard_raises_when_budget_exhausted():
-    guard = na.CreditGuard(max_calls=1)
+    guard = na.CreditGuard(max_credits=1)
 
     with _mock_http({"data": [{"a": 1}]}):
-        na._post("prediction-market/pnl-by-market", {"market_id": "1"}, guard=guard)
+        na._post("prediction-market/address-summary", {"address": "0x1"}, guard=guard)
         with pytest.raises(na.CreditGuardExceeded):
-            na._post("prediction-market/pnl-by-market", {"market_id": "2"}, guard=guard)
+            na._post("prediction-market/address-summary", {"address": "0x2"}, guard=guard)
 
 
 def test_credit_guard_exceeded_is_a_nansen_error():
@@ -327,11 +327,11 @@ def test_credit_guard_exceeded_is_a_nansen_error():
 
 
 def test_credit_guard_cache_hit_does_not_consume_budget():
-    guard = na.CreditGuard(max_calls=1)
+    guard = na.CreditGuard(max_credits=1)
 
     with _mock_http({"data": [{"a": 1}]}) as mock_open:
-        first = na._post("prediction-market/pnl-by-market", {"market_id": "1"}, guard=guard)
-        second = na._post("prediction-market/pnl-by-market", {"market_id": "1"}, guard=guard)
+        first = na._post("prediction-market/address-summary", {"address": "0x1"}, guard=guard)
+        second = na._post("prediction-market/address-summary", {"address": "0x1"}, guard=guard)
 
     assert first == second == {"data": [{"a": 1}]}
     assert mock_open.call_count == 1  # only one real HTTP call
@@ -339,22 +339,22 @@ def test_credit_guard_cache_hit_does_not_consume_budget():
 
 def test_credit_guard_cache_key_includes_body():
     """Same path, different body must not collide in the cache."""
-    guard = na.CreditGuard(max_calls=5)
+    guard = na.CreditGuard(max_credits=10)
 
     with _mock_http({"data": []}) as mock_open:
-        na._post("prediction-market/pnl-by-market", {"market_id": "1"}, guard=guard)
-        na._post("prediction-market/pnl-by-market", {"market_id": "2"}, guard=guard)
+        na._post("prediction-market/address-summary", {"address": "0x1"}, guard=guard)
+        na._post("prediction-market/address-summary", {"address": "0x2"}, guard=guard)
 
     assert mock_open.call_count == 2
-    assert guard.calls_made == 2
+    assert guard.credits_spent == 2
 
 
 def test_credit_guard_cache_expires_after_ttl():
-    guard = na.CreditGuard(max_calls=5, cache_ttl_s=0.0)  # expire immediately
+    guard = na.CreditGuard(max_credits=10, cache_ttl_s=0.0)  # expire immediately
 
     with _mock_http({"data": [{"a": 1}]}) as mock_open:
-        na._post("prediction-market/pnl-by-market", {"market_id": "1"}, guard=guard)
-        na._post("prediction-market/pnl-by-market", {"market_id": "1"}, guard=guard)
+        na._post("prediction-market/address-summary", {"address": "0x1"}, guard=guard)
+        na._post("prediction-market/address-summary", {"address": "0x1"}, guard=guard)
 
     assert mock_open.call_count == 2
 
@@ -366,6 +366,45 @@ def test_credit_guard_no_guard_means_unbounded_default():
         na._post("prediction-market/pnl-by-market", {"market_id": "1"})
 
     assert mock_open.call_count == 2  # no cache without a guard
+
+
+def test_credit_guard_pnl_by_market_costs_five_credits():
+    """pnl-by-market is 5 credits/call (measured live 2026-08-11)."""
+    guard = na.CreditGuard(max_credits=10)
+
+    with _mock_http({"data": []}):
+        na.pnl_by_market("1", guard=guard)
+
+    assert guard.credits_spent == na.CREDITS_PNL_BY_MARKET  # 5
+
+
+def test_credit_guard_top_holders_costs_five_credits():
+    """top-holders is 5 credits/call (measured live 2026-08-11)."""
+    guard = na.CreditGuard(max_credits=10)
+
+    with _mock_http({"data": []}):
+        na.top_holders("1", guard=guard)
+
+    assert guard.credits_spent == na.CREDITS_TOP_HOLDERS  # 5
+
+
+def test_credit_guard_address_summary_costs_one_credit():
+    """Single-credit endpoints leave credits_spent == 1."""
+    guard = na.CreditGuard(max_credits=5)
+
+    with _mock_http({"data": []}):
+        na.address_summary("0x1", guard=guard)
+
+    assert guard.credits_spent == na.CREDITS_DEFAULT  # 1
+
+
+def test_credit_guard_pnl_by_market_exceeds_small_budget():
+    """A 4-credit budget is enough for four 1-credit calls but not one pnl-by-market."""
+    guard = na.CreditGuard(max_credits=4)
+
+    with _mock_http({"data": []}):
+        with pytest.raises(na.CreditGuardExceeded):
+            na.pnl_by_market("1", guard=guard)
 
 
 # ---------------------------------------------------------------------------
@@ -517,16 +556,16 @@ def test_pnl_by_market_scrubs_owner_placeholder():
 # --- Credit-cap validation (Greptile P1, simmer-sdk#306) ------------------
 #
 # A nonpositive budget is never what a caller means, and both caps spend the
-# user's own Nansen credits. Before this guard, CreditGuard(max_calls=0) tripped
+# user's own Nansen credits. Before this guard, CreditGuard(max_credits=0) tripped
 # on the very first request and surfaced as a traceback rather than the tagged
 # CREDIT_GUARD_EXHAUSTED recovery path.
 
 @pytest.mark.parametrize("bad", [0, -1, -40])
 def test_credit_guard_rejects_nonpositive_budget(bad):
-    with pytest.raises(ValueError, match="max_calls must be >= 1"):
-        na.CreditGuard(max_calls=bad)
+    with pytest.raises(ValueError, match="max_credits must be >= 1"):
+        na.CreditGuard(max_credits=bad)
 
 
 def test_credit_guard_accepts_a_budget_of_one():
-    guard = na.CreditGuard(max_calls=1)
-    assert guard.max_calls == 1
+    guard = na.CreditGuard(max_credits=1)
+    assert guard.max_credits == 1

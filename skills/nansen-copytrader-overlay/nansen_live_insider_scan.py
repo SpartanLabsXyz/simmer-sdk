@@ -494,9 +494,9 @@ def scan_live_markets(
             )
         except CreditGuardExceeded:
             logger.warning(
-                "Credit guard exhausted (max_calls=%d) after %d market(s) — "
+                "Credit guard exhausted (max_credits=%d) after %d market(s) — "
                 "stopping scan early, returning signals found so far",
-                guard.max_calls, i,
+                guard.max_credits, i,
             )
             break
         all_signals.extend(signals)

@@ -35,7 +35,7 @@ leaders.json shape:
     `address` is accepted as a legacy alias for proxy_address only.
 
 This is a bring-your-own-key skill: every call spends the user's own Nansen
-credits, so the --max-wallets/--max-calls defaults are deliberately
+credits, so the --max-wallets/--max-credits defaults are deliberately
 conservative. Raise them explicitly if you want a wider sweep.
 """
 
@@ -43,7 +43,7 @@ import argparse
 import json
 import sys
 
-from nansen_adapter import DEFAULT_MAX_CALLS_PER_RUN
+from nansen_adapter import DEFAULT_MAX_CREDITS_PER_RUN
 from nansen_copytrader_overlay_general import DEFAULT_MAX_WALLETS
 
 
@@ -57,7 +57,7 @@ def _cmd_copytrader_overlay(args):
         from nansen_copytrader_overlay_general import enrich_leaders
 
     from nansen_adapter import CreditGuard
-    guard = CreditGuard(max_calls=args.max_calls)
+    guard = CreditGuard(max_credits=args.max_credits)
 
     result = enrich_leaders(
         leaders,
@@ -69,7 +69,7 @@ def _cmd_copytrader_overlay(args):
     )
     print(json.dumps(result, indent=2))
     print(
-        f"[credits] {guard.calls_made}/{guard.max_calls} Nansen calls used this run",
+        f"[credits] {guard.credits_spent}/{guard.max_credits} Nansen credits used this run",
         file=sys.stderr,
     )
 
@@ -145,9 +145,9 @@ def main():
     overlay.add_argument("--max-wallets", type=_positive_int, default=DEFAULT_MAX_WALLETS,
                           help="Hard cap on leaders enriched this run "
                                f"(credit guard, default {DEFAULT_MAX_WALLETS})")
-    overlay.add_argument("--max-calls", type=_positive_int, default=DEFAULT_MAX_CALLS_PER_RUN,
-                          help="Hard cap on Nansen calls this run "
-                               f"(credit guard, default {DEFAULT_MAX_CALLS_PER_RUN})")
+    overlay.add_argument("--max-credits", type=_positive_int, default=DEFAULT_MAX_CREDITS_PER_RUN,
+                          help="Hard cap on Nansen credits spent this run "
+                               f"(credit guard, default {DEFAULT_MAX_CREDITS_PER_RUN})")
     overlay.add_argument("--live", action="store_true",
                           help="Mark output dry_run=False. This CLI never places trades "
                                "itself either way — the caller still owns that gate.")

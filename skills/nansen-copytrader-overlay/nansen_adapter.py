@@ -127,7 +127,7 @@ class NansenRequestError(NansenError):
 
 
 class CreditGuardExceeded(NansenError):
-    """Raised when a CreditGuard's max_calls budget is exhausted mid-run."""
+    """Raised when a CreditGuard's credit budget would be exceeded mid-run."""
     pass
 
 
@@ -155,39 +155,56 @@ def _api_key() -> str:
 
 
 # ---------------------------------------------------------------------------
-# Credit guard — hard cap on live Nansen calls per run, with a TTL cache so
+# Credit guard — hard cap on Nansen credits per run, with a TTL cache so
 # repeated lookups (e.g. the same market_id across several leaders) don't
 # both count against the budget and re-spend credits.
+#
+# Credit costs measured live 2026-08-11:
+#   pnl-by-market     5 credits   (Nansen docs say 1 — they are wrong)
+#   top-holders       5 credits
+#   address-summary   1 credit
+#   pnl-by-address    1 credit
+#   trades-by-address 1 credit
+#   market-screener   1 credit
+#   account           0 credits   (free; no guard needed)
 # ---------------------------------------------------------------------------
 
-DEFAULT_MAX_CALLS_PER_RUN = 40
+CREDITS_PNL_BY_MARKET = 5   # measured live 2026-08-11
+CREDITS_TOP_HOLDERS = 5     # measured live 2026-08-11
+CREDITS_DEFAULT = 1         # all other prediction-market endpoints
+
+DEFAULT_MAX_CREDITS_PER_RUN = 45   # ~1 pnl-by-market + ~1 top-holders + 35 single-credit calls
 DEFAULT_CACHE_TTL_S = 300.0  # 5 minutes
 
 
 class CreditGuard:
     """
-    Tracks a hard call budget and a short-lived cache for one enrichment run.
+    Tracks a hard credit budget and a short-lived cache for one enrichment run.
 
     Every module in this repo that calls into `nansen_adapter` should be
     given a CreditGuard instance (or construct a default one) rather than
     calling `_post` unbounded — credits, not rate limits, are the binding
     constraint on this account (see README "Credits" section).
+
+    Endpoints cost different numbers of credits per call (see CREDITS_* constants
+    above). The guard tracks total credits spent, not call count, so the cap
+    means what a user thinks it means.
     """
 
-    def __init__(self, max_calls: int = DEFAULT_MAX_CALLS_PER_RUN,
+    def __init__(self, max_credits: int = DEFAULT_MAX_CREDITS_PER_RUN,
                  cache_ttl_s: float = DEFAULT_CACHE_TTL_S):
         # A nonpositive budget is never what a caller means. It makes the very
         # first request raise CreditGuardExceeded, which surfaces as a traceback
         # rather than the tagged CREDIT_GUARD_EXHAUSTED recovery path the
         # overlays implement. Fail here, where the number came from.
-        if max_calls < 1:
+        if max_credits < 1:
             raise ValueError(
-                f"max_calls must be >= 1, got {max_calls}. A budget below 1 "
+                f"max_credits must be >= 1, got {max_credits}. A budget below 1 "
                 "trips the guard on the first call."
             )
-        self.max_calls = max_calls
+        self.max_credits = max_credits
         self.cache_ttl_s = cache_ttl_s
-        self.calls_made = 0
+        self.credits_spent = 0
         self._cache: dict[tuple, tuple[float, Any]] = {}
 
     def get_cached(self, key: tuple) -> Optional[Any]:
@@ -199,14 +216,14 @@ class CreditGuard:
             return None
         return value
 
-    def consume(self, key: tuple) -> None:
-        """Charge one call against the budget. Raises if the budget is spent."""
-        if self.calls_made >= self.max_calls:
+    def consume(self, key: tuple, cost: int = CREDITS_DEFAULT) -> None:
+        """Charge `cost` credits against the budget. Raises if budget would be exceeded."""
+        if self.credits_spent + cost > self.max_credits:
             raise CreditGuardExceeded(
-                f"credit guard tripped: max_calls={self.max_calls} exhausted "
-                f"(next call was: {key[:3]})"
+                f"credit guard tripped: max_credits={self.max_credits} would be exceeded "
+                f"(spent={self.credits_spent}, next cost={cost}, key={key[:3]})"
             )
-        self.calls_made += 1
+        self.credits_spent += cost
 
     def put_cache(self, key: tuple, value: Any) -> None:
         self._cache[key] = (time.time(), value)
@@ -230,14 +247,15 @@ _STATUS_EXCEPTIONS = {
 
 
 def _post(path: str, body: Optional[dict], retries: int = MAX_RETRIES,
-          guard: Optional[CreditGuard] = None, method: str = "POST") -> Any:
+          guard: Optional[CreditGuard] = None, method: str = "POST",
+          cost: int = CREDITS_DEFAULT) -> Any:
     """
     POST `body` to `NANSEN_API_BASE/path` and return parsed JSON.
 
     If `guard` is given: a cache hit within `guard.cache_ttl_s` short-circuits
-    the call entirely (no credits spent, no budget consumed); otherwise the
-    call is charged against `guard.max_calls` before it runs, raising
-    CreditGuardExceeded if the budget is already spent.
+    the call entirely (no credits spent, no budget consumed); otherwise `cost`
+    credits are charged against `guard.max_credits` before the call runs, raising
+    CreditGuardExceeded if the budget would be exceeded.
 
     Raises the NansenError subclass matching the HTTP status (see module
     docstring). Transient statuses are retried with exponential backoff.
@@ -247,7 +265,7 @@ def _post(path: str, body: Optional[dict], retries: int = MAX_RETRIES,
         cached = guard.get_cached(cache_key)
         if cached is not None:
             return cached
-        guard.consume(cache_key)
+        guard.consume(cache_key, cost)
 
     key = _api_key()
     if not key:
@@ -384,7 +402,7 @@ def pnl_by_market(market_id: str, limit: int = 50,
         "market_id": str(market_id),
         "order_by": _order_by("total_pnl_usd"),
         "pagination": _paginate(limit),
-    }, guard=guard)
+    }, guard=guard, cost=CREDITS_PNL_BY_MARKET)
     return [_normalise_pnl_row(r) for r in _rows(raw)]
 
 
@@ -508,7 +526,7 @@ def top_holders(market_id: str, limit: int = 30,
         "market_id": str(market_id),
         "order_by": _order_by("position_size"),
         "pagination": _paginate(limit),
-    }, guard=guard)
+    }, guard=guard, cost=CREDITS_TOP_HOLDERS)
     return _rows(raw)
 
 
