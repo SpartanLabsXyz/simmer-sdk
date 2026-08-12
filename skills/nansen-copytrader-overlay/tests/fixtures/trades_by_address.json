@@ -1,0 +1,38 @@
+[
+  {
+    "timestamp": "2026-06-01T10:00:00Z",
+    "market_id": "101",
+    "market_question": "Will Brazil win the 2026 World Cup?",
+    "side": "yes",
+    "price": 0.35,
+    "size": 2857.14,
+    "usdc_value": 1000.0,
+    "taker_action": "buy",
+    "buyer": "0xABC123def456",
+    "seller": "0xSELLER1"
+  },
+  {
+    "timestamp": "2026-06-10T12:00:00Z",
+    "market_id": "102",
+    "market_question": "Will France win Group D?",
+    "side": "yes",
+    "price": 0.60,
+    "size": 833.33,
+    "usdc_value": 500.0,
+    "taker_action": "buy",
+    "buyer": "0xABC123def456",
+    "seller": "0xSELLER2"
+  },
+  {
+    "timestamp": "2026-06-15T09:00:00Z",
+    "market_id": "103",
+    "market_question": "Bitcoin above $100k by end of 2026?",
+    "side": "no",
+    "price": 0.55,
+    "size": 363.64,
+    "usdc_value": 200.0,
+    "taker_action": "buy",
+    "buyer": "0xABC123def456",
+    "seller": "0xSELLER3"
+  }
+]

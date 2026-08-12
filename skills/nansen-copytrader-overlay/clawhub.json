@@ -1,0 +1,36 @@
+{
+  "emoji": "🔍",
+  "sensitivity": "standard",
+  "published": false,
+  "publish_reason": "Research tooling. Scoring weights are unfitted and no forward-lift backtest has been run (SKILL.md 'Status'). Do not publish until lift is proven and the co-branding copy is signed off with Nansen.",
+  "primaryEnv": "NANSEN_API_KEY",
+  "requires": {
+    "env": [
+      "NANSEN_API_KEY"
+    ],
+    "pip": []
+  },
+  "envVars": [
+    {
+      "name": "NANSEN_API_KEY",
+      "required": true,
+      "description": "Your own Nansen API key, sent as the `apiKey` header. Sign up at https://nsn.ai/simmer for the Simmer partner discount. A full run costs about 45 credits; Nansen's free tier (100 starter credits + 10/day) covers roughly two runs."
+    },
+    {
+      "name": "NANSEN_USER_AGENT",
+      "required": false,
+      "description": "Override the browser User-Agent sent to Nansen. Cloudflare rejects the default python-urllib UA, so the skill sends a browser UA already. Only set this if that stops working."
+    },
+    {
+      "name": "NANSEN_API_BASE",
+      "required": false,
+      "description": "Override the Nansen API base URL. Defaults to https://api.nansen.ai/api/v1."
+    }
+  ],
+  "cron": null,
+  "autostart": false,
+  "automaton": {
+    "managed": false
+  },
+  "tunables": []
+}
