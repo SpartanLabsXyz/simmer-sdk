@@ -45,6 +45,18 @@ function makeFixtureSkills(tmpDir: string): void {
 
   fs.mkdirSync(path.join(tmpDir, "test-malformed"), { recursive: true });
   fs.writeFileSync(path.join(tmpDir, "test-malformed", "clawhub.json"), "{ this is not valid json");
+
+  // Tier B with explicit read_only: true (e.g. preflight-style health check)
+  fs.mkdirSync(path.join(tmpDir, "test-readonly-skill"), { recursive: true });
+  fs.writeFileSync(
+    path.join(tmpDir, "test-readonly-skill", "clawhub.json"),
+    JSON.stringify({ emoji: "🔍", automaton: { managed: true, entrypoint: "check.py" } })
+  );
+  fs.writeFileSync(
+    path.join(tmpDir, "test-readonly-skill", "SKILL.md"),
+    "---\nname: test-readonly-skill\nread_only: true\ndescription: health check\nmetadata:\n  version: '0.1.0'\n  displayName: 'Test Read-Only'\n---\n# Test"
+  );
+  fs.writeFileSync(path.join(tmpDir, "test-readonly-skill", "check.py"), "");
 }
 
 test("slugToToolName converts kebab to snake with simmer_ prefix", () => {
@@ -74,6 +86,33 @@ test("discoverSkills classifies trading vs instruction tier", () => {
   const unmanaged = skills.find((s) => s.slug === "test-unmanaged");
   assert.ok(unmanaged);
   assert.equal(unmanaged.tier, "instruction");
+
+  fs.rmSync(tmpDir, { recursive: true });
+});
+
+test("discoverSkills derives readOnly: Tier A always true, Tier B from manifest", () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "skill-discovery-test-"));
+  makeFixtureSkills(tmpDir);
+  const skills = discoverSkills(tmpDir);
+
+  // Tier B without read_only in SKILL.md → readOnly:false (conservative default)
+  const trading = skills.find((s) => s.slug === "test-trading-skill");
+  assert.ok(trading);
+  assert.equal(trading.readOnly, false, "Tier B without read_only decl → readOnly:false");
+
+  // Tier A (no entrypoint) → readOnly:true by construction
+  const instruction = skills.find((s) => s.slug === "test-instruction-skill");
+  assert.ok(instruction);
+  assert.equal(instruction.readOnly, true, "Tier A (no entrypoint) → readOnly:true");
+
+  const unmanaged = skills.find((s) => s.slug === "test-unmanaged");
+  assert.ok(unmanaged);
+  assert.equal(unmanaged.readOnly, true, "Tier A (no entrypoint, no managed) → readOnly:true");
+
+  // Tier B with explicit read_only: true in SKILL.md → readOnly:true
+  const readonly = skills.find((s) => s.slug === "test-readonly-skill");
+  assert.ok(readonly);
+  assert.equal(readonly.readOnly, true, "Tier B with read_only:true → readOnly:true");
 
   fs.rmSync(tmpDir, { recursive: true });
 });
