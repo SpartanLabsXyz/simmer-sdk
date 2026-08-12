@@ -623,3 +623,36 @@ def test_preflight_spends_no_credits():
     with _acct(500):
         na.preflight_credits(45)
     assert guard.credits_spent == 0
+
+
+CREDITS_FOR_ONE_PNL_CALL = na.CREDITS_PNL_BY_MARKET
+
+
+# --- Locally-rejected requests must not charge credits (Greptile P1, #307) --
+#
+# guard.consume() used to run BEFORE the API-key check, so a request that never
+# left the machine still burned budget. Not conservative accounting — phantom
+# spend, and it cascades: fix the key, re-run on the same guard, and a genuine
+# request is refused for credits Nansen never billed.
+
+def test_missing_api_key_does_not_charge_the_guard():
+    guard = na.CreditGuard(max_credits=45)
+    with patch.object(na, "_api_key", return_value=""):
+        with pytest.raises(na.NansenAuthError):
+            na.pnl_by_market("123", guard=guard)
+    assert guard.credits_spent == 0
+
+
+def test_budget_survives_a_config_error_and_is_usable_after_the_fix():
+    """The cascade Greptile described: the fixed key must still have budget."""
+    guard = na.CreditGuard(max_credits=CREDITS_FOR_ONE_PNL_CALL)
+    with patch.object(na, "_api_key", return_value=""):
+        for _ in range(5):
+            with pytest.raises(na.NansenAuthError):
+                na.pnl_by_market("123", guard=guard)
+    assert guard.credits_spent == 0
+
+    # Key fixed — the one call the budget was sized for must still go through.
+    with _mock_http({"data": []}):
+        na.pnl_by_market("123", guard=guard)
+    assert guard.credits_spent == CREDITS_FOR_ONE_PNL_CALL

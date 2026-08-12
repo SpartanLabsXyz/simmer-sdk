@@ -265,8 +265,13 @@ def _post(path: str, body: Optional[dict], retries: int = MAX_RETRIES,
         cached = guard.get_cached(cache_key)
         if cached is not None:
             return cached
-        guard.consume(cache_key, cost)
 
+    # Validate the key BEFORE charging the guard. A request rejected locally
+    # never reaches Nansen and so costs the user nothing — charging for it is
+    # phantom spend, not conservative accounting. It also cascades: the budget
+    # burns down on a config error, and once the key is fixed a later genuine
+    # request is refused with CreditGuardExceeded for credits that were never
+    # actually spent. Charge only once we are truly about to send something.
     key = _api_key()
     if not key:
         # Fail loudly here rather than letting the request go out bare and
@@ -276,6 +281,9 @@ def _post(path: str, body: Optional[dict], retries: int = MAX_RETRIES,
             "An unauthenticated request returns a 402 x402 paywall error, "
             "which is an auth bug, not a quota problem."
         )
+
+    if guard is not None:
+        guard.consume(cache_key, cost)
 
     url = f"{NANSEN_API_BASE}/{path.lstrip('/')}"
     payload = json.dumps(body).encode("utf-8") if body is not None else None
