@@ -569,3 +569,57 @@ def test_credit_guard_rejects_nonpositive_budget(bad):
 def test_credit_guard_accepts_a_budget_of_one():
     guard = na.CreditGuard(max_credits=1)
     assert guard.max_credits == 1
+
+
+# --- Preflight balance check (SIM-4486) -----------------------------------
+#
+# BYO-key skill: a run that dies halfway leaves the user having paid for a
+# partial ranking. account() is free, so asking first costs nothing.
+#
+# max_credits is a CAP, not a projection — most runs spend well under it. So a
+# balance below the budget must WARN, not refuse; refusing there would block
+# runs that would have completed fine.
+
+def _acct(remaining, plan="free"):
+    return patch.object(na, "account",
+                        return_value={"plan": plan, "credits_remaining": remaining})
+
+
+def test_preflight_ok_when_balance_covers_the_whole_budget():
+    with _acct(500):
+        assert na.preflight_credits(45)["verdict"] == na.PREFLIGHT_OK
+
+
+def test_preflight_warns_but_does_not_refuse_below_budget():
+    """Budget is a cap, not a prediction — this run may well complete."""
+    with _acct(20):
+        out = na.preflight_credits(45)
+    assert out["verdict"] == na.PREFLIGHT_PARTIAL
+    assert out["remaining"] == 20
+
+
+def test_preflight_refuses_when_primary_signal_unaffordable():
+    """Below the pnl-by-market cost there is no market-specific ranking at all."""
+    with _acct(na.CREDITS_PNL_BY_MARKET - 1):
+        assert na.preflight_credits(45)["verdict"] == na.PREFLIGHT_INSUFFICIENT
+
+
+def test_preflight_boundary_exactly_affords_primary_signal():
+    with _acct(na.CREDITS_PNL_BY_MARKET):
+        assert na.preflight_credits(45)["verdict"] != na.PREFLIGHT_INSUFFICIENT
+
+
+def test_preflight_never_raises_when_the_balance_check_itself_fails():
+    """A flaky /account must not block a run the user asked for."""
+    with patch.object(na, "account", side_effect=RuntimeError("network down")):
+        out = na.preflight_credits(45)
+    assert out["verdict"] == na.PREFLIGHT_UNKNOWN
+    assert out["remaining"] is None
+
+
+def test_preflight_spends_no_credits():
+    """It must use the free account() endpoint and charge nothing to a guard."""
+    guard = na.CreditGuard(max_credits=45)
+    with _acct(500):
+        na.preflight_credits(45)
+    assert guard.credits_spent == 0

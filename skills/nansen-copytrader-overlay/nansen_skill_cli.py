@@ -56,7 +56,16 @@ def _cmd_copytrader_overlay(args):
     else:
         from nansen_copytrader_overlay_general import enrich_leaders
 
-    from nansen_adapter import CreditGuard
+    from nansen_adapter import CreditGuard, preflight_credits, PREFLIGHT_INSUFFICIENT
+
+    # Ask before spending. account() is free, so this costs nothing and stops
+    # a run that would strand the user with a half-finished ranking they paid
+    # for. Only a balance too low for the primary signal is a hard stop.
+    pre = preflight_credits(args.max_credits)
+    print(f"[credits] {pre['message']}", file=sys.stderr)
+    if pre["verdict"] == PREFLIGHT_INSUFFICIENT:
+        sys.exit(1)
+
     guard = CreditGuard(max_credits=args.max_credits)
 
     result = enrich_leaders(

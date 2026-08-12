@@ -379,6 +379,78 @@ def account() -> dict:
     return raw if isinstance(raw, dict) else {}
 
 
+# Preflight verdicts. `ok` = balance covers the whole budget; `partial` = the
+# run can start but may stop early; `insufficient` = not even the primary
+# signal is affordable; `unknown` = the balance check itself failed.
+PREFLIGHT_OK = "ok"
+PREFLIGHT_PARTIAL = "partial"
+PREFLIGHT_INSUFFICIENT = "insufficient"
+PREFLIGHT_UNKNOWN = "unknown"
+
+
+def preflight_credits(max_credits: int = DEFAULT_MAX_CREDITS_PER_RUN) -> dict:
+    """
+    Check the account balance against a run's budget BEFORE spending anything.
+
+    This is a bring-your-own-key skill, so a run that dies halfway leaves the
+    user having paid for a partial ranking. `account()` is free, so asking
+    first costs nothing.
+
+    Note `max_credits` is a CAP, not a projection: most runs spend well under
+    it. So a balance below the cap is a WARNING, not a refusal — refusing there
+    would block runs that would have completed fine. The only hard stop is a
+    balance that cannot afford the primary signal at all, because without
+    pnl_by_market there is no market-specific ranking to produce.
+
+    Never raises. A failed balance check returns `unknown` and the caller
+    proceeds — a flaky /account must not block a run the user asked for.
+
+    Returns {"verdict", "remaining", "plan", "max_credits", "message"}.
+    """
+    try:
+        info = account()
+        remaining = int(info.get("credits_remaining"))
+        plan = str(info.get("plan") or "unknown")
+    except Exception as exc:  # noqa: BLE001 - advisory check, never fatal
+        return {
+            "verdict": PREFLIGHT_UNKNOWN,
+            "remaining": None,
+            "plan": None,
+            "max_credits": max_credits,
+            "message": f"could not check Nansen balance ({exc}); proceeding anyway",
+        }
+
+    common = {"remaining": remaining, "plan": plan, "max_credits": max_credits}
+
+    if remaining < CREDITS_PNL_BY_MARKET:
+        return {
+            **common,
+            "verdict": PREFLIGHT_INSUFFICIENT,
+            "message": (
+                f"{remaining} credits remaining, but the primary signal "
+                f"(pnl-by-market) costs {CREDITS_PNL_BY_MARKET}. Top up at "
+                "https://nsn.ai/simmer before running."
+            ),
+        }
+
+    if remaining < max_credits:
+        return {
+            **common,
+            "verdict": PREFLIGHT_PARTIAL,
+            "message": (
+                f"{remaining} credits remaining but the budget allows up to "
+                f"{max_credits}. The run will start and may stop early, leaving "
+                "some leaders at their original score (CREDIT_GUARD_EXHAUSTED)."
+            ),
+        }
+
+    return {
+        **common,
+        "verdict": PREFLIGHT_OK,
+        "message": f"{remaining} credits remaining, budget {max_credits}.",
+    }
+
+
 def pnl_by_market(market_id: str, limit: int = 50,
                    guard: Optional[CreditGuard] = None) -> list[dict]:
     """
