@@ -48,7 +48,7 @@ Proxy vs owner wallets:
 
 Credit guards:
     Every call goes through a CreditGuard (see nansen_adapter.py): a hard
-    max_calls budget plus a short TTL cache so re-enriching the same
+    max_credits budget plus a short TTL cache so re-enriching the same
     market/wallet within a run doesn't re-spend credits. `max_wallets`
     caps how many leaders get enriched at all — the rest keep their
     original score, tagged CREDIT_GUARD_MAX_WALLETS. If the call budget
@@ -544,8 +544,8 @@ def _enrich_pairs_for_market(
             except CreditGuardExceeded:
                 guard_exhausted = True
                 logger.warning(
-                    "Credit guard exhausted (max_calls=%d) mid-run — remaining "
-                    "leaders keep their original score", guard.max_calls,
+                    "Credit guard exhausted (max_credits=%d) mid-run — remaining "
+                    "leaders keep their original score", guard.max_credits,
                 )
                 enrichment = LeaderEnrichment(
                     address=get_proxy_address(leader) or leader.get("wallet_address", ""),
@@ -608,8 +608,8 @@ def _enrich_pairs_legacy(
         except CreditGuardExceeded:
             guard_exhausted = True
             logger.warning(
-                "Credit guard exhausted (max_calls=%d) mid-run — remaining "
-                "leaders keep their original score", guard.max_calls,
+                "Credit guard exhausted (max_credits=%d) mid-run — remaining "
+                "leaders keep their original score", guard.max_credits,
             )
             enrichment.reason_tags = ["CREDIT_GUARD_EXHAUSTED"]
         except NansenError as e:

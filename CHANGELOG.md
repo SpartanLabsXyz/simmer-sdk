@@ -29,6 +29,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- **Nansen CreditGuard now tracks credits, not calls.** `CreditGuard` previously capped the number of API calls uniformly, but endpoints cost different amounts: `pnl-by-market` and `top-holders` cost 5 credits each (measured live; Nansen's own docs say 1 and are wrong), while all other prediction-market endpoints cost 1. The guard now accepts `max_credits` (replacing `max_calls`) and deducts the correct per-endpoint cost, so the budget cap means what users expect. The default budget is 45 credits (≈ one 5-credit anchor call plus 40 single-credit enrichment calls). The CLI flag is `--max-credits` (was `--max-calls`).
+
 ### Added
 
 - **Hyperliquid trading with pmxt-constructed orders (SIM-4222).**

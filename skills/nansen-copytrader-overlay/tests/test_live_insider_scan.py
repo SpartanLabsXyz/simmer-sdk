@@ -298,7 +298,7 @@ def test_scan_live_markets_credit_guard_stops_scan_early():
     markets are skipped rather than continuing to spend credits."""
     from nansen_adapter import CreditGuard
 
-    guard = CreditGuard(max_calls=100)
+    guard = CreditGuard(max_credits=100)
 
     def raise_on_second_market(market_id, **kwargs):
         if market_id == "2":

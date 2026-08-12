@@ -7,7 +7,7 @@ tags:
   - nansen
 metadata:
   author: Simmer (@simmer_markets)
-  version: "0.1.0"
+  version: "0.2.0"
   displayName: Nansen Copytrader Overlay
   difficulty: intermediate
   simmer:
@@ -58,7 +58,7 @@ export NANSEN_API_KEY=...   # your own Nansen key — sent as the `apiKey` heade
 
 No `nansen` CLI required: calls go straight to `https://api.nansen.ai/api/v1`
 over HTTPS. Bring-your-own-key — every call spends **your** Nansen credits,
-so `--max-wallets` (default 30) and `--max-calls` (default 40) are
+so `--max-wallets` (default 30) and `--max-credits` (default 45) are
 deliberately conservative.
 
 ### Getting a Nansen key
@@ -161,12 +161,19 @@ protected by:
 - **`max_wallets`** (default 30): leaders beyond the cap are never
   enriched — they keep their original score, tagged
   `CREDIT_GUARD_MAX_WALLETS`.
-- **`CreditGuard(max_calls=...)`** (default 40): a hard ceiling on live
-  Nansen calls for the whole run, with a 5-minute TTL cache so re-fetching
-  the same market/wallet doesn't double-spend. If the budget runs out
-  mid-run, remaining leaders are tagged `CREDIT_GUARD_EXHAUSTED` and kept
-  at their original score — the run does not crash, and it does not keep
-  spending.
+- **`CreditGuard(max_credits=...)`** (default 45): a hard ceiling on the
+  **credits** spent across the whole run, with a 5-minute TTL cache so
+  re-fetching the same market/wallet doesn't double-spend. It charges the real
+  per-endpoint cost (5 for `pnl-by-market` and `top-holders`, 1 for the rest),
+  not one unit per call, so the number means what you think it means. If the
+  budget runs out mid-run, remaining leaders are tagged
+  `CREDIT_GUARD_EXHAUSTED` and kept at their original score — the run does not
+  crash, and it does not keep spending.
+- **Preflight balance check**: before spending anything, the CLI calls the free
+  `account()` endpoint. If your balance can't cover even the primary
+  `pnl-by-market` call it refuses outright; if your balance is below the budget
+  it warns and proceeds, since the budget is a cap rather than a prediction and
+  most runs spend well under it. A failed balance check never blocks the run.
 - **No `profiler labels` wrapper exists**, so nothing here can call it
   (100 credits for common labels, 500 for premium). The live insider scan's
   known-entity discount uses a free local allowlist instead.
@@ -175,8 +182,8 @@ protected by:
   `address_summary` win-rate/resolved-count check clears
   `MIN_RESOLVED_MARKETS` first.
 
-Tune both via the CLI (`--max-wallets`, `--max-calls`) or by passing
-`max_wallets=` / `guard=CreditGuard(max_calls=...)` directly.
+Tune both via the CLI (`--max-wallets`, `--max-credits`) or by passing
+`max_wallets=` / `guard=CreditGuard(max_credits=...)` directly.
 
 ## Live insider scan — experimental, dry-run only
 
