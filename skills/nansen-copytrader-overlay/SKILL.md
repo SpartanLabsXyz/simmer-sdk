@@ -7,7 +7,7 @@ tags:
   - nansen
 metadata:
   author: Simmer (@simmer_markets)
-  version: "0.1.0"
+  version: "0.2.0"
   displayName: Nansen Copytrader Overlay
   difficulty: intermediate
   simmer:

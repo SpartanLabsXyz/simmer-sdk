@@ -113,7 +113,7 @@ def _positive_int(raw: str) -> int:
     """argparse type for the credit caps: reject 0 and negatives at parse time.
 
     Both caps spend the user's own Nansen credits, and both fail badly on a
-    nonpositive value (--max-calls 0 trips the guard on the first request;
+    nonpositive value (--max-credits 0 trips the guard on the first request;
     --max-wallets 0 skips the cap and enriches everything). The library layer
     raises ValueError for programmatic callers; this turns the CLI case into a
     normal usage error instead of a traceback.

@@ -28,7 +28,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import nansen_adapter as na
 import nansen_copytrader_overlay_general as og
 
-MAX_CALLS = 8
+MAX_CREDITS = 20   # ~1 pnl-by-market (5) + a handful of 1-credit calls
 MAX_WALLETS = 2
 
 
@@ -47,7 +47,7 @@ def main() -> int:
     out(f"- Run at: {datetime.datetime.now(datetime.timezone.utc).isoformat()}")
     out(f"- Market: `{args.market_id}`")
     out(f"- Transport: direct HTTPS to `{na.NANSEN_API_BASE}` (stdlib urllib, no CLI)")
-    out(f"- Caps: max_calls={MAX_CALLS}, max_wallets={MAX_WALLETS}\n")
+    out(f"- Caps: max_credits={MAX_CREDITS}, max_wallets={MAX_WALLETS}\n")
 
     # 1. account — free and uncounted, so this never costs anything.
     acct = na.account()
@@ -55,7 +55,7 @@ def main() -> int:
     out(f"```\nplan={acct.get('plan')!r} credits_remaining={acct.get('credits_remaining')}\n```\n")
     start_credits = acct.get("credits_remaining")
 
-    guard = na.CreditGuard(max_calls=MAX_CALLS)
+    guard = na.CreditGuard(max_credits=MAX_CREDITS)
 
     # 2. pnl-by-market — the primary signal.
     out("## 2. `POST prediction-market/pnl-by-market` (primary signal)\n")
@@ -118,7 +118,7 @@ def main() -> int:
     out(f"credits after  : {end.get('credits_remaining')}")
     if isinstance(start_credits, int) and isinstance(end.get("credits_remaining"), int):
         out(f"spent          : {start_credits - end['credits_remaining']}")
-    out(f"guard calls    : {guard.calls_made}/{MAX_CALLS}")
+    out(f"guard credits  : {guard.credits_spent}/{MAX_CREDITS}")
     out("```")
     return 0
 
