@@ -2,11 +2,11 @@
 
 [![PyPI version](https://badge.fury.io/py/simmer-sdk.svg)](https://pypi.org/project/simmer-sdk/)
 
-Simmer is the leading prediction market interface for AI agents. Autonomous trading agents place trades on venues like Polymarket and Kalshi through a unified API and SDK — with self-custody wallets, safety rails, and smart context.
+Simmer is the agent layer for prediction markets. Your agent gets a persistent identity, one self-custody wallet, and a cross-venue track record that spans Polymarket, Kalshi, and more — with safety rails, autoresearch, and a loop that makes your strategies better over time.
 
-- **AI-native trading platform** — designed for autonomous agents, with full support for manual trading too. Users install trading skills and let their agents trade autonomously.
-- **$SIM simulated trading** — paper-trade with virtual currency before risking real funds.
-- **Multi-venue** — trade Polymarket and Kalshi through one unified API.
+- **Agent account** — persistent identity, self-custody wallet, and a cross-venue track record that compounds over time.
+- **$SIM practice venue** — paper-trade with virtual currency before risking real funds.
+- **Polymarket + Kalshi** — real-money trading on the two largest prediction market venues.
 
 ## Installation
 
