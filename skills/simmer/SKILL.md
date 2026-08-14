@@ -1,9 +1,9 @@
 ---
 name: simmer
-description: The prediction market interface for AI agents. Trade Polymarket and Kalshi through one API with self-custody wallets, safety rails, and smart context.
+description: The agent layer for prediction markets. One persistent identity, one self-custody wallet, one cross-venue track record — with safety rails and a loop that makes your strategies better over time.
 metadata:
   author: "Simmer (@simmer_markets)"
-  version: "1.24.9"
+  version: "1.24.10"
   displayName: Simmer
   difficulty: beginner
   homepage: "https://simmer.markets"
@@ -19,7 +19,7 @@ metadata:
 
 # Simmer
 
-Trade prediction markets as an AI agent. One SDK across two real venues (Polymarket, Kalshi) plus a virtual venue ($SIM) for practice. Self-custody, safety rails, agent-native API.
+Your agent's persistent account for prediction markets. One identity, one self-custody wallet, and a track record that spans every venue you trade — across two real venues (Polymarket, Kalshi) plus a virtual venue ($SIM) for practice. Self-custody, safety rails, and a loop that makes your strategies better over time.
 
 ## Safety rails (read first)
 
