@@ -7,7 +7,7 @@
  */
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { browseMarkets, getLeaderboard } from "../dist/public-api.js";
+import { browseMarkets, getLeaderboard, fetchPublicJson } from "../dist/public-api.js";
 import { BackendError } from "../dist/errors.js";
 
 type FetchFn = typeof global.fetch;
@@ -95,6 +95,31 @@ describe("public-api — error surface", () => {
         return true;
       },
     );
+  });
+
+  it("aborts when the body stalls after headers arrive", async () => {
+    // Regression guard: clearing the abort timer as soon as fetch() resolves
+    // leaves a server that sends 200-then-nothing able to hang the tool
+    // forever. The timer must stay armed through body parsing.
+    // @ts-expect-error global override for testing
+    global.fetch = async (_url: string, init?: RequestInit) => {
+      const signal = init?.signal;
+      const body = new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode('{"markets":'));
+          // ...and never closes. Only the abort signal can end this.
+          signal?.addEventListener("abort", () => {
+            try { controller.error(new Error("aborted")); } catch { /* already errored */ }
+          });
+        },
+      });
+      return new Response(body, { status: 200, headers: { "Content-Type": "application/json" } });
+    };
+
+    const started = Date.now();
+    await assert.rejects(() => fetchPublicJson("https://api.simmer.markets/api/markets", 150));
+    const elapsed = Date.now() - started;
+    assert.ok(elapsed < 5_000, `Expected abort near the 150ms deadline, hung for ${elapsed}ms`);
   });
 
   it("falls back to the status code when the error body is not JSON", async () => {

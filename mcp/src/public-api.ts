@@ -35,30 +35,37 @@ export interface PublicResult {
 const MARKETS_TIMEOUT_MS = 20_000;
 const LEADERBOARD_TIMEOUT_MS = 15_000;
 
-async function timedFetch(url: string, timeoutMs: number): Promise<Response> {
+/**
+ * GET + parse, with the abort timer held open through body parsing.
+ *
+ * Clearing the timer as soon as headers arrive (the pattern in api.ts) leaves
+ * a hole: a server that returns 200 and then stalls mid-body hangs the tool
+ * forever, because nothing is watching any more. `/api/markets` already takes
+ * 4-11s, so a slow body here is not hypothetical.
+ *
+ * Exported for tests — the timeout constants are module-level, and the abort
+ * path is only observable if a caller can pass a short one.
+ */
+export async function fetchPublicJson(url: string, timeoutMs: number): Promise<PublicResult> {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
-    return await fetch(url, {
+    const resp = await fetch(url, {
       signal: ctrl.signal,
       headers: { "Content-Type": "application/json" },
     });
+    if (!resp.ok) {
+      let detail = `HTTP ${resp.status}`;
+      try {
+        const body = (await resp.json()) as Record<string, unknown>;
+        if (typeof body.detail === "string") detail = body.detail;
+      } catch { /* non-JSON error body */ }
+      throw new BackendError(resp.status, detail);
+    }
+    return (await resp.json()) as PublicResult;
   } finally {
     clearTimeout(timer);
   }
-}
-
-async function getJson(url: string, timeoutMs: number): Promise<PublicResult> {
-  const resp = await timedFetch(url, timeoutMs);
-  if (!resp.ok) {
-    let detail = `HTTP ${resp.status}`;
-    try {
-      const body = (await resp.json()) as Record<string, unknown>;
-      if (typeof body.detail === "string") detail = body.detail;
-    } catch { /* non-JSON error body */ }
-    throw new BackendError(resp.status, detail);
-  }
-  return (await resp.json()) as PublicResult;
 }
 
 /**
@@ -79,7 +86,7 @@ export async function browseMarkets(
   if (params.tags) qs.set("tags", params.tags);
   if (params.min_volume != null) qs.set("min_volume", String(params.min_volume));
   const query = qs.toString();
-  return getJson(`${apiUrl}/api/markets${query ? `?${query}` : ""}`, MARKETS_TIMEOUT_MS);
+  return fetchPublicJson(`${apiUrl}/api/markets${query ? `?${query}` : ""}`, MARKETS_TIMEOUT_MS);
 }
 
 /**
@@ -93,5 +100,5 @@ export async function getLeaderboard(
   const qs = new URLSearchParams();
   if (params.limit != null) qs.set("limit", String(Math.min(params.limit, 50)));
   const query = qs.toString();
-  return getJson(`${apiUrl}/api/leaderboard/all${query ? `?${query}` : ""}`, LEADERBOARD_TIMEOUT_MS);
+  return fetchPublicJson(`${apiUrl}/api/leaderboard/all${query ? `?${query}` : ""}`, LEADERBOARD_TIMEOUT_MS);
 }

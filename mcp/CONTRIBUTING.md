@@ -25,16 +25,19 @@ Run these before tagging a release:
 npm test
 npm run check:bundle-skills
 
-# 2. Free-tier: exactly 3 tools (no API key)
+# 2. Keyless discovery tier: exactly 9 tools (no API key)
 echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"smoke","version":"0.0.1"}}}' | \
 printf '%s\n{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}\n{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}\n' | \
 SIMMER_API_KEY="" node dist/mcp-server.js 2>/dev/null | grep '"id":2'
-# Expected: tools array with 3 entries (list_skills, get_skill_docs, troubleshoot_error)
+# Expected: tools array with 9 entries — list_skills, get_skill_docs, troubleshoot_error,
+# simmer_browse_markets, simmer_get_leaderboard, and the 4 Tier-A instruction-only skills
+# (simmer_simmer, simmer_simmer_briefing, simmer_simmer_mcp_setup, simmer_simmer_wallet_setup).
+# No key-requiring tool may appear here — simmer_preflight in particular is Tier B and must NOT.
 
-# 3. Pro-tier: 21 tools (with API key)
+# 3. Pro-tier: 23 tools (with API key)
 printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"smoke","version":"0.0.1"}}}\n{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}\n{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}\n' | \
 SIMMER_API_KEY="sk_test_any" node dist/mcp-server.js 2>/dev/null | grep '"id":2'
-# Expected: tools array with 21 entries (3 free + 4 autoresearch + 9 raw market/trade/data + 5 core bundled skills)
+# Expected: tools array with 23 entries (9 keyless + 4 autoresearch + 9 raw market/trade/data + 1 Tier-B skill)
 
 # 4. Resources absent
 printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"smoke","version":"0.0.1"}}}\n{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}\n{"jsonrpc":"2.0","id":2,"method":"resources/list","params":{}}\n' | \
@@ -48,7 +51,7 @@ npm pack --dry-run
 
 # 6. Startup log looks correct
 SIMMER_API_KEY="" node dist/mcp-server.js </dev/null 2>&1 | head -5
-# Expected: [simmer-mcp] v<version> | tools: 3 (free only) | skills: 5 bundled
+# Expected: [simmer-mcp] v<version> | tools: 9 (discovery only, 9 keyless) | skills: 5 bundled
 ```
 
 ## Test structure
@@ -58,7 +61,8 @@ SIMMER_API_KEY="" node dist/mcp-server.js </dev/null 2>&1 | head -5
 | `tests/api.test.ts` | `SimmerApi.checkPro()` + `backtest()` BackendError relay |
 | `tests/pro-gate.test.ts` | 403 Pro-gate MCP response shape |
 | `tests/troubleshoot.test.ts` | `troubleshootError()` live API + local fallback |
-| `tests/mcp-protocol.test.ts` | Full JSON-RPC wire protocol (tools/list count, resources/list) |
+| `tests/mcp-protocol.test.ts` | Full JSON-RPC wire protocol (tools/list count, resources/list, keyless surface) |
+| `tests/public-api.test.ts` | Keyless public reads — no Authorization header, URL shape, timeout, errors |
 | `tests/docs-tools.test.ts` | `listSkills()`, `getSkillDocs()`, `listDocResources()` |
 | `tests/env-translation.test.ts` | Live-trading gate (dry_run/SIMMER_MCP_ALLOW_LIVE) |
 | `tests/blocked-flags.test.ts` | CLI flag sanitization for extra_args |
