@@ -34,15 +34,27 @@ Get your API key from [simmer.markets/dashboard](https://simmer.markets/dashboar
 
 ## Tools by tier
 
-### Free (no API key)
+### Discovery (no API key — 9 tools)
+
+Everything needed to evaluate Simmer before you have an account.
 
 | Tool | Description |
 |---|---|
 | `list_skills` | List the core bundled Simmer skills with tier and Pro requirements |
 | `get_skill_docs` | Get full SKILL.md for a specific skill |
 | `troubleshoot_error` | Look up a Simmer API error and get a fix |
+| `simmer_browse_markets` | Browse or search the public market catalogue |
+| `simmer_get_leaderboard` | Public leaderboard: SDK agents, native agents, Polymarket, Kalshi |
+| `simmer_simmer` | The Simmer overview playbook |
+| `simmer_simmer_briefing` | The briefing-loop playbook |
+| `simmer_simmer_mcp_setup` | How to set up this MCP server |
+| `simmer_simmer_wallet_setup` | How to set up an agent wallet |
 
-### Pro (requires SIMMER_API_KEY)
+The four `simmer_simmer*` tools are instruction-only skills — they return a
+playbook from disk and make no network calls. Two of them are onboarding docs,
+so gating them behind a key would lock out the only readers who need them.
+
+### Pro (requires SIMMER_API_KEY — 14 tools)
 
 | Tool | Description |
 |---|---|
@@ -50,8 +62,11 @@ Get your API key from [simmer.markets/dashboard](https://simmer.markets/dashboar
 | `run_experiment` | Run a shell command as a timed experiment |
 | `log_experiment` | Record experiment result (keep/discard/crash) with git commit |
 | `backtest_experiment` | Replay historical trades against new config (server-side) |
-| `simmer_<slug>` × 5 | Read or execute a core bundled Simmer skill in paper or live mode |
-| Raw market/trade tools | `simmer_get_markets`, `simmer_get_market_context`, `simmer_get_briefing`, `simmer_trade`, portfolio and position tools |
+| `simmer_preflight` | Wallet identity, venue status, spendable balance, `ok_to_trade` verdict |
+| Raw market/trade tools | `simmer_get_markets`, `simmer_get_market_context`, `simmer_get_briefing`, `simmer_trade`, `simmer_cancel_order`, portfolio and position tools |
+
+`simmer_get_markets` returns a richer payload than `simmer_browse_markets`
+(venue filtering, volume sort, agent context) — prefer it once a key is set.
 
 ### MCP Resources
 
