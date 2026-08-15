@@ -73,23 +73,45 @@ async function mcpCall(
 
 // --- tools/list ---
 
-test("tools/list without SIMMER_API_KEY returns exactly 3 free tools", async () => {
+test("tools/list without SIMMER_API_KEY returns the 9 keyless discovery tools", async () => {
   const resp = await mcpCall("tools/list", {}, { SIMMER_API_KEY: "" });
   assert.ok(!resp.error, `Expected no error, got: ${JSON.stringify(resp.error)}`);
   const tools = (resp.result?.tools ?? []) as Array<{ name: string }>;
-  assert.equal(tools.length, 3, `Expected 3 tools, got ${tools.length}: ${tools.map((t) => t.name).join(", ")}`);
   const names = tools.map((t) => t.name);
+  // 5 hand-registered + 4 Tier-A instruction-only skills.
+  assert.equal(tools.length, 9, `Expected 9 tools, got ${tools.length}: ${names.join(", ")}`);
   assert.ok(names.includes("list_skills"), "list_skills missing");
   assert.ok(names.includes("get_skill_docs"), "get_skill_docs missing");
   assert.ok(names.includes("troubleshoot_error"), "troubleshoot_error missing");
+  assert.ok(names.includes("simmer_browse_markets"), "simmer_browse_markets missing");
+  assert.ok(names.includes("simmer_get_leaderboard"), "simmer_get_leaderboard missing");
+  // Tier A: instruction-only, pure SKILL.md reads — no key needed.
+  assert.ok(names.includes("simmer_simmer"), "simmer_simmer missing");
+  assert.ok(names.includes("simmer_simmer_briefing"), "simmer_simmer_briefing missing");
+  assert.ok(names.includes("simmer_simmer_mcp_setup"), "simmer_simmer_mcp_setup missing");
+  assert.ok(names.includes("simmer_simmer_wallet_setup"), "simmer_simmer_wallet_setup missing");
+});
+
+test("tools/list without SIMMER_API_KEY exposes no key-requiring tool", async () => {
+  const resp = await mcpCall("tools/list", {}, { SIMMER_API_KEY: "" });
+  const names = ((resp.result?.tools ?? []) as Array<{ name: string }>).map((t) => t.name);
+  // preflight is Tier B — its entrypoint hard-requires SIMMER_API_KEY and exits 2 without one.
+  for (const gated of [
+    "simmer_preflight", "simmer_trade", "simmer_cancel_order", "simmer_get_markets",
+    "simmer_get_market_context", "simmer_get_briefing", "get_portfolio", "get_positions",
+    "get_expiring_positions", "get_fleet_summary", "init_experiment", "run_experiment",
+    "log_experiment", "backtest_experiment",
+  ]) {
+    assert.equal(names.includes(gated), false, `${gated} must not be exposed without a key`);
+  }
 });
 
 test("tools/list with SIMMER_API_KEY returns core bundle plus raw market tools", async () => {
   const resp = await mcpCall("tools/list", {}, { SIMMER_API_KEY: "sk_test_key" });
   assert.ok(!resp.error, `Expected no error, got: ${JSON.stringify(resp.error)}`);
   const tools = (resp.result?.tools ?? []) as Array<{ name: string }>;
-  // 3 free + 4 autoresearch + 9 raw market/trade/data + 5 core bundled skills = 21
-  assert.equal(tools.length, 21, `Expected 21 tools with API key, got ${tools.length}: ${tools.map((t) => t.name).join(", ")}`);
+  // 9 keyless + 4 autoresearch + 9 raw market/trade/data + 1 Tier-B skill (preflight) = 23
+  assert.equal(tools.length, 23, `Expected 23 tools with API key, got ${tools.length}: ${tools.map((t) => t.name).join(", ")}`);
   const names = tools.map((t) => t.name);
   // Free tools always present
   assert.ok(names.includes("list_skills"), "list_skills missing");

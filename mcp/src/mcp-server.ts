@@ -111,6 +111,7 @@ import { BackendError } from "./errors.js";
 import { discoverSkills } from "./skill-discovery.js";
 import { buildToolSchema, buildToolDescription, invokeSkillTool } from "./per-skill-tools.js";
 import { listSkills, getSkillDocs } from "./docs-tools.js";
+import { browseMarkets, getLeaderboard } from "./public-api.js";
 import { troubleshootError } from "./troubleshoot.js";
 import { executeTrade, executeCancelOrder } from "./trade-primitives.js";
 import { registerTool } from "./tool-registry.js";
@@ -129,7 +130,7 @@ const workspaceDir = process.cwd();
 const simmer = apiKey ? new SimmerApi(apiKey, apiUrl, BUNDLED_VERSION) : null;
 
 if (!apiKey) {
-  console.error("[simmer-mcp] No SIMMER_API_KEY set — only free tools available (list_skills, get_skill_docs, troubleshoot_error).");
+  console.error("[simmer-mcp] No SIMMER_API_KEY set — discovery tools only (skills, docs, market browse, leaderboard, troubleshooting). Trading and portfolio tools need a key: https://simmer.markets");
 } else if (!apiKey.startsWith("sk_live_")) {
   console.error("[simmer-mcp] WARNING: SIMMER_API_KEY does not start with sk_live_ — key may be corrupted. Common cause: clipboard contamination during install (pbpaste reading the install command instead of the key). Inspect via: printenv SIMMER_API_KEY | cut -c1-20");
 }
@@ -259,6 +260,97 @@ server.tool(
     return { content: [{ type: "text" as const, text: parts.join("\n\n") }] };
   },
 );
+
+server.tool(
+  "simmer_browse_markets",
+  [
+    "Browse or search Simmer's public market catalogue. No API key required —",
+    "use this to evaluate what Simmer carries before setting up an account.",
+    "Returns question, prices, volume, status, and a URL per market.",
+    "For venue filtering, volume sorting, and your own position context, use",
+    "simmer_get_markets instead (needs SIMMER_API_KEY).",
+  ].join("\n"),
+  {
+    q: z.string().optional().describe("Text search over the market question (case-insensitive)"),
+    limit: z.number().optional().describe("Max markets to return (default 50, capped at 200)"),
+    status: z.string().optional().describe("'active', 'resolved', 'trending', 'new', or 'ending'"),
+    tags: z.string().optional().describe("Comma-separated tags (e.g. 'weather,crypto')"),
+    min_volume: z.number().optional().describe("Minimum 24h volume"),
+  },
+  { readOnlyHint: true },
+  async (args) => {
+    try {
+      const data = await browseMarkets(apiUrl, args);
+      return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+    } catch (e) {
+      if (e instanceof BackendError) return e.toMcpResponse();
+      return {
+        content: [{ type: "text" as const, text: `❌ Market browse failed: ${e instanceof Error ? e.message : String(e)}` }],
+        isError: true,
+      };
+    }
+  },
+);
+
+server.tool(
+  "simmer_get_leaderboard",
+  [
+    "Get Simmer's public leaderboard. No API key required.",
+    "Returns four ranked legs in one call: SDK agents, native agents,",
+    "Polymarket traders, and Kalshi traders — each with P&L and trade counts.",
+    "Use this to see how agents are actually performing before you build one.",
+  ].join("\n"),
+  {
+    limit: z.number().optional().describe("Entries per leg (default 20, capped at 50)"),
+  },
+  { readOnlyHint: true },
+  async ({ limit }) => {
+    try {
+      const data = await getLeaderboard(apiUrl, { limit });
+      return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+    } catch (e) {
+      if (e instanceof BackendError) return e.toMcpResponse();
+      return {
+        content: [{ type: "text" as const, text: `❌ Leaderboard fetch failed: ${e instanceof Error ? e.message : String(e)}` }],
+        isError: true,
+      };
+    }
+  },
+);
+
+// ===========================================================================
+// TIER-A SKILL TOOLS — instruction-only, no API key required
+// ===========================================================================
+//
+// Tier A skills have no entrypoint: invokeSkillTool short-circuits and reads
+// SKILL.md off disk. No network, no key. Two of them (simmer-mcp-setup,
+// simmer-wallet-setup) are onboarding docs whose entire audience is agents
+// that do not have a working key yet — gating them locked out the only
+// people who needed them.
+//
+// Tier B (preflight) has an entrypoint that hard-requires SIMMER_API_KEY,
+// so it stays inside the gate below. `entrypoint` is the discriminator
+// already used at skill-discovery.ts:128 and per-skill-tools.ts:97.
+
+function registerSkillTool(skill: typeof skills[number]): void {
+  registerTool(server, {
+    name: skill.toolName,
+    description: buildToolDescription(skill),
+    schema: buildToolSchema(skill),
+    mutates: false,
+    // readOnlyHint is derived from the skill's `readOnly` field, which is computed at
+    // discovery time: Tier A (no entrypoint) → true; Tier B → from `read_only` frontmatter
+    // in SKILL.md, default false. This is NOT derivable from `entrypoint` alone — having
+    // an entrypoint means "executes", not "mutates" (preflight has an entrypoint and IS
+    // read-only). See SIM-4439.
+    annotations: { readOnlyHint: skill.readOnly },
+    handler: async (args, _ctx) => invokeSkillTool(skill, args as Record<string, unknown>),
+  });
+}
+
+for (const skill of skills) {
+  if (!skill.entrypoint) registerSkillTool(skill);
+}
 
 // ===========================================================================
 // PRO TOOLS — requires SIMMER_API_KEY
@@ -855,8 +947,16 @@ if (simmer) {
     schema: {},
     mutates: false,
     handler: async (_args, _ctx) => {
-      const data = await simmer!.getPortfolio();
-      return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+      try {
+        const data = await simmer!.getPortfolio();
+        return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+      } catch (e) {
+        if (e instanceof BackendError) return e.toMcpResponse();
+        return {
+          content: [{ type: "text" as const, text: `❌ Portfolio fetch failed: ${e instanceof Error ? e.message : String(e)}` }],
+          isError: true,
+        };
+      }
     },
   });
 
@@ -871,8 +971,16 @@ if (simmer) {
     },
     mutates: false,
     handler: async ({ venue }: { venue?: string }, _ctx) => {
-      const data = await simmer!.getPositions({ venue });
-      return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+      try {
+        const data = await simmer!.getPositions({ venue });
+        return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+      } catch (e) {
+        if (e instanceof BackendError) return e.toMcpResponse();
+        return {
+          content: [{ type: "text" as const, text: `❌ Positions fetch failed: ${e instanceof Error ? e.message : String(e)}` }],
+          isError: true,
+        };
+      }
     },
   });
 
@@ -884,8 +992,16 @@ if (simmer) {
     },
     mutates: false,
     handler: async ({ hours }: { hours?: number }, _ctx) => {
-      const data = await simmer!.getExpiringPositions({ hours });
-      return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+      try {
+        const data = await simmer!.getExpiringPositions({ hours });
+        return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+      } catch (e) {
+        if (e instanceof BackendError) return e.toMcpResponse();
+        return {
+          content: [{ type: "text" as const, text: `❌ Expiring positions fetch failed: ${e instanceof Error ? e.message : String(e)}` }],
+          isError: true,
+        };
+      }
     },
   });
 
@@ -898,28 +1014,22 @@ if (simmer) {
     schema: {},
     mutates: false,
     handler: async (_args, _ctx) => {
-      const data = await simmer!.getFleetSummary();
-      return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+      try {
+        const data = await simmer!.getFleetSummary();
+        return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+      } catch (e) {
+        if (e instanceof BackendError) return e.toMcpResponse();
+        return {
+          content: [{ type: "text" as const, text: `❌ Fleet summary fetch failed: ${e instanceof Error ? e.message : String(e)}` }],
+          isError: true,
+        };
+      }
     },
   });
 
+  // Tier-B skills only — Tier A is registered keyless above.
   for (const skill of skills) {
-    const capturedSkill = skill; // closure capture
-    registerTool(server, {
-      name: capturedSkill.toolName,
-      description: buildToolDescription(capturedSkill),
-      schema: buildToolSchema(capturedSkill),
-      mutates: false,
-      // readOnlyHint is derived from the skill's `readOnly` field, which is computed at
-      // discovery time: Tier A (no entrypoint) → true; Tier B → from `read_only` frontmatter
-      // in SKILL.md, default false. This is NOT derivable from `entrypoint` alone — having
-      // an entrypoint means "executes", not "mutates" (preflight has an entrypoint and IS
-      // read-only). See SIM-4439.
-      annotations: { readOnlyHint: capturedSkill.readOnly },
-      handler: async (args, _ctx) => {
-        return invokeSkillTool(capturedSkill, args as Record<string, unknown>);
-      },
-    });
+    if (skill.entrypoint) registerSkillTool(skill);
   }
 
 } // end if (simmer)
@@ -937,13 +1047,17 @@ async function main() {
     `git: ${probe.git.detected ? `v${probe.git.version}` : `not found`}`,
   ].join(" | ");
 
-  const freeCount = 3;
-  const proCount = simmer ? 13 + skills.length : 0; // 4 autoresearch + 9 raw market/trade/data tools
-  const totalTools = freeCount + proCount;
-  const tier = simmer ? "free + autoresearch + per-skill" : "free only";
+  // 5 hand-registered keyless tools (list_skills, get_skill_docs,
+  // troubleshoot_error, simmer_browse_markets, simmer_get_leaderboard) plus
+  // every Tier-A skill. Tier-B skills and the 13 authed tools are gated.
+  const tierASkills = skills.filter((s) => !s.entrypoint).length;
+  const keylessCount = 5 + tierASkills;
+  const gatedCount = simmer ? 13 + (skills.length - tierASkills) : 0;
+  const totalTools = keylessCount + gatedCount;
+  const tier = simmer ? "discovery + autoresearch + trading" : "discovery only";
 
   console.error(
-    `[simmer-mcp] v${BUNDLED_VERSION} | tools: ${totalTools} (${tier}) | skills: ${skills.length} bundled`
+    `[simmer-mcp] v${BUNDLED_VERSION} | tools: ${totalTools} (${tier}, ${keylessCount} keyless) | skills: ${skills.length} bundled`
   );
   console.error(`[simmer-mcp] runtime: ${probeLines}`);
 
