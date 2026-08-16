@@ -1830,21 +1830,49 @@ class SimmerClient:
         try:
             response.raise_for_status()
         except requests.exceptions.HTTPError as exc:
-            message = self._http_error_message(response, exc)
+            payload = self._http_error_payload(response)
+            message = self._http_error_message_from_payload(payload, exc)
             error = self._structured_error(message)
+            detail = payload.get("detail") if isinstance(payload, dict) else None
+            error_payload = detail if isinstance(detail, dict) else payload
+            if isinstance(error_payload, dict):
+                code = error_payload.get("code") or error_payload.get("error_code")
+                retryable = error_payload.get("retryable")
+                if code:
+                    error["code"] = str(code)
             exc.simmer_error = error
             exc.error_code = error["code"]
             exc.error_hint = error["hint"]
+            if isinstance(error_payload, dict):
+                exc.simmer_payload = error_payload
+                if "retryable" in error_payload:
+                    exc.retryable = retryable
             raise
         return response.json()
 
     @staticmethod
-    def _http_error_message(response: requests.Response, exc: Exception) -> str:
+    def _http_error_payload(response: requests.Response) -> Dict[str, Any]:
         try:
             body = response.json()
         except ValueError:
-            body = {}
+            return {}
+        return body if isinstance(body, dict) else {}
+
+    @staticmethod
+    def _http_error_message(response: requests.Response, exc: Exception) -> str:
+        return SimmerClient._http_error_message_from_payload(
+            SimmerClient._http_error_payload(response),
+            exc,
+        )
+
+    @staticmethod
+    def _http_error_message_from_payload(body: Dict[str, Any], exc: Exception) -> str:
         if isinstance(body, dict):
+            detail = body.get("detail")
+            if isinstance(detail, dict):
+                return str(detail.get("error") or detail.get("message") or exc)
+            if detail:
+                return str(detail)
             return str(body.get("error") or body.get("message") or exc)
         return str(exc)
 
@@ -4597,10 +4625,23 @@ class SimmerClient:
         here on `eoa_fallback` (SIM-1645) without re-triggering the cohort
         check that would loop right back into the ext+DW path.
         """
-        result = self._request("POST", "/api/sdk/redeem", json={
-            "market_id": market_id,
-            "side": side,
-        })
+        try:
+            result = self._request("POST", "/api/sdk/redeem", json={
+                "market_id": market_id,
+                "side": side,
+            })
+        except requests.exceptions.HTTPError as exc:
+            payload = getattr(exc, "simmer_payload", None)
+            if isinstance(payload, dict) and payload.get("retryable") is False:
+                return {
+                    "success": False,
+                    "error": payload.get("error") or str(exc),
+                    "code": payload.get("code") or payload.get("error_code"),
+                    "error_code": payload.get("code") or payload.get("error_code"),
+                    "retryable": False,
+                    "retry_after_seconds": payload.get("retry_after_seconds"),
+                }
+            raise
 
         # Managed wallet — server already signed and submitted
         if not result.get("unsigned_tx"):
@@ -4835,6 +4876,26 @@ class SimmerClient:
                     reason = result.get("reason", "not redeemable")
                     logger.info("auto_redeem: skipped %s (%s) — %s", market_id, side, reason)
                     continue
+                if result.get("retryable") is False:
+                    error = result.get("error")
+                    code = result.get("code") or result.get("error_code")
+                    logger.info(
+                        "auto_redeem: terminal redeem failure for %s (%s) code=%s",
+                        market_id,
+                        side,
+                        code,
+                    )
+                    results.append({
+                        "market_id": market_id,
+                        "side": side,
+                        "success": False,
+                        "tx_hash": result.get("tx_hash"),
+                        "error": error,
+                        "code": code,
+                        "error_code": code,
+                        "retryable": False,
+                    })
+                    continue
                 success = bool(result.get("success"))
                 tx_hash = result.get("tx_hash")
                 error = result.get("error") if not success else None
@@ -4848,6 +4909,9 @@ class SimmerClient:
                     "success": success,
                     "tx_hash": tx_hash,
                     "error": error,
+                    "code": result.get("code") or result.get("error_code"),
+                    "error_code": result.get("code") or result.get("error_code"),
+                    "retryable": result.get("retryable", True),
                 })
             except Exception as e:
                 err_str = str(e)
