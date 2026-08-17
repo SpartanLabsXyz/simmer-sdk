@@ -3,6 +3,10 @@
 All notable changes to `simmer-sdk` are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.24.3 (2026-08-18)
+
+- **Surface the server's go-live nudge on sim trades.** `TradeResult` gains `go_live` — a structured block the server attaches when a sim-only agent crosses an activity milestone (10/50/100/250 trades) and the account has never traded real. It lists the exact steps to go live, split by actor: agent steps (enable the real-trading flag, run `activate_polymarket_dw()` where needed) and owner steps (fund the wallet at the dashboard). With `include_hints=True`, the steps also land in `next_steps` so LLM agents relay them without extra parsing. Informational only; the SDK never acts on it.
+
 ## 0.24.2 (2026-08-07)
 
 - **Approvals warning now checks the deposit wallet, and stops handing DW users a no-op fix (SIM-4344).** `_warn_approvals_once()` called `check_approvals()` with no address, so it always checked the signer EOA. For deposit-wallet users approvals live on the DW, so the EOA is correctly empty and the warning fired every session on healthy accounts. It also told everyone to run `set_approvals()`, which signs from the EOA and does nothing for a DW user. Two customers chased this as a real fault while debugging unrelated rejections (SIM-4351, SIM-4377). Now checks the DW when `_uses_deposit_wallet`, and recommends `activate_polymarket_dw()` for that cohort. The remediation string matters more after this fix, not less: the warning no longer cries wolf, so users will act on it.

@@ -140,6 +140,7 @@ class TradeResult:
     error_code: Optional[str] = None  # Machine-readable failure bucket.
     error_hint: Optional[str] = None  # Actionable next step for agents.
     next_steps: Optional[List[str]] = None  # Optional contextual follow-up hints.
+    go_live: Optional[dict] = None  # Server milestone nudge: steps to enable real trading (sim-only accounts).
 
     @property
     def shares_filled(self) -> float:
@@ -1980,6 +1981,13 @@ class SimmerClient:
             steps = ["Call get_positions(response_mode='summary') to verify exposure."]
             if result.order_id:
                 steps.append(f"Call cancel_order('{result.order_id}') if you need to cancel the open order.")
+            if result.go_live:
+                steps.append(result.go_live.get("reason", "Ready to go live."))
+                for s in result.go_live.get("steps", []):
+                    actor = s.get("actor", "owner")
+                    action = s.get("action", "")
+                    detail = s.get("method") or s.get("url") or ""
+                    steps.append(f"Go-live {actor} step: {action} ({detail})".rstrip(" ()"))
             return steps
         if result.error_hint:
             return [result.error_hint]
@@ -2654,6 +2662,7 @@ class SimmerClient:
                 fee_rate_bps=d.get("fee_rate_bps"),
                 error_code=d.get("error_code") or _structured.get("code"),
                 error_hint=d.get("error_hint") or d.get("hint") or _structured.get("hint"),
+                go_live=d.get("go_live"),
             )
             if include_hints:
                 result.next_steps = self._trade_next_steps(result)
