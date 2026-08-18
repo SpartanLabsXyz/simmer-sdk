@@ -3,6 +3,10 @@
 All notable changes to `simmer-sdk` are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.24.5 (2026-08-19)
+
+- **`import_polymarket_wallet()` adopts the env wallet on a sim-default client.** `SimmerClient.from_env()` without `venue=` deliberately ignores `WALLET_PRIVATE_KEY` (sim-venue safety), which made the documented import snippet fail with "private_key or ows_wallet required". An explicit import call is unambiguous intent to use the local key, so the method now picks up `OWS_WALLET` / `WALLET_PRIVATE_KEY` itself when the client has no signer. Found in the SIM-4646 acceptance run.
+
 ## 0.24.4 (2026-08-19)
 
 - **`import_polymarket_wallet()` — one call from a polymarket.com export to trading-ready.** For wallets born on Polymarket (create account, fund via their onramps, export the key into the agent env): links the wallet with ownership proof, adopts the deposit wallet Polymarket already deployed (no redeploy), tops up the extended spender approvals gaslessly, and reports the balance. Also works for a self-generated key — the deposit-wallet step then deploys fresh.

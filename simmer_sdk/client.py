@@ -5675,6 +5675,26 @@ class SimmerClient:
             clob_credentials_registered, balance_usd (best-effort, may be
             None), and error when a step failed.
         """
+        # Calling this method IS explicit intent to use the local key, so adopt
+        # the env wallet even when the client was built with the sim-venue
+        # default (`from_env()` sets _ignore_env_wallets=True there, which
+        # otherwise makes the copy-paste import snippet fail with "private_key
+        # required"). OWS first, mirroring constructor precedence.
+        if not (self._private_key or self._ows_wallet):
+            _env_ows = os.environ.get("OWS_WALLET")
+            if _env_ows:
+                from simmer_sdk.ows_utils import get_ows_wallet_address
+                self._ows_wallet = _env_ows
+                self._wallet_address = get_ows_wallet_address(_env_ows)
+            else:
+                _env_key = (
+                    os.environ.get(self.PRIVATE_KEY_ENV_VAR)
+                    or os.environ.get(self.PRIVATE_KEY_ENV_VAR_LEGACY)
+                )
+                if _env_key:
+                    self._validate_and_set_wallet(_env_key)
+                    self._private_key = _env_key
+
         # Step 1 — prove ownership + link, tagged for funnel attribution.
         result = self.link_wallet(
             confirm_replace_managed=confirm_replace_managed,
