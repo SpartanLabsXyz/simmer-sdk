@@ -5479,6 +5479,8 @@ class SimmerClient:
         self,
         signature_type: int = 0,
         confirm_replace_managed: bool = True,
+        confirm_orphan_deposit_wallet: bool = False,
+        source: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Link an external wallet to your Simmer account.
@@ -5502,6 +5504,18 @@ class SimmerClient:
                 migration cannot silently displace the managed wallet — the
                 relink fails loud with an actionable 4xx instead. Server-side
                 guard: SIM-1580.
+            confirm_orphan_deposit_wallet: Required (`True`) when this account
+                already has an ACTIVE Polymarket deposit wallet and you are
+                linking a DIFFERENT signing address. The DW is bound on-chain
+                to the current EOA (CREATE2), so the server refuses the relink
+                by default — the current setup's funds and positions stay on
+                its deposit wallet in the legacy slot, and you can toggle back
+                anytime. Default `False` so the switch is always explicit.
+                Server-side guard: SIM-1611.
+            source: Optional onboarding-path tag stored server-side for funnel
+                attribution ('browser' | 'sdk-link' | 'polymarket-import').
+                Leave unset — the server infers 'sdk-link' for SDK calls.
+                `import_polymarket_wallet()` sets 'polymarket-import'.
 
         Returns:
             Dict with success status and wallet info. When `success` is True,
@@ -5577,6 +5591,8 @@ class SimmerClient:
                 "nonce": nonce,
                 "signature_type": signature_type,
                 "confirm_replace_managed": confirm_replace_managed,
+                "confirm_orphan_deposit_wallet": confirm_orphan_deposit_wallet,
+                "source": source,
             }
         )
 
@@ -5613,6 +5629,119 @@ class SimmerClient:
                 )
 
         return result
+
+    def import_polymarket_wallet(
+        self,
+        confirm_replace_managed: bool = True,
+        confirm_orphan_deposit_wallet: bool = False,
+    ) -> Dict[str, Any]:
+        """Import a wallet exported from polymarket.com — one call to trading-ready.
+
+        For wallets born on Polymarket (create account there, fund via their
+        onramps, export the private key, put it in this agent's env as
+        `WALLET_PRIVATE_KEY`). Polymarket has already deployed the deposit
+        wallet and pre-set the core exchange allowance, so this composes the
+        existing steps end-to-end:
+
+        1. `link_wallet(source='polymarket-import')` — proves ownership by
+           signing a server challenge with the local key, and derives CLOB
+           credentials.
+        2. Adopts the Polymarket-deployed deposit wallet at its derived
+           address (no redeploy — the server recognizes it on-chain).
+        3. `activate_polymarket_dw()` — gasless top-up of any extended
+           spender approvals beyond what Polymarket pre-sets.
+        4. Reports the deposit-wallet balance.
+
+        Also works for a wallet you generated yourself — step 2 then deploys
+        a fresh deposit wallet instead of adopting one.
+
+        Key safety: the private key belongs in the agent host env (or a key
+        store like OWS — the SDK picks it up via `OWS_WALLET`). Never paste it
+        into chat, shared configs, or a browser extension. Note manual trades
+        on polymarket.com share this wallet with your agent — positions show
+        on both surfaces and can collide.
+
+        Args:
+            confirm_replace_managed: See `link_wallet()`. Default True — an
+                explicit import call means "I want self-custody".
+            confirm_orphan_deposit_wallet: See `link_wallet()`. Required True
+                when the account already has an active deposit wallet on a
+                different address (e.g. switching a managed-DW account to the
+                imported wallet). Default False so that switch is explicit.
+
+        Returns:
+            Dict with: success, wallet_address, deposit_wallet_address,
+            dw_already_existed, approvals (dict from activate_polymarket_dw),
+            clob_credentials_registered, balance_usd (best-effort, may be
+            None), and error when a step failed.
+        """
+        # Step 1 — prove ownership + link, tagged for funnel attribution.
+        result = self.link_wallet(
+            confirm_replace_managed=confirm_replace_managed,
+            confirm_orphan_deposit_wallet=confirm_orphan_deposit_wallet,
+            source="polymarket-import",
+        )
+        if not result.get("success"):
+            return {
+                "success": False,
+                "step": "link",
+                "error": result.get("error") or "Wallet link failed",
+                **{k: v for k, v in result.items() if k not in ("success", "error")},
+            }
+
+        summary: Dict[str, Any] = {
+            "success": True,
+            "wallet_address": result.get("wallet_address") or self._wallet_address,
+            "clob_credentials_registered": result.get("clob_credentials_registered"),
+        }
+
+        # Step 2 — adopt (or deploy) the deposit wallet. Idempotent server-side:
+        # a Polymarket-born wallet's DW already exists on-chain at the CREATE2
+        # address, so this registers it without a redeploy.
+        print("[PM-Import] Adopting deposit wallet…")
+        try:
+            upgrade = self._request(
+                "POST", "/api/user/wallet/external-upgrade-to-deposit-wallet"
+            )
+        except Exception as e:
+            summary.update({
+                "success": False,
+                "step": "deposit_wallet",
+                "error": f"Deposit-wallet adoption failed: {e}",
+            })
+            return summary
+        summary["deposit_wallet_address"] = upgrade.get("deposit_wallet_address")
+        summary["dw_already_existed"] = bool(upgrade.get("already_existed"))
+
+        # Step 3 — gasless allowance top-up for the extended spender set.
+        try:
+            summary["approvals"] = self.activate_polymarket_dw()
+        except Exception as e:
+            summary.update({
+                "success": False,
+                "step": "approvals",
+                "error": f"Approval activation failed: {e}",
+            })
+            return summary
+
+        # Step 4 — best-effort balance for the closing summary.
+        balance_usd: Optional[float] = None
+        try:
+            briefing = self._request("GET", "/api/sdk/briefing")
+            _pm = (briefing.get("venues") or {}).get("polymarket") or {}
+            if _pm.get("balance") is not None:
+                balance_usd = float(_pm["balance"])
+        except Exception:
+            pass
+        summary["balance_usd"] = balance_usd
+
+        _bal = f"${balance_usd:,.2f}" if balance_usd is not None else "unknown"
+        print(
+            f"[PM-Import] You're live — wallet {summary['wallet_address'][:10]}… "
+            f"linked, deposit wallet {str(summary['deposit_wallet_address'])[:10]}… "
+            f"active, balance {_bal}."
+        )
+        return summary
 
     def check_approvals(self, address: Optional[str] = None, no_cache: bool = False, include_tx_params: bool = False) -> Dict[str, Any]:
         """
@@ -6554,11 +6683,14 @@ class SimmerClient:
     def register_agent_wallet(self, ows_wallet_name: str) -> dict:
         """Register an OWS wallet for this agent. Elite-only (beta).
 
-        Creates a per-agent wallet record on the server. After registration,
-        set on-chain approvals via activate_polymarket_dw(agent_id=...), then
-        call update_agent_wallet_creds(ows_wallet_name=...) to cache CLOB
-        credentials server-side. Both are required before trading. (set_approvals()
-        is the user-primary EOA path and is a no-op for per-agent deposit wallets.)
+        .. deprecated::
+            New OWS per-agent registrations are closed server-side (the server
+            returns 410). Use the raw-key per-agent path instead: register the
+            agent's EOA via the dashboard wizard, then cache CLOB credentials
+            with ``update_agent_wallet_creds(agent_id=..., private_key=...)``.
+            Existing OWS per-agent wallets keep working. OWS as a local key
+            store for the STANDARD external path (``OWS_WALLET`` +
+            ``link_wallet()``) is NOT deprecated.
 
         Args:
             ows_wallet_name: Name of the OWS wallet (e.g. "agent-mybot")
@@ -6566,13 +6698,26 @@ class SimmerClient:
         Returns:
             dict with wallet record (id, agent_id, wallet_address, approvals_set)
         """
+        import warnings
+        warnings.warn(
+            "register_agent_wallet(ows_wallet_name=...) is deprecated — the "
+            "server no longer accepts new OWS per-agent registrations. Use the "
+            "raw-key per-agent path (update_agent_wallet_creds(agent_id=..., "
+            "private_key=...)) instead. OWS_WALLET as a signer for the "
+            "standard external path (link_wallet()) is unaffected.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         from simmer_sdk.ows_utils import get_ows_wallet_address
         wallet_address = get_ows_wallet_address(ows_wallet_name)
 
         # agent_id is derived server-side from the API key — no need to pass it.
+        # wallet_source is declared truthfully: this address came from an OWS
+        # vault, and the server's SIM-4646 entrance-closure guard keys on it.
         resp = self._request("POST", "/api/sdk/agent-wallet/register", json={
             "ows_wallet_name": ows_wallet_name,
             "wallet_address": wallet_address,
+            "wallet_source": "ows",
         })
         return resp
 
@@ -6651,6 +6796,14 @@ class SimmerClient:
         Args:
             ows_wallet_name: Name of the OWS wallet. Positional usage remains
                 supported for existing callers.
+
+                .. deprecated::
+                    The OWS per-agent branch is deprecated (new OWS per-agent
+                    registrations are closed; existing OWS per-agent wallets
+                    keep working through this call). Prefer the raw-key form
+                    ``update_agent_wallet_creds(agent_id=..., private_key=...)``.
+                    OWS as a key store for the STANDARD external path
+                    (``OWS_WALLET`` + ``link_wallet()``) is NOT deprecated.
             agent_id: SDK agent ID from the dashboard. Required for raw-key
                 calls so callers make the per-agent target explicit.
             private_key: Optional raw EOA private key. Defaults to this
@@ -6663,6 +6816,17 @@ class SimmerClient:
             raise ValueError("Pass either ows_wallet_name or private_key, not both")
 
         if ows_wallet_name:
+            import warnings
+            warnings.warn(
+                "update_agent_wallet_creds(ows_wallet_name=...) is deprecated "
+                "for per-agent wallets — existing OWS per-agent wallets keep "
+                "working, but new registrations are closed. Prefer "
+                "update_agent_wallet_creds(agent_id=..., private_key=...). "
+                "OWS_WALLET as a signer for the standard external path "
+                "(link_wallet()) is unaffected.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
             from simmer_sdk.ows_utils import get_ows_wallet_address, ows_derive_clob_creds
             wallet_address = get_ows_wallet_address(ows_wallet_name)
             creds = ows_derive_clob_creds(ows_wallet_name)

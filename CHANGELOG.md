@@ -3,6 +3,12 @@
 All notable changes to `simmer-sdk` are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.24.4 (2026-08-19)
+
+- **`import_polymarket_wallet()` — one call from a polymarket.com export to trading-ready.** For wallets born on Polymarket (create account, fund via their onramps, export the key into the agent env): links the wallet with ownership proof, adopts the deposit wallet Polymarket already deployed (no redeploy), tops up the extended spender approvals gaslessly, and reports the balance. Also works for a self-generated key — the deposit-wallet step then deploys fresh.
+- **`link_wallet()` gains `confirm_orphan_deposit_wallet` and `source`.** The former passes through the server's SIM-1611 guard so accounts with an active deposit wallet can explicitly switch signing addresses from the SDK (previously the guard's error was a dead end for SDK callers). The latter tags onboarding-path attribution server-side; leave unset — the server infers `sdk-link`.
+- **OWS per-agent deprecations (entrance closure).** `register_agent_wallet(ows_wallet_name=...)` now emits a `DeprecationWarning` and declares `wallet_source='ows'`; the server rejects new OWS per-agent registrations with 410. `update_agent_wallet_creds(ows_wallet_name=...)` warns but keeps working for existing OWS per-agent wallets. NOT deprecated: `OWS_WALLET` as a local key store for the standard external path (`link_wallet()` and trade signing).
+
 ## 0.24.3 (2026-08-18)
 
 - **Surface the server's go-live nudge on sim trades.** `TradeResult` gains `go_live` — a structured block the server attaches when a sim-only agent crosses an activity milestone (10/50/100/250 trades) and the account has never traded real. It lists the exact steps to go live, split by actor: agent steps (enable the real-trading flag, run `activate_polymarket_dw()` where needed) and owner steps (fund the wallet at the dashboard). With `include_hints=True`, the steps also land in `next_steps` so LLM agents relay them without extra parsing. Informational only; the SDK never acts on it.
