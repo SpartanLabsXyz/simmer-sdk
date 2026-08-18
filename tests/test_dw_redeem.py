@@ -95,6 +95,15 @@ def _mock_response(status_code: int, json_body=None) -> MagicMock:
     return res
 
 
+def _real_response(status_code: int, json_body: dict) -> requests.Response:
+    res = requests.Response()
+    res.status_code = status_code
+    res._content = json.dumps(json_body).encode("utf-8")
+    res.headers["Content-Type"] = "application/json"
+    res.url = "https://api.simmer.example.com/api/sdk/redeem"
+    return res
+
+
 # ===========================================================================
 # prepare_dw_redeem
 # ===========================================================================
@@ -381,6 +390,99 @@ def test_redeem_external_no_dw_skips_helper():
         req.return_value = {"success": True, "tx_hash": "0xext-direct"}
         client.redeem("m-123", "no")
     ext_dw.assert_not_called()
+
+
+def test_http_error_parses_fastapi_detail_contract():
+    client = _make_client()
+    response = _real_response(
+        400,
+        {
+            "detail": {
+                "error": "Polymarket has not finalized payouts yet.",
+                "code": "not_yet_redeemable",
+                "retryable": False,
+                "retry_after_seconds": 1800,
+            }
+        },
+    )
+
+    with patch.object(client._session, "request", return_value=response):
+        with pytest.raises(requests.exceptions.HTTPError) as exc_info:
+            client._request("POST", "/api/sdk/redeem", json={"market_id": "m-123", "side": "no"})
+
+    assert exc_info.value.error_code == "not_yet_redeemable"
+    assert exc_info.value.retryable is False
+    assert exc_info.value.simmer_payload["retry_after_seconds"] == 1800
+
+
+def test_legacy_redeem_returns_terminal_400_without_signing_or_broadcast():
+    client = _make_client()
+    response = _real_response(
+        400,
+        {
+            "detail": {
+                "error": "On-chain token balance is 0 - position already redeemed.",
+                "code": "already_redeemed",
+                "retryable": False,
+            }
+        },
+    )
+
+    with patch.object(client._session, "request", return_value=response) as req, \
+         patch.object(client, "_sign_eip1559_tx_for_broadcast") as sign:
+        result = client._redeem_via_legacy_path("m-123", "no")
+
+    assert result == {
+        "success": False,
+        "error": "On-chain token balance is 0 - position already redeemed.",
+        "code": "already_redeemed",
+        "error_code": "already_redeemed",
+        "retryable": False,
+        "retry_after_seconds": None,
+    }
+    sign.assert_not_called()
+    assert req.call_count == 1
+
+
+def test_auto_redeem_surfaces_terminal_non_retryable_result():
+    client = _make_client()
+    client._wallet_ownership = "native"
+    client._wallet_uses_deposit_wallet = False
+    client._cohort_fetched_at = time.time()
+
+    with patch.object(client, "_get_auto_redeem_positions_response") as positions, \
+         patch.object(client, "redeem") as redeem:
+        positions.return_value = {
+            "positions": [
+                {
+                    "market_id": "m-123",
+                    "redeemable": True,
+                    "redeemable_side": "no",
+                    "venue": "polymarket",
+                }
+            ]
+        }
+        redeem.return_value = {
+            "success": False,
+            "error": "On-chain token balance is 0 - position already redeemed.",
+            "code": "already_redeemed",
+            "retryable": False,
+        }
+        result = client.auto_redeem()
+
+    redeem.assert_called_once_with("m-123", "no")
+    assert result == [
+        {
+            "market_id": "m-123",
+            "side": "no",
+            "success": False,
+            "tx_hash": None,
+            "error": "On-chain token balance is 0 - position already redeemed.",
+            "code": "already_redeemed",
+            "error_code": "already_redeemed",
+            "retryable": False,
+        }
+    ]
 
 
 def test_redeem_external_dw_falls_back_to_legacy_on_404():
