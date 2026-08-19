@@ -3,7 +3,7 @@ name: simmer
 description: The prediction market interface for AI agents. Trade Polymarket and Kalshi through one API with self-custody wallets, safety rails, and smart context.
 metadata:
   author: "Simmer (@simmer_markets)"
-  version: "1.24.10"
+  version: "1.24.11"
   displayName: Simmer
   difficulty: beginner
   homepage: "https://simmer.markets"
@@ -117,7 +117,7 @@ client.trade(id, side, usd, ...)   # execute (always with reasoning=)
 client.cancel_order(order_id)      # or cancel_market_orders / cancel_all_orders
 ```
 
-REST equivalents documented at [docs.simmer.markets](https://docs.simmer.markets). MCP server: `pip install simmer-mcp`.
+REST equivalents documented at [docs.simmer.markets](https://docs.simmer.markets). MCP server: `npm install -g simmer-mcp`.
 
 ## What you bring vs what Simmer brings
 
