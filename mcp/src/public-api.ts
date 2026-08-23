@@ -102,3 +102,58 @@ export async function getLeaderboard(
   const query = qs.toString();
   return fetchPublicJson(`${apiUrl}/api/leaderboard/all${query ? `?${query}` : ""}`, LEADERBOARD_TIMEOUT_MS);
 }
+
+const REGISTER_TIMEOUT_MS = 10_000;
+
+export interface RegisterAgentParams {
+  name: string;
+  description?: string;
+  homepage?: string;
+  skill_url?: string;
+}
+
+export interface RegisterAgentResult {
+  agent_id: string;
+  api_key: string;
+  key_prefix: string;
+  claim_url: string;
+  claim_code: string;
+  status: string;
+  starting_balance: number;
+  limits: Record<string, unknown>;
+}
+
+/**
+ * Register a new agent without any prior account.
+ * POST /api/sdk/agents/register — no auth.
+ *
+ * Returns api_key + agent_id + claim_url. The key is returned ONCE; the
+ * caller must capture it. Claiming the agent at claim_url links it to a
+ * Simmer account for real-venue trading.
+ */
+export async function registerAgent(
+  apiUrl: string,
+  params: RegisterAgentParams,
+): Promise<RegisterAgentResult> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), REGISTER_TIMEOUT_MS);
+  try {
+    const resp = await fetch(`${apiUrl}/api/sdk/agents/register`, {
+      method: "POST",
+      signal: ctrl.signal,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    });
+    if (!resp.ok) {
+      let detail = `HTTP ${resp.status}`;
+      try {
+        const body = (await resp.json()) as Record<string, unknown>;
+        if (typeof body.detail === "string") detail = body.detail;
+      } catch { /* non-JSON error body */ }
+      throw new BackendError(resp.status, detail);
+    }
+    return (await resp.json()) as RegisterAgentResult;
+  } finally {
+    clearTimeout(timer);
+  }
+}
