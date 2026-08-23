@@ -2243,6 +2243,7 @@ class SimmerClient:
         window: Optional[str] = None,
         limit: int = 50,
         sort: Optional[str] = None,
+        market_status: Optional[str] = None,
     ) -> List[Market]:
         """
         Get fast-resolving markets (5m, 15m, 1h, etc.).
@@ -2252,6 +2253,12 @@ class SimmerClient:
             window: Time window (5m, 15m, 1h, 4h, daily)
             limit: Maximum number of markets to return
             sort: Sort order ('volume', 'opportunity', or None for soonest-first)
+            market_status: 'live' (inside the final settlement window now) or
+                'upcoming' (not yet in it). Omit for both, which is what you
+                want to see every upcoming window for an asset at once. Note
+                this is stricter than "tradable": every market returned is
+                accepting orders, so filter on `is_orderbook_open` if that is
+                the question you are actually asking.
 
         Returns:
             List of Market objects sorted by is_live_now (live first), then resolves_at
@@ -2263,6 +2270,8 @@ class SimmerClient:
             params["window"] = window
         if sort:
             params["sort"] = sort
+        if market_status:
+            params["market_status"] = market_status
 
         data = self._request("GET", "/api/sdk/fast-markets", params=params)
 
@@ -2317,6 +2326,7 @@ class SimmerClient:
         signal_data: Optional[dict] = None,
         *,
         include_hints: bool = False,
+        dry_run: bool = False,
     ) -> TradeResult:
         """
         Execute a trade on a market.
@@ -2364,6 +2374,21 @@ class SimmerClient:
                 "signal_source": "noaa", "forecast_temp": 35}
             include_hints: Populate ``next_steps`` and structured error hints on
                 the returned TradeResult.
+            dry_run: Validate and price the trade without executing it. No money
+                moves and no order is signed or submitted. Use it to confirm the
+                exact fill count before committing size.
+
+                Two things it deliberately does NOT do, so don't lean on it for
+                either. It is **not a permission check** — the server skips
+                account trading-limit enforcement on a dry run, so a trade that
+                dry-runs clean can still be rejected live for a daily buy cap, a
+                spend cap, or a failed-trade cooldown. Read ``get_settings()``
+                for those. And on Polymarket it prices from the market's external
+                price rather than the executable book, so on neg-risk markets
+                (where YES and NO are independent CLOB tokens) the estimated cost
+                can differ from the live fill. Call
+                ``/api/sdk/markets/{id}/executable-price`` when the entry price
+                itself is the thing you need to be right.
 
         Returns:
             TradeResult with execution details
@@ -2549,6 +2574,8 @@ class SimmerClient:
             "venue": effective_venue,
             "order_type": order_type
         }
+        if dry_run:
+            payload["dry_run"] = True
         if reasoning:
             payload["reasoning"] = reasoning
         if source:
@@ -2583,8 +2610,11 @@ class SimmerClient:
         if registered_agent_wallet:
             payload["wallet_address"] = self._wallet_address
 
-        # External wallet: ensure linked, check approvals, sign locally
-        if (self._private_key or self._ows_wallet) and effective_venue == "polymarket":
+        # External wallet: ensure linked, check approvals, sign locally.
+        # Skipped on a dry run — the server never submits the order, so signing
+        # one wastes a CLOB credential derivation (a direct Polymarket call) to
+        # produce a signature nothing consumes.
+        if (self._private_key or self._ows_wallet) and effective_venue == "polymarket" and not dry_run:
             # Registered per-agent OWS wallets route through user_agent_wallets
             # via payload["wallet_address"]. They must not hit the user-level
             # auto-link path, which can try to replace the account's current

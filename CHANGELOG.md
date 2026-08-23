@@ -3,6 +3,11 @@
 All notable changes to `simmer-sdk` are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.24.6 (2026-08-23)
+
+- **`get_fast_markets(market_status=...)`.** The endpoint has always taken `live` / `upcoming`; the helper dropped it, so callers wanting only the not-yet-open windows had to drop to `client._request()` or filter client-side. Omitting it still returns both, which is what you want to see every upcoming window for an asset in one call.
+- **`trade(dry_run=True)`.** Keyword-only. Validates and prices a trade without executing — the exact fill count before you commit size. Two things it deliberately does not do, both now in the docstring: it is not a permission check (the server skips account trading-limit enforcement on a dry run, so a clean dry run can still be rejected live for a daily buy cap or a cooldown), and on Polymarket it prices from the market's external price rather than the executable book, so neg-risk cost estimates can differ from the live fill. On a dry run the SDK also no longer signs an order locally — that spent a direct Polymarket credential derivation to produce a signature the server never submits.
+
 ## 0.24.5 (2026-08-19)
 
 - **`import_polymarket_wallet()` adopts the env wallet on a sim-default client.** `SimmerClient.from_env()` without `venue=` deliberately ignores `WALLET_PRIVATE_KEY` (sim-venue safety), which made the documented import snippet fail with "private_key or ows_wallet required". An explicit import call is unambiguous intent to use the local key, so the method now picks up `OWS_WALLET` / `WALLET_PRIVATE_KEY` itself when the client has no signer. Found in the SIM-4646 acceptance run.
