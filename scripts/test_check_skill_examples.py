@@ -28,10 +28,24 @@ def test_unexpected_kwarg_is_flagged():
     assert "outcome" in v[0].reason
 
 
-def test_dry_run_kwarg_is_flagged():
-    v = _violations('client.trade(market_id="x", side="yes", amount=1.0, dry_run=True)')
-    assert len(v) == 1
-    assert "dry_run" in v[0].reason
+def test_dry_run_kwarg_now_binds():
+    """``trade(dry_run=)`` was the checker's live catch: the endpoint accepted
+    the flag long before the helper did, so examples documented a call that
+    raised TypeError. It landed in 0.24.6, so the same line must now bind —
+    which is the checker tracking the signature, exactly what it is for.
+    Kept pinned to this parameter rather than folded into the generic
+    unexpected-kwarg test: it is the one that proved the gate catches drift."""
+    assert _violations('client.trade(market_id="x", side="yes", amount=1.0, dry_run=True)') == []
+
+
+def test_keyword_only_kwarg_still_binds_by_name():
+    """dry_run is keyword-only, so bind_partial must accept it by name and an
+    example that tried to pass it positionally must still fail. Without this,
+    a future move of the ``*`` marker would go unnoticed."""
+    assert _violations(
+        'client.trade("x", "yes", 1.0, 0, "buy", "polymarket", None, None,'
+        ' None, None, None, False, None, True)'
+    ) != []
 
 
 def test_missing_method_is_flagged():
