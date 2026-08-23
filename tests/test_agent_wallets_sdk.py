@@ -38,16 +38,22 @@ class TestRegisterAgentWallet:
             "is_active": True,
         }
 
-        result = client.register_agent_wallet("agent-test")
+        # SIM-4646 (0.24.4): OWS per-agent registration is a closed entrance —
+        # the method warns, and declares wallet_source='ows' truthfully so the
+        # server's closure guard can 410 it.
+        with pytest.warns(DeprecationWarning, match="register_agent_wallet"):
+            result = client.register_agent_wallet("agent-test")
 
         mock_addr.assert_called_once_with("agent-test")
         # PR #73 (0.17.5): agent_id is now derived server-side from the API
-        # key; the SDK only sends ows_wallet_name + wallet_address.
+        # key; the SDK only sends ows_wallet_name + wallet_address (+ the
+        # SIM-4646 wallet_source declaration).
         client._request.assert_called_once_with(
             "POST", "/api/sdk/agent-wallet/register",
             json={
                 "ows_wallet_name": "agent-test",
                 "wallet_address": "0x1234567890abcdef1234567890abcdef12345678",
+                "wallet_source": "ows",
             }
         )
         assert result["ows_wallet_name"] == "agent-test"

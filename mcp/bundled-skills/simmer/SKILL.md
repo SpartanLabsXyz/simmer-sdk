@@ -3,7 +3,7 @@ name: simmer
 description: The prediction market interface for AI agents. Trade Polymarket and Kalshi through one API with self-custody wallets, safety rails, and smart context.
 metadata:
   author: "Simmer (@simmer_markets)"
-  version: "1.24.9"
+  version: "1.24.11"
   displayName: Simmer
   difficulty: beginner
   homepage: "https://simmer.markets"
@@ -91,7 +91,7 @@ Documentation references — open when the situation matches.
 
 | When | Where |
 |---|---|
-| Setting up a real-money wallet (Polymarket or Kalshi) | Install [`simmer-wallet-setup`](https://clawhub.ai/skills/simmer-wallet-setup) — covers OWS (recommended), external raw key, and managed paths |
+| Setting up a real-money wallet (Polymarket or Kalshi) | Install [`simmer-wallet-setup`](https://clawhub.ai/skills/simmer-wallet-setup) — covers external self-custody (your own key, with OWS as an optional key store), importing a funded Polymarket wallet, and managed paths |
 | Wiring Simmer into an MCP-aware agent (Claude Code, Cursor, OpenClaw, Hermes, Codex) | Install [`simmer-mcp-setup`](https://clawhub.ai/skills/simmer-mcp-setup) — one-shot bootstrap for the Simmer MCP server. Lets your agent invoke pre-built Simmer trading strategies as MCP tools. |
 | Periodic portfolio check-in (heartbeat / cron loop) | [docs.simmer.markets](https://docs.simmer.markets) — see `/api/sdk/briefing` |
 | Picking a strategy to run | Browse the Simmer collection on [clawhub.ai/skills?q=simmer](https://clawhub.ai/skills?q=simmer) |
@@ -104,7 +104,7 @@ Documentation references — open when the situation matches.
 - **Order behavior**: `client.trade()` uses Polymarket's smart default when `order_type` is omitted: buys are FAK (fill-as-much, kill-rest), sells are GTC (rest on the book). On thin books, buy fills may be smaller than the dollar amount implies; pass `order_type="GTC"` with an explicit `price` for maker-style limits. Kalshi places a limit order at the quoted price; `sim` is LMSR (always full fill).
 - **Auto-redeem** (managed wallets only): ON by default. Winning Polymarket positions are claimed automatically. Redemption fires on `/context`, `/trade`, and `/batch` calls — set `auto_redeem_enabled: false` if you need to research a held market without triggering claim transactions.
 - **Edge vs costs**: real venues have 1-5% spreads plus venue fees. Don't trade unless your edge clears ~5% net of costs. Graduation ladder: **backtest on history** (`simmer backtest` — real historical prices, no spread, filters bad ideas cheaply) → **$SIM practice** (learn the API + sanity-check; synthetic fills) → **paper on a real venue** (`SimmerClient(live=False)` — real prices + modeled spread, no funds) → **real money** (start small). Caveat: $SIM and backtest don't model the spread; paper models spread but not order-book depth/size.
-- **Tiers**: Free / Pro (3× rate limits) / Elite (10× + per-agent OWS wallets). Pricing at [simmer.markets/pricing](https://simmer.markets/pricing?ref=sdk-skill&utm_campaign=sdk-skill).
+- **Tiers**: Free / Pro (3× rate limits) / Elite (10× + dedicated per-agent wallets). Pricing at [simmer.markets/pricing](https://simmer.markets/pricing?ref=sdk-skill&utm_campaign=sdk-skill).
 
 ## API surface
 
@@ -117,7 +117,7 @@ client.trade(id, side, usd, ...)   # execute (always with reasoning=)
 client.cancel_order(order_id)      # or cancel_market_orders / cancel_all_orders
 ```
 
-REST equivalents documented at [docs.simmer.markets](https://docs.simmer.markets). MCP server: `pip install simmer-mcp`.
+REST equivalents documented at [docs.simmer.markets](https://docs.simmer.markets). MCP server: `npm install -g simmer-mcp`.
 
 ## What you bring vs what Simmer brings
 
