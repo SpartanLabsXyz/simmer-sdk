@@ -7,7 +7,7 @@
  */
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { browseMarkets, getLeaderboard, fetchPublicJson } from "../dist/public-api.js";
+import { browseMarkets, getLeaderboard, fetchPublicJson, registerAgent } from "../dist/public-api.js";
 import { BackendError } from "../dist/errors.js";
 
 type FetchFn = typeof global.fetch;
@@ -130,6 +130,78 @@ describe("public-api — error surface", () => {
       (err: unknown) => {
         assert.ok(err instanceof BackendError);
         assert.equal(err.body, "HTTP 502");
+        return true;
+      },
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// registerAgent — keyless POST, no Authorization header
+// ---------------------------------------------------------------------------
+
+const MOCK_REGISTER_RESPONSE = {
+  agent_id: "test-agent-uuid",
+  api_key: "sk_live_testkey",
+  key_prefix: "sk_live_te",
+  claim_url: "https://simmer.markets/claim/test-code",
+  claim_code: "test-code",
+  status: "unclaimed",
+  starting_balance: 10000,
+  limits: { sim: true, real_trading: false },
+};
+
+describe("registerAgent — no credentials leave the process", () => {
+  beforeEach(() => { savedFetch = global.fetch; });
+  afterEach(() => { global.fetch = savedFetch; });
+
+  it("sends no Authorization header", async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    // @ts-expect-error global override for testing
+    global.fetch = async (url: string, init?: RequestInit) => {
+      calls.push({ url: String(url), init });
+      return new Response(JSON.stringify(MOCK_REGISTER_RESPONSE), { status: 200 });
+    };
+    await registerAgent("https://api.simmer.markets", { name: "test-bot" });
+    const headers = (calls[0].init?.headers ?? {}) as Record<string, string>;
+    const keys = Object.keys(headers).map((k) => k.toLowerCase());
+    assert.equal(keys.includes("authorization"), false, "must not send Authorization");
+  });
+
+  it("POSTs to /api/sdk/agents/register with name in body", async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    // @ts-expect-error global override for testing
+    global.fetch = async (url: string, init?: RequestInit) => {
+      calls.push({ url: String(url), init });
+      return new Response(JSON.stringify(MOCK_REGISTER_RESPONSE), { status: 200 });
+    };
+    await registerAgent("https://api.simmer.markets", { name: "my-arb-bot", description: "arb strategy" });
+    assert.equal(calls[0].url, "https://api.simmer.markets/api/sdk/agents/register");
+    const body = JSON.parse(calls[0].init?.body as string);
+    assert.equal(body.name, "my-arb-bot");
+    assert.equal(body.description, "arb strategy");
+  });
+
+  it("returns api_key, agent_id, claim_code, claim_url, and starting_balance", async () => {
+    // @ts-expect-error global override for testing
+    global.fetch = async () => new Response(JSON.stringify(MOCK_REGISTER_RESPONSE), { status: 200 });
+    const result = await registerAgent("https://api.simmer.markets", { name: "test-bot" });
+    assert.equal(result.api_key, "sk_live_testkey");
+    assert.equal(result.agent_id, "test-agent-uuid");
+    assert.equal(result.claim_code, "test-code");
+    assert.equal(result.claim_url, "https://simmer.markets/claim/test-code");
+    assert.equal(result.starting_balance, 10000);
+  });
+
+  it("throws BackendError on 429 rate limit", async () => {
+    // @ts-expect-error global override for testing
+    global.fetch = async () => new Response(JSON.stringify({ detail: "Rate limit exceeded" }), { status: 429 });
+    await assert.rejects(
+      () => registerAgent("https://api.simmer.markets", { name: "spam-bot" }),
+      (err: unknown) => {
+        assert.ok(err instanceof BackendError);
+        assert.equal(err.statusCode, 429);
+        assert.equal(err.body, "Rate limit exceeded");
         return true;
       },
     );
