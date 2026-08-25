@@ -98,6 +98,19 @@ Documentation references — open when the situation matches.
 | Building your own strategy skill | [docs.simmer.markets/skills/building](https://docs.simmer.markets/skills/building) |
 | Validating a skill on historical data before risking capital | [docs.simmer.markets/backtesting](https://docs.simmer.markets/backtesting) — `pip install 'simmer-sdk[backtest]'` then `simmer backtest <skill> --entrypoint run.py --window 30d` |
 
+## Heartbeat check-in
+
+Agents should call `client.get_briefing()` or `GET /api/sdk/briefing?since=<last_check_timestamp>` at the start of each portfolio heartbeat.
+
+Handle the briefing in this order:
+
+1. Process `triggered_risk_alerts` first. These are stop-loss, take-profit, or price-monitor events that already fired. External-wallet agents should treat each entry as an executable exit prompt before opening new trades; managed-wallet agents should verify whether the server-side exit already completed before retrying.
+2. Review `risk_alerts` for portfolio triage, such as expiring positions or concentration warnings.
+3. Read `risk_warnings` for diagnostic trading or setup signals, such as low win rate, maker-block failures, or recent real-trade failure streaks.
+4. Walk each venue's `actions` array for generated next actions, including redemption prompts.
+5. Check `positions_needing_attention` and `venues.sim.by_skill` for positions or skills that need resizing, disabling, or a hold/exit decision.
+6. Scan `opportunities.new_markets` only after fired monitor alerts and active-position actions are handled.
+
 ## Trade behavior (defaults at a glance)
 
 - **Default venue**: `sim` — virtual $SIM on Simmer's LMSR (synthetic fills, no spread; quotes track real markets). Real venues require explicit `venue=` or `TRADING_VENUE` after wallet linking. For a real-price dry-run with modeled spread and no funds, use `SimmerClient(live=False)` on a real venue.
@@ -128,7 +141,7 @@ Designing a trade well means using both sides' context.
 | Thesis — why this side will win | Live market data, prices, liquidity |
 | Reasoning (publicly displayed on each trade) | Position state, P&L, exposure |
 | User intent / strategy | Safety rails: trade caps, daily limits, stop-loss |
-| Conversation context | Risk alerts: expiring positions, concentration warnings |
+| Conversation context | Fired risk monitors (`triggered_risk_alerts`), portfolio alerts (`risk_alerts`), and diagnostic warnings (`risk_warnings`) |
 | Which markets match your edge | Pre-generated `actions` array per venue (just follow them) |
 
 If you find yourself parsing market JSON or tracking positions manually, you're doing Simmer's job — call `client.get_briefing()` instead.
