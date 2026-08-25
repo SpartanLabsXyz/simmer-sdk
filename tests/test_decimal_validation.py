@@ -195,3 +195,38 @@ class TestPolymarketOrderTypeDefault:
         assert result.success
         assert seen["order_type"] == "GTC"
         assert client.sent_payloads[-1]["order_type"] is None
+
+
+class TestTradeIdempotencyKey:
+    def test_idempotency_key_is_sent_and_replayed_in_process(self):
+        client = _make_client()
+
+        first = client.trade(
+            "m1",
+            "yes",
+            amount=10.0,
+            idempotency_key="idem-1",
+        )
+        second = client.trade(
+            "m1",
+            "yes",
+            amount=10.0,
+            idempotency_key="idem-1",
+        )
+
+        assert first.success
+        assert second.success
+        assert first.trade_id == "t1"
+        assert second.trade_id == "t1"
+        assert len(client.sent_payloads) == 1
+        assert client.sent_payloads[0]["idempotency_key"] == "idem-1"
+
+    def test_without_idempotency_key_duplicate_trade_posts_again(self):
+        client = _make_client()
+
+        first = client.trade("m1", "yes", amount=10.0, allow_rebuy=True)
+        second = client.trade("m1", "yes", amount=10.0, allow_rebuy=True)
+
+        assert first.success
+        assert second.success
+        assert len(client.sent_payloads) == 2

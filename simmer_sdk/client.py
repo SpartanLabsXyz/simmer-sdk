@@ -11,7 +11,7 @@ import time
 import logging
 import requests
 from typing import Optional, List, Dict, Any, Callable, Sequence, Union
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from urllib.parse import quote, urlparse
 from datetime import datetime, timezone
 
@@ -390,6 +390,7 @@ class SimmerClient:
         self._position_holder_ts: float = 0
         self._clob_client = None  # Cached ClobClient for local CLOB operations
         self._market_data_cache: dict = {}  # market_id -> market data for signing
+        self._trade_idempotency_results: dict = {}  # caller idempotency_key -> TradeResult
         self._hyperliquid_venue = None  # lazy HyperliquidVenue adapter
         self._ows_wallet: Optional[str] = None  # OWS wallet name
         self._agent_wallet_registered: Optional[bool] = None  # lazy: cached check whether
@@ -2324,6 +2325,7 @@ class SimmerClient:
         skill_slug: Optional[str] = None,
         allow_rebuy: bool = False,
         signal_data: Optional[dict] = None,
+        idempotency_key: Optional[str] = None,
         *,
         include_hints: bool = False,
         dry_run: bool = False,
@@ -2372,6 +2374,10 @@ class SimmerClient:
                 confidence (float 0-1), signal_source (string). Skill-specific
                 fields are freeform. Example: {"edge": 0.15, "confidence": 0.8,
                 "signal_source": "noaa", "forecast_temp": 35}
+            idempotency_key: Optional caller-generated key for order submission.
+                Reusing a key in the same client process returns the first
+                TradeResult without a second POST. The server also dedupes the
+                key for 24h across workers.
             include_hints: Populate ``next_steps`` and structured error hints on
                 the returned TradeResult.
             dry_run: Validate and price the trade without executing it. No money
@@ -2517,6 +2523,16 @@ class SimmerClient:
                 result.next_steps = self._trade_next_steps(result)
             return result
 
+        normalized_idempotency_key = None
+        if idempotency_key is not None:
+            normalized_idempotency_key = str(idempotency_key).strip() or None
+        if normalized_idempotency_key:
+            if not hasattr(self, "_trade_idempotency_results"):
+                self._trade_idempotency_results = {}
+            cached_result = self._trade_idempotency_results.get(normalized_idempotency_key)
+            if cached_result is not None:
+                return replace(cached_result)
+
         # Paper trading: simulate with real prices (no live API calls)
         if not self.live:
             return self._paper_trade(
@@ -2586,6 +2602,8 @@ class SimmerClient:
             payload["signal_data"] = signal_data
         if price is not None:
             payload["price"] = price
+        if normalized_idempotency_key:
+            payload["idempotency_key"] = normalized_idempotency_key
 
         registered_agent_wallet = (
             (self._ows_wallet or self._private_key)
@@ -2748,6 +2766,11 @@ class SimmerClient:
             # logging a stderr signal at WARNING level on the first failure.
             logger.warning(
                 "Trade failed on %s: %s", effective_venue, result.error
+            )
+        if normalized_idempotency_key:
+            self._trade_idempotency_results.setdefault(
+                normalized_idempotency_key,
+                replace(result),
             )
         return result
 
