@@ -111,7 +111,7 @@ import { BackendError } from "./errors.js";
 import { discoverSkills } from "./skill-discovery.js";
 import { buildToolSchema, buildToolDescription, invokeSkillTool } from "./per-skill-tools.js";
 import { listSkills, getSkillDocs } from "./docs-tools.js";
-import { browseMarkets, getLeaderboard } from "./public-api.js";
+import { browseMarkets, getLeaderboard, registerAgent } from "./public-api.js";
 import { troubleshootError } from "./troubleshoot.js";
 import { executeTrade, executeCancelOrder } from "./trade-primitives.js";
 import { registerTool } from "./tool-registry.js";
@@ -312,6 +312,51 @@ server.tool(
       if (e instanceof BackendError) return e.toMcpResponse();
       return {
         content: [{ type: "text" as const, text: `❌ Leaderboard fetch failed: ${e instanceof Error ? e.message : String(e)}` }],
+        isError: true,
+      };
+    }
+  },
+);
+
+server.tool(
+  "simmer_register_agent",
+  [
+    "Register a new agent on Simmer and get an API key — no account required.",
+    "Returns api_key, agent_id, claim_code, and a claim URL in one call.",
+    "After registration the agent can immediately trade on the $SIM venue",
+    "(10 000 $SIM starting balance, paper trading). To unlock real venues",
+    "(Polymarket, Kalshi), visit the claim URL to link the agent to a Simmer account.",
+    "The api_key is returned ONCE — capture it before the session ends.",
+    "Rate limited: 10 registrations per minute.",
+  ].join("\n"),
+  {
+    name: z.string().describe("Name for the agent (e.g. 'my-arb-bot')"),
+    description: z.string().optional().describe("Short description of what the agent does"),
+    homepage: z.string().optional().describe("Agent homepage or repository URL"),
+    skill_url: z.string().optional().describe("URL to a skill JSON the agent will run"),
+  },
+  { readOnlyHint: false },
+  async ({ name, description, homepage, skill_url }) => {
+    try {
+      const result = await registerAgent(apiUrl, { name, description, homepage, skill_url });
+      const text = [
+        `✅ Agent registered: ${result.agent_id}`,
+        ``,
+        `🔑 API key (save this — shown once): ${result.api_key}`,
+        ``,
+        `What you can do now:`,
+        `  • Trade on $SIM with your ${result.starting_balance.toLocaleString()} $SIM starting balance`,
+        `  • Set SIMMER_API_KEY=${result.api_key} in your MCP env to unlock trading tools`,
+        ``,
+        `To unlock real venues (Polymarket, Kalshi):`,
+        `  • Claim your agent at: ${result.claim_url}`,
+        `  • Claim code: ${result.claim_code}`,
+      ].join("\n");
+      return { content: [{ type: "text" as const, text }] };
+    } catch (e) {
+      if (e instanceof BackendError) return e.toMcpResponse();
+      return {
+        content: [{ type: "text" as const, text: `❌ Registration failed: ${e instanceof Error ? e.message : String(e)}` }],
         isError: true,
       };
     }
@@ -1047,11 +1092,12 @@ async function main() {
     `git: ${probe.git.detected ? `v${probe.git.version}` : `not found`}`,
   ].join(" | ");
 
-  // 5 hand-registered keyless tools (list_skills, get_skill_docs,
-  // troubleshoot_error, simmer_browse_markets, simmer_get_leaderboard) plus
-  // every Tier-A skill. Tier-B skills and the 13 authed tools are gated.
+  // 6 hand-registered keyless tools (list_skills, get_skill_docs,
+  // troubleshoot_error, simmer_browse_markets, simmer_get_leaderboard,
+  // simmer_register_agent) plus every Tier-A skill.
+  // Tier-B skills and the 13 authed tools are gated.
   const tierASkills = skills.filter((s) => !s.entrypoint).length;
-  const keylessCount = 5 + tierASkills;
+  const keylessCount = 6 + tierASkills;
   const gatedCount = simmer ? 13 + (skills.length - tierASkills) : 0;
   const totalTools = keylessCount + gatedCount;
   const tier = simmer ? "discovery + autoresearch + trading" : "discovery only";

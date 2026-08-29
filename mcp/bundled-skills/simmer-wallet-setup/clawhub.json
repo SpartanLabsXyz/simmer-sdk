@@ -16,14 +16,14 @@
       "description": "Your Simmer SDK API key (from agent registration)."
     },
     {
-      "name": "OWS_WALLET",
-      "required": false,
-      "description": "OWS wallet name. Set only if you chose Path A (OWS)."
-    },
-    {
       "name": "WALLET_PRIVATE_KEY",
       "required": false,
-      "description": "Polygon EVM private key. Set only if you chose Path B (external raw key)."
+      "description": "Polygon EVM private key. The standard self-custody signer."
+    },
+    {
+      "name": "OWS_WALLET",
+      "required": false,
+      "description": "OWS wallet name. Optional key store — set instead of WALLET_PRIVATE_KEY if the key lives in an OWS vault."
     }
   ],
   "cron": null,

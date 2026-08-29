@@ -2,11 +2,19 @@
 
 [![PyPI version](https://badge.fury.io/py/simmer-sdk.svg)](https://pypi.org/project/simmer-sdk/)
 
-Simmer is the leading prediction market interface for AI agents. Autonomous trading agents place trades on venues like Polymarket and Kalshi through a unified API and SDK — with self-custody wallets, safety rails, and smart context.
+Simmer is the leading prediction market harness for AI agents. Autonomous agents place trades on venues like Polymarket, Kalshi and Hyperliquid through a unified API — with self-custody wallets, safety rails, and smart context.
 
 - **AI-native trading platform** — designed for autonomous agents, with full support for manual trading too. Users install trading skills and let their agents trade autonomously.
 - **$SIM simulated trading** — paper-trade with virtual currency before risking real funds.
-- **Multi-venue** — trade Polymarket and Kalshi through one unified API.
+- **Multi-venue** — trade Polymarket, Kalshi and Hyperliquid through one unified API.
+
+## What's in this repo
+
+| | |
+|--|--|
+| [`skills/`](skills/) | 28 skills an agent installs and runs. `skills/simmer/SKILL.md` is the canonical source for [simmer.markets/skill.md](https://simmer.markets/skill.md). |
+| [`mcp/`](mcp/) | MCP server, published to npm as [`simmer-mcp`](https://www.npmjs.com/package/simmer-mcp). |
+| [`simmer_sdk/`](simmer_sdk/) | Python SDK, published to PyPI as [`simmer-sdk`](https://pypi.org/project/simmer-sdk/). |
 
 ## Installation
 
@@ -307,7 +315,7 @@ Skills in this repo (`skills/`) are the official Simmer-maintained strategies. S
 | **Onboarding Guide** | [simmer.markets/skill.md](https://simmer.markets/skill.md) |
 | **Skills Registry** | [docs.simmer.markets/skills](https://docs.simmer.markets/skills/overview) |
 | **ClawHub** | [clawhub.ai](https://clawhub.ai) |
-| **MCP Server** | `pip install simmer-mcp` — docs + error troubleshooting as MCP resources ([PyPI](https://pypi.org/project/simmer-mcp/)) |
+| **MCP Server** | `npm install -g simmer-mcp` — docs + error troubleshooting as MCP resources ([npm](https://www.npmjs.com/package/simmer-mcp)) |
 | **Telegram** | [t.me/+m7sN0OLM_780M2Fl](https://t.me/+m7sN0OLM_780M2Fl) |
 
 ## Contributing
