@@ -176,7 +176,7 @@ def validate_mcp_version_bump(root: Path, paths: list[str] | None = None) -> lis
 
     current_version = read_npm_repo_version(root)
     previous_version = read_npm_version_from_package_json(previous_package_json)
-    if current_version != previous_version:
+    if compare_versions(current_version, previous_version) > 0:
         return []
 
     sample = ", ".join(changed_mcp_inputs[:3])
@@ -184,8 +184,9 @@ def validate_mcp_version_bump(root: Path, paths: list[str] | None = None) -> lis
         sample += ", ..."
     return [
         f"{NPM_PACKAGE} package inputs changed ({sample}) but {MCP_PACKAGE_JSON} "
-        f"version stayed at {current_version}; bump the npm package version so CI "
-        "and published installs cannot name different artifacts with the same version"
+        f"version is {current_version}, which is not greater than base version "
+        f"{previous_version}; bump the npm package version so CI and published "
+        "installs cannot name different artifacts with the same version"
     ]
 
 

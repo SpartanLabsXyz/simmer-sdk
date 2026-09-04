@@ -212,6 +212,24 @@ def test_mcp_source_change_requires_npm_version_bump(
     assert check_publish_lag.main() == 1
 
 
+def test_mcp_source_change_rejects_npm_version_downgrade(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    write_package_files(tmp_path, npm_version="3.5.0", pypi_version="0.20.0")
+    patch_git_for_mcp_bump_check(
+        monkeypatch,
+        changed="mcp/src/tool-registry.ts",
+        previous_npm_version="3.5.1",
+    )
+    monkeypatch.setattr(
+        check_publish_lag,
+        "parse_args",
+        lambda: make_args(root=tmp_path, npm_published_version="3.5.1", pypi_published_version="0.20.0"),
+    )
+
+    assert check_publish_lag.main() == 1
+
+
 def test_mcp_source_change_allows_npm_version_bump(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
