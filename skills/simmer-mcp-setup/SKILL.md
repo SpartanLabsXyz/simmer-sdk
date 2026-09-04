@@ -32,6 +32,9 @@ So: MCP and SDK are different shapes, both legitimate. MCP runs pre-built strate
 ## What you'll have at the end
 
 - `simmer-mcp` runnable via `npx -y simmer-mcp` (global install optional)
+- `simmer-sdk` installed on the host — **required for the bundled skill tools**, which
+  shell out to Python. Skip it and the server still starts and the raw tools still work,
+  so the failure is silent. See Step 3b.
 - Your agent runtime's MCP config updated with a `simmer` entry
 - `SIMMER_API_KEY` plumbed into the MCP subprocess
 - Simmer tools visible to your agent:
@@ -106,6 +109,27 @@ If you do install it and get an EACCES permission error on Linux/macOS: do NOT `
 `bun add -g simmer-mcp`, and `bunx simmer-mcp` in place of `npx -y simmer-mcp` in the
 config below. Some agent runtimes gate npm behind a command review that never returns —
 observed on Grok Bot's cloud computer, 2026-09-04.
+
+## Step 3b — install the Python SDK, or half the tools will fail
+
+**Do not skip this one.** The MCP server runs on Node, but the **bundled skill runners
+shell out to Python**. Without `simmer-sdk` on the host, the server still starts, the
+handshake still succeeds, and the raw tools (`simmer_trade`, `simmer_get_markets`,
+`get_portfolio`) still work — but every per-skill execution fails. The only signal is one
+line in the server's stderr log:
+
+```
+[simmer-mcp] ⚠ simmer-sdk not installed — per-skill execution will fail. Run: pip install simmer-sdk>=0.13.0
+```
+
+That log is easy to never see, so install it up front:
+
+```bash
+python3 -m venv .venv && .venv/bin/pip install 'simmer-sdk>=0.13.0'
+```
+
+Use a venv. Most Linux hosts mark the system Python "externally managed", so a bare
+`pip install` fails with PEP 668 instead of installing.
 
 ## Step 4 — wire up the MCP config
 
@@ -191,7 +215,20 @@ Restart your OpenClaw runtime so it picks up the new server.
 
 ### Hermes
 
-Hermes uses YAML, not JSON. Edit `~/.hermes/config.yaml` and add under `mcp_servers` (snake_case — different from the other runtimes):
+**Find the live config first.** Hermes supports profiles, and each profile has its own
+`HERMES_HOME`. Editing the default config does nothing for an agent you run with `-p`:
+
+| You run Hermes as | Config to edit |
+|---|---|
+| `hermes …` (default) | `~/.hermes/config.yaml` |
+| `hermes -p <profile> …` | `~/.hermes/profiles/<profile>/config.yaml` |
+
+If you use both, add the block to both. A profile can have MCP wired and still be useless
+if that profile has no inference provider configured — **MCP and inference are separate**,
+and the profile that can think is the one that needs the entry.
+
+Hermes uses YAML, not JSON. Add under `mcp_servers` (snake_case — different from the other
+runtimes):
 ```yaml
 mcp_servers:
   simmer:
@@ -199,8 +236,15 @@ mcp_servers:
     args: ["-y", "simmer-mcp"]
     env:
       SIMMER_API_KEY: "sk_live_..."
-    enabled: true
 ```
+
+**Use the CLI rather than editing by hand where you can.** Hermes ships
+`hermes mcp add`, `hermes mcp list` and `hermes mcp test` — `hermes mcp test simmer`
+connects and counts the tools, which is a faster verification than Step 6's handshake
+(expect ~23 tools). `hermes mcp list` confirms which config Hermes actually read.
+
+Stderr from the server goes to `mcp-stderr.log` under that same `HERMES_HOME`. Read it
+first when something is wrong.
 
 ### Codex
 
@@ -280,6 +324,15 @@ The `sim` venue is paper money — no real funds at risk. If this returns market
 - Confirm the runtime fully restarted (not just reloaded the conversation).
 - Check the config file actually got written — `cat ~/.claude.json` (or equivalent) and look for the `simmer` entry under `mcpServers`.
 - For Claude Code: `claude mcp list` shows registered servers and their status.
+- For Hermes: `hermes mcp list` shows which config it actually read, and
+  `hermes mcp test simmer` connects and counts tools. If you run Hermes with `-p`, check
+  you edited that profile's config and not the default one.
+
+**Tools appear and raw trades work, but every bundled skill fails.**
+`simmer-sdk` is missing on the host — the skill runners are Python. Read the server's
+stderr log (`mcp-stderr.log` under the runtime's home) for the
+`simmer-sdk not installed` line, then do Step 3b. Nothing else looks wrong when this
+happens, which is why it is worth checking early.
 
 **Tools listed but API calls return 401.**
 - `SIMMER_API_KEY` env didn't make it into the MCP subprocess. The env block in the config has to be a direct value, not a `$VAR` reference — most MCP clients don't expand shell vars at server-launch time.
