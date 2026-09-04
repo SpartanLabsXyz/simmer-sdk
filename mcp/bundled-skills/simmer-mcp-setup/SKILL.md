@@ -399,9 +399,24 @@ or overridden, the server is silently absent (`codex mcp list` says none configu
 `startup_timeout_sec` defaults to **10** (Codex's own MCP docs). When the server does not
 answer in time, Codex drops it: no error in the transcript, no simmer tools. Seen once in
 four identical `codex exec` runs on 2026-09-04 (the other three registered 24), and
-reproduced on demand by setting `startup_timeout_sec = 1`. On Codex, either do the global
-install in Step 3 (`npm install -g simmer-mcp`, then `command = "simmer-mcp"` with no
-args), or raise the timeout under `[mcp_servers.simmer]`: `startup_timeout_sec = 60`.
+reproduced on demand by setting `startup_timeout_sec = 1`. Two settings under
+`[mcp_servers.simmer]` fix it, and you want both:
+
+```toml
+[mcp_servers.simmer]
+command = "npx"
+args = ["-y", "simmer-mcp"]
+env_vars = ["SIMMER_API_KEY"]
+startup_timeout_sec = 60   # default 10; a cold npx fetch can miss it
+required = true            # fail the session loudly instead of dropping the server
+```
+
+`required = true` is Codex's own antidote to the silent drop: with it set, a server that
+misses the timeout aborts the session with
+`required MCP servers failed to initialize: simmer: timed out handshaking with MCP server`
+instead of starting without it (verified 2026-09-04, same run). The global install in
+Step 3 (`npm install -g simmer-mcp`, then `command = "simmer-mcp"` with no args) removes
+the fetch from the startup path as well.
 
 Codex writes the server's stderr to no file — the startup banner is unreadable from
 inside it. To see the resolved Python or the tool count, run `npx -y simmer-mcp` once in a
