@@ -22,6 +22,22 @@ jobs:
       - name: Check repo versions are published
         run: python3 scripts/check_publish_lag.py
 
+  skill-publish-parity:
+    name: Skill Publish Parity
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Check skill versions are published
+        run: python3 scripts/check_skill_publish_parity.py
+
   nansen-no-cli-guard:
     name: Nansen Overlay (no-CLI guard)
     runs-on: ubuntu-latest
