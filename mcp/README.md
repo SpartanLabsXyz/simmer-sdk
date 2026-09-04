@@ -140,8 +140,13 @@ allowlist decision and rationale.
 ## Requirements
 
 - Node.js 18+
-- Python 3.9+ (for per-skill execution)
-- `pip install simmer-sdk>=0.13.0` (for per-skill execution)
+- Python 3.9+ — **only** for the `preflight` tool, the one bundled skill with an
+  executable entrypoint. Every other tool is pure Node.
+- `pip install 'simmer-sdk>=0.17.13'` — the floor `preflight` needs. Below it the import
+  succeeds and `preflight` then crashes on a missing API, so the server treats an
+  under-floor SDK as not installed.
+- Set `SIMMER_MCP_PYTHON` to that interpreter. The server resolves Python from
+  `SIMMER_MCP_PYTHON`, then `PATH` — it never discovers a `.venv` on its own.
 
 ## Contributing
 

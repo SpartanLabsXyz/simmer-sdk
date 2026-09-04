@@ -1108,7 +1108,7 @@ async function main() {
   console.error(`[simmer-mcp] runtime: ${probeLines}`);
 
   if (!probe.python3.detected) {
-    console.error("[simmer-mcp] ⚠ python3 not found — per-skill execution will fail. Install python3 to use trading skills.");
+    console.error("[simmer-mcp] ⚠ python3 not found — the preflight tool will fail (other tools are unaffected). Install python3 to use it.");
   }
   if (!probe.simmerSdk.detected && simmer) {
     console.error("[simmer-mcp] ⚠ simmer-sdk not installed — the preflight tool will fail (other tools are unaffected). Run: pip install 'simmer-sdk>=0.17.13', then set SIMMER_MCP_PYTHON to that interpreter.");

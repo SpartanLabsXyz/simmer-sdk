@@ -229,13 +229,41 @@ Project-scoped: use `.cursor/mcp.json` in the project root.
 ### OpenClaw
 
 **Prefer the CLI.** OpenClaw ships `openclaw mcp add`, and `openclaw mcp doctor simmer --probe`
-verifies the handshake and counts tools (expect ~23) — faster and less error-prone than
-editing JSON by hand.
+verifies the handshake and counts tools — faster and less error-prone than editing JSON by
+hand.
+
+```bash
+export SIMMER_API_KEY=sk_live_...   # the gateway must see this too — see below
+openclaw mcp add simmer --command npx --args '-y,simmer-mcp' \
+  --env 'SIMMER_API_KEY=ref(env:SIMMER_API_KEY)'
+openclaw mcp doctor simmer --probe
+```
+
+Flag names vary by OpenClaw version — run `openclaw mcp add --help` first and match the
+shape above to what it accepts.
 
 ⚠️ **Do not paste the key in literally if you can avoid it.** OpenClaw supports env
 references — `"SIMMER_API_KEY": "ref(env:SIMMER_API_KEY)"` — and its own doctor warns when
 it finds a literal key in the config. `~/.openclaw/openclaw.json` is a file other processes
 on that machine can read; a reference keeps the secret in the environment.
+
+But **the OpenClaw gateway process itself must carry that variable**, not just your
+interactive shell. If it does not, the reference resolves to an empty string and the
+server starts in keyless mode with no error at all — see the tool-count note above. Export
+it wherever the gateway is launched from, or keep it in a file the gateway sources.
+
+⚠️ **Don't check the tool count against a number in this document — check it against the
+server's own banner.** The server prints `[simmer-mcp] v<x> | tools: N (…, K keyless)` on
+startup; that N is the truth for the build you are running, and it changes between
+releases. Measured 2026-09-04: published `simmer-mcp@3.5.0` from npm reports **23 tools,
+9 keyless**.
+
+⚠️ **A low count usually means the key did not resolve, not that tools are missing.**
+Without a usable `SIMMER_API_KEY` the server starts cleanly in **keyless mode** with only
+the keyless subset — no error, no warning, because the malformed-key guard only fires on a
+non-empty bad key. An empty one is silent. So if the banner shows roughly a third of the
+tools you expected, check the key reached the server process before debugging anything
+else.
 
 ⚠️ **`mcp doctor` reports green even when the install is half-broken.** It probes the
 handshake, and the handshake succeeds without Python. Confirmed on OpenClaw 2026.9.1,
@@ -293,7 +321,7 @@ mcp_servers:
 **Use the CLI rather than editing by hand where you can.** Hermes ships
 `hermes mcp add`, `hermes mcp list` and `hermes mcp test` — `hermes mcp test simmer`
 connects and counts the tools, which is a faster verification than Step 6's handshake
-(expect ~23 tools). `hermes mcp list` confirms which config Hermes actually read.
+`hermes mcp list` confirms which config Hermes actually read.
 
 Stderr from the server goes to `<HERMES_HOME>/logs/mcp-stderr.log`. Read it first when
 something is wrong.
