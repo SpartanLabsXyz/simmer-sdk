@@ -32,6 +32,19 @@ from typing import Optional
 # Force line-buffered stdout for cron / Docker / OpenClaw environments
 sys.stdout.reconfigure(line_buffering=True)
 
+_SDK_MIN_VERSION = "0.17.13"
+
+
+def _sdk_meets_floor(installed: str) -> bool:
+    """Return True if installed version string is >= _SDK_MIN_VERSION."""
+    try:
+        def _tup(v: str):
+            return tuple(int(x) for x in v.strip().split(".")[:3])
+        return _tup(installed) >= _tup(_SDK_MIN_VERSION)
+    except (ValueError, AttributeError):
+        return False
+
+
 # Automaton heartbeat output — required when AUTOMATON_MANAGED=1
 AUTOMATON_MANAGED = os.environ.get("AUTOMATON_MANAGED") == "1"
 
@@ -60,9 +73,22 @@ def run(
     _venue = venue or os.environ.get("TRADING_VENUE", "sim")
 
     try:
+        import simmer_sdk as _sdk_mod
         from simmer_sdk import SimmerClient
     except ImportError:
-        print("ERROR: simmer-sdk not installed — run: pip install simmer-sdk>=0.17.13", file=sys.stderr)
+        print(
+            f"ERROR: simmer-sdk not installed — run: pip install 'simmer-sdk>={_SDK_MIN_VERSION}'",
+            file=sys.stderr,
+        )
+        return 2
+
+    _installed_ver = getattr(_sdk_mod, "__version__", "")
+    if not _sdk_meets_floor(_installed_ver):
+        print(
+            f"ERROR: simmer-sdk {_installed_ver or '?'} is below the required >={_SDK_MIN_VERSION} "
+            f"— run: pip install 'simmer-sdk>={_SDK_MIN_VERSION}'",
+            file=sys.stderr,
+        )
         return 2
 
     try:
