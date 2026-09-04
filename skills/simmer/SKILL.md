@@ -3,7 +3,7 @@ name: simmer
 description: The prediction market interface for AI agents. Trade Polymarket and Kalshi through one API with self-custody wallets, safety rails, and smart context.
 metadata:
   author: "Simmer (@simmer_markets)"
-  version: "1.24.11"
+  version: "1.25.0"
   displayName: Simmer
   difficulty: beginner
   homepage: "https://simmer.markets"
@@ -51,10 +51,19 @@ Response includes `api_key`, `claim_url`, and 10,000 $SIM starting balance for p
 
 ```bash
 export SIMMER_API_KEY="sk_live_..."   # paste your actual key here
-pip install simmer-sdk
+
+# Use a venv. Most Linux agent hosts (Debian/Ubuntu, and the cloud VMs most
+# agent runtimes give you) mark the system Python "externally managed", so a
+# bare `pip install` fails with PEP 668 rather than installing.
+python3 -m venv .venv && .venv/bin/pip install simmer-sdk
+# Then run with .venv/bin/python, or `source .venv/bin/activate` first.
+
 # Verify the key loaded correctly (catches clipboard contamination):
 [[ "$SIMMER_API_KEY" == sk_live_* ]] || echo "WARNING: SIMMER_API_KEY should start with sk_live_ — re-set the key"
 ```
+
+No Python on the host? Every step in this skill is also reachable over plain
+REST — register, find markets, trade. See [docs.simmer.markets](https://docs.simmer.markets).
 
 ### 2. Send your human the claim link
 
@@ -85,6 +94,22 @@ if not result.success:
 
 `reasoning=` is optional in the API but expected by convention — it's displayed publicly on the trade page.
 
+### Check before you place: `dry_run`
+
+`client.trade(..., dry_run=True)` validates and prices the order without placing
+it — no money moves. Use it to see the exact fill you would get before committing,
+especially on a first run against a new market or a new venue.
+
+```python
+preview = client.trade(markets[0].id, "yes", 10.0, dry_run=True)
+print(preview)          # exact shares, price, fees — nothing placed
+result = client.trade(markets[0].id, "yes", 10.0)   # then place for real
+```
+
+⚠️ **The defaults differ by method, so read them rather than assuming.**
+`trade()` is `dry_run=False` — it places for real unless you ask otherwise.
+`place_combo()` is `dry_run=True` — it previews unless you pass `dry_run=False`.
+
 ## Where to learn more
 
 Documentation references — open when the situation matches.
@@ -92,7 +117,8 @@ Documentation references — open when the situation matches.
 | When | Where |
 |---|---|
 | Setting up a real-money wallet (Polymarket or Kalshi) | Install [`simmer-wallet-setup`](https://clawhub.ai/skills/simmer-wallet-setup) — covers external self-custody (your own key, with OWS as an optional key store), importing a funded Polymarket wallet, and managed paths |
-| Wiring Simmer into an MCP-aware agent (Claude Code, Cursor, OpenClaw, Hermes, Codex) | Install [`simmer-mcp-setup`](https://clawhub.ai/skills/simmer-mcp-setup) — one-shot bootstrap for the Simmer MCP server. Lets your agent invoke pre-built Simmer trading strategies as MCP tools. |
+| Wiring Simmer into an MCP-aware agent (Claude Code, Cursor, OpenClaw, Hermes, Codex) | Install [`simmer-mcp-setup`](https://clawhub.ai/skills/simmer-mcp-setup) — one-shot bootstrap for the Simmer MCP server. Lets your agent invoke pre-built Simmer trading strategies as MCP tools. **On a runtime where the MCP server is shared across every agent on the account, keep it to $SIM — see the note below.** |
+| Running on Grok Bot | Install this skill with `clawhub install simmer --workdir <your agent-data dir> --dir workflows` — Grok Bot loads skills from `workflows/`, not the default `./skills`. If `npx clawhub` stalls, `bun add -g clawhub` works. Prefer this skill over adding the MCP server: an `AddMcpServer` entry runs on the shared cloud computer and is visible to **every bot on your account**, so treat any key you put there as $SIM-only. |
 | Periodic portfolio check-in (heartbeat / cron loop) | [docs.simmer.markets](https://docs.simmer.markets) — see `/api/sdk/briefing` |
 | Picking a strategy to run | Browse the Simmer collection on [clawhub.ai/skills?q=simmer](https://clawhub.ai/skills?q=simmer) |
 | Building your own strategy skill | [docs.simmer.markets/skills/building](https://docs.simmer.markets/skills/building) |

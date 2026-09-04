@@ -1,11 +1,11 @@
 ---
 name: simmer-mcp-setup
-version: "0.1.3"
+version: "0.2.0"
 published: true
-description: One-shot bootstrap for the Simmer MCP server. Detects your agent runtime (Claude Code / Cursor / OpenClaw / Hermes / Codex), installs simmer-mcp via npm, writes the right MCP config, prompts a restart, and verifies the tool handshake. Use after registering an agent on simmer.markets to run pre-built Simmer trading strategies through your MCP-aware agent.
+description: One-shot bootstrap for the Simmer MCP server. Detects your agent runtime (Claude Code / Cursor / OpenClaw / Hermes / Codex / Grok Bot), installs simmer-mcp via npm, writes the right MCP config, prompts a restart, and verifies the tool handshake. Use after registering an agent on simmer.markets to run pre-built Simmer trading strategies through your MCP-aware agent.
 metadata:
   author: "Simmer (@simmer_markets)"
-  version: "0.1.3"
+  version: "0.2.0"
   displayName: Simmer MCP Setup
   difficulty: beginner
   primaryEnv: SIMMER_API_KEY
@@ -101,6 +101,11 @@ This step is **optional**. The MCP config in Step 4 uses `npx -y simmer-mcp`, wh
 If you do install it and get an EACCES permission error on Linux/macOS: do NOT `sudo npm install` (creates permission tangles later). Either fix npm's global directory permissions per [npm's docs](https://docs.npmjs.com/resolving-eacces-permissions-errors-when-installing-packages-globally), or just skip the global install — the `npx -y simmer-mcp` form in the config works either way.
 
 > **Why no `--version` check?** simmer-mcp's binary doesn't have CLI flags — every invocation starts the stdio MCP server. Verification happens in Step 6 when your agent calls a simmer tool and gets a real response.
+
+**If npm or `npx` is blocked or hangs on your host**, `bun` works as a drop-in:
+`bun add -g simmer-mcp`, and `bunx simmer-mcp` in place of `npx -y simmer-mcp` in the
+config below. Some agent runtimes gate npm behind a command review that never returns —
+observed on Grok Bot's cloud computer, 2026-09-04.
 
 ## Step 4 — wire up the MCP config
 
@@ -213,6 +218,21 @@ The canonical Codex MCP config path varies by install — consult [Codex's MCP d
   }
 }
 ```
+
+### Grok Bot
+
+Grok Bot has no MCP config file to edit — servers are added through its **Add MCP**
+control, with the same three fields: command `npx` (or `bunx` where npm is blocked),
+args `-y simmer-mcp`, and `SIMMER_API_KEY` in env.
+
+⚠️ **Keep this to $SIM.** On Grok Bot the MCP server runs on the cloud computer that
+**every bot on your account shares**, and its env secrets are stored where any of those
+bots can read them. That is fine for a practice key and wrong for a real-money one. For
+real trading on Grok Bot, install the `simmer` skill instead and drive the SDK on your
+own machine through a granted local folder, which keeps the key off the shared VM.
+
+Grok **CLI** (the coding agent, a different product) does use a config file — treat it as
+"Other / unknown runtime" below.
 
 ### Other / unknown runtime
 
