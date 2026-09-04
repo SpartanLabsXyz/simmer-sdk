@@ -255,15 +255,23 @@ it wherever the gateway is launched from, or keep it in a file the gateway sourc
 ⚠️ **Don't check the tool count against a number in this document — check it against the
 server's own banner.** The server prints `[simmer-mcp] v<x> | tools: N (…, K keyless)` on
 startup; that N is the truth for the build you are running, and it changes between
-releases. Measured 2026-09-04: published `simmer-mcp@3.5.0` from npm reports **23 tools,
-9 keyless**.
+releases. As of 2026-09-04 the published npm build reports **23 tools, 9 keyless** —
+quoted only as a rough scale, not a target to match, since a build from source can differ
+from the published package at the same version number.
 
 ⚠️ **A low count usually means the key did not resolve, not that tools are missing.**
-Without a usable `SIMMER_API_KEY` the server starts cleanly in **keyless mode** with only
-the keyless subset — no error, no warning, because the malformed-key guard only fires on a
-non-empty bad key. An empty one is silent. So if the banner shows roughly a third of the
-tools you expected, check the key reached the server process before debugging anything
-else.
+Without a usable `SIMMER_API_KEY` the server starts in **keyless mode** with only the
+keyless subset. It does say so — look for this line, which is the fastest diagnosis
+available:
+
+```
+[simmer-mcp] No SIMMER_API_KEY set — discovery tools only (skills, docs, market browse,
+leaderboard, troubleshooting). Trading and portfolio tools need a key
+```
+
+A key that is present but malformed gets a different line naming `sk_live_`. So if the
+banner shows roughly a third of the tools you expected, read the two lines above it before
+debugging anything else.
 
 ⚠️ **`mcp doctor` reports green even when the install is half-broken.** It probes the
 handshake, and the handshake succeeds without Python. Confirmed on OpenClaw 2026.9.1,
@@ -283,7 +291,7 @@ If you edit the file by hand instead, add `simmer` under `mcp.servers`:
         "command": "npx",
         "args": ["-y", "simmer-mcp"],
         "env": {
-          "SIMMER_API_KEY": "sk_live_..."
+          "SIMMER_API_KEY": "ref(env:SIMMER_API_KEY)"
         }
       }
     }
@@ -320,7 +328,7 @@ mcp_servers:
 
 **Use the CLI rather than editing by hand where you can.** Hermes ships
 `hermes mcp add`, `hermes mcp list` and `hermes mcp test` — `hermes mcp test simmer`
-connects and counts the tools, which is a faster verification than Step 6's handshake
+connects and counts the tools, which is a faster verification than Step 6's handshake.
 `hermes mcp list` confirms which config Hermes actually read.
 
 Stderr from the server goes to `<HERMES_HOME>/logs/mcp-stderr.log`. Read it first when
@@ -392,10 +400,8 @@ Don't trust "looks installed" — verify with a real tool call.
 Ask your agent:
 > What simmer tools can you see? List them.
 
-The agent should respond with the 3 utility tools, raw market/trade tools, and the core bundled skill tools:
-- `list_skills`
-- `get_skill_docs`
-- `troubleshoot_error`
+The agent should respond with the keyless utility tools, raw market/trade tools, and the core bundled skill tools:
+- Keyless utilities, available with or without a key — `list_skills`, `get_skill_docs`, `troubleshoot_error`, `simmer_browse_markets`, `simmer_get_leaderboard`, `simmer_register_agent`
 - Core bundled skill tools (`simmer_simmer`, `simmer_simmer_wallet_setup`, `simmer_simmer_mcp_setup`, `simmer_simmer_briefing`, `simmer_preflight`)
 - Raw market/trade tools (`simmer_get_markets`, `simmer_get_market_context`, `simmer_get_briefing`, `simmer_trade`, and portfolio/position tools)
 
