@@ -100,7 +100,7 @@ By default, `simmer-mcp` resolves the Python binary in this order:
   ```
 - Your system `python` is Python 2 (RHEL 7, Ubuntu 18.04, and other legacy Linux distros ship `python` → Python 2.x). In that case the fallback to `python` silently picks up Py2, `simmer-sdk` import fails, and skills report `simmer-sdk: not installed`. Pinning to `python3` or your venv's interpreter avoids this.
 
-> **Legacy Linux warning:** On systems where `python` resolves to Python 2, all per-skill tools will fail with a silent import error unless `SIMMER_MCP_PYTHON` is set to a Python 3.8+ binary (the simmer-sdk minimum, per `pyproject.toml`).
+> **Legacy Linux warning:** On systems where `python` resolves to Python 2, the `preflight` tool (the one bundled skill that runs Python) will fail with a silent import error unless `SIMMER_MCP_PYTHON` is set to a Python 3.9+ binary. Other tools are unaffected.
 
 ### Example: Claude Desktop config with a pinned interpreter
 
@@ -140,8 +140,13 @@ allowlist decision and rationale.
 ## Requirements
 
 - Node.js 18+
-- Python 3.9+ (for per-skill execution)
-- `pip install simmer-sdk>=0.13.0` (for per-skill execution)
+- Python 3.9+ — **only** for the `preflight` tool, the one bundled skill with an
+  executable entrypoint. Every other tool is pure Node.
+- `pip install 'simmer-sdk>=0.17.13'` — the floor `preflight` needs. Below it the import
+  succeeds and `preflight` then crashes on a missing API, so the server treats an
+  under-floor SDK as not installed.
+- Set `SIMMER_MCP_PYTHON` to that interpreter. The server resolves Python from
+  `SIMMER_MCP_PYTHON`, then `PATH` — it never discovers a `.venv` on its own.
 
 ## Contributing
 

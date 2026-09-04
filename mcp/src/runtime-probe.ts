@@ -1,5 +1,12 @@
 import { spawn } from "node:child_process";
 
+/**
+ * Minimum simmer-sdk the bundled `preflight` skill needs — it calls APIs that do not
+ * exist below this. Keep in sync with `bundled-skills/preflight/clawhub.json`.
+ */
+export const SDK_MIN_VERSION = "0.17.13";
+const SDK_INSTALL_HINT = `Install: pip install 'simmer-sdk>=${SDK_MIN_VERSION}'`;
+
 export interface ProbeResult {
   detected: boolean;
   version?: string;
@@ -65,10 +72,15 @@ export async function probeRuntime(): Promise<RuntimeProbeResult> {
     ? { detected: true, version: py.stdout.replace(/^Python /, ""), path: pythonBin }
     : { detected: false, path: pythonBin, installHint: "Install: brew install python@3.11 (macOS) or apt install python3 (Debian/Ubuntu)" };
 
-  let simmerSdk: ProbeResult = { detected: false, installHint: "Install: pip install simmer-sdk>=0.13.0" };
+  let simmerSdk: ProbeResult = { detected: false, installHint: SDK_INSTALL_HINT };
   if (python3.detected) {
     const sdk = await runQuick(pythonBin, ["-c", "import simmer_sdk; print(simmer_sdk.__version__)"]);
     if (sdk.exitCode === 0) {
+      // NOTE: presence only. An SDK below SDK_MIN_VERSION imports fine here and then
+      // crashes inside `preflight.py`, which catches only ImportError. Reporting that
+      // as "not installed" from this probe does NOT prevent the crash — the execution
+      // path (per-skill-tools.ts) never consults this probe. The fix belongs in
+      // preflight.py — SIM-5023.
       simmerSdk = { detected: true, version: sdk.stdout };
     }
   }

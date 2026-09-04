@@ -1,11 +1,11 @@
 ---
 name: simmer-mcp-setup
-version: "0.2.0"
+version: "0.3.0"
 published: true
 description: One-shot bootstrap for the Simmer MCP server. Detects your agent runtime (Claude Code / Cursor / OpenClaw / Hermes / Codex / Grok Bot), installs simmer-mcp via npm, writes the right MCP config, prompts a restart, and verifies the tool handshake. Use after registering an agent on simmer.markets to run pre-built Simmer trading strategies through your MCP-aware agent.
 metadata:
   author: "Simmer (@simmer_markets)"
-  version: "0.2.0"
+  version: "0.3.0"
   displayName: Simmer MCP Setup
   difficulty: beginner
   primaryEnv: SIMMER_API_KEY
@@ -37,7 +37,7 @@ So: MCP and SDK are different shapes, both legitimate. MCP runs pre-built strate
 - Your agent runtime's MCP config updated with a `simmer` entry
 - `SIMMER_API_KEY` plumbed into the MCP subprocess
 - Simmer tools visible to your agent:
-  - **3 free utility tools** (always available): `list_skills`, `get_skill_docs`, `troubleshoot_error`
+  - **Keyless utility tools** (always available, no key needed): `list_skills`, `get_skill_docs`, `troubleshoot_error`, `simmer_browse_markets`, `simmer_get_leaderboard`, and on newer builds `simmer_register_agent`. The startup banner prints the exact keyless count for your build.
   - **Core Simmer skill tools** — the npm package bundles only foundational, pinned skills (`simmer`, `simmer-wallet-setup`, `simmer-mcp-setup`, `simmer-briefing`, and `preflight`). Situational strategies such as combo, shock-ladder, copytrading, weather, and DCA install on demand from ClawHub so they stay current.
   - **Raw market/trade tools** — `simmer_get_markets`, `simmer_get_market_context`, `simmer_get_briefing`, `simmer_trade`, portfolio/position tools, and guarded order cancellation.
   - **4 Pro-gated autoresearch tools** (`init_experiment`, `run_experiment`, `log_experiment`, `backtest_experiment`) — only registered if you're on the Pro plan.
@@ -111,18 +111,22 @@ observed on Grok Bot's cloud computer, 2026-09-04.
 
 ## Step 3b — Python, only if you want the `preflight` tool
 
-**Scope first, because the server's own warning overstates this.** On startup you may see:
+**Scope first.** On startup you may see:
 
 ```
-[simmer-mcp] ⚠ simmer-sdk not installed — per-skill execution will fail. Run: pip install simmer-sdk>=0.13.0
+[simmer-mcp] ⚠ simmer-sdk not installed — the preflight tool will fail (other tools are
+unaffected). Run: pip install 'simmer-sdk>=0.17.13', then set SIMMER_MCP_PYTHON to that
+interpreter.
 ```
 
-That line is wrong in two ways. **Exactly one bundled tool needs Python** — `preflight`,
-the only bundled skill with an executable entrypoint. The other four (`simmer`,
-`simmer-wallet-setup`, `simmer-briefing`, `simmer-mcp-setup`) return their SKILL.md text
-and never start a subprocess, and every raw tool (`simmer_trade`, `simmer_get_markets`,
-`get_portfolio`, …) is pure Node. And the version floor is wrong: `preflight` requires
-**`simmer-sdk>=0.17.13`**, not `0.13.0`.
+**Exactly one bundled tool needs Python** — `preflight`, the only bundled skill with an
+executable entrypoint. The other four (`simmer`, `simmer-wallet-setup`, `simmer-briefing`,
+`simmer-mcp-setup`) return their SKILL.md text and never start a subprocess, and every raw
+tool (`simmer_trade`, `simmer_get_markets`, `get_portfolio`, …) is pure Node.
+
+⚠️ **On an older server the same warning reads `per-skill execution will fail` and
+`>=0.13.0`. Both were wrong** — it is one tool, not all of them, and `preflight` requires
+`>=0.17.13`. If you see that older wording, trust this page over the log line.
 
 So if you do not need `preflight`, skip this step. If you do:
 
@@ -151,8 +155,15 @@ Add the absolute path to the `env` block of whichever config you write in Step 4
 }
 ```
 
-The same key works in Hermes' YAML `env:` map. `SIMMER_MCP_PYTHON` is also the fix on
-legacy distros where `python` is Python 2.
+The same key works in Hermes' YAML `env:` map and OpenClaw's `env` object.
+`SIMMER_MCP_PYTHON` is also the fix on legacy distros where `python` is Python 2.
+
+**Verified 2026-09-04**, both directions: pointed at a venv *without* the SDK the server
+reports `simmer-sdk: not installed`; pointed at one *with* it, `simmer-sdk: v0.24.6`. The
+startup line names the interpreter it resolved, so it tells you whether the variable took
+effect. With the variable unset it resolves from `PATH` — so it can appear to work by
+accident if the launching process happens to have a venv activated, and break when the
+same config runs under a runtime with a different `PATH`.
 
 ## Step 4 — wire up the MCP config
 
@@ -217,7 +228,77 @@ Project-scoped: use `.cursor/mcp.json` in the project root.
 
 ### OpenClaw
 
-Edit `~/.openclaw/openclaw.json` and add `simmer` under `mcp.servers`:
+**Prefer the CLI.** OpenClaw ships `openclaw mcp add`, and `openclaw mcp doctor simmer --probe`
+verifies the handshake and counts tools — faster and less error-prone than editing JSON by
+hand.
+
+```bash
+export SIMMER_API_KEY=sk_live_...   # the gateway must see this too — see below
+openclaw mcp add simmer --command npx --arg -y --arg simmer-mcp \
+  --env 'SIMMER_API_KEY=${SIMMER_API_KEY}'
+openclaw mcp doctor simmer --probe
+```
+
+`--arg` is repeatable (one per argv element) and `--env` takes `KEY=VALUE` — both per
+OpenClaw's own `mcp` CLI docs. Quote the `${…}` so your shell does not expand it before
+OpenClaw sees it.
+
+⚠️ Known upstream issue at the time of writing: entries added via `openclaw mcp add` can
+pass `doctor` yet never reach a `claude-cli`-backed agent session
+(`openclaw/openclaw#122712`). If the tools show in `doctor` but not in the agent, that is
+the first thing to check, and the hand-edit path below is the workaround.
+
+⚠️ **Do not paste the key in literally if you can avoid it.** OpenClaw supports env
+references — `"SIMMER_API_KEY": "${SIMMER_API_KEY}"` (also `"$SIMMER_API_KEY"`, or the
+object form `{ source: "env", id: "SIMMER_API_KEY" }`) — and its own doctor warns when
+it finds a literal key in the config. `~/.openclaw/openclaw.json` is a file other processes
+on that machine can read; a reference keeps the secret in the environment.
+
+**The OpenClaw gateway process itself must carry that variable**, not just your
+interactive shell. Per OpenClaw's secrets docs, a missing or empty env value **fails
+resolution** — the reference does not silently become an empty string, and it does not
+fall through to any other credential. So the symptom of a variable the gateway cannot see
+is a resolution error from OpenClaw, not a quietly keyless server. Export it wherever the
+gateway is launched from, or keep it in a file the gateway sources.
+
+Do not write `ref(env:NAME)` as the value. That is only how OpenClaw *labels* a resolved
+reference in its own output; as an input it is treated as a literal string, which is
+truthy — so the server registers every tool against a garbage key and prints only the
+`sk_live_` warning. That looks like a healthy install with a bad key, which sends you
+debugging the wrong thing. Doctor's literal-secret check is simply "value does not start
+with `$`", so the `${…}` form is the one it accepts.
+
+⚠️ **Don't check the tool count against a number in this document — check it against the
+server's own banner.** The server prints `[simmer-mcp] v<x> | tools: N (…, K keyless)` on
+startup; that N is the truth for the build you are running, and it changes between
+releases. As of 2026-09-04 the published npm build reports **23 tools, 9 keyless** —
+quoted only as a rough scale, not a target to match, since a build from source can differ
+from the published package at the same version number.
+
+⚠️ **A low count usually means the key did not resolve, not that tools are missing.**
+Without a usable `SIMMER_API_KEY` the server starts in **keyless mode** with only the
+keyless subset. It does say so — look for this line, which is the fastest diagnosis
+available:
+
+```
+[simmer-mcp] No SIMMER_API_KEY set — discovery tools only (skills, docs, market browse,
+leaderboard, troubleshooting). Trading and portfolio tools need a key
+```
+
+A key that is present but malformed gets a different line naming `sk_live_`. So if the
+banner shows roughly a third of the tools you expected, read the two lines above it before
+debugging anything else.
+
+⚠️ **`mcp doctor` reports green even when the install is half-broken.** It probes the
+handshake, and the handshake succeeds without Python. Confirmed on OpenClaw 2026.9.1,
+2026-09-04: doctor showed 23 tools while the server's stderr said `simmer-sdk not
+installed`. A green doctor does not mean `preflight` works — see Step 3b.
+
+Headless hosts (agent seats, CI) cannot run the interactive onboarding at all; it exits
+with `Onboarding needs an interactive TTY`. Use
+`openclaw onboard --non-interactive --accept-risk`.
+
+If you edit the file by hand instead, add `simmer` under `mcp.servers`:
 ```json
 {
   "mcp": {
@@ -226,7 +307,7 @@ Edit `~/.openclaw/openclaw.json` and add `simmer` under `mcp.servers`:
         "command": "npx",
         "args": ["-y", "simmer-mcp"],
         "env": {
-          "SIMMER_API_KEY": "sk_live_..."
+          "SIMMER_API_KEY": "${SIMMER_API_KEY}"
         }
       }
     }
@@ -263,8 +344,8 @@ mcp_servers:
 
 **Use the CLI rather than editing by hand where you can.** Hermes ships
 `hermes mcp add`, `hermes mcp list` and `hermes mcp test` — `hermes mcp test simmer`
-connects and counts the tools, which is a faster verification than Step 6's handshake
-(expect ~23 tools). `hermes mcp list` confirms which config Hermes actually read.
+connects and counts the tools, which is a faster verification than Step 6's handshake.
+`hermes mcp list` confirms which config Hermes actually read.
 
 Stderr from the server goes to `<HERMES_HOME>/logs/mcp-stderr.log`. Read it first when
 something is wrong.
@@ -335,10 +416,8 @@ Don't trust "looks installed" — verify with a real tool call.
 Ask your agent:
 > What simmer tools can you see? List them.
 
-The agent should respond with the 3 utility tools, raw market/trade tools, and the core bundled skill tools:
-- `list_skills`
-- `get_skill_docs`
-- `troubleshoot_error`
+The agent should respond with the keyless utility tools, raw market/trade tools, and the core bundled skill tools:
+- Keyless utilities, available with or without a key — `list_skills`, `get_skill_docs`, `troubleshoot_error`, `simmer_browse_markets`, `simmer_get_leaderboard`, and on newer builds `simmer_register_agent`. The exact set depends on the build you installed; the startup banner's keyless count is authoritative, not this list.
 - Core bundled skill tools (`simmer_simmer`, `simmer_simmer_wallet_setup`, `simmer_simmer_mcp_setup`, `simmer_simmer_briefing`, `simmer_preflight`)
 - Raw market/trade tools (`simmer_get_markets`, `simmer_get_market_context`, `simmer_get_briefing`, `simmer_trade`, and portfolio/position tools)
 
@@ -382,6 +461,7 @@ a log file.** The server always emits it; where stderr lands is the host's choic
 |---|---|
 | Hermes | `<HERMES_HOME>/logs/mcp-stderr.log` — and a profile has its own, e.g. `~/.hermes/profiles/<name>/logs/mcp-stderr.log` |
 | Grok Bot | **No file.** stderr is a Unix socket into the MCP host. Use the tool error above. |
+| OpenClaw | `/tmp/openclaw/openclaw-YYYY-MM-DD.log` (and `bundle-mcp::` entries under the gateway) |
 | Others | Varies. If there is no log, run `npx -y simmer-mcp` once in a terminal with `SIMMER_API_KEY` set and read the line directly. |
 
 If the resolved path is not your venv, set `SIMMER_MCP_PYTHON` (Step 3b).
