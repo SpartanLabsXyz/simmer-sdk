@@ -359,20 +359,35 @@ The `sim` venue is paper money — no real funds at risk. If this returns market
 
 **Everything works except the `preflight` tool.**
 That is the one bundled tool that shells out to Python. Either `simmer-sdk` is missing, or
-it is installed in a venv the server cannot see. The server prints which interpreter it
-resolved on every start:
+it is installed in a venv the server cannot see.
+
+**Read the tool's own error first — it is the one signal every host gives you.** Calling
+`simmer_preflight` returns exit 2 with the cause:
+
+```
+ERROR: simmer-sdk not installed — run: pip install simmer-sdk>=0.17.13
+```
+
+The server also prints an interpreter line on startup, which is more useful because it
+names *which* Python got resolved:
 
 ```
 [simmer-mcp] runtime: python3: v3.x (/path) | simmer-sdk: ...
 ```
 
-Read that line — it is portable across runtimes and tells you *which* Python was used. If
-the path is not your venv, set `SIMMER_MCP_PYTHON` (Step 3b). On Hermes the server's
-stderr goes to `<HERMES_HOME>/logs/mcp-stderr.log`; other runtimes surface it differently,
-so prefer the runtime line over hunting for a log file.
+⚠️ **Whether you can actually read that line depends on the host, so don't go hunting for
+a log file.** The server always emits it; where stderr lands is the host's choice.
 
-Don't reach for this when a *different* skill tool fails — the other four bundled skills
-never run Python, so their failures have some other cause.
+| Host | Where the startup line goes |
+|---|---|
+| Hermes | `<HERMES_HOME>/logs/mcp-stderr.log` — and a profile has its own, e.g. `~/.hermes/profiles/<name>/logs/mcp-stderr.log` |
+| Grok Bot | **No file.** stderr is a Unix socket into the MCP host. Use the tool error above. |
+| Others | Varies. If there is no log, run `npx -y simmer-mcp` once in a terminal with `SIMMER_API_KEY` set and read the line directly. |
+
+If the resolved path is not your venv, set `SIMMER_MCP_PYTHON` (Step 3b).
+
+Don't reach for any of this when a *different* skill tool fails — the other four bundled
+skills never run Python, so their failures have some other cause.
 
 **Tools listed but API calls return 401.**
 - `SIMMER_API_KEY` env didn't make it into the MCP subprocess. The env block in the config has to be a direct value, not a `$VAR` reference — most MCP clients don't expand shell vars at server-launch time.
