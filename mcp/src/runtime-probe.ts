@@ -65,7 +65,7 @@ export async function probeRuntime(): Promise<RuntimeProbeResult> {
     ? { detected: true, version: py.stdout.replace(/^Python /, ""), path: pythonBin }
     : { detected: false, path: pythonBin, installHint: "Install: brew install python@3.11 (macOS) or apt install python3 (Debian/Ubuntu)" };
 
-  let simmerSdk: ProbeResult = { detected: false, installHint: "Install: pip install simmer-sdk>=0.13.0" };
+  let simmerSdk: ProbeResult = { detected: false, installHint: "Install: pip install 'simmer-sdk>=0.17.13'" };
   if (python3.detected) {
     const sdk = await runQuick(pythonBin, ["-c", "import simmer_sdk; print(simmer_sdk.__version__)"]);
     if (sdk.exitCode === 0) {

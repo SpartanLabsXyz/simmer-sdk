@@ -1,11 +1,11 @@
 ---
 name: simmer-mcp-setup
-version: "0.2.0"
+version: "0.3.0"
 published: true
 description: One-shot bootstrap for the Simmer MCP server. Detects your agent runtime (Claude Code / Cursor / OpenClaw / Hermes / Codex / Grok Bot), installs simmer-mcp via npm, writes the right MCP config, prompts a restart, and verifies the tool handshake. Use after registering an agent on simmer.markets to run pre-built Simmer trading strategies through your MCP-aware agent.
 metadata:
   author: "Simmer (@simmer_markets)"
-  version: "0.2.0"
+  version: "0.3.0"
   displayName: Simmer MCP Setup
   difficulty: beginner
   primaryEnv: SIMMER_API_KEY
@@ -111,18 +111,22 @@ observed on Grok Bot's cloud computer, 2026-09-04.
 
 ## Step 3b — Python, only if you want the `preflight` tool
 
-**Scope first, because the server's own warning overstates this.** On startup you may see:
+**Scope first.** On startup you may see:
 
 ```
-[simmer-mcp] ⚠ simmer-sdk not installed — per-skill execution will fail. Run: pip install simmer-sdk>=0.13.0
+[simmer-mcp] ⚠ simmer-sdk not installed — the preflight tool will fail (other tools are
+unaffected). Run: pip install 'simmer-sdk>=0.17.13', then set SIMMER_MCP_PYTHON to that
+interpreter.
 ```
 
-That line is wrong in two ways. **Exactly one bundled tool needs Python** — `preflight`,
-the only bundled skill with an executable entrypoint. The other four (`simmer`,
-`simmer-wallet-setup`, `simmer-briefing`, `simmer-mcp-setup`) return their SKILL.md text
-and never start a subprocess, and every raw tool (`simmer_trade`, `simmer_get_markets`,
-`get_portfolio`, …) is pure Node. And the version floor is wrong: `preflight` requires
-**`simmer-sdk>=0.17.13`**, not `0.13.0`.
+**Exactly one bundled tool needs Python** — `preflight`, the only bundled skill with an
+executable entrypoint. The other four (`simmer`, `simmer-wallet-setup`, `simmer-briefing`,
+`simmer-mcp-setup`) return their SKILL.md text and never start a subprocess, and every raw
+tool (`simmer_trade`, `simmer_get_markets`, `get_portfolio`, …) is pure Node.
+
+⚠️ **On an older server the same warning reads `per-skill execution will fail` and
+`>=0.13.0`. Both were wrong** — it is one tool, not all of them, and `preflight` requires
+`>=0.17.13`. If you see that older wording, trust this page over the log line.
 
 So if you do not need `preflight`, skip this step. If you do:
 
@@ -151,8 +155,15 @@ Add the absolute path to the `env` block of whichever config you write in Step 4
 }
 ```
 
-The same key works in Hermes' YAML `env:` map. `SIMMER_MCP_PYTHON` is also the fix on
-legacy distros where `python` is Python 2.
+The same key works in Hermes' YAML `env:` map and OpenClaw's `env` object.
+`SIMMER_MCP_PYTHON` is also the fix on legacy distros where `python` is Python 2.
+
+**Verified 2026-09-04**, both directions: pointed at a venv *without* the SDK the server
+reports `simmer-sdk: not installed`; pointed at one *with* it, `simmer-sdk: v0.24.6`. The
+startup line names the interpreter it resolved, so it tells you whether the variable took
+effect. With the variable unset it resolves from `PATH` — so it can appear to work by
+accident if the launching process happens to have a venv activated, and break when the
+same config runs under a runtime with a different `PATH`.
 
 ## Step 4 — wire up the MCP config
 
@@ -217,7 +228,25 @@ Project-scoped: use `.cursor/mcp.json` in the project root.
 
 ### OpenClaw
 
-Edit `~/.openclaw/openclaw.json` and add `simmer` under `mcp.servers`:
+**Prefer the CLI.** OpenClaw ships `openclaw mcp add`, and `openclaw mcp doctor simmer --probe`
+verifies the handshake and counts tools (expect ~23) — faster and less error-prone than
+editing JSON by hand.
+
+⚠️ **Do not paste the key in literally if you can avoid it.** OpenClaw supports env
+references — `"SIMMER_API_KEY": "ref(env:SIMMER_API_KEY)"` — and its own doctor warns when
+it finds a literal key in the config. `~/.openclaw/openclaw.json` is a file other processes
+on that machine can read; a reference keeps the secret in the environment.
+
+⚠️ **`mcp doctor` reports green even when the install is half-broken.** It probes the
+handshake, and the handshake succeeds without Python. Confirmed on OpenClaw 2026.9.1,
+2026-09-04: doctor showed 23 tools while the server's stderr said `simmer-sdk not
+installed`. A green doctor does not mean `preflight` works — see Step 3b.
+
+Headless hosts (agent seats, CI) cannot run the interactive onboarding at all; it exits
+with `Onboarding needs an interactive TTY`. Use
+`openclaw onboard --non-interactive --accept-risk`.
+
+If you edit the file by hand instead, add `simmer` under `mcp.servers`:
 ```json
 {
   "mcp": {
@@ -382,6 +411,7 @@ a log file.** The server always emits it; where stderr lands is the host's choic
 |---|---|
 | Hermes | `<HERMES_HOME>/logs/mcp-stderr.log` — and a profile has its own, e.g. `~/.hermes/profiles/<name>/logs/mcp-stderr.log` |
 | Grok Bot | **No file.** stderr is a Unix socket into the MCP host. Use the tool error above. |
+| OpenClaw | `/tmp/openclaw/openclaw-YYYY-MM-DD.log` (and `bundle-mcp::` entries under the gateway) |
 | Others | Varies. If there is no log, run `npx -y simmer-mcp` once in a terminal with `SIMMER_API_KEY` set and read the line directly. |
 
 If the resolved path is not your venv, set `SIMMER_MCP_PYTHON` (Step 3b).
