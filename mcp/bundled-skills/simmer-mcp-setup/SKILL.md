@@ -485,7 +485,7 @@ The `sim` venue is paper money — no real funds at risk. If this returns market
 
 **Agent says "no simmer tools available" after restart.**
 - Confirm the runtime fully restarted (not just reloaded the conversation).
-- Check the config file actually got written — `cat ~/.claude.json` (or equivalent) and look for the `simmer` entry under `mcpServers`.
+- Check the config file actually got written and look for the `simmer` entry — under `mcpServers` in the JSON runtimes (`~/.claude.json`, `~/.cursor/mcp.json`), under `mcp_servers:` in Hermes' YAML, as `[mcp_servers.simmer]` in Codex's `~/.codex/config.toml`. Codex has no `mcpServers` key; grepping for one there finds nothing and proves nothing.
 - For Claude Code: `claude mcp list` shows registered servers and their status;
   `claude mcp get simmer` shows the scope and env block. Local scope is keyed on the
   directory you ran `claude mcp add` from — start Claude Code from that directory.
