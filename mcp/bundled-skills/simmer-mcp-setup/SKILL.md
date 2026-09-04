@@ -37,7 +37,7 @@ So: MCP and SDK are different shapes, both legitimate. MCP runs pre-built strate
 - Your agent runtime's MCP config updated with a `simmer` entry
 - `SIMMER_API_KEY` plumbed into the MCP subprocess
 - Simmer tools visible to your agent:
-  - **3 free utility tools** (always available): `list_skills`, `get_skill_docs`, `troubleshoot_error`
+  - **Keyless utility tools** (always available, no key needed): `list_skills`, `get_skill_docs`, `troubleshoot_error`, `simmer_browse_markets`, `simmer_get_leaderboard`, and on newer builds `simmer_register_agent`. The startup banner prints the exact keyless count for your build.
   - **Core Simmer skill tools** — the npm package bundles only foundational, pinned skills (`simmer`, `simmer-wallet-setup`, `simmer-mcp-setup`, `simmer-briefing`, and `preflight`). Situational strategies such as combo, shock-ladder, copytrading, weather, and DCA install on demand from ClawHub so they stay current.
   - **Raw market/trade tools** — `simmer_get_markets`, `simmer_get_market_context`, `simmer_get_briefing`, `simmer_trade`, portfolio/position tools, and guarded order cancellation.
   - **4 Pro-gated autoresearch tools** (`init_experiment`, `run_experiment`, `log_experiment`, `backtest_experiment`) — only registered if you're on the Pro plan.
@@ -234,23 +234,39 @@ hand.
 
 ```bash
 export SIMMER_API_KEY=sk_live_...   # the gateway must see this too — see below
-openclaw mcp add simmer --command npx --args '-y,simmer-mcp' \
-  --env 'SIMMER_API_KEY=ref(env:SIMMER_API_KEY)'
+openclaw mcp add simmer --command npx --arg -y --arg simmer-mcp \
+  --env 'SIMMER_API_KEY=${SIMMER_API_KEY}'
 openclaw mcp doctor simmer --probe
 ```
 
-Flag names vary by OpenClaw version — run `openclaw mcp add --help` first and match the
-shape above to what it accepts.
+`--arg` is repeatable (one per argv element) and `--env` takes `KEY=VALUE` — both per
+OpenClaw's own `mcp` CLI docs. Quote the `${…}` so your shell does not expand it before
+OpenClaw sees it.
+
+⚠️ Known upstream issue at the time of writing: entries added via `openclaw mcp add` can
+pass `doctor` yet never reach a `claude-cli`-backed agent session
+(`openclaw/openclaw#122712`). If the tools show in `doctor` but not in the agent, that is
+the first thing to check, and the hand-edit path below is the workaround.
 
 ⚠️ **Do not paste the key in literally if you can avoid it.** OpenClaw supports env
-references — `"SIMMER_API_KEY": "ref(env:SIMMER_API_KEY)"` — and its own doctor warns when
+references — `"SIMMER_API_KEY": "${SIMMER_API_KEY}"` (also `"$SIMMER_API_KEY"`, or the
+object form `{ source: "env", id: "SIMMER_API_KEY" }`) — and its own doctor warns when
 it finds a literal key in the config. `~/.openclaw/openclaw.json` is a file other processes
 on that machine can read; a reference keeps the secret in the environment.
 
-But **the OpenClaw gateway process itself must carry that variable**, not just your
-interactive shell. If it does not, the reference resolves to an empty string and the
-server starts in keyless mode with no error at all — see the tool-count note above. Export
-it wherever the gateway is launched from, or keep it in a file the gateway sources.
+**The OpenClaw gateway process itself must carry that variable**, not just your
+interactive shell. Per OpenClaw's secrets docs, a missing or empty env value **fails
+resolution** — the reference does not silently become an empty string, and it does not
+fall through to any other credential. So the symptom of a variable the gateway cannot see
+is a resolution error from OpenClaw, not a quietly keyless server. Export it wherever the
+gateway is launched from, or keep it in a file the gateway sources.
+
+Do not write `ref(env:NAME)` as the value. That is only how OpenClaw *labels* a resolved
+reference in its own output; as an input it is treated as a literal string, which is
+truthy — so the server registers every tool against a garbage key and prints only the
+`sk_live_` warning. That looks like a healthy install with a bad key, which sends you
+debugging the wrong thing. Doctor's literal-secret check is simply "value does not start
+with `$`", so the `${…}` form is the one it accepts.
 
 ⚠️ **Don't check the tool count against a number in this document — check it against the
 server's own banner.** The server prints `[simmer-mcp] v<x> | tools: N (…, K keyless)` on
@@ -291,7 +307,7 @@ If you edit the file by hand instead, add `simmer` under `mcp.servers`:
         "command": "npx",
         "args": ["-y", "simmer-mcp"],
         "env": {
-          "SIMMER_API_KEY": "ref(env:SIMMER_API_KEY)"
+          "SIMMER_API_KEY": "${SIMMER_API_KEY}"
         }
       }
     }
@@ -401,7 +417,7 @@ Ask your agent:
 > What simmer tools can you see? List them.
 
 The agent should respond with the keyless utility tools, raw market/trade tools, and the core bundled skill tools:
-- Keyless utilities, available with or without a key — `list_skills`, `get_skill_docs`, `troubleshoot_error`, `simmer_browse_markets`, `simmer_get_leaderboard`, `simmer_register_agent`
+- Keyless utilities, available with or without a key — `list_skills`, `get_skill_docs`, `troubleshoot_error`, `simmer_browse_markets`, `simmer_get_leaderboard`, and on newer builds `simmer_register_agent`. The exact set depends on the build you installed; the startup banner's keyless count is authoritative, not this list.
 - Core bundled skill tools (`simmer_simmer`, `simmer_simmer_wallet_setup`, `simmer_simmer_mcp_setup`, `simmer_simmer_briefing`, `simmer_preflight`)
 - Raw market/trade tools (`simmer_get_markets`, `simmer_get_market_context`, `simmer_get_briefing`, `simmer_trade`, and portfolio/position tools)
 
