@@ -1,11 +1,11 @@
 ---
 name: simmer-mcp-setup
-version: "0.3.0"
+version: "0.3.1"
 published: true
 description: One-shot bootstrap for the Simmer MCP server. Detects your agent runtime (Claude Code / Cursor / OpenClaw / Hermes / Codex / Grok Bot), installs simmer-mcp via npm, writes the right MCP config, prompts a restart, and verifies the tool handshake. Use after registering an agent on simmer.markets to run pre-built Simmer trading strategies through your MCP-aware agent.
 metadata:
   author: "Simmer (@simmer_markets)"
-  version: "0.3.0"
+  version: "0.3.1"
   displayName: Simmer MCP Setup
   difficulty: beginner
   primaryEnv: SIMMER_API_KEY
@@ -186,7 +186,9 @@ Most onboarding flows want **user scope** — install once, available everywhere
 claude mcp add -s user simmer -e SIMMER_API_KEY="$SIMMER_API_KEY" -- npx -y simmer-mcp
 ```
 
-> ⚠️ Flag order matters: `-e KEY=value` goes **after** the server name `simmer`, then `--`, then the command. The example in `claude mcp add --help` puts `-e` before the name; that form fails because `-e` is variadic and greedily consumes the server name as an env var. The order shown here is the form that actually works in current Claude Code versions (verified on Claude Code via real add/remove cycle).
+> ⚠️ Flag order matters: `-e KEY=value` goes **after** the server name `simmer`, then `--`, then the command. `-e` is variadic, so placed before the name it swallows the name as an env var. (An earlier version of this note said `claude mcp add --help` showed the wrong order; 2.1.260's help shows this one.) Verified 2026-09-04 on Claude Code 2.1.260 with a real add → `claude mcp get simmer` → remove cycle at local scope; the `-s user` form is the same command with the flag.
+
+**On macOS the server's stderr is kept** — `~/Library/Caches/claude-cli-nodejs/<cwd-slug>/mcp-logs-simmer/*.jsonl`, one file per launch, and the startup banner (tool count, resolved Python) is in it. Cheaper than that: `claude mcp get simmer` prints the scope, the connection status and the `env` block it will launch with.
 
 This writes `~/.claude.json` for you with the correct `command`/`args`/`env` structure. The `"$SIMMER_API_KEY"` expansion bakes the literal key value into the config (MCP runtimes don't expand shell vars at server-launch time).
 
@@ -271,9 +273,10 @@ with `$`", so the `${…}` form is the one it accepts.
 ⚠️ **Don't check the tool count against a number in this document — check it against the
 server's own banner.** The server prints `[simmer-mcp] v<x> | tools: N (…, K keyless)` on
 startup; that N is the truth for the build you are running, and it changes between
-releases. As of 2026-09-04 the published npm build reports **23 tools, 9 keyless** —
-quoted only as a rough scale, not a target to match, since a build from source can differ
-from the published package at the same version number.
+releases. As of 2026-09-04 the published npm build (`simmer-mcp@3.5.1`) reports
+**24 tools, 10 keyless**; the 3.5.0 build reported 23 and 9. Quoted only as a rough scale,
+not a target to match, since a build from source can differ from the published package at
+the same version number.
 
 ⚠️ **A low count usually means the key did not resolve, not that tools are missing.**
 Without a usable `SIMMER_API_KEY` the server starts in **keyless mode** with only the
@@ -352,20 +355,57 @@ something is wrong.
 
 ### Codex
 
-The canonical Codex MCP config path varies by install — consult [Codex's MCP docs](https://openai.com/index/introducing-codex) for the exact file. The block to add is the standard MCP shape:
-```json
-{
-  "mcpServers": {
-    "simmer": {
-      "command": "npx",
-      "args": ["-y", "simmer-mcp"],
-      "env": {
-        "SIMMER_API_KEY": "sk_live_..."
-      }
-    }
-  }
-}
+Codex (the OpenAI CLI, `codex-cli`) reads **TOML**, not JSON, and ships its own MCP CLI —
+do not paste the JSON block from the other runtimes into it.
+
+**Preferred (no file editing):**
+```bash
+codex mcp add simmer --env SIMMER_API_KEY="$SIMMER_API_KEY" -- npx -y simmer-mcp
+codex mcp get simmer      # prints command, args, env names and enabled state
 ```
+
+This writes `~/.codex/config.toml`:
+```toml
+[mcp_servers.simmer]
+command = "npx"
+args = ["-y", "simmer-mcp"]
+
+[mcp_servers.simmer.env]
+SIMMER_API_KEY = "sk_live_..."
+```
+
+**Prefer forwarding the key over pasting it.** Codex supports `env_vars`, a list of
+variable names copied from the environment Codex itself runs in, so the file never holds
+the secret:
+```toml
+[mcp_servers.simmer]
+command = "npx"
+args = ["-y", "simmer-mcp"]
+env_vars = ["SIMMER_API_KEY"]
+```
+Verified 2026-09-04 on codex-cli 0.149.1, both directions: with `SIMMER_API_KEY` exported
+the server registered the full set (24 on 3.5.1); with it unset the server came up in
+keyless mode (10) — no error, just fewer tools, which is the same low-count symptom
+described under OpenClaw above. Export the variable wherever Codex is launched from.
+`SIMMER_MCP_PYTHON` (Step 3b) goes in the same `[mcp_servers.simmer.env]` table, as a
+literal path.
+
+**Project scope exists but is gated.** `.codex/config.toml` in the project root is read
+only for a project listed as `trust_level = "trusted"` under `[projects."<abs path>"]` in
+`~/.codex/config.toml` — the file itself, not a `-c` override on the command line. Untrusted
+or overridden, the server is silently absent (`codex mcp list` says none configured).
+
+⚠️ **A cold `npx` fetch can exceed Codex's startup timeout, and the failure is silent.**
+`startup_timeout_sec` defaults to **10** (Codex's own MCP docs). When the server does not
+answer in time, Codex drops it: no error in the transcript, no simmer tools. Seen once in
+four identical `codex exec` runs on 2026-09-04 (the other three registered 24), and
+reproduced on demand by setting `startup_timeout_sec = 1`. On Codex, either do the global
+install in Step 3 (`npm install -g simmer-mcp`, then `command = "simmer-mcp"` with no
+args), or raise the timeout under `[mcp_servers.simmer]`: `startup_timeout_sec = 60`.
+
+Codex writes the server's stderr to no file — the startup banner is unreadable from
+inside it. To see the resolved Python or the tool count, run `npx -y simmer-mcp` once in a
+terminal with the same env (Troubleshooting, "Others" row).
 
 ### Grok Bot
 
@@ -431,7 +471,11 @@ The `sim` venue is paper money — no real funds at risk. If this returns market
 **Agent says "no simmer tools available" after restart.**
 - Confirm the runtime fully restarted (not just reloaded the conversation).
 - Check the config file actually got written — `cat ~/.claude.json` (or equivalent) and look for the `simmer` entry under `mcpServers`.
-- For Claude Code: `claude mcp list` shows registered servers and their status.
+- For Claude Code: `claude mcp list` shows registered servers and their status;
+  `claude mcp get simmer` shows the scope and env block. Local scope is keyed on the
+  directory you ran `claude mcp add` from — start Claude Code from that directory.
+- For Codex: `codex mcp list` / `codex mcp get simmer`. If the entry is there but the
+  agent sees no tools, it is usually the 10-second startup timeout (Step 4, Codex).
 - For Hermes: `hermes mcp list` shows which config it actually read, and
   `hermes mcp test simmer` connects and counts tools. If you run Hermes with `-p`, check
   you edited that profile's config and not the default one.
@@ -462,6 +506,8 @@ a log file.** The server always emits it; where stderr lands is the host's choic
 | Hermes | `<HERMES_HOME>/logs/mcp-stderr.log` — and a profile has its own, e.g. `~/.hermes/profiles/<name>/logs/mcp-stderr.log` |
 | Grok Bot | **No file.** stderr is a Unix socket into the MCP host. Use the tool error above. |
 | OpenClaw | `/tmp/openclaw/openclaw-YYYY-MM-DD.log` (and `bundle-mcp::` entries under the gateway) |
+| Claude Code | macOS: `~/Library/Caches/claude-cli-nodejs/<cwd-slug>/mcp-logs-simmer/*.jsonl`, one file per launch |
+| Codex | **No file.** Run the server once by hand (next row). |
 | Others | Varies. If there is no log, run `npx -y simmer-mcp` once in a terminal with `SIMMER_API_KEY` set and read the line directly. |
 
 If the resolved path is not your venv, set `SIMMER_MCP_PYTHON` (Step 3b).
