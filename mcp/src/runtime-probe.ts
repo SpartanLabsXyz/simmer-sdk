@@ -80,7 +80,7 @@ export async function probeRuntime(): Promise<RuntimeProbeResult> {
       // crashes inside `preflight.py`, which catches only ImportError. Reporting that
       // as "not installed" from this probe does NOT prevent the crash — the execution
       // path (per-skill-tools.ts) never consults this probe. The fix belongs in
-      // preflight.py, tracked separately.
+      // preflight.py — SIM-5023.
       simmerSdk = { detected: true, version: sdk.stdout };
     }
   }
