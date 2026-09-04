@@ -32,9 +32,8 @@ So: MCP and SDK are different shapes, both legitimate. MCP runs pre-built strate
 ## What you'll have at the end
 
 - `simmer-mcp` runnable via `npx -y simmer-mcp` (global install optional)
-- `simmer-sdk` installed on the host — **required for the bundled skill tools**, which
-  shell out to Python. Skip it and the server still starts and the raw tools still work,
-  so the failure is silent. See Step 3b.
+- Optionally `simmer-sdk` on the host plus `SIMMER_MCP_PYTHON` pointing at it — needed
+  only by the `preflight` tool, the one bundled skill that runs Python. See Step 3b.
 - Your agent runtime's MCP config updated with a `simmer` entry
 - `SIMMER_API_KEY` plumbed into the MCP subprocess
 - Simmer tools visible to your agent:
@@ -110,26 +109,50 @@ If you do install it and get an EACCES permission error on Linux/macOS: do NOT `
 config below. Some agent runtimes gate npm behind a command review that never returns —
 observed on Grok Bot's cloud computer, 2026-09-04.
 
-## Step 3b — install the Python SDK, or half the tools will fail
+## Step 3b — Python, only if you want the `preflight` tool
 
-**Do not skip this one.** The MCP server runs on Node, but the **bundled skill runners
-shell out to Python**. Without `simmer-sdk` on the host, the server still starts, the
-handshake still succeeds, and the raw tools (`simmer_trade`, `simmer_get_markets`,
-`get_portfolio`) still work — but every per-skill execution fails. The only signal is one
-line in the server's stderr log:
+**Scope first, because the server's own warning overstates this.** On startup you may see:
 
 ```
 [simmer-mcp] ⚠ simmer-sdk not installed — per-skill execution will fail. Run: pip install simmer-sdk>=0.13.0
 ```
 
-That log is easy to never see, so install it up front:
+That line is wrong in two ways. **Exactly one bundled tool needs Python** — `preflight`,
+the only bundled skill with an executable entrypoint. The other four (`simmer`,
+`simmer-wallet-setup`, `simmer-briefing`, `simmer-mcp-setup`) return their SKILL.md text
+and never start a subprocess, and every raw tool (`simmer_trade`, `simmer_get_markets`,
+`get_portfolio`, …) is pure Node. And the version floor is wrong: `preflight` requires
+**`simmer-sdk>=0.17.13`**, not `0.13.0`.
+
+So if you do not need `preflight`, skip this step. If you do:
 
 ```bash
-python3 -m venv .venv && .venv/bin/pip install 'simmer-sdk>=0.13.0'
+python3 -m venv .venv && .venv/bin/pip install 'simmer-sdk>=0.17.13'
 ```
 
-Use a venv. Most Linux hosts mark the system Python "externally managed", so a bare
-`pip install` fails with PEP 668 instead of installing.
+Use a venv — most Linux hosts mark the system Python "externally managed", so a bare
+`pip install` fails with PEP 668. If `python3 -m venv` itself fails with
+*"ensurepip is not available"*, the venv module is packaged separately on that distro:
+`sudo apt install python3-venv` (Debian/Ubuntu), or use `pipx`, or as a last resort
+`pip install --break-system-packages`.
+
+⚠️ **Creating the venv is not enough — you must point the server at it.** The server is
+launched by your runtime as `npx -y simmer-mcp` and inherits *that* environment, not your
+shell's. It resolves Python from `SIMMER_MCP_PYTHON`, then `which python`, then
+`which python3` — **it never looks for a `.venv`**. So a venv you made in a terminal is
+invisible to it, and `preflight` fails exactly as before.
+
+Add the absolute path to the `env` block of whichever config you write in Step 4:
+
+```json
+"env": {
+  "SIMMER_API_KEY": "sk_live_...",
+  "SIMMER_MCP_PYTHON": "/absolute/path/to/.venv/bin/python"
+}
+```
+
+The same key works in Hermes' YAML `env:` map. `SIMMER_MCP_PYTHON` is also the fix on
+legacy distros where `python` is Python 2.
 
 ## Step 4 — wire up the MCP config
 
@@ -243,8 +266,8 @@ mcp_servers:
 connects and counts the tools, which is a faster verification than Step 6's handshake
 (expect ~23 tools). `hermes mcp list` confirms which config Hermes actually read.
 
-Stderr from the server goes to `mcp-stderr.log` under that same `HERMES_HOME`. Read it
-first when something is wrong.
+Stderr from the server goes to `<HERMES_HOME>/logs/mcp-stderr.log`. Read it first when
+something is wrong.
 
 ### Codex
 
@@ -269,11 +292,17 @@ Grok Bot has no MCP config file to edit — servers are added through its **Add 
 control, with the same three fields: command `npx` (or `bunx` where npm is blocked),
 args `-y simmer-mcp`, and `SIMMER_API_KEY` in env.
 
-⚠️ **Keep this to $SIM.** On Grok Bot the MCP server runs on the cloud computer that
-**every bot on your account shares**, and its env secrets are stored where any of those
-bots can read them. That is fine for a practice key and wrong for a real-money one. For
-real trading on Grok Bot, install the `simmer` skill instead and drive the SDK on your
-own machine through a granted local folder, which keeps the key off the shared VM.
+⚠️ **Use a separate, unclaimed agent here.** On Grok Bot the MCP server runs on the cloud
+computer that **every bot on your account shares**, and its env secrets are stored where
+any of those bots can read them. Do not rely on a convention to keep that key harmless —
+a Simmer API key is not venue-scoped, so anyone holding it can call the REST API with
+`venue="polymarket"` directly and never touch this server's `SIMMER_MCP_ALLOW_LIVE` gate.
+
+The control that actually holds is **claim status**: an unclaimed agent is $SIM-locked
+regardless of any `venue=` parameter (Step 1, Case C). So register a second agent for the
+shared VM, never send its `claim_url`, and keep your claimed agent's key off that machine.
+For real trading on Grok Bot, install the `simmer` skill and drive the SDK on your own
+machine through a granted local folder.
 
 Grok **CLI** (the coding agent, a different product) does use a config file — treat it as
 "Other / unknown runtime" below.
@@ -328,11 +357,22 @@ The `sim` venue is paper money — no real funds at risk. If this returns market
   `hermes mcp test simmer` connects and counts tools. If you run Hermes with `-p`, check
   you edited that profile's config and not the default one.
 
-**Tools appear and raw trades work, but every bundled skill fails.**
-`simmer-sdk` is missing on the host — the skill runners are Python. Read the server's
-stderr log (`mcp-stderr.log` under the runtime's home) for the
-`simmer-sdk not installed` line, then do Step 3b. Nothing else looks wrong when this
-happens, which is why it is worth checking early.
+**Everything works except the `preflight` tool.**
+That is the one bundled tool that shells out to Python. Either `simmer-sdk` is missing, or
+it is installed in a venv the server cannot see. The server prints which interpreter it
+resolved on every start:
+
+```
+[simmer-mcp] runtime: python3: v3.x (/path) | simmer-sdk: ...
+```
+
+Read that line — it is portable across runtimes and tells you *which* Python was used. If
+the path is not your venv, set `SIMMER_MCP_PYTHON` (Step 3b). On Hermes the server's
+stderr goes to `<HERMES_HOME>/logs/mcp-stderr.log`; other runtimes surface it differently,
+so prefer the runtime line over hunting for a log file.
+
+Don't reach for this when a *different* skill tool fails — the other four bundled skills
+never run Python, so their failures have some other cause.
 
 **Tools listed but API calls return 401.**
 - `SIMMER_API_KEY` env didn't make it into the MCP subprocess. The env block in the config has to be a direct value, not a `$VAR` reference — most MCP clients don't expand shell vars at server-launch time.

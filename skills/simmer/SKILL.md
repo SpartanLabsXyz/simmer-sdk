@@ -94,17 +94,31 @@ if not result.success:
 
 `reasoning=` is optional in the API but expected by convention — it's displayed publicly on the trade page.
 
-### Check before you place: `dry_run`
+### Sizing check before you place: `dry_run`
 
-`client.trade(..., dry_run=True)` validates and prices the order without placing
-it — no money moves. Use it to see the exact fill you would get before committing,
-especially on a first run against a new market or a new venue.
+`client.trade(..., dry_run=True)` validates and prices the order without placing it. Use
+it for **one job**: confirming the share count your `amount` buys, so a tick round-down
+doesn't leave you one share short.
 
 ```python
 preview = client.trade(markets[0].id, "yes", 10.0, dry_run=True)
-print(preview)          # exact shares, price, fees — nothing placed
+print(preview)          # share count and estimated price — nothing placed
 result = client.trade(markets[0].id, "yes", 10.0)   # then place for real
 ```
+
+⚠️ **Two things it is not**, both of which will bite you if you treat it as a safety gate:
+
+- **Not a permission check.** The server skips account trading-limit enforcement on a dry
+  run, so a clean preview can still be rejected live for a daily cap, a spend cap, or a
+  cooldown. Read `client.get_settings()` for those.
+- **Not an accurate price on Polymarket.** It prices from the market's external price
+  rather than the executable book, so on neg-risk markets (YES and NO as independent CLOB
+  tokens) the estimate can differ from the fill. When the entry price is the thing you
+  need right, call `/api/sdk/markets/{id}/executable-price`.
+
+**To rehearse a strategy rather than check a size, use `SimmerClient(live=False)`** — real
+venue prices with the bid-ask spread modeled and no funds at risk. That is the preview
+that behaves like the real venue; `dry_run` is a sizing tool.
 
 ⚠️ **The defaults differ by method, so read them rather than assuming.**
 `trade()` is `dry_run=False` — it places for real unless you ask otherwise.
@@ -118,7 +132,7 @@ Documentation references — open when the situation matches.
 |---|---|
 | Setting up a real-money wallet (Polymarket or Kalshi) | Install [`simmer-wallet-setup`](https://clawhub.ai/skills/simmer-wallet-setup) — covers external self-custody (your own key, with OWS as an optional key store), importing a funded Polymarket wallet, and managed paths |
 | Wiring Simmer into an MCP-aware agent (Claude Code, Cursor, OpenClaw, Hermes, Codex) | Install [`simmer-mcp-setup`](https://clawhub.ai/skills/simmer-mcp-setup) — one-shot bootstrap for the Simmer MCP server. Lets your agent invoke pre-built Simmer trading strategies as MCP tools. **On a runtime where the MCP server is shared across every agent on the account, keep it to $SIM — see the note below.** |
-| Running on Grok Bot | Install this skill with `clawhub install simmer --workdir <your agent-data dir> --dir workflows` — Grok Bot loads skills from `workflows/`, not the default `./skills`. If `npx clawhub` stalls, `bun add -g clawhub` works. Prefer this skill over adding the MCP server: an `AddMcpServer` entry runs on the shared cloud computer and is visible to **every bot on your account**, so treat any key you put there as $SIM-only. |
+| Running on Grok Bot | Install this skill with `clawhub install simmer --workdir <your agent-data dir> --dir workflows` — Grok Bot loads skills from `workflows/`, not the default `./skills`. If `npx clawhub` stalls, `bun add -g clawhub` works. **Register a separate agent for it and leave that agent unclaimed:** Grok Bot's cloud computer is shared by every bot on your account, so any key stored there is readable by all of them, and an unclaimed agent is $SIM-locked no matter what `venue=` anything passes. Keep your claimed, wallet-linked agent's key off that machine. |
 | Periodic portfolio check-in (heartbeat / cron loop) | [docs.simmer.markets](https://docs.simmer.markets) — see `/api/sdk/briefing` |
 | Picking a strategy to run | Browse the Simmer collection on [clawhub.ai/skills?q=simmer](https://clawhub.ai/skills?q=simmer) |
 | Building your own strategy skill | [docs.simmer.markets/skills/building](https://docs.simmer.markets/skills/building) |
