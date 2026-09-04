@@ -30,6 +30,29 @@ def write_package_files(root: Path, npm_version: str, pypi_version: str) -> None
     )
 
 
+def patch_git_for_mcp_bump_check(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    changed: str,
+    previous_npm_version: str,
+) -> None:
+    def fake_diff_base(root):
+        return "origin/main"
+
+    def fake_changed_paths(root):
+        return [changed]
+
+    def fake_git_file_at_ref(root, ref, path):
+        assert ref == "origin/main"
+        if path == check_publish_lag.MCP_PACKAGE_JSON:
+            return f'{{"name": "simmer-mcp", "version": "{previous_npm_version}"}}'
+        return None
+
+    monkeypatch.setattr(check_publish_lag, "diff_base_ref", fake_diff_base)
+    monkeypatch.setattr(check_publish_lag, "changed_paths", fake_changed_paths)
+    monkeypatch.setattr(check_publish_lag, "git_file_at_ref", fake_git_file_at_ref)
+
+
 def test_compare_versions_is_semver_numeric() -> None:
     assert check_publish_lag.compare_versions("3.4.10", "3.4.9") > 0
     assert check_publish_lag.compare_versions("3.4.9", "3.4.10") < 0
@@ -169,3 +192,57 @@ def test_no_retry_reads_once(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     result = check_publish_lag.main()
     assert fetch_count == 1
     assert result == 1
+
+
+def test_mcp_source_change_requires_npm_version_bump(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    write_package_files(tmp_path, npm_version="3.5.1", pypi_version="0.20.0")
+    patch_git_for_mcp_bump_check(
+        monkeypatch,
+        changed="mcp/src/tool-registry.ts",
+        previous_npm_version="3.5.1",
+    )
+    monkeypatch.setattr(
+        check_publish_lag,
+        "parse_args",
+        lambda: make_args(root=tmp_path, npm_published_version="3.5.1", pypi_published_version="0.20.0"),
+    )
+
+    assert check_publish_lag.main() == 1
+
+
+def test_mcp_source_change_allows_npm_version_bump(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    write_package_files(tmp_path, npm_version="3.5.2", pypi_version="0.20.0")
+    patch_git_for_mcp_bump_check(
+        monkeypatch,
+        changed="mcp/src/tool-registry.ts",
+        previous_npm_version="3.5.1",
+    )
+    monkeypatch.setattr(
+        check_publish_lag,
+        "parse_args",
+        lambda: make_args(root=tmp_path, npm_published_version="3.5.2", pypi_published_version="0.20.0"),
+    )
+
+    assert check_publish_lag.main() == 0
+
+
+def test_non_mcp_package_input_does_not_require_npm_version_bump(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    write_package_files(tmp_path, npm_version="3.5.1", pypi_version="0.20.0")
+    patch_git_for_mcp_bump_check(
+        monkeypatch,
+        changed="mcp/tests/mcp-protocol.test.ts",
+        previous_npm_version="3.5.1",
+    )
+    monkeypatch.setattr(
+        check_publish_lag,
+        "parse_args",
+        lambda: make_args(root=tmp_path, npm_published_version="3.5.1", pypi_published_version="0.20.0"),
+    )
+
+    assert check_publish_lag.main() == 0
