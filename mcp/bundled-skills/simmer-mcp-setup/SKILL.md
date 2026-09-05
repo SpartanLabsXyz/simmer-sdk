@@ -1,11 +1,11 @@
 ---
 name: simmer-mcp-setup
-version: "0.3.1"
+version: "0.3.2"
 published: true
 description: One-shot bootstrap for the Simmer MCP server. Detects your agent runtime (Claude Code / Cursor / OpenClaw / Hermes / Codex / Grok Bot), installs simmer-mcp via npm, writes the right MCP config, prompts a restart, and verifies the tool handshake. Use after registering an agent on simmer.markets to run pre-built Simmer trading strategies through your MCP-aware agent.
 metadata:
   author: "Simmer (@simmer_markets)"
-  version: "0.3.1"
+  version: "0.3.2"
   displayName: Simmer MCP Setup
   difficulty: beginner
   primaryEnv: SIMMER_API_KEY
@@ -429,7 +429,14 @@ terminal with the same env instead (Troubleshooting, "Others" row).
 
 Grok Bot has no MCP config file to edit — servers are added through its **Add MCP**
 control, with the same three fields: command `npx` (or `bunx` where npm is blocked),
-args `-y simmer-mcp`, and `SIMMER_API_KEY` in env.
+args `-y simmer-mcp`, and `SIMMER_API_KEY` in env. `SIMMER_MCP_PYTHON` (Step 3b) goes in
+that same env field as a second entry; there is no JSON to write.
+
+Two mechanics the control does not tell you (cold retest, 2026-09-05): a server entry
+cannot be edited in place, so changing an env value means removing the entry and adding
+it again with the new value. And if a `simmer` entry already exists on the account's cloud
+computer from an earlier attempt, remove it before adding; a fresh install on that retest
+only started clean after the old entry was gone.
 
 ⚠️ **Use a separate, unclaimed agent here.** On Grok Bot the MCP server runs on the cloud
 computer that **every bot on your account shares**, and its env secrets are stored where
@@ -528,7 +535,7 @@ a log file.** The server always emits it; where stderr lands is the host's choic
 | Hermes | `<HERMES_HOME>/logs/mcp-stderr.log` — and a profile has its own, e.g. `~/.hermes/profiles/<name>/logs/mcp-stderr.log` |
 | Grok Bot | **No file.** stderr is a Unix socket into the MCP host. Use the tool error above. |
 | OpenClaw | `/tmp/openclaw/openclaw-YYYY-MM-DD.log` (and `bundle-mcp::` entries under the gateway) |
-| Claude Code | macOS: `~/Library/Caches/claude-cli-nodejs/*/mcp-logs-simmer/*.jsonl`, one file per launch (slug rule in Step 4). Other OSes not measured — fall back to "Others". |
+| Claude Code | macOS: `~/Library/Caches/claude-cli-nodejs/*/mcp-logs-simmer/*.jsonl`; Linux: `~/.cache/claude-cli-nodejs/*/mcp-logs-simmer/*.jsonl` (same slug rule, Step 4). One file per launch. Windows not measured — fall back to "Others". |
 | Codex | Interactive session: `logs_2.sqlite` beside `config.toml`, rows starting `MCP server stderr (simmer)` (query in Step 4). Headless `codex exec`: **no file** — fall back to "Others". |
 | Others | Varies. If there is no log, run `npx -y simmer-mcp` once in a terminal with `SIMMER_API_KEY` set and read the line directly. |
 
