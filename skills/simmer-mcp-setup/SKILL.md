@@ -188,7 +188,7 @@ claude mcp add -s user simmer -e SIMMER_API_KEY="$SIMMER_API_KEY" -- npx -y simm
 
 > ⚠️ Flag order matters: `-e KEY=value` goes **after** the server name `simmer`, then `--`, then the command. `-e` is variadic, so placed before the name it swallows the name as an env var. (An earlier version of this note said `claude mcp add --help` showed the wrong order; 2.1.260's help shows this one.) Verified 2026-09-04 on Claude Code 2.1.260 with a real add → `claude mcp get simmer` → remove cycle at local scope; the `-s user` form is the same command with the flag.
 
-**On macOS the server's stderr is kept** — `~/Library/Caches/claude-cli-nodejs/<cwd-slug>/mcp-logs-simmer/*.jsonl`, one file per launch, and the startup banner (tool count, resolved Python) is in it. The slug is the absolute working directory with every `/` and `.` turned into `-` (`/Users/me/proj` → `-Users-me-proj`), or just glob `*/mcp-logs-simmer/`. Not measured on Linux or Windows; if the directory is not there, use the "Others" row under Troubleshooting. To check registration without a log, `claude mcp list` prints name, command and connection status — **and nothing secret.** `claude mcp get simmer` adds the scope but prints the `env` block **unmasked**, key included, so keep it out of any transcript you persist.
+**On macOS the server's stderr is kept** — `~/Library/Caches/claude-cli-nodejs/<cwd-slug>/mcp-logs-simmer/*.jsonl`, one file per launch, and the startup banner (tool count, resolved Python) is in it. The slug is the absolute working directory with every `/` and `.` turned into `-` (`/Users/me/proj` → `-Users-me-proj`), or just glob `*/mcp-logs-simmer/`. On Linux the same tree sits under `~/.cache/claude-cli-nodejs/` (or `$XDG_CACHE_HOME/claude-cli-nodejs/` where that is set). Windows not measured; if the directory is not there, use the "Others" row under Troubleshooting. To check registration without a log, `claude mcp list` prints name, command and connection status — **and nothing secret.** `claude mcp get simmer` adds the scope but prints the `env` block **unmasked**, key included, so keep it out of any transcript you persist.
 
 This writes `~/.claude.json` for you with the correct `command`/`args`/`env` structure. The `"$SIMMER_API_KEY"` expansion bakes the literal key value into the config (MCP runtimes don't expand shell vars at server-launch time).
 
@@ -428,9 +428,13 @@ terminal with the same env instead (Troubleshooting, "Others" row).
 ### Grok Bot
 
 Grok Bot has no MCP config file to edit — servers are added through its **Add MCP**
-control, with the same three fields: command `npx` (or `bunx` where npm is blocked),
-args `-y simmer-mcp`, and `SIMMER_API_KEY` in env. `SIMMER_MCP_PYTHON` (Step 3b) goes in
-that same env field as a second entry; there is no JSON to write.
+control, with the same three fields: command `npx` with args `-y simmer-mcp` (or command
+`bunx` with args `simmer-mcp` where npm is blocked, as in Step 3), and `SIMMER_API_KEY` in
+env. `SIMMER_MCP_PYTHON` (Step 3b) goes in that same env field as a second entry; there is
+no JSON to write. The value must be a path **on the cloud computer**, since that is where
+the server runs — a venv on your own machine is invisible to it, and the server does not
+check the path exists, so a wrong one still starts with every tool and fails only when
+`preflight` is called.
 
 Two mechanics the control does not tell you (cold retest, 2026-09-05): a server entry
 cannot be edited in place, so changing an env value means removing the entry and adding
@@ -535,7 +539,7 @@ a log file.** The server always emits it; where stderr lands is the host's choic
 | Hermes | `<HERMES_HOME>/logs/mcp-stderr.log` — and a profile has its own, e.g. `~/.hermes/profiles/<name>/logs/mcp-stderr.log` |
 | Grok Bot | **No file.** stderr is a Unix socket into the MCP host. Use the tool error above. |
 | OpenClaw | `/tmp/openclaw/openclaw-YYYY-MM-DD.log` (and `bundle-mcp::` entries under the gateway) |
-| Claude Code | macOS: `~/Library/Caches/claude-cli-nodejs/*/mcp-logs-simmer/*.jsonl`; Linux: `~/.cache/claude-cli-nodejs/*/mcp-logs-simmer/*.jsonl` (same slug rule, Step 4). One file per launch. Windows not measured — fall back to "Others". |
+| Claude Code | macOS: `~/Library/Caches/claude-cli-nodejs/*/mcp-logs-simmer/*.jsonl`; Linux: `~/.cache/claude-cli-nodejs/*/mcp-logs-simmer/*.jsonl`, or under `$XDG_CACHE_HOME` where set (same slug rule, Step 4). One file per launch. Windows not measured — fall back to "Others". |
 | Codex | Interactive session: `logs_2.sqlite` beside `config.toml`, rows starting `MCP server stderr (simmer)` (query in Step 4). Headless `codex exec`: **no file** — fall back to "Others". |
 | Others | Varies. If there is no log, run `npx -y simmer-mcp` once in a terminal with `SIMMER_API_KEY` set and read the line directly. |
 
