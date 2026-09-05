@@ -1084,6 +1084,16 @@ if (simmer) {
 // ---------------------------------------------------------------------------
 
 async function main() {
+  // Connect FIRST. Every host applies a startup timeout to the initialize
+  // handshake (Codex: 10s by default, and it drops the server silently on a
+  // miss), and the probe below can spend up to ~25s spawning python/pip/git
+  // in series before the old code reached connect. Tools are registered above
+  // at module load, so the handshake has everything it needs already; the
+  // probe is a diagnostic banner and can run afterwards. Measured on the
+  // SIM-5018 cold retests, 2026-09-05.
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
+
   // Runtime probe (startup diagnostic)
   const probe = await probeRuntime();
   const probeLines = [
@@ -1114,8 +1124,6 @@ async function main() {
     console.error("[simmer-mcp] ⚠ simmer-sdk not installed — the preflight tool will fail (other tools are unaffected). Run: pip install 'simmer-sdk>=0.17.13', then set SIMMER_MCP_PYTHON to that interpreter.");
   }
 
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
   console.error("[simmer-mcp] MCP server started (stdio)");
 }
 
