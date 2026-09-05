@@ -129,6 +129,13 @@ that behaves like the real venue; `dry_run` is a sizing tool.
 `trade()` is `dry_run=False` — it places for real unless you ask otherwise.
 `place_combo()` is `dry_run=True` — it previews unless you pass `dry_run=False`.
 
+⚠️ **`dry_run` is not honored on `venue="kalshi"`.** Kalshi BYOW has no preview
+pricing path yet, so `client.trade(..., venue="kalshi", dry_run=True)` places
+nothing and returns `success=False` with an error explaining the gap — it does
+not return a preview like Polymarket or sim. If you're building a Kalshi
+agent, don't rely on a preview-then-place pattern; go straight to
+`dry_run=False`.
+
 ## Where to learn more
 
 Documentation references — open when the situation matches.
