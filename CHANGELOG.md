@@ -3,6 +3,12 @@
 All notable changes to `simmer-sdk` are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.24.7 (2026-09-05)
+
+- **`find_markets()` stopped discarding tag matches.** The server's `q` filter matches each token against the market question OR its tags, and `find_markets()` then re-filtered the results on question text alone -- so every tag-only hit was thrown away. `find_markets("weather")` returned nothing while `get_markets(q="weather")` returned a full page, because weather markets are titled "Austin 82-83F on Sep 7" and carry `weather` as a tag. The server's matches are now returned as-is. The client-side substring narrowing remains on the sub-2-char fallback path, where the server does no filtering at all.
+- **`trade(dry_run=True)` no longer blocks the real trade that follows it.** A dry run updated the client-side held-markets cache exactly like a fill, so the next real buy on that market was refused with "Already hold position on this market. Pass allow_rebuy=True to override." while `get_positions()` was empty and the server held nothing. The documented preview-then-place snippet reproduced it directly. A dry run now leaves the cache untouched.
+- **Exit guidance in the `simmer` skill corrected** (skill 1.25.1). It described selling as `client.trade(side='no', ...)`, which the API treats as a buy of the opposite side and rejects with "amount required for buy orders". Selling is `action='sell'` with a share count; `side` names the side you hold.
+
 ## 0.24.6 (2026-08-23)
 
 - **`get_fast_markets(market_status=...)`.** The endpoint has always taken `live` / `upcoming`; the helper dropped it, so callers wanting only the not-yet-open windows had to drop to `client._request()` or filter client-side. Omitting it still returns both, which is what you want to see every upcoming window for an asset in one call.
