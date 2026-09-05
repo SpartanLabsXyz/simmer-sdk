@@ -1,11 +1,11 @@
 ---
 name: simmer-mcp-setup
-version: "0.3.3"
+version: "0.3.4"
 published: true
 description: One-shot bootstrap for the Simmer MCP server. Detects your agent runtime (Claude Code / Cursor / OpenClaw / Hermes / Codex / Grok Bot), installs simmer-mcp via npm, writes the right MCP config, prompts a restart, and verifies the tool handshake. Use after registering an agent on simmer.markets to run pre-built Simmer trading strategies through your MCP-aware agent.
 metadata:
   author: "Simmer (@simmer_markets)"
-  version: "0.3.3"
+  version: "0.3.4"
   displayName: Simmer MCP Setup
   difficulty: beginner
   primaryEnv: SIMMER_API_KEY
@@ -463,6 +463,11 @@ on demand by setting `startup_timeout_sec = 1`. The block above raises the timeo
 makes a miss loud; the global install in Step 3 (`npm install -g simmer-mcp`, then
 `command = "simmer-mcp"` with no args) takes the fetch off the startup path as well.
 
+Two things used to sit on that path. Before `simmer-mcp` 3.5.2 the server also ran its
+python/git probe *before* answering the handshake, so a slow interpreter could miss the
+timeout on its own; from 3.5.2 it connects first and probes after. The `npx` fetch is the
+part that remains, so keep the timeout raised.
+
 Where the server's stderr goes depends on how you run Codex. An interactive `codex`
 session records it in the `logs` table of `logs_2.sqlite` next to `config.toml`:
 
@@ -583,6 +588,10 @@ names *which* Python got resolved:
 
 ⚠️ **Whether you can actually read that line depends on the host, so don't go hunting for
 a log file.** The server always emits it; where stderr lands is the host's choice.
+From 3.5.2 the order is `MCP server started`, then the tool-count banner, then the
+`runtime:` line once the probe finishes. A launch the host ends right after the handshake
+(`openclaw mcp doctor --probe`, `claude mcp list`, `codex mcp list`) can therefore log the
+banner and not the `runtime:` line; that is not a failed probe.
 
 | Host | Where the startup line goes |
 |---|---|
