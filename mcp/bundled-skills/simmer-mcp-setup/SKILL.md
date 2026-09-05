@@ -253,7 +253,10 @@ the first thing to check, and the hand-edit path below is the workaround. A cold
 
 `SIMMER_MCP_PYTHON` (Step 3b, only for `preflight`) goes in the same entry. `openclaw mcp
 configure` has no `--env`, so add it to the entry's `env` object in `openclaw.json` by
-hand, then `openclaw mcp reload` — no gateway restart needed.
+hand. `openclaw mcp reload` then refreshes `agent --local` and CLI sessions (verified on
+the retest); the gateway daemon picks the edit up through its own config hot-reload, and
+`mcp reload` sends it nothing. If a gateway-hosted agent's banner still shows the old
+Python, restart the gateway.
 
 ⚠️ **Do not paste the key in literally if you can avoid it.** OpenClaw supports env
 references — `"SIMMER_API_KEY": "${SIMMER_API_KEY}"` (also `"$SIMMER_API_KEY"`, or the
@@ -274,11 +277,14 @@ truthy — so the server registers every tool against a garbage key and prints o
 `sk_live_` warning. That looks like a healthy install with a bad key, which sends you
 debugging the wrong thing.
 
-⚠️ **Doctor's "literal sensitive value" warning fires on the `${…}` form too** (cold
-retest, 2026-09-05: the file held exactly `'${SIMMER_API_KEY}'`, resolution worked, doctor
-still warned), and `openclaw mcp show` redacts the reference as `sk_live_***` as if it
-were a literal. Neither output tells you which form is on disk. Read the JSON: `grep
-SIMMER_API_KEY ~/.openclaw/openclaw.json` must show `${SIMMER_API_KEY}`, not a key.
+In source, doctor's literal-secret check is "the authored value does not start with `$`",
+so `${…}` is the form it accepts. **Do not treat the warning as proof either way.** On a
+cold retest (2026-09-05) doctor printed "literal sensitive value" for an entry whose
+reference resolved and traded, and `openclaw mcp show` redacts a reference as
+`sk_live_***` as if it were a literal. Read the JSON instead: the value in
+`~/.openclaw/openclaw.json` must begin with `${` with no quote character before it. A
+`'${SIMMER_API_KEY}'` with the shell's quotes copied in is a literal, and a truthy one, so
+the server registers every tool against it and only `preflight` or a trade tells you.
 
 ⚠️ **Don't check the tool count against a number in this document — check it against the
 server's own banner.** The server prints `[simmer-mcp] v<x> | tools: N (…, K keyless)` on
@@ -328,7 +334,8 @@ If you edit the file by hand instead, add `simmer` under `mcp.servers`:
 }
 ```
 
-Then `openclaw mcp reload` (or restart the gateway) so it picks up the new server.
+Then `openclaw mcp reload` for `agent --local` and CLI sessions; a running gateway picks
+the file up through hot-reload, or restart it.
 
 Where the startup banner lands depends on which OpenClaw process launched the server.
 Under the **gateway** it was read from `/tmp/openclaw/openclaw-YYYY-MM-DD.log` on
@@ -362,29 +369,38 @@ mcp_servers:
       SIMMER_API_KEY: "sk_live_..."
 ```
 
-**Use the CLI rather than editing by hand where you can.** This form was verified on a
-profile, 2026-09-05 (drop `-p <profile>` for the default config):
+**Use the CLI rather than editing by hand where you can.** Verified on a profile,
+2026-09-05 (drop `-p <profile>` for the default config):
 
 ```bash
-hermes -p <profile> mcp add simmer --command npx --args -y simmer-mcp \
-  --env SIMMER_API_KEY="$SIMMER_API_KEY"
+hermes -p <profile> mcp add simmer --command npx \
+  --env SIMMER_API_KEY="$SIMMER_API_KEY" SIMMER_MCP_PYTHON=/absolute/path/to/.venv/bin/python \
+  --args -y simmer-mcp
 hermes -p <profile> mcp test simmer    # connects and counts the tools
 hermes -p <profile> mcp list           # confirms which config Hermes actually read
 ```
 
-⚠️ **Both `mcp add` and `mcp remove` prompt, and a headless run hangs on the prompt.**
-`add` asks `Enable all N tools? [Y/n/select]:` and `remove` asks
-`Remove server 'simmer'? [Y/n]:`; neither times out. From an agent seat or a script, pipe
-the answer: `echo y | hermes -p <profile> mcp add …`. `add` also writes `enabled: true`
-into the entry; the hand-written block above works without it.
+⚠️ **`--args` must be the last option.** Hermes takes everything after it as the server's
+argv, so an `--env` placed after `--args` is written into `args:` as two more arguments and
+never reaches the `env:` map: the server starts keyless, registers only the discovery
+tools, and your key sits in plain argv in `config.yaml`. `--env` takes several
+`KEY=VALUE` tokens, so both variables go in the one flag as shown; drop the second if you
+do not need `preflight`.
 
-`hermes mcp test simmer` is a faster verification than Step 6's handshake. To add or
-change `SIMMER_MCP_PYTHON`, edit the entry's `env:` map in the YAML — the retest found no
-CLI route for a second variable — and a new chat session picked the edit up without
-restarting the Hermes daemon.
+⚠️ **`mcp add` and `mcp remove` prompt.** `add` asks `Enable all N tools? [Y/n/select]:`,
+`remove` asks `Remove server 'simmer'? [Y/n]:`, and an `add` over an existing entry first
+asks `Server 'simmer' already exists. Overwrite? [y/N]:`. With an open, idle stdin the
+prompt waits forever; with stdin closed it reads EOF, prints `Cancelled.` and saves
+nothing. From a script, pipe the answers: `echo y |` for a fresh add,
+`printf 'y\ny\n' |` when replacing an entry. `add` also writes `enabled: true` into the
+entry; the hand-written block above works without it.
 
-Stderr from the server goes to `<HERMES_HOME>/logs/mcp-stderr.log` — for a profile, that
-is `~/.hermes/profiles/<profile>/logs/mcp-stderr.log`. Read it first when something is
+`hermes mcp test simmer` is a faster verification than Step 6's handshake. Editing the
+entry's `env:` map in the YAML also works. A new chat session picked such an edit up
+without restarting the Hermes daemon.
+
+Stderr from the server goes to `<HERMES_HOME>/logs/mcp-stderr.log`. For a profile that is
+`~/.hermes/profiles/<profile>/logs/mcp-stderr.log`. Read it first when something is
 wrong; the startup banner and the resolved Python are in it.
 
 ### Codex
