@@ -1,11 +1,11 @@
 ---
 name: simmer-mcp-setup
-version: "0.3.3"
+version: "0.3.4"
 published: true
 description: One-shot bootstrap for the Simmer MCP server. Detects your agent runtime (Claude Code / Cursor / OpenClaw / Hermes / Codex / Grok Bot), installs simmer-mcp via npm, writes the right MCP config, prompts a restart, and verifies the tool handshake. Use after registering an agent on simmer.markets to run pre-built Simmer trading strategies through your MCP-aware agent.
 metadata:
   author: "Simmer (@simmer_markets)"
-  version: "0.3.3"
+  version: "0.3.4"
   displayName: Simmer MCP Setup
   difficulty: beginner
   primaryEnv: SIMMER_API_KEY
@@ -188,7 +188,7 @@ claude mcp add -s user simmer -e SIMMER_API_KEY="$SIMMER_API_KEY" -- npx -y simm
 
 > ⚠️ Flag order matters: `-e KEY=value` goes **after** the server name `simmer`, then `--`, then the command. `-e` is variadic, so placed before the name it swallows the name as an env var. (An earlier version of this note said `claude mcp add --help` showed the wrong order; 2.1.260's help shows this one.) Verified 2026-09-04 on Claude Code 2.1.260 with a real add → `claude mcp get simmer` → remove cycle at local scope; the `-s user` form is the same command with the flag.
 
-**On macOS the server's stderr is kept** — `~/Library/Caches/claude-cli-nodejs/<cwd-slug>/mcp-logs-simmer/*.jsonl`, one file per launch, and the startup banner (tool count, resolved Python) is in it. The slug is the absolute working directory with every `/` and `.` turned into `-` (`/Users/me/proj` → `-Users-me-proj`), or just glob `*/mcp-logs-simmer/`. On Linux the same tree sits under `~/.cache/claude-cli-nodejs/` (or `$XDG_CACHE_HOME/claude-cli-nodejs/` where that is set). Windows not measured; if the directory is not there, use the "Others" row under Troubleshooting. To check registration without a log, `claude mcp list` prints name, command and connection status — **and nothing secret.** `claude mcp get simmer` adds the scope but prints the `env` block **unmasked**, key included, so keep it out of any transcript you persist.
+**On macOS the server's stderr is kept** — `~/Library/Caches/claude-cli-nodejs/<cwd-slug>/mcp-logs-simmer/*.jsonl`, one file per launch, and the startup banner (tool count) is in it. The `runtime:` line with the resolved Python follows once the probe finishes, so a short launch such as `claude mcp list` can end before it is written; see the Troubleshooting table. The slug is the absolute working directory with every `/` and `.` turned into `-` (`/Users/me/proj` → `-Users-me-proj`), or just glob `*/mcp-logs-simmer/`. On Linux the same tree sits under `~/.cache/claude-cli-nodejs/` (or `$XDG_CACHE_HOME/claude-cli-nodejs/` where that is set). Windows not measured; if the directory is not there, use the "Others" row under Troubleshooting. To check registration without a log, `claude mcp list` prints name, command and connection status — **and nothing secret.** `claude mcp get simmer` adds the scope but prints the `env` block **unmasked**, key included, so keep it out of any transcript you persist.
 
 This writes `~/.claude.json` for you with the correct `command`/`args`/`env` structure. The `"$SIMMER_API_KEY"` expansion bakes the literal key value into the config (MCP runtimes don't expand shell vars at server-launch time).
 
@@ -289,7 +289,7 @@ the server registers every tool against it and only `preflight` or a trade tells
 ⚠️ **Don't check the tool count against a number in this document — check it against the
 server's own banner.** The server prints `[simmer-mcp] v<x> | tools: N (…, K keyless)` on
 startup; that N is the truth for the build you are running, and it changes between
-releases. As of 2026-09-04 the published npm build (`simmer-mcp@3.5.1`) reports
+releases. As of 2026-09-05 the published npm build (`simmer-mcp@3.5.2`) reports
 **24 tools, 10 keyless**; the 3.5.0 build reported 23 and 9. Quoted only as a rough scale,
 not a target to match, since a build from source can differ from the published package at
 the same version number.
@@ -463,6 +463,11 @@ on demand by setting `startup_timeout_sec = 1`. The block above raises the timeo
 makes a miss loud; the global install in Step 3 (`npm install -g simmer-mcp`, then
 `command = "simmer-mcp"` with no args) takes the fetch off the startup path as well.
 
+Two things used to sit on that path. Before `simmer-mcp` 3.5.2 the server also ran its
+python/git probe *before* answering the handshake, so a slow interpreter could miss the
+timeout on its own; from 3.5.2 it connects first and probes after. The `npx` fetch is the
+part that remains, so keep the timeout raised.
+
 Where the server's stderr goes depends on how you run Codex. An interactive `codex`
 session records it in the `logs` table of `logs_2.sqlite` next to `config.toml`:
 
@@ -582,7 +587,13 @@ names *which* Python got resolved:
 ```
 
 ⚠️ **Whether you can actually read that line depends on the host, so don't go hunting for
-a log file.** The server always emits it; where stderr lands is the host's choice.
+a log file.** The server emits it once the probe finishes, if the process is still
+alive; where stderr lands is the host's choice.
+From 3.5.2 the order is `MCP server started`, then the tool-count banner, then the
+`runtime:` line once the probe finishes. A launch the host ends right after the handshake
+(`openclaw mcp doctor --probe`, `claude mcp list`) can therefore log the banner and not
+the `runtime:` line; that is not a failed probe. (`codex mcp list` reads the config and
+launches nothing, so it produces no log at all.)
 
 | Host | Where the startup line goes |
 |---|---|
