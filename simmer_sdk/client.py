@@ -2068,9 +2068,13 @@ class SimmerClient:
             import_source: Filter by data source ('polymarket', 'kalshi', or None for all)
             limit: Maximum number of markets to return
             include: Opt-in extra fields, e.g. "resolution_criteria"
-            q: Keyword search on market question (min 2 chars, case-insensitive).
-                Applied server-side before the result window, so use ``q`` or ``tags``
-                to reach a specific older market rather than paging an unfiltered list.
+            q: Keyword search (min 2 chars, case-insensitive). Tokens are split on
+                whitespace and ANDed; each token matches the market question OR its
+                tags, so results include markets whose title never contains the query.
+                Tag matching is a raw substring over the serialized tag list, so short
+                tokens match broadly -- "ai" hits a market tagged "ukraine". Applied
+                server-side before the result window, so use ``q`` or ``tags`` to reach
+                a specific older market rather than paging an unfiltered list.
             venue: Filter by trading venue ('sim', 'polymarket', 'kalshi').
                 Keyword-only. 'sim' returns all active, tradeable markets — every
                 market is paper-tradeable on the synthetic venue — while
@@ -2758,7 +2762,12 @@ class SimmerClient:
                         "Cred re-derive + retry failed: %s", retry_err
                     )
 
-        if result.success and self._held_markets_cache is not None:
+        # A dry run places nothing, so it must not touch the held-markets cache.
+        # It used to: the cache gained the market, and the very next real buy was
+        # refused with "Already hold position" while get_positions() was empty --
+        # reproducible straight from the documented preview-then-place snippet
+        # (Grok Bot dogfood, 2026-09-05).
+        if result.success and not dry_run and self._held_markets_cache is not None:
             if action == "buy":
                 # Update cache locally instead of nuking — avoids a fresh GET /positions
                 # on the next trade() call in a loop
@@ -3286,7 +3295,7 @@ class SimmerClient:
 
     def find_markets(self, query: str) -> List[Market]:
         """
-        Search markets by question text.
+        Search markets by keyword.
 
         Uses the server-side keyword filter (``q``), which is applied BEFORE the
         result window, so matches are found across the full active catalogue --
@@ -3295,17 +3304,28 @@ class SimmerClient:
         windowed browse would silently miss them. Queries shorter than 2 chars
         fall back to a windowed client-side scan (the server filter needs >= 2).
 
+        The server matches each query token against the market question OR its
+        tags, so results include markets whose title never contains the query --
+        ``find_markets("weather")`` returns "Austin 82-83F on Sep 7" because that
+        market is tagged ``weather``. Those are real hits, not noise.
+
         Args:
             query: Search string
 
         Returns:
             List of matching markets
         """
-        query_lower = query.lower()
         if len(query.strip()) >= 2:
-            markets = self.get_markets(q=query, limit=100)
-        else:
-            markets = self.get_markets(limit=100)
+            # Return the server's matches as-is. An extra client-side filter on
+            # ``question`` here would drop every tag-only match -- which is what
+            # it used to do, making find_markets("weather") return nothing while
+            # get_markets(q="weather") returned a full page (Grok Bot dogfood,
+            # 2026-09-05).
+            return self.get_markets(q=query, limit=100)
+        # Below the server's 2-char minimum the window comes back unfiltered, so
+        # the client-side substring narrowing is the only filter on this path.
+        query_lower = query.lower()
+        markets = self.get_markets(limit=100)
         return [m for m in markets if query_lower in m.question.lower()]
 
     def get_open_orders(self) -> Dict[str, Any]:

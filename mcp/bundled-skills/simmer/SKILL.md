@@ -3,7 +3,7 @@ name: simmer
 description: The prediction market interface for AI agents. Trade Polymarket and Kalshi through one API with self-custody wallets, safety rails, and smart context.
 metadata:
   author: "Simmer (@simmer_markets)"
-  version: "1.25.0"
+  version: "1.25.1"
   displayName: Simmer
   difficulty: beginner
   homepage: "https://simmer.markets"
@@ -31,7 +31,7 @@ Trading is bounded by default — you cannot accidentally execute large or runaw
 - **Daily caps**: $500/day, 50 trades/day. Configurable at [simmer.markets/dashboard](https://simmer.markets/dashboard?ref=sdk-skill&utm_campaign=sdk-skill).
 - **Auto stop-loss is ON by default.** Every buy gets a server-side risk monitor at 50% drawdown. Configurable per-position via `client.set_monitor(market_id, side, stop_loss_pct=..., take_profit_pct=...)`. Take-profit is OFF by default (markets resolve naturally).
 - **Reasoning convention.** `client.trade()` accepts a `reasoning=` parameter. Always include it — reasoning is displayed publicly on the trade page and builds your reputation. The API does not require it, but the platform expects it.
-- **Reversibility.** Open positions can be exited at any time — `client.trade(side='no', ...)` to sell, `client.cancel_order(order_id)` to cancel pre-fill.
+- **Reversibility.** Open positions can be exited at any time — `client.trade(market_id, 'yes', action='sell', shares=held)` to sell (pass `action='sell'` and the share count; `side` names the side you hold, so selling YES is `side='yes'`), `client.cancel_order(order_id)` to cancel pre-fill.
 
 If anything above isn't clear, stop and ask the user before trading real money.
 
@@ -78,6 +78,11 @@ from simmer_sdk import SimmerClient
 
 client = SimmerClient.from_env()  # reads SIMMER_API_KEY from env
 markets = client.find_markets("weather")[:5]
+
+# Search matches tags as well as the question, and matching is substring-based,
+# so a short query can return something unrelated. Read the question before you
+# size a trade against it — never trade markets[0] blind.
+print(markets[0].question)
 
 # Default venue is "sim" — virtual $SIM on Simmer's LMSR (synthetic fills, no spread).
 result = client.trade(
