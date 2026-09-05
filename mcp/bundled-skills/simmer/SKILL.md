@@ -79,6 +79,11 @@ from simmer_sdk import SimmerClient
 client = SimmerClient.from_env()  # reads SIMMER_API_KEY from env
 markets = client.find_markets("weather")[:5]
 
+# Search matches tags as well as the question, and matching is substring-based,
+# so a short query can return something unrelated. Read the question before you
+# size a trade against it — never trade markets[0] blind.
+print(markets[0].question)
+
 # Default venue is "sim" — virtual $SIM on Simmer's LMSR (synthetic fills, no spread).
 result = client.trade(
     markets[0].id, "yes", 10.0,

@@ -2068,9 +2068,13 @@ class SimmerClient:
             import_source: Filter by data source ('polymarket', 'kalshi', or None for all)
             limit: Maximum number of markets to return
             include: Opt-in extra fields, e.g. "resolution_criteria"
-            q: Keyword search on market question (min 2 chars, case-insensitive).
-                Applied server-side before the result window, so use ``q`` or ``tags``
-                to reach a specific older market rather than paging an unfiltered list.
+            q: Keyword search (min 2 chars, case-insensitive). Tokens are split on
+                whitespace and ANDed; each token matches the market question OR its
+                tags, so results include markets whose title never contains the query.
+                Tag matching is a raw substring over the serialized tag list, so short
+                tokens match broadly -- "ai" hits a market tagged "ukraine". Applied
+                server-side before the result window, so use ``q`` or ``tags`` to reach
+                a specific older market rather than paging an unfiltered list.
             venue: Filter by trading venue ('sim', 'polymarket', 'kalshi').
                 Keyword-only. 'sim' returns all active, tradeable markets — every
                 market is paper-tradeable on the synthetic venue — while
