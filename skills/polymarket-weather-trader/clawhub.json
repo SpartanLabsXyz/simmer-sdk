@@ -53,7 +53,7 @@
     {
       "name": "SIMMER_WEATHER_LOCATIONS",
       "required": false,
-      "description": "Comma-separated cities (default 'NYC'). Supported: NYC, Chicago, Seattle, Atlanta, Dallas, Miami."
+      "description": "Comma-separated cities (default 'NYC'). Supported: NYC, Chicago, Seattle, Atlanta, Dallas, Miami, Austin, Houston, Denver, Tel Aviv, Munich, London, Tokyo, Seoul, Ankara, Lucknow, Wellington, Madrid, Milan, Amsterdam, Taipei, Beijing, Shanghai, Guangzhou, Shenzhen, Chengdu, Chongqing, Wuhan, Qingdao, Zhengzhou, Singapore, Kuala Lumpur, Manila, Busan, Toronto, Buenos Aires, Sao Paulo, Mexico City, Cape Town, Helsinki, Jeddah, Warsaw, Paris, Panama City."
     },
     {
       "name": "SIMMER_WEATHER_BINARY_ONLY",

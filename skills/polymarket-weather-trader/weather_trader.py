@@ -197,6 +197,9 @@ LOCATIONS = {
     "Seattle": {"lat": 47.4502, "lon": -122.3088, "name": "Seattle (Sea-Tac)", "station": "KSEA"},
     "Atlanta": {"lat": 33.6407, "lon": -84.4277, "name": "Atlanta (Hartsfield)", "station": "KATL"},
     "Miami": {"lat": 25.7959, "lon": -80.2870, "name": "Miami (MIA)", "station": "KMIA"},
+    "Austin": {"lat": 30.1831, "lon": -97.6806, "name": "Austin-Bergstrom", "station": "KAUS"},
+    "Houston": {"lat": 29.6458, "lon": -95.2821, "name": "William P. Hobby", "station": "KHOU"},
+    "Denver": {"lat": 39.7130, "lon": -104.7580, "name": "Buckley Space Force Base", "station": "KBKF"},
 }
 
 # Per-station coordinates for NOAA `/points/{lat},{lon}` lookup. Keyed by the
@@ -233,6 +236,9 @@ STATION_ID_TO_NOAA = {
     "KDEN": {"lat": 39.8561, "lon": -104.6737, "name": "Denver International"},
     "KMSP": {"lat": 44.8848, "lon": -93.2223, "name": "Minneapolis-St. Paul International"},
     "KPHL": {"lat": 39.8744, "lon": -75.2424, "name": "Philadelphia International"},
+    "KAUS": {"lat": 30.1831, "lon": -97.6806, "name": "Austin-Bergstrom International Airport"},
+    "KHOU": {"lat": 29.6458, "lon": -95.2821, "name": "William P. Hobby Airport"},
+    "KBKF": {"lat": 39.7130, "lon": -104.7580, "name": "Buckley Space Force Base"},
 }
 
 # Active locations - from config
@@ -284,6 +290,29 @@ INTERNATIONAL_STATION_COORDS = {
     "EHAM": {"lat": 52.3105, "lon": 4.7683, "tz": "Europe/Amsterdam",  "city": "Amsterdam",  "name": "Amsterdam Schiphol Airport"},
     "RCSS": {"lat": 25.0697, "lon": 121.5519, "tz": "Asia/Taipei",     "city": "Taipei",     "name": "Taipei Songshan Airport"},
     "RCTP": {"lat": 25.0777, "lon": 121.2328, "tz": "Asia/Taipei",     "city": "Taipei",     "name": "Taoyuan International Airport"},
+    "ZBAA": {"lat": 40.0820, "lon": 116.6030, "tz": "Asia/Shanghai",    "city": "Beijing",    "name": "Beijing Capital International Airport"},
+    "ZSPD": {"lat": 31.1460, "lon": 121.8000, "tz": "Asia/Shanghai",    "city": "Shanghai",   "name": "Shanghai Pudong International Airport"},
+    "ZGGG": {"lat": 23.3920, "lon": 113.3070, "tz": "Asia/Shanghai",    "city": "Guangzhou",  "name": "Guangzhou Baiyun International Airport"},
+    "ZGSZ": {"lat": 22.6390, "lon": 113.8030, "tz": "Asia/Shanghai",    "city": "Shenzhen",   "name": "Shenzhen Bao'an International Airport"},
+    "ZUUU": {"lat": 30.5760, "lon": 103.9500, "tz": "Asia/Shanghai",    "city": "Chengdu",    "name": "Chengdu Shuangliu International Airport"},
+    "ZUCK": {"lat": 29.7180, "lon": 106.6390, "tz": "Asia/Shanghai",    "city": "Chongqing",  "name": "Chongqing Jiangbei International Airport"},
+    "ZHHH": {"lat": 30.7830, "lon": 114.2050, "tz": "Asia/Shanghai",    "city": "Wuhan",      "name": "Wuhan Tianhe International Airport"},
+    "ZSQD": {"lat": 36.3620, "lon": 120.0870, "tz": "Asia/Shanghai",    "city": "Qingdao",    "name": "Qingdao Jiaodong International Airport"},
+    "ZHCC": {"lat": 34.5200, "lon": 113.8340, "tz": "Asia/Shanghai",    "city": "Zhengzhou",  "name": "Zhengzhou Xinzheng International Airport"},
+    "WSSS": {"lat": 1.3680, "lon": 103.9820, "tz": "Asia/Singapore",    "city": "Singapore",  "name": "Singapore Changi Airport"},
+    "WMKK": {"lat": 2.7470, "lon": 101.7140, "tz": "Asia/Kuala_Lumpur", "city": "Kuala Lumpur", "name": "Kuala Lumpur International Airport"},
+    "RPLL": {"lat": 14.5070, "lon": 121.0040, "tz": "Asia/Manila",      "city": "Manila",     "name": "Ninoy Aquino International Airport"},
+    "RKPK": {"lat": 35.1790, "lon": 128.9380, "tz": "Asia/Seoul",       "city": "Busan",      "name": "Gimhae International Airport"},
+    "CYYZ": {"lat": 43.6790, "lon": -79.6290, "tz": "America/Toronto",   "city": "Toronto",    "name": "Toronto Pearson International Airport"},
+    "SAEZ": {"lat": -34.8220, "lon": -58.5360, "tz": "America/Argentina/Buenos_Aires", "city": "Buenos Aires", "name": "Minister Pistarini International Airport"},
+    "SBGR": {"lat": -23.4320, "lon": -46.4690, "tz": "America/Sao_Paulo", "city": "Sao Paulo", "name": "Sao Paulo-Guarulhos International Airport"},
+    "MMMX": {"lat": 19.4360, "lon": -99.0720, "tz": "America/Mexico_City", "city": "Mexico City", "name": "Benito Juarez International Airport"},
+    "FACT": {"lat": -33.9650, "lon": 18.6020, "tz": "Africa/Johannesburg", "city": "Cape Town", "name": "Cape Town International Airport"},
+    "EFHK": {"lat": 60.3270, "lon": 24.9570, "tz": "Europe/Helsinki",   "city": "Helsinki",   "name": "Helsinki Vantaa Airport"},
+    "OEJN": {"lat": 21.6850, "lon": 39.1660, "tz": "Asia/Riyadh",       "city": "Jeddah",     "name": "King Abdulaziz International Airport"},
+    "EPWA": {"lat": 52.1630, "lon": 20.9610, "tz": "Europe/Warsaw",      "city": "Warsaw",     "name": "Warsaw Chopin Airport"},
+    "LFPB": {"lat": 48.9670, "lon": 2.4280, "tz": "Europe/Paris",        "city": "Paris",      "name": "Paris-Le Bourget Airport"},
+    "MPMG": {"lat": 8.9670, "lon": -79.5550, "tz": "America/Panama",     "city": "Panama City", "name": "Marcos A. Gelabert International Airport"},
 }
 
 
@@ -695,6 +724,9 @@ def parse_weather_event(event_name: str) -> dict:
         'atlanta': 'Atlanta', 'hartsfield': 'Atlanta',
         'dallas': 'Dallas', 'dfw': 'Dallas',
         'miami': 'Miami',
+        'austin': 'Austin',
+        'houston': 'Houston', 'hobby': 'Houston',
+        'denver': 'Denver', 'buckley': 'Denver',
         # International cities (Open-Meteo)
         'tel aviv': 'Tel Aviv',
         'munich': 'Munich',
@@ -708,6 +740,29 @@ def parse_weather_event(event_name: str) -> dict:
         'milan': 'Milan',
         'amsterdam': 'Amsterdam',
         'taipei': 'Taipei',
+        'beijing': 'Beijing',
+        'shanghai': 'Shanghai',
+        'guangzhou': 'Guangzhou',
+        'shenzhen': 'Shenzhen',
+        'chengdu': 'Chengdu',
+        'chongqing': 'Chongqing',
+        'wuhan': 'Wuhan',
+        'qingdao': 'Qingdao',
+        'zhengzhou': 'Zhengzhou',
+        'singapore': 'Singapore',
+        'kuala lumpur': 'Kuala Lumpur',
+        'manila': 'Manila',
+        'busan': 'Busan',
+        'toronto': 'Toronto',
+        'buenos aires': 'Buenos Aires', 'ezeiza': 'Buenos Aires',
+        'sao paulo': 'Sao Paulo', 'são paulo': 'Sao Paulo',
+        'mexico city': 'Mexico City',
+        'cape town': 'Cape Town',
+        'helsinki': 'Helsinki',
+        'jeddah': 'Jeddah',
+        'warsaw': 'Warsaw',
+        'paris': 'Paris',
+        'panama': 'Panama City',
     }
 
     for alias, loc in location_aliases.items():
