@@ -1,4 +1,4 @@
-# vendored from simmer_v3/replay/simstate.py @ 5daddb9ecb15
+# vendored from simmer_v3/replay/simstate.py @ f23de362b27f
 # DO NOT EDIT HERE — regenerate via scripts/sync_replay_engine.py
 """SimState — the simulated agent portfolio during replay (SIM-3070).
 
@@ -105,8 +105,11 @@ def fee_for(notional: float, px: float, base_rate: float, kind: str = "market") 
     makers pay no fee (_dev/reference/trading-economics.md). The 20% maker
     rebate is NOT credited; see REALISM_GAPS.
 
-    Clamped at zero: a tape print above 1.0 would otherwise turn the fee into
-    a rebate that credits cash.
+    Clamped at zero as defence-in-depth: buy()/sell() now reject px outside
+    their valid range, so an out-of-range price cannot reach here. Were it to,
+    a clamp is still safer than a negative fee that credits cash — though note
+    a clamp alone would turn a bad print into a FREE fill, which is why the
+    range check lives at the call sites and not only here.
 
     Module-level on purpose: the engine's baselines charge the same fee, and
     the first cut of the fee change diverged exactly where that arithmetic was
@@ -147,12 +150,16 @@ class SimState:
         if limit_price is not None and px > limit_price:
             return self._rest_order(view, market_id, side, "buy", limit_price, usd_amount=usd_amount)
 
+        # Price sanity BEFORE cost: a buy divides by px, and an out-of-range
+        # print makes the fee term nonsense, which used to surface as
+        # "insufficient balance: need <inflated>" and send debugging toward
+        # sizing instead of the bad tape print.
+        if not 0 < px <= 1:
+            raise ReplayTradeError(f"{side} price out of range (0,1]: {px}")
         fee = self._fee(usd_amount, px)
         total = usd_amount + fee
         if total > self.cash + 1e-9:
             raise ReplayTradeError(f"insufficient balance: need {total:.2f}, have {self.cash:.2f}")
-        if px <= 0:
-            raise ReplayTradeError(f"non-positive {side} price {px}")
         shares = usd_amount / px
         self.cash -= total
         pos = self.positions.setdefault(market_id, Position())
@@ -181,11 +188,15 @@ class SimState:
         if limit_price is not None and px < limit_price:
             return self._rest_order(view, market_id, side, "sell", limit_price, shares=shares)
 
-        if px <= 0:
-            # Mirrors buy(). A yes print above 1.0 (the dataset value is
-            # unclamped) makes the NO side price negative; without this guard
-            # proceeds AND fee go negative and cash is debited on a "sale".
-            raise ReplayTradeError(f"non-positive {side} price {px}")
+        # Range is [0,1] here, NOT (0,1] as in buy(): a sell multiplies rather
+        # than divides, so px == 0 is a legitimate zero-proceeds exit — dumping
+        # a worthless NO position when YES prints 1.0. Rejecting it (the first
+        # cut of this guard did) strands the position on the book to be marked
+        # and settled instead of closed, which live trading would not do.
+        # px < 0 or px > 1 is a corrupt print: it would make proceeds and fee
+        # negative and debit cash on a "sale".
+        if not 0 <= px <= 1:
+            raise ReplayTradeError(f"{side} price out of range [0,1]: {px}")
         proceeds = shares * px
         fee = self._fee(proceeds, px)
         self.cash += proceeds - fee

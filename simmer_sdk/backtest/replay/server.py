@@ -1,4 +1,4 @@
-# vendored from simmer_v3/replay/server.py @ 5daddb9ecb15
+# vendored from simmer_v3/replay/server.py @ f23de362b27f
 # DO NOT EDIT HERE — regenerate via scripts/sync_replay_engine.py
 """Replay API server — the minimal /api/sdk surface skills consume (SIM-3070).
 
