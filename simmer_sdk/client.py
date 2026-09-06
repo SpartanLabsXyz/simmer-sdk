@@ -360,15 +360,17 @@ class SimmerClient:
         # and defaults to "sim" (paper). NOTE: the TRADING_VENUE env var is
         # intentionally NOT read here — do not reintroduce a log that implies
         # an env var controls the venue. SIM construction is info-level so
-        # read-only reporting clients do not emit warning-level noise; live
-        # venues still warn because they can touch real funds.
+        # read-only reporting clients do not emit warning-level noise; a real
+        # venue warns only when live=True, because only then can it touch
+        # real funds. live=False + venue='polymarket' is paper against
+        # real-venue prices (issue #345).
         if venue == "sim":
             logger.info(
                 "venue='sim' — PAPER trading with virtual $SIM (no real money). "
                 "For LIVE trading pass venue='polymarket' per trade, or "
                 "SimmerClient.from_env(venue='polymarket')."
             )
-        else:
+        elif live:
             logger.warning("venue='%s' — LIVE trading with real funds.", venue)
         self._private_key: Optional[str] = None  # EVM private key (Polymarket)
         self._wallet_address: Optional[str] = None  # EVM wallet address
@@ -2552,7 +2554,8 @@ class SimmerClient:
         # Paper trading: simulate with real prices (no live API calls)
         if not self.live:
             return self._paper_trade(
-                market_id, side, amount, shares, action, effective_venue
+                market_id, side, amount, shares, action, effective_venue,
+                dry_run=dry_run,
             )
 
         # Position conflict checks (buy only — sells always allowed)
@@ -2793,17 +2796,23 @@ class SimmerClient:
     # conservative.  Overridden when the market returns ``spread_cents``.
     _POLY_PAPER_DEFAULT_HALF_SPREAD = 0.01
 
-    def _paper_trade(self, market_id, side, amount, shares, action, venue):
+    def _paper_trade(self, market_id, side, amount, shares, action, venue, dry_run=False):
         """Simulate a trade using real market prices.
 
         For Polymarket venues, models the CLOB bid-ask spread so paper P&L
         is closer to what a live FAK order would experience.  Buys fill at
         the ask (mid + half-spread), sells at the bid (mid - half-spread).
+
+        ``dry_run=True`` prices the fill and returns a TradeResult but does
+        not mutate PaperPortfolio — same invariant as live-venue dry_run,
+        which skips signing and the held-markets cache (issue #345).
         """
         import time as _time
 
-        # Auto-settle any resolved paper positions before trading
-        self._settle_paper_positions()
+        # Auto-settle any resolved paper positions before trading.
+        # A dry run must not settle either — that would mutate the book.
+        if not dry_run:
+            self._settle_paper_positions()
 
         # Fetch current price from the venue
         try:
@@ -2864,7 +2873,14 @@ class SimmerClient:
                 )
             cost = shares_filled * fill_price
 
-        self._paper_portfolio.log_trade(market_id, side, action, shares_filled, cost, fill_price, venue=venue)
+        # A dry run places nothing, so it must not book paper inventory.
+        # It used to: log_trade applied the fill, and the next real paper
+        # trade on the same market double-booked shares / cost_basis
+        # (Grok Bot dogfood, issue #345).
+        if not dry_run:
+            self._paper_portfolio.log_trade(
+                market_id, side, action, shares_filled, cost, fill_price, venue=venue
+            )
 
         # SIM-2238: route filled shares to shares_sold for paper sells; otherwise shares_bought
         is_sell_action = action == "sell"
