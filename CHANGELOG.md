@@ -3,6 +3,12 @@
 All notable changes to `simmer-sdk` are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.25.0 (2026-09-05)
+
+- **`simmer backtest` now charges fees by default, and its numbers will change.** The vendored replay engine was ~3 months behind the backend it is supposed to mirror while both reported `ENGINE_VERSION 0.1.1`, so the CLI and the server quietly disagreed for the same bundle. Re-vendored at engine **0.2.0**. Three user-visible consequences: (1) `--fee-rate` defaults to the engine's rate (currently `0.05`) instead of `0`, so every backtest now has cost drag — pass `--fee-rate 0` for the old behaviour; (2) fees use Polymarket's real shape, `notional x base x (1 - price)`, and resting limit fills that cross pay **0** as makers, where the old model charged a flat rate on notional; (3) every `config_hash` changes, so a re-run of a saved backtest will not match its stored report. Baselines now pay the same fee as the strategy's own fills and are derived from executed fills rather than logged decisions, so a limit order that never crossed no longer counts as a buy-and-hold entry.
+- **Reports say what they charged.** New `summary.fee_rate`, `summary.fees_paid`, `reproducibility.fee_rate`, and a `fee` on every entry in `fills[]`. Previously nothing in a report revealed the fee assumption behind its P&L.
+- **A worthless position can be closed again.** `sell()` briefly rejected a price of exactly 0 — the case where YES prints 1.0 and a NO position is worth nothing — leaving it on the book to be marked and settled instead of exited. Prices outside the valid range are still rejected, and now name the price instead of surfacing as "insufficient balance".
+
 ## 0.24.7 (2026-09-05)
 
 - **`find_markets()` stopped discarding tag matches.** The server's `q` filter matches each token against the market question OR its tags, and `find_markets()` then re-filtered the results on question text alone -- so every tag-only hit was thrown away. `find_markets("weather")` returned nothing while `get_markets(q="weather")` returned a full page, because weather markets are titled "Austin 82-83F on Sep 7" and carry `weather` as a tag. The server's matches are now returned as-is. The client-side substring narrowing remains on the sub-2-char fallback path, where the server does no filtering at all.
