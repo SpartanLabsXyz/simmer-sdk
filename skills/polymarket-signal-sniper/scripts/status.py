@@ -39,8 +39,16 @@ def api_request(api_key: str, endpoint: str) -> dict:
         print(f"❌ Connection error: {e.reason}")
         sys.exit(1)
 
-def format_usd(amount: float) -> str:
-    """Format as USD."""
+def format_usd(amount) -> str:
+    """Format as USD. None means unavailable, not zero.
+
+    The API returns null whenever it cannot report the balance -- an API key
+    with no linked account, a sim-only query, or a failed lookup. Printing
+    $0.00 would invent a number; naming one of those causes would guess at
+    which one, so stay neutral.
+    """
+    if amount is None:
+        return "n/a"
     return f"${amount:,.2f}"
 
 def main():
@@ -58,7 +66,7 @@ def main():
     print("📊 Fetching account status...\n")
     portfolio = api_request(api_key, "/api/sdk/portfolio")
 
-    balance = portfolio.get("balance_usdc", 0)
+    balance = portfolio.get("balance_usdc")
     exposure = portfolio.get("total_exposure", 0)
     positions_count = portfolio.get("positions_count", 0)
     pnl_total = portfolio.get("pnl_total")

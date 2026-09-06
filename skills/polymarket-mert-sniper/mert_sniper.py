@@ -223,7 +223,7 @@ def calculate_position_size(default_size, smart_sizing):
         print(f"  Smart sizing failed, using default ${default_size:.2f}")
         return default_size
 
-    balance = portfolio.get("balance_usdc", 0)
+    balance = portfolio.get("balance_usdc") or 0
     if balance <= 0:
         print(f"  No available balance, using default ${default_size:.2f}")
         return default_size
@@ -487,7 +487,7 @@ def run_mert_strategy(dry_run=True, positions_only=False, show_config=False,
         print("\n  Portfolio:")
         portfolio = get_portfolio()
         if portfolio:
-            print(f"  Balance: ${portfolio.get('balance_usdc', 0):.2f}")
+            print(f"  Balance: ${portfolio.get('balance_usdc') or 0:.2f}")
             print(f"  Exposure: ${portfolio.get('total_exposure', 0):.2f}")
             print(f"  Positions: {portfolio.get('positions_count', 0)}")
 

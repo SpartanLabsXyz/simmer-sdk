@@ -328,7 +328,7 @@ def execute_trade(market_id, side, amount, reasoning=None, signal_data=None):
     # Pre-check: verify sufficient balance before hitting the API
     portfolio = get_portfolio()
     if portfolio:
-        balance = portfolio.get("balance_usdc", 0)
+        balance = portfolio.get("balance_usdc") or 0
         if balance < amount:
             return {"error": f"Insufficient balance: ${balance:.2f} available, ${amount:.2f} required. "
                              f"Deposit USDC.e to your Polymarket wallet and retry."}
@@ -458,7 +458,7 @@ def calculate_position_size(default_size, smart_sizing):
     portfolio = get_portfolio()
     if not portfolio:
         return default_size
-    balance = portfolio.get("balance_usdc", 0)
+    balance = portfolio.get("balance_usdc") or 0
     if balance <= 0:
         return default_size
     smart_size = min(balance * SMART_SIZING_PCT, MAX_POSITION_USD)
@@ -813,7 +813,7 @@ def run_strategy(dry_run=True, positions_only=False, show_config=False,
     if smart_sizing:
         portfolio = get_portfolio()
         if portfolio:
-            log(f"\n💰 Balance: ${portfolio.get('balance_usdc', 0):.2f}")
+            log(f"\n💰 Balance: ${portfolio.get('balance_usdc') or 0:.2f}")
 
     for event_id, event_data in events.items():
         event_name = event_data["name"]

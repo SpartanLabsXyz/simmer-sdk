@@ -301,7 +301,7 @@ def run_strategy(dry_run=True, positions_only=False, show_config=False,
     # --- Strategy logic ---
     markets = fetch_markets()
     portfolio = get_portfolio() or {}
-    bankroll = min(portfolio.get("balance_usdc", 0.0), MAX_POSITION_USD * MAX_TRADES_PER_RUN)
+    bankroll = min(portfolio.get("balance_usdc") or 0.0, MAX_POSITION_USD * MAX_TRADES_PER_RUN)
     trades_executed = 0
 
     for market in markets:
