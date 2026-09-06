@@ -40,11 +40,15 @@ def api_request(api_key: str, endpoint: str) -> dict:
         sys.exit(1)
 
 def format_usd(amount) -> str:
-    """Format as USD. None means unknown -- an API key with no linked account
-    cannot see a real-venue balance, and printing $0.00 would invent one.
+    """Format as USD. None means unavailable, not zero.
+
+    The API returns null whenever it cannot report the balance -- an API key
+    with no linked account, a sim-only query, or a failed lookup. Printing
+    $0.00 would invent a number; naming one of those causes would guess at
+    which one, so stay neutral.
     """
     if amount is None:
-        return "n/a (no linked account)"
+        return "n/a"
     return f"${amount:,.2f}"
 
 def main():
