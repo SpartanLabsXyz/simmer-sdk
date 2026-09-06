@@ -1227,7 +1227,7 @@ def calculate_position_size(default_size: float, smart_sizing: bool) -> float:
         print(f"  ⚠️  Smart sizing failed, using default ${default_size:.2f}")
         return default_size
 
-    balance = portfolio.get("balance_usdc", 0)
+    balance = portfolio.get("balance_usdc") or 0
     if balance <= 0:
         print(f"  ⚠️  No available balance, using default ${default_size:.2f}")
         return default_size
@@ -1419,7 +1419,7 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
         log("\n💰 Portfolio:")
         portfolio = get_portfolio()
         if portfolio:
-            log(f"  Balance: ${portfolio.get('balance_usdc', 0):.2f}")
+            log(f"  Balance: ${portfolio.get('balance_usdc') or 0:.2f}")
             log(f"  Exposure: ${portfolio.get('total_exposure', 0):.2f}")
             log(f"  Positions: {portfolio.get('positions_count', 0)}")
             by_source = portfolio.get('by_source', {})

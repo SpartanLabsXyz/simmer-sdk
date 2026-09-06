@@ -875,7 +875,7 @@ def calculate_position_size(max_size, smart_sizing=False):
     portfolio = get_portfolio()
     if not portfolio or portfolio.get("error"):
         return max_size
-    balance = portfolio.get("balance_usdc", 0)
+    balance = portfolio.get("balance_usdc") or 0
     if balance <= 0:
         return max_size
     smart_size = balance * SMART_SIZING_PCT
@@ -1012,7 +1012,7 @@ def run_fast_market_strategy(dry_run=True, positions_only=False, show_config=Fal
         log("\n💰 Portfolio:")
         portfolio = get_portfolio()
         if portfolio and not portfolio.get("error"):
-            log(f"  Balance: ${portfolio.get('balance_usdc', 0):.2f}")
+            log(f"  Balance: ${portfolio.get('balance_usdc') or 0:.2f}")
 
     # Step 1: Discover fast markets
     log(f"\n🔍 Discovering {ASSET} fast markets...")

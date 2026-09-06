@@ -15,7 +15,12 @@ import argparse
 sys.stdout.reconfigure(line_buffering=True)
 
 
-def format_usd(amount: float) -> str:
+def format_usd(amount) -> str:
+    """Format as USD. None means unknown -- an API key with no linked account
+    cannot see a real-venue balance, and printing $0.00 would invent one.
+    """
+    if amount is None:
+        return "n/a (no linked account)"
     return f"${amount:,.2f}"
 
 
@@ -45,7 +50,7 @@ def main():
         print(f"API Error: {e}")
         sys.exit(1)
 
-    balance = portfolio.get("balance_usdc", 0)
+    balance = portfolio.get("balance_usdc")
     exposure = portfolio.get("total_exposure", 0)
     positions_count = portfolio.get("positions_count", 0)
     pnl_total = portfolio.get("pnl_total")
