@@ -539,7 +539,10 @@ class SimmerClient:
             self._paper_portfolio = PaperPortfolio(starting_balance=starting_balance)
             logger.info(
                 "Paper trading mode enabled (venue=%s, balance=%.2f). "
-                "Trades will be simulated with real market data.",
+                "trade(), place_combo() and client.hyperliquid orders are "
+                "simulated with real market data. Wallet operations (approvals, "
+                "redemption, deposit-wallet activation, risk-alert processing) "
+                "still act on the real wallet.",
                 venue, starting_balance
             )
 
