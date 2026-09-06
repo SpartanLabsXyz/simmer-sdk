@@ -1,4 +1,4 @@
-# vendored from simmer_v3/replay/simstate.py @ f23de362b27f
+# vendored from simmer_v3/replay/simstate.py @ e3c361585d16
 # DO NOT EDIT HERE — regenerate via scripts/sync_replay_engine.py
 """SimState — the simulated agent portfolio during replay (SIM-3070).
 

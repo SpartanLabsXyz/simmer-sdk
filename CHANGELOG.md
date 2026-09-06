@@ -3,6 +3,10 @@
 All notable changes to `simmer-sdk` are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.25.1 (2026-09-06)
+
+- **`simmer backtest`'s replay server now rejects `venue`/`status` filters on `get_markets()` (and `category` on the importable listing) instead of silently ignoring them.** These were never implemented by the replay engine, so passing one previously returned the full unfiltered market list with no indication the filter was dropped — a backtest filtering for one venue could report P&L against markets from a venue it never meant to trade. Passing any of these now raises a clear error naming the parameter instead of returning a misleading result. Omitting them behaves exactly as before.
+
 ## 0.25.0 (2026-09-05)
 
 - **`simmer backtest` now charges fees by default, and its numbers will change.** The vendored replay engine was ~3 months behind the backend it is supposed to mirror while both reported `ENGINE_VERSION 0.1.1`, so the CLI and the server quietly disagreed for the same bundle. Re-vendored at engine **0.2.0**. Three user-visible consequences: (1) `--fee-rate` defaults to the engine's rate (currently `0.05`) instead of `0`, so every backtest now has cost drag — pass `--fee-rate 0` for the old behaviour; (2) fees use Polymarket's real shape, `notional x base x (1 - price)`, and resting limit fills that cross pay **0** as makers, where the old model charged a flat rate on notional; (3) every `config_hash` changes, so a re-run of a saved backtest will not match its stored report. Baselines now pay the same fee as the strategy's own fills and are derived from executed fills rather than logged decisions, so a limit order that never crossed no longer counts as a buy-and-hold entry.
