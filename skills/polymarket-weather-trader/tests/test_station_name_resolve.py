@@ -138,11 +138,19 @@ class TestResolveStationIdFromName(unittest.TestCase):
 class TestStationNameIndex(unittest.TestCase):
 
     def test_index_covers_all_stations(self):
-        # Every entry in both coord tables should produce a name-index entry.
-        expected_count = len(wt.STATION_ID_TO_NOAA) + len(
-            wt.INTERNATIONAL_STATION_COORDS
+        # Every entry in both coord tables should produce a name-index entry,
+        # plus one per alias for the names Polymarket cites differently.
+        expected_count = (
+            len(wt.STATION_ID_TO_NOAA)
+            + len(wt.INTERNATIONAL_STATION_COORDS)
+            + len(wt._STATION_NAME_ALIASES)
         )
         self.assertEqual(len(wt._STATION_NAME_INDEX), expected_count)
+        # Stronger than the count alone: name every station we claim to cover.
+        for table in (wt.STATION_ID_TO_NOAA, wt.INTERNATIONAL_STATION_COORDS):
+            for icao, info in table.items():
+                nm = wt._normalize_station_name(info.get("name", ""))
+                self.assertIn(nm, wt._STATION_NAME_INDEX, f"{icao} missing from index")
 
     def test_index_values_are_valid_icaos(self):
         all_icaos = (

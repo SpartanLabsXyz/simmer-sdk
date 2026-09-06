@@ -335,8 +335,26 @@ def _build_station_name_index() -> dict:
         nm = _normalize_station_name(info.get("name", ""))
         if nm:
             index[nm] = icao
+    for alias, icao in _STATION_NAME_ALIASES.items():
+        index[_normalize_station_name(alias)] = icao
     return index
 
+
+# Names Polymarket cites that don't normalize onto the name our coord tables
+# carry for the same airport. Verified against the live criteria corpus on
+# 2026-09-06: each alias is the exact station Polymarket names, mapped to the
+# ICAO we already hold coordinates for. Aliases only — never add an entry here
+# for an airport whose coordinates we don't have, because routing a market to
+# the wrong airport is silent and profitable-looking (the KDFW/KDAL Dallas
+# bug). A genuinely new station needs a coord-table entry, not an alias.
+_STATION_NAME_ALIASES = {
+    # ours: "Hartsfield-Jackson Atlanta International Airport"
+    "Hartsfield-Jackson International Airport": "KATL",
+    # ours: "Amsterdam Schiphol Airport"
+    "Amsterdam Airport Schiphol": "EHAM",
+    # ours: "Milan Malpensa Airport"
+    "Malpensa Intl Airport": "LIMC",
+}
 
 _STATION_NAME_INDEX = _build_station_name_index()
 
@@ -378,10 +396,30 @@ _WUNDERGROUND_URL_RE = re.compile(
     r"wunderground\.com/history/daily/[a-z]{2}/(?:[a-z0-9_\-]+/)+([A-Z]{4})\b",
     re.IGNORECASE,
 )
+# Polymarket reworded every weather-temperature market on 2026-08-22: the
+# Wunderground URL was dropped (resolution source moved to NOAA) and the
+# station phrase gained an agency clause — "recorded BY NOAA at the LaGuardia
+# Airport Station". The old pattern matched neither, so the parser returned
+# None on 100% of current criteria and the skill skipped every event. The
+# agency clause is optional and generic here so the next reword ("by NWS",
+# "by the National Weather Service") does not break us again.
+# Matched against whitespace-collapsed text (see _collapse_ws), so every gap
+# here is a literal single space. Writing them as \s+ instead lets the runs
+# overlap the lazy (.+?) capture, and the engine repartitions the whitespace
+# on every failure: "recorded at the" + 1600 spaces took 6.8s, growing ~8x per
+# doubling. Criteria text is authored upstream, so a single malformed market
+# would stall the whole scan. Keep the gaps literal.
 _STATION_PHRASE_RE = re.compile(
-    r"recorded at the (.+?) Station",
+    r"recorded(?: by [A-Za-z][A-Za-z .'-]{0,60}?)? at the (.{1,120}?) Station\b",
     re.IGNORECASE,
 )
+
+
+def _collapse_ws(text: str) -> str:
+    """Collapse whitespace runs to single spaces so the station phrase can be
+    matched with literal spaces. Criteria arrives with newlines and wrapped
+    indentation; station names themselves never contain a run."""
+    return " ".join(text.split())
 
 
 def parse_resolution_station(criteria: str) -> dict:
@@ -390,9 +428,41 @@ def parse_resolution_station(criteria: str) -> dict:
     Returns a dict with `station_id` (4-letter ICAO, uppercase) and
     `station_name` (human-readable airport name), or None if the criteria
     doesn't reference a recognized weather station.
+
+    Use parse_resolution_station_result() when you need to tell "the market
+    carries no criteria at all" apart from "criteria is present but names a
+    station we can't read" — the two used to share one (wrong) log line.
+    """
+    result = parse_resolution_station_result(criteria)
+    return result["station"]
+
+
+# Why a market could not be routed to a station. Distinct values so the caller
+# can log the true cause instead of blaming a stale SDK for both.
+SKIP_MISSING_CRITERIA = "missing_criteria"
+SKIP_UNPARSEABLE_CRITERIA = "unparseable_criteria"
+
+# Fraction of criteria-bearing events we must be able to read a station out of
+# before a run is considered healthy. Below this, the parser has almost
+# certainly fallen behind Polymarket's wording rather than hit a few odd
+# markets. Polymarket reworded every weather market at once on 2026-08-22 and
+# our coverage went to zero, so the realistic failure is total, not gradual —
+# a half threshold separates it from normal per-market noise.
+MIN_STATION_PARSE_COVERAGE = 0.5
+
+
+def parse_resolution_station_result(criteria: str) -> dict:
+    """parse_resolution_station() plus the reason it failed.
+
+    Returns {"station": {...} | None, "reason": str | None}. `reason` is
+    SKIP_MISSING_CRITERIA when the market carries no criteria text, and
+    SKIP_UNPARSEABLE_CRITERIA when criteria is present but no station phrase
+    or Wunderground URL could be read out of it. That second case is the one
+    that means "our parser is behind Polymarket's wording", and it is the
+    signal the coverage guard counts.
     """
     if not criteria or not isinstance(criteria, str):
-        return None
+        return {"station": None, "reason": SKIP_MISSING_CRITERIA}
 
     station_id = None
     url_match = _WUNDERGROUND_URL_RE.search(criteria)
@@ -400,14 +470,17 @@ def parse_resolution_station(criteria: str) -> dict:
         station_id = url_match.group(1).upper()
 
     station_name = None
-    phrase_match = _STATION_PHRASE_RE.search(criteria)
+    phrase_match = _STATION_PHRASE_RE.search(_collapse_ws(criteria))
     if phrase_match:
         station_name = phrase_match.group(1).strip()
 
     if not station_id and not station_name:
-        return None
+        return {"station": None, "reason": SKIP_UNPARSEABLE_CRITERIA}
 
-    return {"station_id": station_id, "station_name": station_name}
+    return {
+        "station": {"station_id": station_id, "station_name": station_name},
+        "reason": None,
+    }
 
 
 OPEN_METEO_BASE = "https://api.open-meteo.com/v1/forecast"
@@ -1475,6 +1548,14 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
     total_usd_spent = 0.0
     opportunities_found = 0
     skip_reasons = []
+    # Coverage guard: count how many events carried readable criteria vs how
+    # many carried criteria our parser could not read. A parser that has
+    # fallen behind Polymarket's wording fails silently — it throws nothing,
+    # retries nothing, and every downstream health metric stays green while
+    # the skill quietly stops entering. Counting it here, where the failure is
+    # known, is the only place it is cheap to see. See _report_parse_coverage.
+    station_parse_ok = 0
+    station_parse_unreadable = 0
     execution_errors = []
 
     for event_id, event_markets in events.items():
@@ -1507,11 +1588,19 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
         # rather skip than trade against the wrong forecast (which is the
         # bug this code path replaces).
         sample_criteria = event_markets[0].get("resolution_criteria", "")
-        parsed = parse_resolution_station(sample_criteria)
+        parse_result = parse_resolution_station_result(sample_criteria)
+        parsed = parse_result["station"]
         if not parsed:
-            log(f"  ⏭️  Skipping — no resolution_criteria on market (need SDK ≥ 2026-05-03)")
-            skip_reasons.append("no resolution_criteria")
+            if parse_result["reason"] == SKIP_MISSING_CRITERIA:
+                log("  ⏭️  Skipping — market carries no resolution_criteria")
+                skip_reasons.append("missing resolution_criteria")
+            else:
+                station_parse_unreadable += 1
+                log("  ⏭️  Skipping — resolution_criteria present but no station "
+                    "could be read from it (parser may be behind Polymarket's wording)")
+                skip_reasons.append("unparseable resolution_criteria")
             continue
+        station_parse_ok += 1
 
         station_id = parsed.get("station_id")
         station_name = parsed.get("station_name") or station_id or "?"
@@ -1767,6 +1856,8 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
         else:
             log(f"  ⏸️  Price ${price:.2f} above threshold ${ENTRY_THRESHOLD:.2f} - skip")
 
+    _report_parse_coverage(station_parse_ok, station_parse_unreadable, log)
+
     exits_found, exits_executed = check_exit_opportunities(dry_run, use_safeguards)
 
     log("\n" + "=" * 50)
@@ -1781,6 +1872,32 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
 
     if dry_run and show_summary:
         print("\n  [PAPER MODE - trades simulated with real prices]")
+
+
+def _report_parse_coverage(parsed_ok: int, unreadable: int, log) -> None:
+    """Shout when the station parser has stopped reading Polymarket's criteria.
+
+    Every other health signal this skill emits measures something going wrong
+    — a failed trade, a retry, an error rate. A parser that no longer matches
+    upstream wording produces none of those: it just skips every event and
+    reports a clean run. This is the one line that makes that visible.
+
+    `log` is passed in because the scan's logger is a closure over --quiet;
+    this warning must survive quiet mode, so it forces output.
+    """
+    considered = parsed_ok + unreadable
+    if not considered:
+        return
+    coverage = parsed_ok / considered
+    if coverage >= MIN_STATION_PARSE_COVERAGE:
+        return
+    log(
+        f"\n⚠️  Station parser read only {parsed_ok}/{considered} events "
+        f"({coverage:.0%}) that had resolution_criteria. Polymarket has most "
+        f"likely reworded its criteria and this skill needs a parser update — "
+        f"it is not finding no opportunities, it is failing to look.",
+        force=True,
+    )
 
 
 # =============================================================================
