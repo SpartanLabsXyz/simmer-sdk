@@ -372,6 +372,15 @@ class SimmerClient:
             )
         elif live:
             logger.warning("venue='%s' — LIVE trading with real funds.", venue)
+        elif venue == "hyperliquid":
+            # live=False routes trade() to paper, but the HIP-4 adapter
+            # (client.hyperliquid.place_order) signs and submits to Hyperliquid
+            # mainnet without consulting self.live. Warn until that is gated.
+            logger.warning(
+                "venue='hyperliquid' with live=False — trade() is paper, but "
+                "client.hyperliquid.place_order() signs and submits to "
+                "Hyperliquid mainnet regardless of live. Real funds."
+            )
         self._private_key: Optional[str] = None  # EVM private key (Polymarket)
         self._wallet_address: Optional[str] = None  # EVM wallet address
         self._wallet_linked: Optional[bool] = None  # Cached linking status
@@ -2410,7 +2419,9 @@ class SimmerClient:
                 the returned TradeResult.
             dry_run: Validate and price the trade without executing it. No money
                 moves and no order is signed or submitted. Use it to confirm the
-                exact fill count before committing size.
+                exact fill count before committing size. On a ``live=False``
+                client it prices the paper fill the same way and books nothing,
+                so a preview followed by the real paper trade applies one fill.
 
                 Two things it deliberately does NOT do, so don't lean on it for
                 either. It is **not a permission check** — the server skips
@@ -2809,10 +2820,14 @@ class SimmerClient:
         """
         import time as _time
 
-        # Auto-settle any resolved paper positions before trading.
-        # A dry run must not settle either — that would mutate the book.
-        if not dry_run:
-            self._settle_paper_positions()
+        # Auto-settle any resolved paper positions before trading. This runs on
+        # a dry run too: settlement is the book catching up with a market that
+        # already resolved, not the previewed order — get_positions() and
+        # get_total_pnl() settle on a pure read for the same reason. Skipping it
+        # priced the preview against a stale book, so a dry run reported
+        # "insufficient balance" for a buy that then succeeded, and reported a
+        # fill for a sell of a position that had already settled away.
+        self._settle_paper_positions()
 
         # Fetch current price from the venue
         try:

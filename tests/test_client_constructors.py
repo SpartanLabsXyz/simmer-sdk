@@ -118,6 +118,35 @@ def test_paper_real_venue_construction_does_not_warn_live(monkeypatch, caplog):
     assert not any("LIVE trading with real funds" in r.getMessage() for r in caplog.records)
 
 
+def test_paper_hyperliquid_construction_still_warns_real_funds(monkeypatch, caplog):
+    """venue='hyperliquid' + live=False still warns.
+
+    trade() goes to paper, but client.hyperliquid.place_order() signs and
+    submits to mainnet without consulting live, so this client can move real
+    funds and must not read as silent paper.
+    """
+    monkeypatch.delenv("OWS_WALLET", raising=False)
+    monkeypatch.delenv("WALLET_PRIVATE_KEY", raising=False)
+    monkeypatch.delenv("SIMMER_PRIVATE_KEY", raising=False)
+    monkeypatch.setattr(
+        "simmer_sdk.version_check.check_server_version_compatibility",
+        lambda *args, **kwargs: None,
+    )
+
+    with caplog.at_level(logging.WARNING, logger="simmer_sdk.client"):
+        client = SimmerClient(
+            api_key="sk_live_test_hl_paper",
+            venue="hyperliquid",
+            live=False,
+        )
+
+    assert client.live is False
+    assert any(
+        "hyperliquid.place_order() signs and submits" in r.getMessage()
+        for r in caplog.records
+    )
+
+
 def test_from_env_raises_when_api_key_missing(monkeypatch):
     """from_env() raises RuntimeError with a dashboard pointer when SIMMER_API_KEY is unset."""
     monkeypatch.delenv("SIMMER_API_KEY", raising=False)
