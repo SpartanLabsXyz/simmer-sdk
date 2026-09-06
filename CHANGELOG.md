@@ -6,7 +6,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## 0.25.1 (2026-09-06)
 
 - **Paper `trade(dry_run=True)` no longer books paper inventory.** On a `live=False` client the dry run applied the fill to the in-memory portfolio before checking the flag, so a preview followed by the real paper trade on the same market double-booked shares and cost_basis, and paper expectancy drifted from what the strategy actually did. The dry run still settles any resolved paper positions first (as `get_positions()` does) and returns the same `TradeResult`; it just leaves the book alone. Live-venue dry_run already worked this way.
-- **`venue='polymarket'` with `live=False` no longer prints "LIVE trading with real funds".** The warning keyed off the venue string alone, so a paper client trading against real Polymarket prices announced itself as live. It now warns only when `live=True`. `venue='hyperliquid'` keeps a warning at `live=False` because `client.hyperliquid.place_order()` submits to mainnet without consulting `live`.
+- **`venue='polymarket'` with `live=False` no longer prints "LIVE trading with real funds".** The warning keyed off the venue string alone, so a paper client trading against real Polymarket prices announced itself as live. It now warns only when `live=True`.
+- **`client.hyperliquid` honours `live=False` and `readonly()`.** The HIP-4 adapter signs and submits locally, so nothing upstream stopped a paper or readonly client from placing a real Hyperliquid order — `trade()` went to paper, `client.hyperliquid.place_order()` went to mainnet. Reads (positions, balances, book) still work on such a client; `place_order`, `cancel_order`, and `approve_agent` now raise instead of submitting.
 
 ## 0.25.0 (2026-09-05)
 

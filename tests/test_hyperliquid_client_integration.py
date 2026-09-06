@@ -72,3 +72,56 @@ def test_unified_trade_hyperliquid_guarded(monkeypatch):
     c = SimmerClient(api_key="test", private_key=TEST_KEY)
     with pytest.raises(NotImplementedError, match="client.hyperliquid.place_order"):
         c.trade(market_id="m1", side="yes", amount=5.0, venue="hyperliquid")
+
+
+def _offline(monkeypatch, posts):
+    """Sign without the [hyperliquid] extra and record /exchange POSTs instead
+    of sending them, so the gate tests run in CI (which installs no extras)."""
+    import simmer_sdk.hyperliquid_signing as hs
+    import simmer_sdk.hyperliquid_venue as hv
+
+    monkeypatch.setattr(
+        hs.RawKeyHyperliquidSigner, "sign_l1_action", lambda self, *a, **k: {"r": "0x0"}
+    )
+    monkeypatch.setattr(hv, "build_order_action", lambda *a, **k: {"type": "order"})
+    monkeypatch.setattr(
+        hv.HyperliquidVenue, "_post",
+        lambda self, path, body: posts.append(path) or {"status": "ok", "response": {}},
+    )
+
+
+def test_paper_client_hyperliquid_refuses_submission(monkeypatch):
+    """live=False routes trade() to paper; the HL adapter signs and submits
+    locally, so it must carry the same gate or a paper client moves real funds."""
+    monkeypatch.setenv("WALLET_PRIVATE_KEY", TEST_KEY)
+    monkeypatch.delenv("OWS_WALLET", raising=False)
+    posts = []
+    _offline(monkeypatch, posts)
+    c = SimmerClient(api_key="test", private_key=TEST_KEY, live=False)
+    with pytest.raises(RuntimeError, match="live=False"):
+        c.hyperliquid.place_order(size=1.0, limit_px=0.5, is_buy=True, outcome_id=1)
+    with pytest.raises(RuntimeError, match="live=False"):
+        c.hyperliquid.cancel_order(order_id=1, outcome_id=1)
+    assert posts == []
+
+
+def test_readonly_client_hyperliquid_refuses_submission(monkeypatch):
+    monkeypatch.setenv("WALLET_PRIVATE_KEY", TEST_KEY)
+    monkeypatch.delenv("OWS_WALLET", raising=False)
+    posts = []
+    _offline(monkeypatch, posts)
+    c = SimmerClient.readonly(api_key="test", private_key=TEST_KEY)
+    with pytest.raises(RuntimeError, match="readonly"):
+        c.hyperliquid.place_order(size=1.0, limit_px=0.5, is_buy=True, outcome_id=1)
+    assert posts == []
+
+
+def test_live_client_hyperliquid_submits(monkeypatch):
+    """The gate must not catch the live client: submission reaches _post."""
+    monkeypatch.setenv("WALLET_PRIVATE_KEY", TEST_KEY)
+    monkeypatch.delenv("OWS_WALLET", raising=False)
+    posts = []
+    _offline(monkeypatch, posts)
+    c = SimmerClient(api_key="test", private_key=TEST_KEY)
+    c.hyperliquid.place_order(size=1.0, limit_px=0.5, is_buy=True, outcome_id=1)
+    assert posts == ["/exchange"]

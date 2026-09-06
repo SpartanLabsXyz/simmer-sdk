@@ -372,15 +372,6 @@ class SimmerClient:
             )
         elif live:
             logger.warning("venue='%s' — LIVE trading with real funds.", venue)
-        elif venue == "hyperliquid":
-            # live=False routes trade() to paper, but the HIP-4 adapter
-            # (client.hyperliquid.place_order) signs and submits to Hyperliquid
-            # mainnet without consulting self.live. Warn until that is gated.
-            logger.warning(
-                "venue='hyperliquid' with live=False — trade() is paper, but "
-                "client.hyperliquid.place_order() signs and submits to "
-                "Hyperliquid mainnet regardless of live. Real funds."
-            )
         self._private_key: Optional[str] = None  # EVM private key (Polymarket)
         self._wallet_address: Optional[str] = None  # EVM wallet address
         self._wallet_linked: Optional[bool] = None  # Cached linking status
@@ -782,7 +773,13 @@ class SimmerClient:
             ).lower() not in ("1", "true", "yes")
             main_address = os.environ.get("SIMMER_HYPERLIQUID_MAIN_ADDRESS") or None
             self._hyperliquid_venue = HyperliquidVenue(
-                signer, is_mainnet=is_mainnet, main_address=main_address
+                signer,
+                is_mainnet=is_mainnet,
+                main_address=main_address,
+                # live=False and readonly() must not move real funds. trade()
+                # honours both upstream; the adapter submits locally, so it
+                # carries the same gate itself.
+                submit_enabled=self.live and not self._readonly,
             )
         return self._hyperliquid_venue
 
