@@ -1,4 +1,4 @@
-# vendored from simmer_v3/replay/server.py @ a759c3089aa2
+# vendored from simmer_v3/replay/server.py @ 5daddb9ecb15
 # DO NOT EDIT HERE — regenerate via scripts/sync_replay_engine.py
 """Replay API server — the minimal /api/sdk surface skills consume (SIM-3070).
 
@@ -150,11 +150,24 @@ def create_app(session: ReplaySession) -> FastAPI:
         }
 
     @app.get("/api/sdk/markets")
-    def markets(limit: int = 50, q: Optional[str] = None, status: Optional[str] = None):
-        metas = session.view.markets(limit=limit)
+    def markets(
+        limit: int = 50,
+        q: Optional[str] = None,
+        status: Optional[str] = None,
+        sort: Optional[str] = None,
+        venue: Optional[str] = None,
+    ):
+        metas = session.view.markets(limit=max(limit * 4, limit))
         if q:
             ql = q.lower()
             metas = [m for m in metas if ql in m.question.lower() or ql in m.slug.lower()]
+        sort_norm = sort.strip().lower() if sort else None
+        if sort_norm == "created":
+            sort_norm = "recent"
+        if sort_norm == "recent":
+            metas = sorted(metas, key=lambda m: m.created_at, reverse=True)
+        else:
+            metas = sorted(metas, key=lambda m: (m.volume is not None, m.volume or 0.0, m.created_at), reverse=True)
         rows = _budgeted(metas[:limit])
         return {"markets": [_market_payload(session, m) for m in rows]}
 

@@ -1,4 +1,4 @@
-# vendored from simmer_v3/replay/simstate.py @ a759c3089aa2
+# vendored from simmer_v3/replay/simstate.py @ 5daddb9ecb15
 # DO NOT EDIT HERE — regenerate via scripts/sync_replay_engine.py
 """SimState — the simulated agent portfolio during replay (SIM-3070).
 
@@ -8,8 +8,8 @@ Implements the v1 fill model from replay-contract.md, deliberately simple:
     no size impact, no partial fills.
   - Resting limit orders fill when the tape prints through the limit price
     (fill AT the limit price). No queue-position modeling.
-  - Fees: flat taker fee rate on notional (default 0.0 — Polymarket's
-    historical default; configurable per run).
+  - Fees: Polymarket's taker shape, base_rate x shares x p x (1 - p), which
+    equals notional x base_rate x (1 - p). `fee_rate` is the BASE rate.
   - Settlement: at resolution, YES shares pay outcome_yes each, NO shares
     pay (1 - outcome_yes).
 
@@ -92,6 +92,31 @@ def _side_price(yes_price: float, side: str) -> float:
     return yes_price if side == "yes" else 1.0 - yes_price
 
 
+def fee_for(notional: float, px: float, base_rate: float, kind: str = "market") -> float:
+    """Polymarket taker fee for a fill of ``notional`` USD at side price ``px``.
+
+    Live: ``base_rate x shares x p x (1 - p)`` (sdk_trade.py taker_fee_saved).
+    Since ``notional = shares x p`` that is ``notional x base_rate x (1 - p)``.
+    The shape matters: a flat rate overstates cost on favourites and
+    understates it near 0.50, and prediction-market strategies cluster at
+    the extremes.
+
+    ``kind="limit"`` (a resting order that filled as maker) pays 0 — live
+    makers pay no fee (_dev/reference/trading-economics.md). The 20% maker
+    rebate is NOT credited; see REALISM_GAPS.
+
+    Clamped at zero: a tape print above 1.0 would otherwise turn the fee into
+    a rebate that credits cash.
+
+    Module-level on purpose: the engine's baselines charge the same fee, and
+    the first cut of the fee change diverged exactly where that arithmetic was
+    written twice.
+    """
+    if kind == "limit":
+        return 0.0
+    return notional * base_rate * max(0.0, 1.0 - px)
+
+
 class SimState:
     """Mutable per-replay portfolio. One instance per replay job/session."""
 
@@ -103,6 +128,9 @@ class SimState:
         self.open_orders: dict[str, LimitOrder] = {}
         self.fills: list[Fill] = []
         self._order_seq = 0
+
+    def _fee(self, notional: float, px: float, kind: str = "market") -> float:
+        return fee_for(notional, px, self.fee_rate, kind)
 
     # -- marketable orders ---------------------------------------------------
 
@@ -119,7 +147,7 @@ class SimState:
         if limit_price is not None and px > limit_price:
             return self._rest_order(view, market_id, side, "buy", limit_price, usd_amount=usd_amount)
 
-        fee = usd_amount * self.fee_rate
+        fee = self._fee(usd_amount, px)
         total = usd_amount + fee
         if total > self.cash + 1e-9:
             raise ReplayTradeError(f"insufficient balance: need {total:.2f}, have {self.cash:.2f}")
@@ -153,8 +181,13 @@ class SimState:
         if limit_price is not None and px < limit_price:
             return self._rest_order(view, market_id, side, "sell", limit_price, shares=shares)
 
+        if px <= 0:
+            # Mirrors buy(). A yes print above 1.0 (the dataset value is
+            # unclamped) makes the NO side price negative; without this guard
+            # proceeds AND fee go negative and cash is debited on a "sale".
+            raise ReplayTradeError(f"non-positive {side} price {px}")
         proceeds = shares * px
-        fee = proceeds * self.fee_rate
+        fee = self._fee(proceeds, px)
         self.cash += proceeds - fee
         pos.reduce_basis(side, shares, held)
         if side == "yes":
@@ -219,7 +252,7 @@ class SimState:
     def _execute_at_limit(self, view: ReplayView, order: LimitOrder) -> Optional[Fill]:
         px = order.limit_price
         if order.action == "buy":
-            fee = order.usd_amount * self.fee_rate
+            fee = self._fee(order.usd_amount, px, kind="limit")
             total = order.usd_amount + fee
             if total > self.cash + 1e-9:
                 return None  # order lapses — insufficient cash at cross time
@@ -241,7 +274,7 @@ class SimState:
             if shares <= 0:
                 return None
             proceeds = shares * px
-            fee = proceeds * self.fee_rate
+            fee = self._fee(proceeds, px, kind="limit")
             self.cash += proceeds - fee
             pos.reduce_basis(order.side, shares, held)
             if order.side == "yes":
