@@ -61,6 +61,7 @@ def test_paper_trade_after_dry_run_books_once():
     assert summary["balance"] == 9_999.0
     assert summary["open_positions"] == 1
     assert summary["positions"]["m1"]["cost_basis"] == 1.0
-    assert summary["positions"]["m1"]["shares_yes"] == placed.shares_bought
     # Mid 0.50 + 1¢ half-spread → fill 0.51, so ~1.96 shares, not ~3.92.
-    assert placed.shares_bought == pytest.approx(1.0 / 0.51)
+    # TradeResult rounds shares_bought to 6 decimals; the book stores raw.
+    assert summary["positions"]["m1"]["shares_yes"] == pytest.approx(1.0 / 0.51)
+    assert placed.shares_bought == pytest.approx(1.0 / 0.51, abs=1e-6)
