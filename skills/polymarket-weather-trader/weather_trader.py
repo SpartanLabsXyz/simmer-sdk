@@ -403,10 +403,23 @@ _WUNDERGROUND_URL_RE = re.compile(
 # None on 100% of current criteria and the skill skipped every event. The
 # agency clause is optional and generic here so the next reword ("by NWS",
 # "by the National Weather Service") does not break us again.
+# Matched against whitespace-collapsed text (see _collapse_ws), so every gap
+# here is a literal single space. Writing them as \s+ instead lets the runs
+# overlap the lazy (.+?) capture, and the engine repartitions the whitespace
+# on every failure: "recorded at the" + 1600 spaces took 6.8s, growing ~8x per
+# doubling. Criteria text is authored upstream, so a single malformed market
+# would stall the whole scan. Keep the gaps literal.
 _STATION_PHRASE_RE = re.compile(
-    r"recorded(?:\s+by\s+[A-Za-z][A-Za-z .'-]*?)?\s+at\s+the\s+(.+?)\s+Station\b",
+    r"recorded(?: by [A-Za-z][A-Za-z .'-]{0,60}?)? at the (.{1,120}?) Station\b",
     re.IGNORECASE,
 )
+
+
+def _collapse_ws(text: str) -> str:
+    """Collapse whitespace runs to single spaces so the station phrase can be
+    matched with literal spaces. Criteria arrives with newlines and wrapped
+    indentation; station names themselves never contain a run."""
+    return " ".join(text.split())
 
 
 def parse_resolution_station(criteria: str) -> dict:
@@ -457,7 +470,7 @@ def parse_resolution_station_result(criteria: str) -> dict:
         station_id = url_match.group(1).upper()
 
     station_name = None
-    phrase_match = _STATION_PHRASE_RE.search(criteria)
+    phrase_match = _STATION_PHRASE_RE.search(_collapse_ws(criteria))
     if phrase_match:
         station_name = phrase_match.group(1).strip()
 

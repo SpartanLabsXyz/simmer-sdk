@@ -176,6 +176,42 @@ class TestSkipReasonSplit(unittest.TestCase):
         self.assertIsNone(wt.parse_resolution_station_result(NEW_FORM_NYC)["reason"])
 
 
+class TestPathologicalInput(unittest.TestCase):
+    """Criteria text is authored upstream — one bad market must not stall a scan."""
+
+    def test_whitespace_run_does_not_blow_up(self):
+        # The first cut of this regex used \\s+ around a lazy capture; the engine
+        # repartitioned the run on every failure and took 6.8s at 1600 spaces,
+        # growing ~8x per doubling. A stalled parse blocks every later market,
+        # the coverage report, and the exit check.
+        import time
+
+        start = time.perf_counter()
+        self.assertIsNone(wt.parse_resolution_station("recorded at the" + " " * 20000 + "x"))
+        self.assertLess(time.perf_counter() - start, 1.0)
+
+    def test_repeated_agency_clause_does_not_blow_up(self):
+        import time
+
+        start = time.perf_counter()
+        wt.parse_resolution_station("recorded" + " by NOAA" * 500 + " at the X Station")
+        self.assertLess(time.perf_counter() - start, 1.0)
+
+    def test_station_phrase_wrapped_across_newlines_still_parses(self):
+        # Falls out of collapsing whitespace before matching; the old regex
+        # could not read a phrase broken over wrapped lines.
+        parsed = wt.parse_resolution_station(
+            "highest temperature recorded by NOAA at the\n   LaGuardia Airport\n   Station"
+        )
+        self.assertEqual(parsed["station_name"], "LaGuardia Airport")
+
+    def test_every_advertised_station_name_fits_the_capture_bound(self):
+        # The capture is bounded to keep the match linear; a name longer than
+        # the bound would silently stop routing.
+        for name in TestAdvertisedLocationsRoute.CASES:
+            self.assertLess(len(name), 120, f"{name!r} exceeds the capture bound")
+
+
 class TestParseCoverageGuard(unittest.TestCase):
     """The guard must actually discriminate — silent then, loud now."""
 

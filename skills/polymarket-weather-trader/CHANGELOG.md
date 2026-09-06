@@ -12,6 +12,7 @@
 ### Added
 - Parse-coverage guard. When a run reads a station out of fewer than 50% of the events that had criteria, the skill says so loudly (surviving `--quiet`) instead of reporting a clean scan. A parser that falls behind upstream wording throws nothing, fails no trade and retries nothing, so every downstream health metric stays green while the skill quietly stops entering — this was invisible for two weeks. The warning names the real cause: it is not finding no opportunities, it is failing to look.
 - `parse_resolution_station_result(criteria)` — returns the station plus the reason it could not be read (`SKIP_MISSING_CRITERIA` / `SKIP_UNPARSEABLE_CRITERIA`). `parse_resolution_station()` is unchanged for existing callers.
+- Whitespace in the station phrase is collapsed before matching, so the pattern uses literal single spaces. The first cut used `\s+` around the lazy capture, which let the engine repartition a whitespace run on every failure — `recorded at the` followed by 1,600 spaces took 6.8s, growing ~8x per doubling. Criteria text is authored upstream, so one malformed market would have stalled the whole scan. Collapsing first also means a station phrase wrapped across newlines now parses, which the old pattern could not do.
 - `tests/test_resolution_criteria_reword.py` — pins the new and old wording, the reason split, alias-to-coordinate integrity, and the coverage guard's thresholds against live criteria strings.
 
 ### Thanks
