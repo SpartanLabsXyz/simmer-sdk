@@ -1,4 +1,4 @@
-# vendored from simmer_v3/replay/engine.py @ f23de362b27f
+# vendored from simmer_v3/replay/engine.py @ 10853b3589e4
 # DO NOT EDIT HERE — regenerate via scripts/sync_replay_engine.py
 """Replay engine — the tick loop + report builder (SIM-3070 chunk 3).
 
@@ -40,8 +40,10 @@ REALISM_GAPS = [
     "no queue position",
     "no latency",
     "no maker rebates (maker fills pay 0 fee, but the 20% rebate is not credited)",
-    "single blended base fee rate, not per-category (crypto/sports/other differ; "
-    "see _dev/reference/trading-economics.md)",
+    "single blended base fee rate, not per-category (crypto 0.07; sports, "
+    "economics, culture, weather, other/general 0.05; finance, politics, "
+    "mentions, tech 0.04; geopolitics 0.00; see "
+    "_dev/reference/trading-economics.md)",
     "trade-tape prices, not orderbook",
 ]
 
