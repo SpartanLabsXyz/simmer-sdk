@@ -2112,6 +2112,10 @@ class SimmerClient:
             Unfiltered browse (no ``q``/``tags``) is capped and windowed server-side,
             so it returns a slice of all active markets, not the full catalog. For
             trading discovery prefer sort="volume" or a keyword/tag filter.
+            The server's default ``tradeable_only=true`` behavior filters active
+            discovery to markets where ``sim_tradeable`` is true. Use that raw
+            response flag as the Simmer paper-trading guard; ``is_orderbook_open``
+            only describes the external venue orderbook.
 
         Returns:
             List of Market objects
@@ -2300,8 +2304,10 @@ class SimmerClient:
                 'upcoming' (not yet in it). Omit for both, which is what you
                 want to see every upcoming window for an asset at once. Note
                 this is stricter than "tradable": every market returned is
-                accepting orders, so filter on `is_orderbook_open` if that is
-                the question you are actually asking.
+                accepting orders on its external venue. Filter on raw
+                ``sim_tradeable`` if you are asking whether the Simmer
+                paper-trading guard currently allows new exposure; use raw
+                ``is_orderbook_open`` only for external venue orderbook liveness.
 
         Returns:
             List of Market objects sorted by is_live_now (live first), then resolves_at
