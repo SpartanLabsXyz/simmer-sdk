@@ -180,3 +180,20 @@ def test_kalshi_dry_run_result_is_not_retryable():
     assert result.success is False
     assert result.error_code == "dry_run_unsupported"
     assert result.retryable is False
+
+
+def test_kalshi_dry_run_refusal_emits_the_shared_failure_warning():
+    """The short-circuit returns before trade()'s shared failure warning, so it
+    must emit the same signal itself. A bot that logs instead of checking
+    result.success would otherwise preview in a loop in total silence."""
+    client = _make_client()
+    with patch.object(client, "_request", side_effect=AssertionError("transport called")):
+        with patch("simmer_sdk.client.logger.warning") as warn:
+            client.trade(
+                "MKT-1", "yes", 10.0, action="buy", venue="kalshi",
+                allow_rebuy=True, dry_run=True,
+            )
+    assert warn.call_count == 1
+    logged = warn.call_args[0]
+    assert "kalshi" in logged
+    assert "dry_run is not supported" in logged[-1]

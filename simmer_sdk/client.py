@@ -5485,16 +5485,23 @@ class SimmerClient:
         # There is no real Kalshi preview path (option c, out of scope) so we
         # fail closed rather than fabricate a preview price.
         if dry_run:
+            error = (
+                "dry_run is not supported for venue='kalshi' — no order was "
+                "placed. Kalshi BYOW has no preview pricing yet; call with "
+                "dry_run=False to place a real order."
+            )
+            # This return bypasses trade()'s shared failure warning, so emit the
+            # same signal here. A bot that logs rather than checking
+            # result.success would otherwise preview in a loop in total silence
+            # — the same invisibility that let the original bug place real
+            # orders unnoticed (codex P2 on this PR).
+            logger.warning("Trade failed on %s: %s", "kalshi", error)
             return TradeResult(
                 success=False,
                 market_id=market_id,
                 side=side,
                 venue="kalshi",
-                error=(
-                    "dry_run is not supported for venue='kalshi' — no order was "
-                    "placed. Kalshi BYOW has no preview pricing yet; call with "
-                    "dry_run=False to place a real order."
-                ),
+                error=error,
                 error_code="dry_run_unsupported",
                 retryable=False
             )
