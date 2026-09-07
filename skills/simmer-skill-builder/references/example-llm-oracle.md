@@ -177,7 +177,7 @@ def evaluate_and_trade(market_id, raw_prob, confidence, side, reasoning, live=Fa
         return None
 
     portfolio = client.get_portfolio()
-    bankroll = portfolio.get("balance_usdc", 0) + portfolio.get("total_exposure", 0)
+    bankroll = (portfolio.get("balance_usdc") or 0) + portfolio.get("total_exposure", 0)
 
     amount = size_position(
         p_win=corrected_prob,

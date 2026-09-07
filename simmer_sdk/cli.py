@@ -239,7 +239,9 @@ def _build_parser() -> argparse.ArgumentParser:
                     help="tape-service base URL (default: SIMMER_API_URL env or production)")
     bt.add_argument("--cadence", default="15m", help="tick spacing: 15m / 12h / 30d / minutes (default 15m)")
     bt.add_argument("--balance", type=float, default=1000.0, help="starting balance (default 1000)")
-    bt.add_argument("--fee-rate", type=float, default=0.0, dest="fee_rate", help="per-fill fee rate (default 0)")
+    bt.add_argument("--fee-rate", type=float, default=None, dest="fee_rate",
+                    help="BASE fee rate, applied as notional x rate x (1 - price); maker fills pay 0. "
+                         "Default follows the engine (currently 0.05) — pass 0 to run fee-free")
     bt.add_argument("--seed", type=int, default=0, help="RNG seed for the random baseline (default 0)")
     bt.add_argument("--max-evaluations", type=int, default=50_000, dest="max_evaluations",
                     help="hard ticks×markets budget (default 50000)")

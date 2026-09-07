@@ -2,6 +2,23 @@
 
 ## [Unreleased]
 
+## [1.23.6] - 2026-09-06
+
+### Fixed
+- **Polymarket reworded every weather-temperature market on 2026-08-22 and the station parser stopped reading all of them.** The criteria dropped their Wunderground URL (resolution source moved to NOAA) and gained an agency clause — `recorded BY NOAA at the LaGuardia Airport Station`. Both parser patterns matched neither, so `parse_resolution_station()` returned `None` on 100% of current criteria and the skill skipped every event without entering. Verified against the live corpus: 2,195 of 2,596 active weather-temperature markets carry the new wording; only 84 keep the old. The station phrase now accepts an optional, generic agency clause, so `by NWS` or `by the National Weather Service` will not break it again.
+- Added name aliases for three stations Polymarket cites under a different name than our coordinate tables hold: `Hartsfield-Jackson International Airport` → `KATL`, `Amsterdam Airport Schiphol` → `EHAM`, `Malpensa Intl Airport` → `LIMC`. With these, all 16 advertised locations route again — the six US cities in `SIMMER_WEATHER_LOCATIONS` plus every international alias. Aliases may only point at stations we already have coordinates for; routing a market to an airport we cannot forecast is the silent KDFW/KDAL failure mode.
+- The skip log no longer claims `need SDK ≥ 2026-05-03` when criteria is present. Missing criteria and unreadable criteria were sharing one message that blamed a stale SDK for both; they are now distinct reasons.
+
+### Added
+- Parse-coverage guard. When a run reads a station out of fewer than 50% of the events that had criteria, the skill says so loudly (surviving `--quiet`) instead of reporting a clean scan. A parser that falls behind upstream wording throws nothing, fails no trade and retries nothing, so every downstream health metric stays green while the skill quietly stops entering — this was invisible for two weeks. The warning names the real cause: it is not finding no opportunities, it is failing to look.
+- `parse_resolution_station_result(criteria)` — returns the station plus the reason it could not be read (`SKIP_MISSING_CRITERIA` / `SKIP_UNPARSEABLE_CRITERIA`). `parse_resolution_station()` is unchanged for existing callers.
+- Whitespace in the station phrase is collapsed before matching, so the pattern uses literal single spaces. The first cut used `\s+` around the lazy capture, which let the engine repartition a whitespace run on every failure — `recorded at the` followed by 1,600 spaces took 6.8s, growing ~8x per doubling. Criteria text is authored upstream, so one malformed market would have stalled the whole scan. Collapsing first also means a station phrase wrapped across newlines now parses, which the old pattern could not do.
+- `tests/test_resolution_criteria_reword.py` — pins the new and old wording, the reason split, alias-to-coordinate integrity, and the coverage guard's thresholds against live criteria strings.
+
+### Thanks
+- Reported by the Grok Bot dogfood seat, which caught it on a clean v1.23.5 install and correctly identified that the log message was lying about the cause.
+
+
 ## [1.23.4] - 2026-07-22
 
 ### Fixed

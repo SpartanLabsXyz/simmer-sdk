@@ -64,14 +64,31 @@ class HyperliquidVenue:
         vault_address: Optional[str] = None,
         main_address: Optional[str] = None,
         timeout: float = DEFAULT_TIMEOUT,
+        submit_enabled: bool = True,
     ):
         self._signer = signer
+        # False for a paper (live=False) or readonly SimmerClient: reads still
+        # work, but any signed /exchange submission is refused. HL orders sign
+        # and submit locally, so nothing upstream can stop them otherwise.
+        self._submit_enabled = submit_enabled
         self.signer_address = signer.address
         self.address = main_address or signer.address
         self.is_mainnet = is_mainnet
         self.base_url = base_url or (MAINNET_API_URL if is_mainnet else TESTNET_API_URL)
         self.vault_address = vault_address
         self._timeout = timeout
+
+    def _require_submit(self) -> None:
+        # Checked before building or signing an action (no key work for a
+        # refused order, and no [hyperliquid] extra needed to refuse) and
+        # again in submit_action for callers that build actions elsewhere.
+        if not self._submit_enabled:
+            raise RuntimeError(
+                "Hyperliquid submission refused: this SimmerClient is live=False "
+                "(paper) or readonly, and Hyperliquid orders sign and submit "
+                "locally with real funds. Construct a live, non-readonly client "
+                "to place, cancel, or approve on Hyperliquid."
+            )
 
     # ---- transport -------------------------------------------------------
 
@@ -91,6 +108,7 @@ class HyperliquidVenue:
         action elsewhere but submits through this exact path, so there is one
         transport + error-handling implementation on the money path.
         """
+        self._require_submit()
         payload: Dict[str, Any] = {
             "action": action,
             "nonce": nonce,
@@ -135,6 +153,7 @@ class HyperliquidVenue:
         Returns the parsed ``/exchange`` response. On a resting order the
         ``oid`` is under ``response.data.statuses[i]``.
         """
+        self._require_submit()
         asset = outcome_asset_id(outcome_id, side)
         action = build_order_action(
             asset,
@@ -154,6 +173,7 @@ class HyperliquidVenue:
 
     def cancel_order(self, *, order_id: int, outcome_id: int, side: str = "yes") -> Dict[str, Any]:
         """Cancel a resting order by its venue order id."""
+        self._require_submit()
         asset = outcome_asset_id(outcome_id, side)
         action = build_cancel_action(asset, order_id)
         nonce = next_nonce(self.signer_address)
@@ -206,6 +226,7 @@ class HyperliquidVenue:
         main key). The agent key can place/cancel orders but cannot withdraw —
         the recommended bot-host setup (P0 finding Q3).
         """
+        self._require_submit()
         nonce = next_nonce(self.signer_address)
         action: Dict[str, Any] = {
             "type": "approveAgent",
