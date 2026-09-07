@@ -3,6 +3,16 @@
 All notable changes to `simmer-sdk` are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.25.2 (2026-09-07)
+
+- **`trade(dry_run=True, venue="kalshi")` no longer places a real order.** The Kalshi BYOW path never had a `dry_run` parameter, so a call documented as a no-op fetched a quote, signed a Solana transaction with `SOLANA_PRIVATE_KEY`, and submitted it for real — money moved on a call that promised none would. There is no Kalshi preview pricing yet, so `dry_run=True` on `venue="kalshi"` now returns `success=False` with an error naming the gap, before any quote, signing, or submit call. `dry_run` on `sim` and `polymarket` is unaffected. See SIM-5041.
+
+## 0.25.1 (2026-09-06)
+
+- **Paper `trade(dry_run=True)` no longer books paper inventory.** On a `live=False` client the dry run applied the fill to the in-memory portfolio before checking the flag, so a preview followed by the real paper trade on the same market double-booked shares and cost_basis, and paper expectancy drifted from what the strategy actually did. The dry run still settles any resolved paper positions first (as `get_positions()` does) and returns the same `TradeResult`; it just leaves the book alone. Live-venue dry_run already worked this way.
+- **`venue='polymarket'` with `live=False` no longer prints "LIVE trading with real funds".** The warning keyed off the venue string alone, so a paper client trading against real Polymarket prices announced itself as live. It now warns only when `live=True`.
+- **`client.hyperliquid` honours `live=False` and `readonly()`.** The HIP-4 adapter signs and submits locally, so nothing upstream stopped a paper or readonly client from placing a real Hyperliquid order — `trade()` went to paper, `client.hyperliquid.place_order()` went to mainnet. Reads (positions, balances, book) still work on such a client; `place_order`, `cancel_order`, and `approve_agent` now raise instead of submitting.
+
 ## 0.25.0 (2026-09-05)
 
 - **`simmer backtest` now charges fees by default, and its numbers will change.** The vendored replay engine was ~3 months behind the backend it is supposed to mirror while both reported `ENGINE_VERSION 0.1.1`, so the CLI and the server quietly disagreed for the same bundle. Re-vendored at engine **0.2.0**. Three user-visible consequences: (1) `--fee-rate` defaults to the engine's rate (currently `0.05`) instead of `0`, so every backtest now has cost drag — pass `--fee-rate 0` for the old behaviour; (2) fees use Polymarket's real shape, `notional x base x (1 - price)`, and resting limit fills that cross pay **0** as makers, where the old model charged a flat rate on notional; (3) every `config_hash` changes, so a re-run of a saved backtest will not match its stored report. Baselines now pay the same fee as the strategy's own fills and are derived from executed fills rather than logged decisions, so a limit order that never crossed no longer counts as a buy-and-hold entry.
