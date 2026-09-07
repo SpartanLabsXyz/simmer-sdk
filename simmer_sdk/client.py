@@ -5495,7 +5495,8 @@ class SimmerClient:
                     "placed. Kalshi BYOW has no preview pricing yet; call with "
                     "dry_run=False to place a real order."
                 ),
-                error_code="dry_run_unsupported"
+                error_code="dry_run_unsupported",
+                retryable=False
             )
 
         # Check for Solana key

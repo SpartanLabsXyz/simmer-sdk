@@ -165,3 +165,18 @@ def test_sim_dry_run_unchanged():
         )
     mock_request.assert_called_once()
     assert result.success is True
+
+
+def test_kalshi_dry_run_result_is_not_retryable():
+    """A dry_run refusal can never succeed on retry. Six bundled skills branch on
+    TradeResult.retryable to stop a retry loop and the dataclass default is True,
+    so a client-side refusal that leaves it True tells them to try again."""
+    client = _make_client()
+    with patch.object(client, "_request", side_effect=AssertionError("transport called")):
+        result = client.trade(
+            "MKT-1", "yes", 10.0, action="buy", venue="kalshi",
+            allow_rebuy=True, dry_run=True,
+        )
+    assert result.success is False
+    assert result.error_code == "dry_run_unsupported"
+    assert result.retryable is False
