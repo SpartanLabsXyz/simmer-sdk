@@ -1,4 +1,4 @@
-# vendored from simmer_v3/replay/engine.py @ a759c3089aa2
+# vendored from simmer_v3/replay/engine.py @ f23de362b27f
 # DO NOT EDIT HERE — regenerate via scripts/sync_replay_engine.py
 """Replay engine — the tick loop + report builder (SIM-3070 chunk 3).
 
@@ -26,20 +26,22 @@ from typing import Any, Optional, Protocol
 from fastapi.testclient import TestClient
 
 from .server import ReplaySession, create_app
-from .simstate import SimState
+from .simstate import SimState, fee_for
 from .store import HistoricalStore
 
 # Canonical engine version — bump on any change that can alter results (fill
 # model, look-ahead semantics, fee handling). The catalog's stale_engine badge
 # compares stored reports' reproducibility.engine against this.
-ENGINE_VERSION = "0.1.1"  # 0.1.1: snap resolved binary outcome to {0,1} (SIM-3070 hit_rate fix)
+ENGINE_VERSION = "0.2.0"  # 0.2.0: Polymarket fee shape + nonzero default base rate
 
 REALISM_GAPS = [
     "no slippage",
     "no market impact at size",
     "no queue position",
     "no latency",
-    "no maker rebates",
+    "no maker rebates (maker fills pay 0 fee, but the 20% rebate is not credited)",
+    "single blended base fee rate, not per-category (crypto/sports/other differ; "
+    "see _dev/reference/trading-economics.md)",
     "trade-tape prices, not orderbook",
 ]
 
@@ -54,7 +56,15 @@ class ReplayConfig:
     t1: datetime
     cadence: timedelta = timedelta(minutes=15)
     starting_balance: float = 1000.0
-    fee_rate: float = 0.0
+    # BASE fee rate, applied as notional x fee_rate x (1 - price) — see
+    # SimState._fee. 0.05 is derived from the only fees we have actually
+    # measured: 6,812 V2 trades back-filled from on-chain `fee_usdc` between
+    # 2026-04-28 and 2026-06-15 came in at a median 246 bps EFFECTIVE at an
+    # average price of 0.522, which implies a base near 500 bps. Zero was never
+    # right: post-April `real_trades.fee_rate_bps = 0` is a sentinel meaning
+    # "unknown at placement time" (polymarket_client.get_polymarket_fee_rate),
+    # not "free".
+    fee_rate: float = 0.05
     skill_slug: str = "unknown"
     skill_version: str = "0"
     dataset_rev: str = "unknown"
@@ -147,6 +157,11 @@ class ReplayEngine:
                 "hit_rate": (wins / decided) if decided else None,
                 "pnl": equity - cfg.starting_balance,
                 "final_equity": equity,
+                # fee_rate is the BASE rate (see SimState._fee); fees_paid is
+                # the realised total so a reader can see how much of pnl is
+                # cost drag without re-deriving it from config_hash.
+                "fee_rate": cfg.fee_rate,
+                "fees_paid": round(sum(f.fee for f in trades), 6),
                 "max_drawdown": _max_drawdown([p["equity"] for p in self.equity_curve]),
                 "ticks": self.tick_count,
                 "evaluations": self.session.evaluations,
@@ -157,7 +172,7 @@ class ReplayEngine:
             "fills": [
                 {"ts": f.ts.isoformat(), "market_id": f.market_id, "side": f.side,
                  "action": f.action, "shares": round(f.shares, 6), "price": f.price,
-                 "usd": round(f.usd, 6), "kind": f.kind}
+                 "usd": round(f.usd, 6), "fee": round(f.fee, 6), "kind": f.kind}
                 for f in self.sim.fills
             ],
             "equity_curve": self.equity_curve,
@@ -179,40 +194,55 @@ class ReplayEngine:
                 "cadence": f"{int(cfg.cadence.total_seconds())}s",
                 "skill": f"{cfg.skill_slug}@{cfg.skill_version}",
                 "engine": cfg.engine_version,
+                "fee_rate": cfg.fee_rate,
                 "config_hash": cfg.config_hash(),
                 "seed": cfg.seed,
             },
         }
 
     def _baselines(self) -> dict:
-        """Same markets, same entry times, same notionals — different side rule.
+        """Same markets, same entry FILLS, same notionals — different side rule.
 
-        buy_and_hold_yes: buy YES at the strategy's entry print, hold to
+        Derived from executed buy fills, not from decisions. The session logs
+        a decision before it knows whether sim.buy() filled or rested
+        (server.py), so decisions over-count entries for any limit strategy: a
+        resting order that never crossed, or lapsed for cash, is not an entry.
+
+        buy_and_hold_yes: buy YES at the fill's price and time, hold to
         resolution (or mark at window end). random: coin-flip side per entry
-        (seeded). Both ignore fees for v0 (documented)."""
-        entries = [d for d in self.session.decisions if d.get("action") == "buy"]
+        (seeded). Each leg pays the fee for ITS OWN trade: same notional, same
+        base rate, same kind as the strategy's fill (so maker fills stay free),
+        but at the baseline's own entry price — fee_for is not symmetric in
+        price, so a NO-side strategy fill and its YES baseline pay different
+        amounts by design. Settlement is fee-free on both sides
+        (SimState.settle). A fee-charged strategy measured against fee-free
+        baselines would report as losing to buy-and-hold on identical entries."""
+        buys = [f for f in self.sim.fills if f.action == "buy"]
         rng = random.Random(self.config.seed)
-        out = {"buy_and_hold_yes": 0.0, "random": 0.0, "note": "same entries/notional; fees ignored in baselines v0"}
-        for d in entries:
-            mid = d["market_id"]
-            amt = float(d.get("amount") or 0.0)
+        out = {"buy_and_hold_yes": 0.0, "random": 0.0,
+               "note": ("same entry fills/notional; each leg pays the fee for its own trade "
+                        "(same base rate and kind, own entry price; maker fills free); "
+                        "settlement fee-free")}
+        rate = self.config.fee_rate
+        for f in buys:
+            mid = f.market_id
+            amt = -f.usd - f.fee  # Fill.usd for a buy is -(notional + fee)
             if amt <= 0:
                 continue
-            entry_point = self.store.price(mid, datetime.fromisoformat(d["ts"]))
+            entry_yes = f.price if f.side == "yes" else 1.0 - f.price
             res = self.store.resolution(mid)
-            if entry_point is None:
-                continue
             final_yes = res.outcome_yes if (res and res.resolved_at <= self.config.t1) else None
             if final_yes is None:
                 last = self.store.price(mid, self.config.t1)
-                final_yes = last.price if last else entry_point.price
-            if entry_point.price > 0:
-                out["buy_and_hold_yes"] += amt * (final_yes / entry_point.price) - amt
+                final_yes = last.price if last else entry_yes
+            if entry_yes > 0:
+                out["buy_and_hold_yes"] += (amt * (final_yes / entry_yes) - amt
+                                            - fee_for(amt, entry_yes, rate, f.kind))
             side = rng.choice(["yes", "no"])
-            px = entry_point.price if side == "yes" else 1.0 - entry_point.price
+            px = entry_yes if side == "yes" else 1.0 - entry_yes
             payout = final_yes if side == "yes" else 1.0 - final_yes
             if px > 0:
-                out["random"] += amt * (payout / px) - amt
+                out["random"] += amt * (payout / px) - amt - fee_for(amt, px, rate, f.kind)
         out["buy_and_hold_yes"] = round(out["buy_and_hold_yes"], 6)
         out["random"] = round(out["random"], 6)
         return out

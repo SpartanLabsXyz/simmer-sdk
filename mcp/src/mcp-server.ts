@@ -1084,13 +1084,12 @@ if (simmer) {
 // ---------------------------------------------------------------------------
 
 async function main() {
-  // Runtime probe (startup diagnostic)
-  const probe = await probeRuntime();
-  const probeLines = [
-    `python3: ${probe.python3.detected ? `v${probe.python3.version} (${probe.python3.path})` : `not found at ${probe.python3.path} (${probe.python3.installHint})`}`,
-    `simmer-sdk: ${probe.simmerSdk.detected ? `v${probe.simmerSdk.version}` : `not installed (${probe.simmerSdk.installHint})`}`,
-    `git: ${probe.git.detected ? `v${probe.git.version}` : `not found`}`,
-  ].join(" | ");
+  // Connect before anything that spawns a subprocess. Hosts time out the
+  // initialize handshake; the probe below is diagnostic only, and every tool
+  // is registered at module load, so the handshake needs nothing from it.
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
+  console.error("[simmer-mcp] MCP server started (stdio)");
 
   // 6 hand-registered keyless tools (list_skills, get_skill_docs,
   // troubleshoot_error, simmer_browse_markets, simmer_get_leaderboard,
@@ -1105,18 +1104,32 @@ async function main() {
   console.error(
     `[simmer-mcp] v${BUNDLED_VERSION} | tools: ${totalTools} (${tier}, ${keylessCount} keyless) | skills: ${skills.length} bundled`
   );
-  console.error(`[simmer-mcp] runtime: ${probeLines}`);
 
-  if (!probe.python3.detected) {
-    console.error("[simmer-mcp] ⚠ python3 not found — the preflight tool will fail (other tools are unaffected). Install python3 to use it.");
-  }
-  if (!probe.simmerSdk.detected && simmer) {
-    console.error("[simmer-mcp] ⚠ simmer-sdk not installed — the preflight tool will fail (other tools are unaffected). Run: pip install 'simmer-sdk>=0.17.13', then set SIMMER_MCP_PYTHON to that interpreter.");
-  }
+  // Runtime probe (post-connect diagnostic). Fire-and-forget with its own
+  // catch, same idiom as checkLatestVersion above: a failure here must never
+  // take down a server that is already serving.
+  void logRuntimeProbe();
+}
 
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
-  console.error("[simmer-mcp] MCP server started (stdio)");
+async function logRuntimeProbe() {
+  try {
+    const probe = await probeRuntime();
+    const probeLines = [
+      `python3: ${probe.python3.detected ? `v${probe.python3.version} (${probe.python3.path})` : `not found at ${probe.python3.path} (${probe.python3.installHint})`}`,
+      `simmer-sdk: ${probe.simmerSdk.detected ? `v${probe.simmerSdk.version}` : `not installed (${probe.simmerSdk.installHint})`}`,
+      `git: ${probe.git.detected ? `v${probe.git.version}` : `not found`}`,
+    ].join(" | ");
+    console.error(`[simmer-mcp] runtime: ${probeLines}`);
+
+    if (!probe.python3.detected) {
+      console.error("[simmer-mcp] ⚠ python3 not found — the preflight tool will fail (other tools are unaffected). Install python3 to use it.");
+    }
+    if (!probe.simmerSdk.detected && simmer) {
+      console.error("[simmer-mcp] ⚠ simmer-sdk not installed — the preflight tool will fail (other tools are unaffected). Run: pip install 'simmer-sdk>=0.17.13', then set SIMMER_MCP_PYTHON to that interpreter.");
+    }
+  } catch (err) {
+    console.error("[simmer-mcp] runtime probe failed:", err);
+  }
 }
 
 main().catch((err) => {

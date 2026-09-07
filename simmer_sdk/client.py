@@ -360,15 +360,17 @@ class SimmerClient:
         # and defaults to "sim" (paper). NOTE: the TRADING_VENUE env var is
         # intentionally NOT read here — do not reintroduce a log that implies
         # an env var controls the venue. SIM construction is info-level so
-        # read-only reporting clients do not emit warning-level noise; live
-        # venues still warn because they can touch real funds.
+        # read-only reporting clients do not emit warning-level noise; a real
+        # venue warns only when live=True, because only then can it touch
+        # real funds. live=False + venue='polymarket' is paper against
+        # real-venue prices (issue #345).
         if venue == "sim":
             logger.info(
                 "venue='sim' — PAPER trading with virtual $SIM (no real money). "
                 "For LIVE trading pass venue='polymarket' per trade, or "
                 "SimmerClient.from_env(venue='polymarket')."
             )
-        else:
+        elif live:
             logger.warning("venue='%s' — LIVE trading with real funds.", venue)
         self._private_key: Optional[str] = None  # EVM private key (Polymarket)
         self._wallet_address: Optional[str] = None  # EVM wallet address
@@ -537,7 +539,10 @@ class SimmerClient:
             self._paper_portfolio = PaperPortfolio(starting_balance=starting_balance)
             logger.info(
                 "Paper trading mode enabled (venue=%s, balance=%.2f). "
-                "Trades will be simulated with real market data.",
+                "trade(), place_combo() and client.hyperliquid orders are "
+                "simulated with real market data. Wallet operations (approvals, "
+                "redemption, deposit-wallet activation, risk-alert processing) "
+                "still act on the real wallet.",
                 venue, starting_balance
             )
 
@@ -771,7 +776,13 @@ class SimmerClient:
             ).lower() not in ("1", "true", "yes")
             main_address = os.environ.get("SIMMER_HYPERLIQUID_MAIN_ADDRESS") or None
             self._hyperliquid_venue = HyperliquidVenue(
-                signer, is_mainnet=is_mainnet, main_address=main_address
+                signer,
+                is_mainnet=is_mainnet,
+                main_address=main_address,
+                # live=False and readonly() must not move real funds. trade()
+                # honours both upstream; the adapter submits locally, so it
+                # carries the same gate itself.
+                submit_enabled=self.live and not self._readonly,
             )
         return self._hyperliquid_venue
 
@@ -2068,9 +2079,13 @@ class SimmerClient:
             import_source: Filter by data source ('polymarket', 'kalshi', or None for all)
             limit: Maximum number of markets to return
             include: Opt-in extra fields, e.g. "resolution_criteria"
-            q: Keyword search on market question (min 2 chars, case-insensitive).
-                Applied server-side before the result window, so use ``q`` or ``tags``
-                to reach a specific older market rather than paging an unfiltered list.
+            q: Keyword search (min 2 chars, case-insensitive). Tokens are split on
+                whitespace and ANDed; each token matches the market question OR its
+                tags, so results include markets whose title never contains the query.
+                Tag matching is a raw substring over the serialized tag list, so short
+                tokens match broadly -- "ai" hits a market tagged "ukraine". Applied
+                server-side before the result window, so use ``q`` or ``tags`` to reach
+                a specific older market rather than paging an unfiltered list.
             venue: Filter by trading venue ('sim', 'polymarket', 'kalshi').
                 Keyword-only. 'sim' returns all active, tradeable markets — every
                 market is paper-tradeable on the synthetic venue — while
@@ -2404,7 +2419,9 @@ class SimmerClient:
                 the returned TradeResult.
             dry_run: Validate and price the trade without executing it. No money
                 moves and no order is signed or submitted. Use it to confirm the
-                exact fill count before committing size.
+                exact fill count before committing size. On a ``live=False``
+                client it prices the paper fill the same way and books nothing,
+                so a preview followed by the real paper trade applies one fill.
 
                 Two things it deliberately does NOT do, so don't lean on it for
                 either. It is **not a permission check** — the server skips
@@ -2548,7 +2565,8 @@ class SimmerClient:
         # Paper trading: simulate with real prices (no live API calls)
         if not self.live:
             return self._paper_trade(
-                market_id, side, amount, shares, action, effective_venue
+                market_id, side, amount, shares, action, effective_venue,
+                dry_run=dry_run,
             )
 
         # Position conflict checks (buy only — sells always allowed)
@@ -2681,7 +2699,8 @@ class SimmerClient:
                 shares=shares,
                 action=action,
                 reasoning=reasoning,
-                source=source
+                source=source,
+                dry_run=dry_run
             )
 
         data = self._request(
@@ -2758,7 +2777,12 @@ class SimmerClient:
                         "Cred re-derive + retry failed: %s", retry_err
                     )
 
-        if result.success and self._held_markets_cache is not None:
+        # A dry run places nothing, so it must not touch the held-markets cache.
+        # It used to: the cache gained the market, and the very next real buy was
+        # refused with "Already hold position" while get_positions() was empty --
+        # reproducible straight from the documented preview-then-place snippet
+        # (Grok Bot dogfood, 2026-09-05).
+        if result.success and not dry_run and self._held_markets_cache is not None:
             if action == "buy":
                 # Update cache locally instead of nuking — avoids a fresh GET /positions
                 # on the next trade() call in a loop
@@ -2784,16 +2808,26 @@ class SimmerClient:
     # conservative.  Overridden when the market returns ``spread_cents``.
     _POLY_PAPER_DEFAULT_HALF_SPREAD = 0.01
 
-    def _paper_trade(self, market_id, side, amount, shares, action, venue):
+    def _paper_trade(self, market_id, side, amount, shares, action, venue, dry_run=False):
         """Simulate a trade using real market prices.
 
         For Polymarket venues, models the CLOB bid-ask spread so paper P&L
         is closer to what a live FAK order would experience.  Buys fill at
         the ask (mid + half-spread), sells at the bid (mid - half-spread).
+
+        ``dry_run=True`` prices the fill and returns a TradeResult but does
+        not mutate PaperPortfolio — same invariant as live-venue dry_run,
+        which skips signing and the held-markets cache (issue #345).
         """
         import time as _time
 
-        # Auto-settle any resolved paper positions before trading
+        # Auto-settle any resolved paper positions before trading. This runs on
+        # a dry run too: settlement is the book catching up with a market that
+        # already resolved, not the previewed order — get_positions() and
+        # get_total_pnl() settle on a pure read for the same reason. Skipping it
+        # priced the preview against a stale book, so a dry run reported
+        # "insufficient balance" for a buy that then succeeded, and reported a
+        # fill for a sell of a position that had already settled away.
         self._settle_paper_positions()
 
         # Fetch current price from the venue
@@ -2855,7 +2889,14 @@ class SimmerClient:
                 )
             cost = shares_filled * fill_price
 
-        self._paper_portfolio.log_trade(market_id, side, action, shares_filled, cost, fill_price, venue=venue)
+        # A dry run places nothing, so it must not book paper inventory.
+        # It used to: log_trade applied the fill, and the next real paper
+        # trade on the same market double-booked shares / cost_basis
+        # (Grok Bot dogfood, issue #345).
+        if not dry_run:
+            self._paper_portfolio.log_trade(
+                market_id, side, action, shares_filled, cost, fill_price, venue=venue
+            )
 
         # SIM-2238: route filled shares to shares_sold for paper sells; otherwise shares_bought
         is_sell_action = action == "sell"
@@ -3286,7 +3327,7 @@ class SimmerClient:
 
     def find_markets(self, query: str) -> List[Market]:
         """
-        Search markets by question text.
+        Search markets by keyword.
 
         Uses the server-side keyword filter (``q``), which is applied BEFORE the
         result window, so matches are found across the full active catalogue --
@@ -3295,17 +3336,28 @@ class SimmerClient:
         windowed browse would silently miss them. Queries shorter than 2 chars
         fall back to a windowed client-side scan (the server filter needs >= 2).
 
+        The server matches each query token against the market question OR its
+        tags, so results include markets whose title never contains the query --
+        ``find_markets("weather")`` returns "Austin 82-83F on Sep 7" because that
+        market is tagged ``weather``. Those are real hits, not noise.
+
         Args:
             query: Search string
 
         Returns:
             List of matching markets
         """
-        query_lower = query.lower()
         if len(query.strip()) >= 2:
-            markets = self.get_markets(q=query, limit=100)
-        else:
-            markets = self.get_markets(limit=100)
+            # Return the server's matches as-is. An extra client-side filter on
+            # ``question`` here would drop every tag-only match -- which is what
+            # it used to do, making find_markets("weather") return nothing while
+            # get_markets(q="weather") returned a full page (Grok Bot dogfood,
+            # 2026-09-05).
+            return self.get_markets(q=query, limit=100)
+        # Below the server's 2-char minimum the window comes back unfiltered, so
+        # the client-side substring narrowing is the only filter on this path.
+        query_lower = query.lower()
+        markets = self.get_markets(limit=100)
         return [m for m in markets if query_lower in m.question.lower()]
 
     def get_open_orders(self) -> Dict[str, Any]:
@@ -5400,7 +5452,8 @@ class SimmerClient:
         shares: float = 0,
         action: str = "buy",
         reasoning: Optional[str] = None,
-        source: Optional[str] = None
+        source: Optional[str] = None,
+        dry_run: bool = False
     ) -> TradeResult:
         """
         Execute a Kalshi trade using BYOW (Bring Your Own Wallet).
@@ -5421,10 +5474,38 @@ class SimmerClient:
             action: 'buy' or 'sell'
             reasoning: Optional trade explanation
             source: Optional source tag
+            dry_run: Kalshi BYOW has no preview path yet (SIM-5041). True
+                refuses before any quote/signing/submit call — it does not
+                simulate a fill.
 
         Returns:
             TradeResult with execution details
         """
+        # SIM-5041: dry_run=True must not reach the quote/sign/submit calls.
+        # There is no real Kalshi preview path (option c, out of scope) so we
+        # fail closed rather than fabricate a preview price.
+        if dry_run:
+            error = (
+                "dry_run is not supported for venue='kalshi' — no order was "
+                "placed. Kalshi BYOW has no preview pricing yet; call with "
+                "dry_run=False to place a real order."
+            )
+            # This return bypasses trade()'s shared failure warning, so emit the
+            # same signal here. A bot that logs rather than checking
+            # result.success would otherwise preview in a loop in total silence
+            # — the same invisibility that let the original bug place real
+            # orders unnoticed (codex P2 on this PR).
+            logger.warning("Trade failed on %s: %s", "kalshi", error)
+            return TradeResult(
+                success=False,
+                market_id=market_id,
+                side=side,
+                venue="kalshi",
+                error=error,
+                error_code="dry_run_unsupported",
+                retryable=False
+            )
+
         # Check for Solana key
         if not self._solana_key_available:
             return TradeResult(

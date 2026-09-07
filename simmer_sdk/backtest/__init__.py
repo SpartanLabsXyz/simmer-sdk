@@ -146,7 +146,7 @@ def run_backtest(
     api_key: Optional[str] = None,
     cadence: Union[str, int, float, timedelta] = "15m",
     balance: float = 1000.0,
-    fee_rate: float = 0.0,
+    fee_rate: Optional[float] = None,
     seed: int = 0,
     max_evaluations: int = 50_000,
     args: Union[str, list, tuple, None] = None,
@@ -176,7 +176,11 @@ def run_backtest(
             env — the same key you trade with). Ignored for a local ``tape``.
         cadence: tick spacing — ``15m`` / ``12h`` / ``30d``, minutes, or timedelta.
         balance: starting balance.
-        fee_rate: per-fill fee rate (0 = none; baselines ignore fees in v0).
+        fee_rate: BASE fee rate, charged as ``notional x rate x (1 - price)`` on
+            taker fills (maker/limit fills pay 0). ``None`` (default) defers to
+            the engine's own default so the CLI never silently overrides it;
+            pass ``0`` to run fee-free. Baselines pay the same fee as the
+            strategy's fills.
         seed: RNG seed for the random baseline.
         max_evaluations: hard ticks×markets budget (engine truncates past it).
         args: entrypoint CLI args (string split on whitespace, or list).
@@ -254,7 +258,11 @@ def run_backtest(
             t1=t1_dt,
             cadence=cadence_td,
             starting_balance=balance,
-            fee_rate=fee_rate,
+            # Forward only when the caller set it, so ReplayConfig owns the
+            # default. Passing 0.0 unconditionally here (and from cli.py) is how
+            # the SDK kept producing zero-fee reports stamped with the current
+            # ENGINE_VERSION after the engine's default changed.
+            **({} if fee_rate is None else {"fee_rate": fee_rate}),
             skill_slug=os.path.basename(bundle.rstrip("/")),
             skill_version=_bundle_skill_version(bundle),
             dataset_rev=_dataset_rev(tape),
