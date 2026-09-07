@@ -1,6 +1,9 @@
 # Changelog — polymarket-weather-trader
 
-## [Unreleased]
+## [1.23.7] - 2026-09-06
+
+### Added
+- Added 26 Polymarket weather resolution stations: `KAUS`, `KHOU`, `KBKF`, `ZBAA`, `ZSPD`, `ZGGG`, `ZGSZ`, `ZUUU`, `ZUCK`, `ZHHH`, `ZSQD`, `ZHCC`, `WSSS`, `WMKK`, `RPLL`, `RKPK`, `CYYZ`, `SAEZ`, `SBGR`, `MMMX`, `FACT`, `EFHK`, `OEJN`, `EPWA`, `LFPB`, and `MPMG`. US stations route through NOAA with Open-Meteo cross-checks; international stations route through exact airport coordinates instead of city centers.
 
 ## [1.23.6] - 2026-09-06
 

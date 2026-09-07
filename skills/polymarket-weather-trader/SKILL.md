@@ -3,7 +3,7 @@ name: polymarket-weather-trader
 description: Trade Polymarket weather markets using NOAA (US) and Open-Meteo (international) forecasts via Simmer API. Inspired by gopfan2's weather trading approach. Use when user wants to trade temperature markets, automate weather bets, check forecasts, or run weather-based strategies.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.23.6"
+  version: "1.23.7"
   displayName: Polymarket Weather Trader
   difficulty: beginner
   attribution: Strategy inspired by gopfan2 (public Polymarket trader — approach referenced, not endorsed).
@@ -92,7 +92,7 @@ Then `pip install --upgrade simmer-sdk` (>=0.13.0) and configure tunables below.
 | Exit threshold | `SIMMER_WEATHER_EXIT_THRESHOLD` | 0.45 | Sell when price above this |
 | Max position | `SIMMER_WEATHER_MAX_POSITION_USD` | 2.00 | Maximum USD per trade |
 | Max trades/run | `SIMMER_WEATHER_MAX_TRADES_PER_RUN` | 5 | Maximum trades per scan cycle |
-| Locations | `SIMMER_WEATHER_LOCATIONS` | NYC | Comma-separated cities (NYC, Chicago, Seattle, Atlanta, Dallas, Miami) |
+| Locations | `SIMMER_WEATHER_LOCATIONS` | NYC | Comma-separated cities (NYC, Chicago, Seattle, Atlanta, Dallas, Miami, Austin, Houston, Denver, Beijing, Shanghai, Guangzhou, Shenzhen, Chengdu, Chongqing, Wuhan, Qingdao, Zhengzhou, Singapore, Kuala Lumpur, Manila, Busan, Toronto, Buenos Aires, Sao Paulo, Mexico City, Cape Town, Helsinki, Jeddah, Warsaw, Paris, Panama City) |
 | Binary only | `SIMMER_WEATHER_BINARY_ONLY` | false | Skip range-bucket events (e.g., "34-35°F"), only trade binary yes/no markets |
 | Smart sizing % | `SIMMER_WEATHER_SIZING_PCT` | 0.05 | % of balance per trade |
 | Slippage max | `SIMMER_WEATHER_SLIPPAGE_MAX` | 0.15 | Skip trades with slippage above this (0.15 = 15%) |
@@ -106,11 +106,11 @@ Then `pip install --upgrade simmer-sdk` (>=0.13.0) and configure tunables below.
 
 **Legacy env var aliases** (still accepted for backwards compatibility): `SIMMER_WEATHER_ENTRY`, `SIMMER_WEATHER_EXIT`, `SIMMER_WEATHER_MAX_POSITION`, `SIMMER_WEATHER_MAX_TRADES`
 
-**Supported locations** (city-name filter applied to market questions): NYC, Chicago, Seattle, Atlanta, Dallas, Miami, plus international cities (Tel Aviv, Munich, London, Tokyo, Seoul, Ankara, Lucknow, Wellington, Madrid, Milan, Amsterdam, Taipei). The actual oracle station is parsed per-market from `resolution_criteria` — see "Resolution-source routing" below.
+**Supported locations** (city-name filter applied to market questions): NYC, Chicago, Seattle, Atlanta, Dallas, Miami, Austin, Houston, Denver, Tel Aviv, Munich, London, Tokyo, Seoul, Ankara, Lucknow, Wellington, Madrid, Milan, Amsterdam, Taipei, Beijing, Shanghai, Guangzhou, Shenzhen, Chengdu, Chongqing, Wuhan, Qingdao, Zhengzhou, Singapore, Kuala Lumpur, Manila, Busan, Toronto, Buenos Aires, Sao Paulo, Mexico City, Cape Town, Helsinki, Jeddah, Warsaw, Paris, Panama City. The actual oracle station is parsed per-market from `resolution_criteria` — see "Resolution-source routing" below.
 
 ## Resolution-source routing
 
-Polymarket weather markets carry a `resolution_criteria` field that names the exact station the market resolves on (e.g. "Chicago O'Hare Intl Airport Station" with `wunderground.com/.../KORD`). v1.21.0+ parses that text per-market and routes to the matching forecast station instead of a city default. If a market names a station the skill doesn't know, the event is skipped with a log line. Add new stations to `STATION_ID_TO_NOAA` (US) or `INTERNATIONAL_STATION_TO_CITY` (international) in `weather_trader.py` to extend coverage — PRs welcome.
+Polymarket weather markets carry a `resolution_criteria` field that names the exact station the market resolves on (e.g. "Chicago O'Hare Intl Airport Station" with `wunderground.com/.../KORD`). v1.21.0+ parses that text per-market and routes to the matching forecast station instead of a city default. If a market names a station the skill doesn't know, the event is skipped with a log line. Add new stations to `STATION_ID_TO_NOAA` (US) or `INTERNATIONAL_STATION_COORDS` (international) in `weather_trader.py` to extend coverage — PRs welcome.
 
 ## SDK initialization
 
