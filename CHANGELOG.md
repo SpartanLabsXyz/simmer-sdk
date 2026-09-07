@@ -3,6 +3,10 @@
 All notable changes to `simmer-sdk` are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.25.2 (2026-09-07)
+
+- **`trade(dry_run=True, venue="kalshi")` no longer places a real order.** The Kalshi BYOW path never had a `dry_run` parameter, so a call documented as a no-op fetched a quote, signed a Solana transaction with `SOLANA_PRIVATE_KEY`, and submitted it for real — money moved on a call that promised none would. There is no Kalshi preview pricing yet, so `dry_run=True` on `venue="kalshi"` now returns `success=False` with an error naming the gap, before any quote, signing, or submit call. `dry_run` on `sim` and `polymarket` is unaffected. See SIM-5041.
+
 ## 0.25.1 (2026-09-06)
 
 - **Paper `trade(dry_run=True)` no longer books paper inventory.** On a `live=False` client the dry run applied the fill to the in-memory portfolio before checking the flag, so a preview followed by the real paper trade on the same market double-booked shares and cost_basis, and paper expectancy drifted from what the strategy actually did. The dry run still settles any resolved paper positions first (as `get_positions()` does) and returns the same `TradeResult`; it just leaves the book alone. Live-venue dry_run already worked this way.

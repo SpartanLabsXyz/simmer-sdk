@@ -2699,7 +2699,8 @@ class SimmerClient:
                 shares=shares,
                 action=action,
                 reasoning=reasoning,
-                source=source
+                source=source,
+                dry_run=dry_run
             )
 
         data = self._request(
@@ -5451,7 +5452,8 @@ class SimmerClient:
         shares: float = 0,
         action: str = "buy",
         reasoning: Optional[str] = None,
-        source: Optional[str] = None
+        source: Optional[str] = None,
+        dry_run: bool = False
     ) -> TradeResult:
         """
         Execute a Kalshi trade using BYOW (Bring Your Own Wallet).
@@ -5472,10 +5474,38 @@ class SimmerClient:
             action: 'buy' or 'sell'
             reasoning: Optional trade explanation
             source: Optional source tag
+            dry_run: Kalshi BYOW has no preview path yet (SIM-5041). True
+                refuses before any quote/signing/submit call — it does not
+                simulate a fill.
 
         Returns:
             TradeResult with execution details
         """
+        # SIM-5041: dry_run=True must not reach the quote/sign/submit calls.
+        # There is no real Kalshi preview path (option c, out of scope) so we
+        # fail closed rather than fabricate a preview price.
+        if dry_run:
+            error = (
+                "dry_run is not supported for venue='kalshi' — no order was "
+                "placed. Kalshi BYOW has no preview pricing yet; call with "
+                "dry_run=False to place a real order."
+            )
+            # This return bypasses trade()'s shared failure warning, so emit the
+            # same signal here. A bot that logs rather than checking
+            # result.success would otherwise preview in a loop in total silence
+            # — the same invisibility that let the original bug place real
+            # orders unnoticed (codex P2 on this PR).
+            logger.warning("Trade failed on %s: %s", "kalshi", error)
+            return TradeResult(
+                success=False,
+                market_id=market_id,
+                side=side,
+                venue="kalshi",
+                error=error,
+                error_code="dry_run_unsupported",
+                retryable=False
+            )
+
         # Check for Solana key
         if not self._solana_key_available:
             return TradeResult(
