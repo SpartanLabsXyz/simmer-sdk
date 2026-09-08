@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
+import subprocess
 import time
 import urllib.request
 from dataclasses import dataclass
@@ -19,6 +21,19 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 NPM_PACKAGE = "simmer-mcp"
 PYPI_PACKAGE = "simmer-sdk"
+MCP_PACKAGE_JSON = "mcp/package.json"
+MCP_VERSION_GUARD_PATHS = (
+    "mcp/package.json",
+    "mcp/package-lock.json",
+    "mcp/src/",
+    "mcp/skills/",
+    "mcp/bundled-skills/",
+    "mcp/scripts/",
+    "mcp/CORE_BUNDLE_DECISION.md",
+    "mcp/LICENSE",
+    "mcp/server.json",
+    "mcp/tsconfig.json",
+)
 
 
 class PublishLagError(Exception):
@@ -100,6 +115,79 @@ def read_json(path: Path) -> dict:
 def read_npm_repo_version(root: Path) -> str:
     package_json = read_json(root / "mcp" / "package.json")
     return str(package_json["version"])
+
+
+def read_npm_version_from_package_json(package_json_text: str) -> str:
+    return str(json.loads(package_json_text)["version"])
+
+
+def run_git(root: Path, args: list[str]) -> str:
+    return subprocess.check_output(["git", *args], cwd=root, text=True).strip()
+
+
+def diff_base_ref(root: Path) -> str:
+    base = os.environ.get("GITHUB_BASE_REF")
+    if base:
+        base_ref = f"origin/{base}"
+        try:
+            return run_git(root, ["merge-base", "HEAD", base_ref])
+        except subprocess.CalledProcessError:
+            return "HEAD~1"
+
+    return "HEAD~1"
+
+
+def changed_paths(root: Path) -> list[str]:
+    base_ref = diff_base_ref(root)
+    try:
+        if os.environ.get("GITHUB_BASE_REF"):
+            diff = run_git(root, ["diff", "--name-only", f"{base_ref}..HEAD"])
+        else:
+            diff = run_git(root, ["diff", "--name-only", "--cached"])
+            if not diff:
+                diff = run_git(root, ["diff", "--name-only", f"{base_ref}..HEAD"])
+    except subprocess.CalledProcessError:
+        return []
+
+    return [line for line in diff.splitlines() if line]
+
+
+def git_file_at_ref(root: Path, ref: str, path: str) -> str | None:
+    try:
+        return run_git(root, ["show", f"{ref}:{path}"])
+    except subprocess.CalledProcessError:
+        return None
+
+
+def is_mcp_package_input(path: str) -> bool:
+    return any(path == guarded or path.startswith(guarded) for guarded in MCP_VERSION_GUARD_PATHS)
+
+
+def validate_mcp_version_bump(root: Path, paths: list[str] | None = None) -> list[str]:
+    paths = changed_paths(root) if paths is None else paths
+    changed_mcp_inputs = sorted(path for path in paths if is_mcp_package_input(path))
+    if not changed_mcp_inputs:
+        return []
+
+    base_ref = diff_base_ref(root)
+    previous_package_json = git_file_at_ref(root, base_ref, MCP_PACKAGE_JSON)
+    if previous_package_json is None:
+        return []
+
+    current_version = read_npm_repo_version(root)
+    previous_version = read_npm_version_from_package_json(previous_package_json)
+    if compare_versions(current_version, previous_version) > 0:
+        return []
+
+    sample = ", ".join(changed_mcp_inputs[:3])
+    if len(changed_mcp_inputs) > 3:
+        sample += ", ..."
+    return [
+        f"{NPM_PACKAGE} package inputs changed ({sample}) but {MCP_PACKAGE_JSON} "
+        f"version is {current_version}, which is not greater than base version "
+        f"{previous_version}; bump the npm package version so CI and published "
+        "installs cannot name different artifacts with the same version"
+    ]
 
 
 def read_pypi_repo_version(root: Path) -> str:
@@ -246,7 +334,11 @@ def main() -> int:
             retry=retry_pypi,
         )
 
-    return 0 if (npm_ok and pypi_ok) else 1
+    errors = validate_mcp_version_bump(root)
+    for error in errors:
+        print(f"::error::{error}")
+
+    return 0 if (npm_ok and pypi_ok and not errors) else 1
 
 
 if __name__ == "__main__":

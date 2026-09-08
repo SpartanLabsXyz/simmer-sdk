@@ -88,7 +88,34 @@ def test_live_venue_construction_still_warns_real_funds(monkeypatch, caplog):
         client = SimmerClient(api_key="sk_live_test_live", venue="polymarket")
 
     assert client.venue == "polymarket"
+    assert client.live is True
     assert any("LIVE trading with real funds" in r.getMessage() for r in caplog.records)
+
+
+def test_paper_real_venue_construction_does_not_warn_live(monkeypatch, caplog):
+    """venue='polymarket' + live=False is paper, not a live-funds warning.
+
+    The warn used to key off the venue string alone, so a paper client
+    printed ``LIVE trading with real funds`` (issue #345).
+    """
+    monkeypatch.delenv("OWS_WALLET", raising=False)
+    monkeypatch.delenv("WALLET_PRIVATE_KEY", raising=False)
+    monkeypatch.delenv("SIMMER_PRIVATE_KEY", raising=False)
+    monkeypatch.setattr(
+        "simmer_sdk.version_check.check_server_version_compatibility",
+        lambda *args, **kwargs: None,
+    )
+
+    with caplog.at_level(logging.WARNING, logger="simmer_sdk.client"):
+        client = SimmerClient(
+            api_key="sk_live_test_paper",
+            venue="polymarket",
+            live=False,
+        )
+
+    assert client.venue == "polymarket"
+    assert client.live is False
+    assert not any("LIVE trading with real funds" in r.getMessage() for r in caplog.records)
 
 
 def test_from_env_raises_when_api_key_missing(monkeypatch):
