@@ -3,6 +3,10 @@
 All notable changes to `simmer-sdk` are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.25.3 (2026-09-08)
+
+- **`simmer backtest`'s replay server now rejects `venue`/`status` filters on `get_markets()` (and `category` on the importable listing) instead of silently ignoring them.** These were never implemented by the replay engine, so passing one previously returned the full unfiltered market list with no indication the filter was dropped — a backtest filtering for one venue could report P&L against markets from a venue it never meant to trade. Passing any of these now raises a clear error naming the parameter instead of returning a misleading result. Omitting them behaves exactly as before. (SIM-5067)
+
 ## 0.25.2 (2026-09-07)
 
 - **`trade(dry_run=True, venue="kalshi")` no longer places a real order.** The Kalshi BYOW path never had a `dry_run` parameter, so a call documented as a no-op fetched a quote, signed a Solana transaction with `SOLANA_PRIVATE_KEY`, and submitted it for real — money moved on a call that promised none would. There is no Kalshi preview pricing yet, so `dry_run=True` on `venue="kalshi"` now returns `success=False` with an error naming the gap, before any quote, signing, or submit call. `dry_run` on `sim` and `polymarket` is unaffected. See SIM-5041.
