@@ -81,6 +81,37 @@ def test_dry_run_absent_from_payload_by_default():
     assert "dry_run" not in client._request.call_args.kwargs["json"]
 
 
+def test_auto_detected_skill_slug_and_version_are_forwarded():
+    client = _client(_skill_slug="polymarket-fast-loop", _skill_version="1.7.3")
+    client._request = MagicMock(return_value={"success": True})
+    client._get_held_markets = MagicMock(return_value={})
+
+    client.trade("mkt-1", "yes", amount=5.0, venue="polymarket")
+
+    payload = client._request.call_args.kwargs["json"]
+    assert payload["skill_slug"] == "polymarket-fast-loop"
+    assert payload["skill_version"] == "1.7.3"
+
+
+def test_explicit_skill_slug_and_version_are_forwarded():
+    client = _client(_skill_slug="polymarket-fast-loop", _skill_version="1.7.3")
+    client._request = MagicMock(return_value={"success": True})
+    client._get_held_markets = MagicMock(return_value={})
+
+    client.trade(
+        "mkt-1",
+        "yes",
+        amount=5.0,
+        venue="polymarket",
+        skill_slug="polymarket-mert-sniper",
+        skill_version="2.4.5",
+    )
+
+    payload = client._request.call_args.kwargs["json"]
+    assert payload["skill_slug"] == "polymarket-mert-sniper"
+    assert payload["skill_version"] == "2.4.5"
+
+
 def test_dry_run_does_not_sign_locally():
     """With a signing key configured, a dry run must skip _build_signed_order.
 
