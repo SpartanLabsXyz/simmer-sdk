@@ -26,8 +26,8 @@ This skill executes real-money trades on Polymarket only when the `--live` flag 
 - **Per-trade cap.** `SIMMER_WEATHER_MAX_POSITION_USD` defaults to `$2.00` per trade. Configurable via env var, capped at the user's dashboard-set platform per-trade limit.
 - **Daily caps.** Platform-level daily caps apply (max trades/day, max USD/day). Set at [simmer.markets/dashboard](https://simmer.markets/dashboard?ref=sdk-skill&utm_campaign=sdk-skill) → SDK settings.
 - **Auto stop-loss is ON by default.** Server-side risk monitor watches every buy. Threshold is configurable per user at simmer.markets/dashboard → Settings → Auto Risk Monitor. **It cannot protect against gap-resolution, though:** weather temperature buckets jump straight to about 0 at resolution rather than decaying through your stop, so a percentage stop has no price to trigger on and no liquidity to exit into. Size for the full loss, not for the stop. See [DISCLAIMER.md](./DISCLAIMER.md).
-- **Strategy-side safeguards.** Beyond platform risk monitors, this skill checks flip-flop, slippage (`SIMMER_WEATHER_SLIPPAGE_MAX`, default 15%), time-decay, and resolved-market status before every order. Disable only with `--no-safeguards` (not recommended).
-- **Reversibility.** Open positions exit automatically when price > `SIMMER_WEATHER_EXIT_THRESHOLD` (default `0.45`), or via `client.cancel_order()` / a manual sell.
+- **Strategy-side safeguards.** Beyond platform risk monitors, this skill checks flip-flop, slippage (`SIMMER_WEATHER_SLIPPAGE_MAX`, default 15%), time-decay (`SIMMER_WEATHER_MIN_HOURS_TO_RESOLVE`, default 2h), and resolved-market status before every order. Disable only with `--no-safeguards` (not recommended).
+- **Reversibility.** Open positions exit automatically when price > `SIMMER_WEATHER_EXIT_THRESHOLD` (default `0.45`), or via `client.cancel_order()` / a manual sell. `ENTRY_THRESHOLD` is an **upper** bound (buy *below*). If you raise it above the exit default (e.g. entry `0.50` vs exit `0.45`), the skill will try to sell the same position on the next cycle — raise `EXIT_THRESHOLD` too, or own exits yourself.
 
 If anything above isn't clear, stop and ask the user before passing `--live`.
 
@@ -49,6 +49,11 @@ Use this skill when the user wants to:
 - Buy low on weather predictions
 - Check their weather trading positions
 - Configure trading thresholds or locations
+
+## What's New in v1.23.7
+
+- **Min entry price.** `SIMMER_WEATHER_MIN_ENTRY_PRICE` (default `0` = off) rejects lottery-ticket mids below the floor. `SIMMER_WEATHER_ENTRY_THRESHOLD` remains an **upper** bound only (buy when price is below it).
+- **Hours-to-resolve is now an env knob.** `SIMMER_WEATHER_MIN_HOURS_TO_RESOLVE` overrides the previous hardcoded 2h time-decay safeguard. Same check, same `check_context_safeguards` path — raise it (e.g. `24`) to skip resolve-day entries. Entry-only: exits keep the original 2h floor, so a raised value never blocks a sell.
 
 ## What's New in v1.23.3
 
@@ -88,8 +93,10 @@ Then `pip install --upgrade simmer-sdk` (>=0.13.0) and configure tunables below.
 | Setting | Environment Variable | Default | Description |
 |---------|---------------------|---------|-------------|
 | Trading venue | `TRADING_VENUE` | polymarket | Venue to trade on. Set `sim` for paper trading. |
-| Entry threshold | `SIMMER_WEATHER_ENTRY_THRESHOLD` | 0.15 | Buy when price below this |
-| Exit threshold | `SIMMER_WEATHER_EXIT_THRESHOLD` | 0.45 | Sell when price above this |
+| Entry threshold | `SIMMER_WEATHER_ENTRY_THRESHOLD` | 0.15 | **Upper** bound — buy when price is *below* this |
+| Min entry price | `SIMMER_WEATHER_MIN_ENTRY_PRICE` | 0 | **Lower** bound — skip lottery tickets below this (`0` = off), e.g. `0.15` to skip sub-15¢ tickets. Must be below the entry threshold. |
+| Min hours to resolve | `SIMMER_WEATHER_MIN_HOURS_TO_RESOLVE` | 2 | Skip entries if the market resolves in fewer than this many hours. Entry-only; exits keep a fixed 2h floor. |
+| Exit threshold | `SIMMER_WEATHER_EXIT_THRESHOLD` | 0.45 | Sell when price above this. Raise this if you raise entry above `0.45`, or the skill will self-exit. |
 | Max position | `SIMMER_WEATHER_MAX_POSITION_USD` | 2.00 | Maximum USD per trade |
 | Max trades/run | `SIMMER_WEATHER_MAX_TRADES_PER_RUN` | 5 | Maximum trades per scan cycle |
 | Locations | `SIMMER_WEATHER_LOCATIONS` | NYC | Comma-separated cities (NYC, Chicago, Seattle, Atlanta, Dallas, Miami, Austin, Houston, Denver, Beijing, Shanghai, Guangzhou, Shenzhen, Chengdu, Chongqing, Wuhan, Qingdao, Zhengzhou, Singapore, Kuala Lumpur, Manila, Busan, Toronto, Buenos Aires, Sao Paulo, Mexico City, Cape Town, Helsinki, Jeddah, Warsaw, Paris, Panama City) |
@@ -179,7 +186,7 @@ Each cycle the script:
 5. Finds the temperature bucket that matches the forecast
 6. **Safeguards**: Checks context for flip-flop warnings, slippage, time decay
 7. **Trend Detection**: Looks for recent price drops (stronger buy signal)
-8. **Entry**: If bucket price < threshold and safeguards pass → BUY
+8. **Entry**: If min-entry ≤ bucket price < entry threshold and safeguards pass → BUY
 9. **Exit**: Checks open positions, sells if price > exit threshold
 10. **Tagging**: All trades tagged with `sdk:weather` for tracking
 
@@ -206,11 +213,13 @@ position_size = base_size × clamp(target_vol / realized_vol, min_alloc, max_lev
 
 Before trading, the skill checks:
 - **Flip-flop warning**: Skips if you've been reversing too much
-- **Slippage**: Skips if estimated slippage > 15% (tunable)
-- **Time decay**: Skips if market resolves in < 2 hours
+- **Slippage**: Skips if estimated slippage > 15% (tunable via `SIMMER_WEATHER_SLIPPAGE_MAX`)
+- **Time decay**: Skips if market resolves in < `SIMMER_WEATHER_MIN_HOURS_TO_RESOLVE` hours (default 2)
 - **Market status**: Skips if market already resolved
 
-Disable with `--no-safeguards` (not recommended).
+`SIMMER_WEATHER_MIN_ENTRY_PRICE` (default 0 = off) is the other side of the entry-price check, not this list — `--no-safeguards` does not disable it.
+
+Disable the flip-flop / slippage / time-decay / resolved checks with `--no-safeguards` (not recommended).
 
 ## Source Tagging
 
@@ -225,7 +234,9 @@ All trades are tagged with `source: "sdk:weather"`. This means:
 
 **"Slippage too high"** — market is illiquid; reduce position size or skip.
 
-**"Resolves in Xh - too soon"** — market resolving soon, risk is elevated.
+**"Resolves in Xh - too soon"** — market resolving sooner than `SIMMER_WEATHER_MIN_HOURS_TO_RESOLVE` (default 2h). Raise the env to skip resolve-day entries.
+
+**"Price $X.XX below min entry"** — mid is below `SIMMER_WEATHER_MIN_ENTRY_PRICE`. Lottery-ticket floor; default is off (`0`).
 
 **"No weather markets found"** — weather markets may not be active (seasonal).
 
