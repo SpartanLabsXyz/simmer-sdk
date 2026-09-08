@@ -1,4 +1,5 @@
 from pathlib import Path
+from urllib.error import HTTPError
 
 import check_skill_publish_parity as parity
 
@@ -70,3 +71,35 @@ metadata:
 
     assert parity.check_skill(skill, "1.1.13") is True
     assert "treating as already published" in capsys.readouterr().out
+
+
+class FakeResponse:
+    def __init__(self, payload: bytes):
+        self.payload = payload
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+    def read(self, *_args):
+        return self.payload
+
+
+def test_fetch_clawhub_version_retries_503(monkeypatch):
+    calls = 0
+
+    def fake_urlopen(_request, timeout):
+        nonlocal calls
+        calls += 1
+        assert timeout == parity.REQUEST_TIMEOUT_SECS
+        if calls == 1:
+            raise HTTPError("https://example.test", 503, "unavailable", hdrs=None, fp=None)
+        return FakeResponse(b'{"latestVersion": {"version": "0.3.2"}}')
+
+    monkeypatch.setattr(parity.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(parity.time, "sleep", lambda _seconds: None)
+
+    assert parity.fetch_clawhub_version("simmer-preflight", "https://example.test") == "0.3.2"
+    assert calls == 2

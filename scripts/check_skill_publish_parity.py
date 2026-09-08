@@ -22,6 +22,9 @@ ROOT = Path(__file__).resolve().parents[1]
 CLAWHUB_API = "https://clawhub.ai/api/v1"
 REQUEST_TIMEOUT_SECS = 12
 REQUEST_DELAY_SECS = 0.2
+FETCH_MAX_ATTEMPTS = 3
+RETRY_INTERVAL_SECS = 2
+RETRY_HTTP_CODES = {429, 500, 502, 503, 504}
 
 
 class SkillPublishParityError(Exception):
@@ -187,13 +190,24 @@ def fetch_clawhub_version(slug: str, api_base: str = CLAWHUB_API) -> str | None:
     quoted_slug = urllib.parse.quote(slug)
     url = f"{api_base.rstrip('/')}/skills/{quoted_slug}"
     request = urllib.request.Request(url, headers={"User-Agent": "simmer-skill-publish-parity-check"})
-    try:
-        with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT_SECS) as response:
-            payload = json.load(response)
-    except urllib.error.HTTPError as exc:
-        if exc.code == 404:
-            return None
-        raise
+
+    for attempt in range(1, FETCH_MAX_ATTEMPTS + 1):
+        try:
+            with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT_SECS) as response:
+                payload = json.load(response)
+            break
+        except urllib.error.HTTPError as exc:
+            if exc.code == 404:
+                return None
+            if exc.code not in RETRY_HTTP_CODES or attempt == FETCH_MAX_ATTEMPTS:
+                raise
+        except urllib.error.URLError:
+            if attempt == FETCH_MAX_ATTEMPTS:
+                raise
+
+        print(f"{slug}: ClawHub fetch failed transiently; retrying ({attempt}/{FETCH_MAX_ATTEMPTS})")
+        time.sleep(RETRY_INTERVAL_SECS)
+
     latest = payload.get("latestVersion") or {}
     version = latest.get("version")
     return str(version) if version else None
