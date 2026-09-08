@@ -53,7 +53,7 @@ Use this skill when the user wants to:
 ## What's New in v1.23.7
 
 - **Min entry price.** `SIMMER_WEATHER_MIN_ENTRY_PRICE` (default `0` = off) rejects lottery-ticket mids below the floor. `SIMMER_WEATHER_ENTRY_THRESHOLD` remains an **upper** bound only (buy when price is below it).
-- **Hours-to-resolve is now an env knob.** `SIMMER_WEATHER_MIN_HOURS_TO_RESOLVE` overrides the previous hardcoded 2h time-decay safeguard. Same check, same `check_context_safeguards` path — raise it (e.g. `24`) to skip resolve-day entries.
+- **Hours-to-resolve is now an env knob.** `SIMMER_WEATHER_MIN_HOURS_TO_RESOLVE` overrides the previous hardcoded 2h time-decay safeguard. Same check, same `check_context_safeguards` path — raise it (e.g. `24`) to skip resolve-day entries. That path also runs on exits, so `24` will skip resolve-day sells unless you pass `--no-safeguards` or flatten elsewhere.
 
 ## What's New in v1.23.3
 
@@ -95,7 +95,7 @@ Then `pip install --upgrade simmer-sdk` (>=0.13.0) and configure tunables below.
 | Trading venue | `TRADING_VENUE` | polymarket | Venue to trade on. Set `sim` for paper trading. |
 | Entry threshold | `SIMMER_WEATHER_ENTRY_THRESHOLD` | 0.15 | **Upper** bound — buy when price is *below* this |
 | Min entry price | `SIMMER_WEATHER_MIN_ENTRY_PRICE` | 0 | **Lower** bound — skip lottery tickets below this (`0` = off). Dogfood sets `0.15`. |
-| Min hours to resolve | `SIMMER_WEATHER_MIN_HOURS_TO_RESOLVE` | 2 | Skip if market resolves in fewer than this many hours |
+| Min hours to resolve | `SIMMER_WEATHER_MIN_HOURS_TO_RESOLVE` | 2 | Skip if market resolves in fewer than this many hours. Same path runs on exits — raising this (e.g. `24`) also skips resolve-day sells. |
 | Exit threshold | `SIMMER_WEATHER_EXIT_THRESHOLD` | 0.45 | Sell when price above this. Raise this if you raise entry above `0.45`, or the skill will self-exit. |
 | Max position | `SIMMER_WEATHER_MAX_POSITION_USD` | 2.00 | Maximum USD per trade |
 | Max trades/run | `SIMMER_WEATHER_MAX_TRADES_PER_RUN` | 5 | Maximum trades per scan cycle |

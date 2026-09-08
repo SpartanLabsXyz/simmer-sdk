@@ -1762,11 +1762,6 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
                 trend_bonus = f" 📈 (up {trend['change_24h']:.0%} in 24h)"
 
         should_enter, entry_reason = check_entry_price(price)
-        if price < MIN_ENTRY_PRICE:
-            log(f"  ⏭️  {entry_reason} - skip")
-            skip_reasons.append("below min entry")
-            continue
-
         if should_enter:
             position_size = calculate_position_size(MAX_POSITION_USD, smart_sizing)
 
@@ -1881,7 +1876,11 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
                     log(f"  ❌ Trade failed: {error}", force=True)
                     execution_errors.append(error[:120])
         else:
-            log(f"  ⏸️  {entry_reason} - skip")
+            if "below min entry" in entry_reason:
+                log(f"  ⏭️  {entry_reason} - skip")
+                skip_reasons.append("below min entry")
+            else:
+                log(f"  ⏸️  {entry_reason} - skip")
 
     _report_parse_coverage(station_parse_ok, station_parse_unreadable, log)
 

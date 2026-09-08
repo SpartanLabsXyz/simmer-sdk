@@ -120,6 +120,13 @@ class TestMinEntryPrice(unittest.TestCase):
         ok, _ = wt.check_entry_price(0.50)
         self.assertFalse(ok)
 
+    def test_floor_is_invisible_to_context_safeguards(self):
+        """Exits call check_context_safeguards only — the floor must not reject there."""
+        wt.MIN_ENTRY_PRICE = 0.15
+        ok, reasons = wt.check_context_safeguards(_context("3h"))
+        self.assertTrue(ok)
+        self.assertFalse(any("min entry" in r for r in reasons))
+
 
 class TestMinHoursToResolve(unittest.TestCase):
     """TIME_TO_RESOLUTION_MIN_HOURS stays in check_context_safeguards."""
