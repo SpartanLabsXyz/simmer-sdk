@@ -138,7 +138,7 @@ class TestMinHoursToResolve(unittest.TestCase):
         spec = wt.CONFIG_SCHEMA["min_hours_to_resolve"]
         self.assertEqual(spec["env"], "SIMMER_WEATHER_MIN_HOURS_TO_RESOLVE")
         self.assertEqual(spec["default"], 2)
-        self.assertIs(spec["type"], int)
+        self.assertIs(spec["type"], float)
 
     def test_default_two_hours_rejects_one_hour(self):
         wt.TIME_TO_RESOLUTION_MIN_HOURS = 2
@@ -165,9 +165,18 @@ class TestMinHoursToResolve(unittest.TestCase):
         self.assertTrue(ok)
         self.assertFalse(any("too soon" in r for r in reasons))
 
-    def test_module_constant_reads_schema_default(self):
-        self.assertEqual(wt.TIME_TO_RESOLUTION_MIN_HOURS, 2)
-        self.assertEqual(wt.MIN_ENTRY_PRICE, 0.0)
+    def test_exits_keep_two_hour_floor_when_entry_knob_is_raised(self):
+        """Pinned: MIN_HOURS=24 must not block a resolve-day sell (exit path passes its own floor)."""
+        wt.TIME_TO_RESOLUTION_MIN_HOURS = 24
+        ok, reasons = wt.check_context_safeguards(_context("10h"), min_hours=wt.EXIT_MIN_HOURS_TO_RESOLVE)
+        self.assertTrue(ok)
+        self.assertFalse(any("too soon" in r for r in reasons))
+
+    def test_exit_floor_is_the_original_two_hours(self):
+        self.assertEqual(wt.EXIT_MIN_HOURS_TO_RESOLVE, 2)
+        wt.TIME_TO_RESOLUTION_MIN_HOURS = 24
+        ok, _ = wt.check_context_safeguards(_context("1h"), min_hours=wt.EXIT_MIN_HOURS_TO_RESOLVE)
+        self.assertFalse(ok)
 
 
 if __name__ == "__main__":

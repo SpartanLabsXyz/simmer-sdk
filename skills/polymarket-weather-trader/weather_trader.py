@@ -57,7 +57,7 @@ CONFIG_SCHEMA = {
     "entry_threshold":   {"env": "SIMMER_WEATHER_ENTRY_THRESHOLD",   "default": 0.15,  "type": float},
     "min_entry_price":   {"env": "SIMMER_WEATHER_MIN_ENTRY_PRICE",   "default": 0.0,   "type": float,
                           "help": "Reject entries below this mid (lottery-ticket floor). 0 = disabled (back-compat). ENTRY_THRESHOLD is the upper bound only."},
-    "min_hours_to_resolve": {"env": "SIMMER_WEATHER_MIN_HOURS_TO_RESOLVE", "default": 2, "type": int,
+    "min_hours_to_resolve": {"env": "SIMMER_WEATHER_MIN_HOURS_TO_RESOLVE", "default": 2, "type": float,
                              "help": "Skip if market resolves in fewer than this many hours (time-decay safeguard)."},
     "exit_threshold":    {"env": "SIMMER_WEATHER_EXIT_THRESHOLD",    "default": 0.45,  "type": float},
     "max_position_usd":  {"env": "SIMMER_WEATHER_MAX_POSITION_USD",  "default": 2.00,  "type": float},
@@ -177,7 +177,8 @@ VOL_SPAN = _config["vol_span"]
 # Context safeguard thresholds
 SLIPPAGE_MAX_PCT = _config["slippage_max"]  # Skip if slippage exceeds this (tunable)
 MIN_LIQUIDITY_USD = _config["min_liquidity"]  # Skip markets with liquidity below this (0 = disabled)
-TIME_TO_RESOLUTION_MIN_HOURS = _config.get("min_hours_to_resolve", 2)  # Skip if resolving sooner
+TIME_TO_RESOLUTION_MIN_HOURS = _config.get("min_hours_to_resolve", 2)  # Entry-only: skip if resolving sooner
+EXIT_MIN_HOURS_TO_RESOLVE = 2  # Exits keep the original 2h floor regardless of the env knob
 
 # Multi-source bucket-confidence (SIM-2420)
 REQUIRE_SOURCE_AGREEMENT = _config["require_source_agreement"]
@@ -946,13 +947,15 @@ def check_entry_price(price: float) -> tuple:
     return True, ""
 
 
-def check_context_safeguards(context: dict, use_edge: bool = True) -> tuple:
+def check_context_safeguards(context: dict, use_edge: bool = True, min_hours: float = None) -> tuple:
     """
     Check context for safeguards. Returns (should_trade, reasons).
     
     Args:
         context: Context response from SDK
         use_edge: If True, respect edge recommendation (TRADE/HOLD/SKIP)
+        min_hours: Time-decay floor in hours. Defaults to the entry knob
+            TIME_TO_RESOLUTION_MIN_HOURS; exits pass EXIT_MIN_HOURS_TO_RESOLVE.
     """
     if not context:
         return True, []  # No context = proceed (fail open)
@@ -990,7 +993,8 @@ def check_context_safeguards(context: dict, use_edge: bool = True) -> tuple:
                     h_part = h_part.split("d")[-1].strip()
                 hours += int(h_part)
 
-            if hours < TIME_TO_RESOLUTION_MIN_HOURS:
+            floor = TIME_TO_RESOLUTION_MIN_HOURS if min_hours is None else min_hours
+            if hours < floor:
                 return False, [f"Resolves in {hours}h - too soon"]
         except (ValueError, IndexError):
             pass
@@ -1378,7 +1382,7 @@ def check_exit_opportunities(dry_run: bool = False, use_safeguards: bool = True)
             # Check safeguards before selling
             if use_safeguards:
                 context = get_market_context(market_id)
-                should_trade, reasons = check_context_safeguards(context)
+                should_trade, reasons = check_context_safeguards(context, min_hours=EXIT_MIN_HOURS_TO_RESOLVE)
                 if not should_trade:
                     print(f"     ⏭️  Skipped: {'; '.join(reasons)}")
                     continue
@@ -1454,7 +1458,9 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
     log(f"  Entry threshold: {ENTRY_THRESHOLD:.0%} (buy below this; upper bound only)")
     if MIN_ENTRY_PRICE > 0:
         log(f"  Min entry price: {MIN_ENTRY_PRICE:.0%} (reject below this)")
-    log(f"  Min hours to resolve: {TIME_TO_RESOLUTION_MIN_HOURS}")
+        if MIN_ENTRY_PRICE >= ENTRY_THRESHOLD:
+            log(f"  ⚠️  Min entry ${MIN_ENTRY_PRICE:.2f} >= entry threshold ${ENTRY_THRESHOLD:.2f}: every candidate will be skipped", force=True)
+    log(f"  Min hours to resolve: {TIME_TO_RESOLUTION_MIN_HOURS:g} (entries only; exits keep {EXIT_MIN_HOURS_TO_RESOLVE}h)")
     log(f"  Exit threshold:  {EXIT_THRESHOLD:.0%} (sell above this)")
     log(f"  Max position:    ${MAX_POSITION_USD:.2f}")
     log(f"  Max trades/run:  {MAX_TRADES_PER_RUN}")

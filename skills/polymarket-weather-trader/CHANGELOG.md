@@ -6,7 +6,7 @@
 
 ### Added
 - `SIMMER_WEATHER_MIN_ENTRY_PRICE` (default `0` = off). Rejects entries below this mid so a raised `ENTRY_THRESHOLD` (upper bound only) cannot buy lottery tickets. Same entry-price check as before; this is the missing floor.
-- `SIMMER_WEATHER_MIN_HOURS_TO_RESOLVE` (default `2`). Env override of the hardcoded time-decay constant inside `check_context_safeguards`. No new gate, no calendar-day skip.
+- `SIMMER_WEATHER_MIN_HOURS_TO_RESOLVE` (default `2`). Env override of the hardcoded time-decay constant inside `check_context_safeguards`. Entry-only: exits keep the original 2h floor. No new gate, no calendar-day skip.
 
 ### Docs
 - `ENTRY_THRESHOLD` is documented as an upper bound only. Raising it above the `0.45` exit default will self-exit unless `EXIT_THRESHOLD` is raised too.

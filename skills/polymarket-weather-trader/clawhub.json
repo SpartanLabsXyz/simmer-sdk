@@ -38,7 +38,7 @@
     {
       "name": "SIMMER_WEATHER_MIN_HOURS_TO_RESOLVE",
       "required": false,
-      "description": "Skip if market resolves in fewer than this many hours (default 2). Also gates exits."
+      "description": "Skip entries if the market resolves in fewer than this many hours (default 2). Entry-only; exits keep a 2h floor."
     },
     {
       "name": "SIMMER_WEATHER_EXIT_THRESHOLD",
