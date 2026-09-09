@@ -200,3 +200,61 @@ def test_compact_empty_message_falls_back_when_server_gives_no_reason():
     envelope = client.get_markets(q="zzzz", response_mode="summary")
 
     assert envelope["message"] == "No markets matched your filters."
+
+
+# --- the sub-2-char fallback path (codex review, 2026-09-10) -----------------
+
+
+def test_short_query_fallback_still_returns_a_marketlist():
+    """`find_markets("x")` skips the server filter -- it must not return a bare list.
+
+    The docstring tells callers to check `.empty_reason`; on a plain list that is
+    an AttributeError, so the documented action would break on exactly the path
+    that skips the server.
+    """
+    client = _client()
+    client._request = MagicMock(return_value={"markets": [_row()], "total": 1})
+
+    result = client.find_markets("x")
+
+    assert isinstance(result, MarketList)
+    assert result.empty_reason is None  # not an AttributeError
+
+
+def test_short_query_fallback_carries_the_reason_when_the_browse_was_empty():
+    client = _client()
+    client._request = MagicMock(return_value=_empty_filtered(matched=5))
+
+    result = client.find_markets("x")
+
+    assert result == []
+    assert result.empty_reason == "filtered_untradeable"
+    assert result.matched_before_tradeable_filter == 5
+
+
+def test_short_query_fallback_reports_no_reason_for_a_client_side_miss():
+    """The browse returned rows; our substring narrowing emptied them.
+
+    The server sets empty_reason only when its OWN window is empty, so a browse
+    that returned rows carries none and a purely client-side miss correctly
+    reports no reason rather than borrowing an unrelated one.
+    """
+    client = _client()
+    client._request = MagicMock(return_value={"markets": [_row()], "total": 1})
+
+    result = client.find_markets("z")
+
+    assert result == []
+    assert result.empty_reason is None
+    assert repr(result) == "[]"
+
+
+def test_short_query_fallback_tolerates_a_mocked_plain_list():
+    """`get_markets` is widely mocked in this suite; a plain list must not crash."""
+    client = _client()
+    client.get_markets = MagicMock(return_value=[])
+
+    result = client.find_markets("x")
+
+    assert isinstance(result, MarketList)
+    assert result.empty_reason is None

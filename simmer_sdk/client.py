@@ -3446,7 +3446,17 @@ class SimmerClient:
         # the client-side substring narrowing is the only filter on this path.
         query_lower = query.lower()
         markets = self.get_markets(limit=100)
-        return [m for m in markets if query_lower in m.question.lower()]
+        narrowed = MarketList(m for m in markets if query_lower in m.question.lower())
+        # Carry the browse's explanation through. The server only sets
+        # empty_reason when its own serve window is empty, so when the browse
+        # returned rows there is nothing to carry and a purely client-side miss
+        # correctly reports no reason. getattr guards a mocked/plain-list browse.
+        narrowed.empty_reason = getattr(markets, "empty_reason", None)
+        narrowed.hint = getattr(markets, "hint", None)
+        narrowed.matched_before_tradeable_filter = getattr(
+            markets, "matched_before_tradeable_filter", None
+        )
+        return narrowed
 
     def get_open_orders(self) -> Dict[str, Any]:
         """
