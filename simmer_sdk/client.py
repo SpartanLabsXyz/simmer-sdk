@@ -66,6 +66,39 @@ class Market:
     quote_age_seconds: Optional[float] = None  # Age of quote_ts at server response time
 
 
+class MarketList(list):
+    """``list`` of :class:`Market` that also carries the server's reason for an empty result.
+
+    ``get_markets``/``find_markets`` have always returned a plain list, so the
+    server's ``empty_reason``/``hint`` had nowhere to land and were dropped before
+    the caller saw them: an agent searching for weather markets got a bare ``[]``
+    and could not tell "no such markets exist" from "they exist, and the default
+    tradeability filter dropped them" (simmer#2292, Grok Bot dogfood 2026-09-09).
+
+    This stays a ``list`` in every respect -- ``len``, iteration, indexing,
+    slicing, ``== []`` and ``isinstance(x, list)`` are unchanged -- so no existing
+    caller is affected. It only adds the metadata, plus a ``repr`` that surfaces it
+    when the list is empty, which is what an agent printing the result actually sees.
+    """
+
+    empty_reason: Optional[str] = None
+    hint: Optional[str] = None
+    matched_before_tradeable_filter: Optional[int] = None
+
+    def __repr__(self) -> str:
+        base = super().__repr__()
+        if self or not self.empty_reason:
+            return base
+        parts = [f"empty_reason={self.empty_reason}"]
+        if self.matched_before_tradeable_filter is not None:
+            parts.append(
+                f"matched_before_tradeable_filter={self.matched_before_tradeable_filter}"
+            )
+        if self.hint:
+            parts.append(self.hint)
+        return f"{base}  <{'; '.join(parts)}>"
+
+
 @dataclass
 class Position:
     """Represents a position in a market.
@@ -2072,6 +2105,7 @@ class SimmerClient:
         response_mode: Optional[str] = None,
         fields: Optional[Union[Sequence[str], str]] = None,
         include_hints: bool = False,
+        tradeable_only: bool = True,
     ) -> Any:
         """
         Get available markets.
@@ -2109,6 +2143,13 @@ class SimmerClient:
                 ``"toon"`` also includes a TOON string.
             fields: Compact-mode fields. Defaults to id, question, status, import_source.
             include_hints: Add ``next_steps`` suggestions to compact/TOON output.
+            tradeable_only: Keyword-only. Defaults true, matching the server. Pass
+                False to include active markets the serve-time tradeability filter
+                would otherwise drop (dead external orderbook, stale venue price).
+                This is the retry the server's ``filtered_untradeable`` empty reason
+                asks for -- daily weather and other tracking markets go stale as a
+                cohort, so a whole search can come back empty while long-lived books
+                still return.
 
         Note:
             Unfiltered browse (no ``q``/``tags``) is capped and windowed server-side,
@@ -2120,7 +2161,10 @@ class SimmerClient:
             only describes the external venue orderbook.
 
         Returns:
-            List of Market objects
+            :class:`MarketList` of Market objects -- a ``list`` subclass that also
+            carries ``empty_reason``, ``hint`` and ``matched_before_tradeable_filter``
+            when the server returned nothing, so an empty result explains itself
+            instead of being a bare ``[]``. Compact/TOON modes return a dict as before.
 
         Example:
             markets = client.get_markets(q="bitcoin", limit=5)
@@ -2140,23 +2184,42 @@ class SimmerClient:
             params["sort"] = sort
         if tags:
             params["tags"] = tags
+        # Only sent when the caller opts out, so the wire format is unchanged for
+        # every existing caller; the server already defaults this to true.
+        if not tradeable_only:
+            params["tradeable_only"] = "false"
 
         data = self._request("GET", "/api/sdk/markets", params=params)
         markets = [self._parse_market(m) for m in data.get("markets", [])]
-        return self._list_response(
+        # The server explains an empty window (simmer#2292): empty_reason separates a
+        # true catalog miss from matches the serve-time tradeable_only / expiry filters
+        # dropped. Read ``hint`` ONLY when empty_reason is present -- the same key also
+        # carries the pagination and capped-window hints, which say nothing about why a
+        # result is empty and would be the wrong sentence to show here.
+        empty_reason = data.get("empty_reason")
+        empty_hint = data.get("hint") if empty_reason else None
+        result = self._list_response(
             name="markets",
             items=markets,
             response_mode=response_mode,
             fields=fields,
             default_fields=("id", "question", "status", "import_source"),
             total=data.get("total") or data.get("total_count"),
-            empty_message="No markets matched your filters.",
+            empty_message=empty_hint or "No markets matched your filters.",
             include_hints=include_hints,
             hints=[
                 "Broaden q/tags or pass sort='volume' to find liquid markets.",
                 "Use get_market_by_id(market_id) for full details before trading.",
             ],
         )
+        if isinstance(result, list):
+            result = MarketList(result)
+            result.empty_reason = empty_reason
+            result.hint = empty_hint
+            result.matched_before_tradeable_filter = data.get(
+                "matched_before_tradeable_filter"
+            )
+        return result
 
     def get_candles(
         self,
@@ -3366,7 +3429,11 @@ class SimmerClient:
             query: Search string
 
         Returns:
-            List of matching markets
+            :class:`MarketList` of matching markets. When it comes back empty, check
+            ``.empty_reason`` -- ``filtered_untradeable`` means markets DID match and
+            the default tradeability filter dropped them, so retry with
+            ``get_markets(q=query, tradeable_only=False)``; ``no_matches`` is a real
+            miss. Printing the result shows the reason inline.
         """
         if len(query.strip()) >= 2:
             # Return the server's matches as-is. An extra client-side filter on
