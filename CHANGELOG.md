@@ -3,9 +3,9 @@
 All notable changes to `simmer-sdk` are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## 0.25.5 (2026-09-09)
+## 0.25.5 (unreleased)
 
-- **`Market` now keeps `sim_tradeable` and `is_orderbook_open` from the markets API.** #352 documented these as the Simmer paper-trading guard and the venue orderbook-liveness flag, but `_parse_market` dropped both, so `get_markets()` / `find_markets()` / `get_fast_markets()` / `get_market_by_id()` returned typed markets that could not be filtered the way the docs said. Missing keys still default to `None`, same as `is_live_now`. Ship this with the #352 wording so the PyPI wheel matches the typed model.
+- **`Market` now keeps `sim_tradeable` and `is_orderbook_open` from the markets API.** #352 documented these as the Simmer paper-trading guard and the venue orderbook-liveness flag, but `_parse_market` dropped both, so `get_markets()` / `find_markets()` / `get_fast_markets()` / `get_market_by_id()` returned typed markets that could not be filtered the way the docs said. Missing keys still default to `None`, same as `is_live_now`. The next PyPI cut must ship this model change with the #352 wording so the installed wheel matches GitHub main. `pyproject.toml` stays on 0.25.4 until that publish (CI publish-lag gate).
 
 ## 0.25.4 (2026-09-09)
 
