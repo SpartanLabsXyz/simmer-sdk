@@ -1,4 +1,4 @@
-# vendored from simmer_v3/replay/server.py @ e3c361585d16
+# vendored from simmer_v3/replay/server.py @ df6bde474420
 # DO NOT EDIT HERE — regenerate via scripts/sync_replay_engine.py
 """Replay API server — the minimal /api/sdk surface skills consume (SIM-3070).
 
@@ -170,8 +170,9 @@ def create_app(session: ReplaySession) -> FastAPI:
         status: Optional[str] = None,
         sort: Optional[str] = None,
         venue: Optional[str] = None,
+        tags: Optional[str] = None,
     ):
-        _reject_unsupported(venue=venue, status=status)
+        _reject_unsupported(venue=venue, status=status, tags=tags)
         metas = session.view.markets(limit=max(limit * 4, limit))
         if q:
             ql = q.lower()
