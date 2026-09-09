@@ -11,7 +11,7 @@ import sys
 import types
 import unittest
 from datetime import datetime, timezone
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 
 _SKILL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -64,7 +64,10 @@ FIXTURE_EVENT_NAMES = [
 
 
 def _parsed_fixture():
-    parsed = [wt.parse_weather_event(name) for name in FIXTURE_EVENT_NAMES]
+    # Pin year/rollover to MORNING. parse_weather_event uses datetime.now()
+    # and adds +1 year after 7 days — after ~2026-09-16 an unpinned parse
+    # would date these titles 2027-09-* and the morning select would keep 0.
+    parsed = [wt.parse_weather_event(name, now=MORNING) for name in FIXTURE_EVENT_NAMES]
     assert all(parsed), "fixture titles must parse"
     return parsed
 
@@ -111,6 +114,20 @@ class TestMorningMinHours24FindsFutureDay(unittest.TestCase):
         )
         self.assertTrue(any(info["date"] == "2026-09-09" for info in selected))
 
+    def test_fixture_year_stays_2026_after_seven_day_rollover(self):
+        """Unpinned parse after ~2026-09-16 rolls Sept 9 → 2027; pin keeps 2026."""
+        # Sept 11 is still inside the 7-day window on the 16th; use the 19th
+        # so every fixture title would roll without the MORNING pin.
+        rolled = datetime(2026, 9, 19, 12, 0, tzinfo=timezone.utc)
+        unpinned = [wt.parse_weather_event(name, now=rolled) for name in FIXTURE_EVENT_NAMES]
+        self.assertTrue(all(info["date"].startswith("2027-") for info in unpinned))
+        pinned = _parsed_fixture()
+        self.assertTrue(all(info["date"].startswith("2026-") for info in pinned))
+        selected = wt.select_events_in_horizon(pinned, now=MORNING, min_hours=24)
+        self.assertGreaterEqual(
+            len([info for info in selected if info["date"] > "2026-09-09"]), 1
+        )
+
     def test_fetch_queries_add_dated_pages_past_today(self):
         queries = wt.discovery_fetch_queries(now=MORNING, min_hours=24)
         self.assertIsNone(queries[0])
@@ -122,6 +139,46 @@ class TestMorningMinHours24FindsFutureDay(unittest.TestCase):
         self.assertIn("temperature new york", terms)
         self.assertTrue(any("september 10" in term for term in terms))
         self.assertTrue(any("september 11" in term for term in terms))
+
+
+class TestStarvePathIssuesDatedQueries(unittest.TestCase):
+    """Production fetch/import must issue the +1 day q= — helpers alone are not enough."""
+
+    def test_fetch_issues_september_10_query(self):
+        calls = []
+
+        def _request(method, path, params=None):
+            calls.append(params or {})
+            return {"markets": []}
+
+        mock_client = MagicMock()
+        mock_client._request.side_effect = _request
+        with patch.object(wt, "get_client", return_value=mock_client):
+            wt.fetch_weather_markets(now=MORNING, min_hours=24)
+
+        qs = [c.get("q") for c in calls]
+        self.assertIn("september 10", qs)
+        self.assertIn("september 11", qs)
+        self.assertTrue(any(c.get("tags") == "weather" and "q" not in c for c in calls))
+        mock_client._request.assert_called()
+
+    def test_import_issues_dated_search(self):
+        qs = []
+
+        def list_importable_markets(q=None, **kwargs):
+            qs.append(q)
+            return []
+
+        mock_client = MagicMock()
+        mock_client.list_importable_markets.side_effect = list_importable_markets
+        with patch.object(wt, "get_client", return_value=mock_client):
+            wt.discover_and_import_weather_markets(
+                log=lambda *a, **k: None, now=MORNING, min_hours=24
+            )
+
+        self.assertTrue(any(q and "september 10" in q for q in qs))
+        self.assertTrue(any(q and "september 11" in q for q in qs))
+        mock_client.list_importable_markets.assert_called()
 
 
 class TestQueryTokenMatchesParser(unittest.TestCase):
