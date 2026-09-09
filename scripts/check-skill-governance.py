@@ -35,6 +35,13 @@ WALLET_ENV_HINTS = {
     "SOLANA_PRIVATE_KEY",
     "EVM_PRIVATE_KEY",
 }
+SIMMER_SKILL_PATH = "skills/simmer/SKILL.md"
+SIMMER_WEBSITE_REPO = "SupaFund/simmer"
+SIMMER_WEBSITE_SKILL_PATH = "website/public/skill.md"
+SIMMER_WEBSITE_SYNC_WAIVER_MARKERS = {
+    "simmer-website-sync-waived",
+    "website-skill-sync-waived",
+}
 
 
 def run_git(args: list[str]) -> str:
@@ -114,6 +121,78 @@ def git_file_at_ref(ref: str, path: str) -> str | None:
         return None
 
 
+def current_pull_request() -> dict[str, Any]:
+    event_path = os.environ.get("GITHUB_EVENT_PATH")
+    if not event_path:
+        return {}
+
+    try:
+        event = load_json(Path(event_path))
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+    pr = event.get("pull_request")
+    return pr if isinstance(pr, dict) else {}
+
+
+def pr_has_simmer_website_sync_waiver() -> bool:
+    body = str(current_pull_request().get("body") or "").lower()
+    return any(
+        f"{marker}:" in body or f"{marker}=true" in body
+        for marker in SIMMER_WEBSITE_SYNC_WAIVER_MARKERS
+    )
+
+
+def github_json(url: str) -> Any:
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": "simmer-sdk-skill-governance",
+    }
+    token = os.environ.get("SIMMER_WEBSITE_SYNC_GITHUB_TOKEN") or os.environ.get(
+        "GITHUB_TOKEN"
+    )
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+
+    request = urllib.request.Request(url, headers=headers)
+    with urllib.request.urlopen(request, timeout=10) as response:
+        return json.load(response)
+
+
+def open_simmer_website_sync_pr(new_version: str) -> str | None:
+    pulls = github_json(
+        f"https://api.github.com/repos/{SIMMER_WEBSITE_REPO}/pulls?state=open&per_page=100"
+    )
+    if not isinstance(pulls, list):
+        return None
+
+    for pr in pulls:
+        if not isinstance(pr, dict):
+            continue
+        number = pr.get("number")
+        if not number:
+            continue
+
+        files = github_json(
+            f"https://api.github.com/repos/{SIMMER_WEBSITE_REPO}/pulls/{number}/files?per_page=100"
+        )
+        if not isinstance(files, list):
+            continue
+
+        for changed_file in files:
+            if not isinstance(changed_file, dict):
+                continue
+            if changed_file.get("filename") != SIMMER_WEBSITE_SKILL_PATH:
+                continue
+
+            patch = str(changed_file.get("patch") or "")
+            if new_version in patch:
+                return str(pr.get("html_url") or f"{SIMMER_WEBSITE_REPO}#{number}")
+
+    return None
+
+
 def validate_skill_version_bumps(paths: list[str], base_ref: str) -> list[str]:
     errors: list[str] = []
 
@@ -153,6 +232,46 @@ def validate_skill_version_bumps(paths: list[str], base_ref: str) -> list[str]:
             )
 
     return errors
+
+
+def validate_simmer_website_sync_gate(paths: list[str], base_ref: str) -> list[str]:
+    if SIMMER_SKILL_PATH not in paths:
+        return []
+
+    current_text = (ROOT / SIMMER_SKILL_PATH).read_text(encoding="utf-8")
+    current_version = extract_skill_metadata_version(current_text)
+    previous_text = git_file_at_ref(base_ref, SIMMER_SKILL_PATH)
+    previous_version = (
+        extract_skill_metadata_version(previous_text)
+        if previous_text is not None
+        else None
+    )
+    if not current_version or not previous_version or current_version == previous_version:
+        return []
+
+    if pr_has_simmer_website_sync_waiver():
+        return []
+
+    try:
+        sync_pr = open_simmer_website_sync_pr(current_version)
+    except (OSError, urllib.error.URLError, json.JSONDecodeError) as exc:
+        return [
+            f"{SIMMER_SKILL_PATH} metadata.version changed from {previous_version} "
+            f"to {current_version}, but the check could not inspect open "
+            f"{SIMMER_WEBSITE_REPO} PRs: {exc}. Open a matching PR that changes "
+            f"{SIMMER_WEBSITE_SKILL_PATH}, or add "
+            "'simmer-website-sync-waived: <reason>' to this PR body."
+        ]
+
+    if sync_pr:
+        return []
+
+    return [
+        f"{SIMMER_SKILL_PATH} metadata.version changed from {previous_version} "
+        f"to {current_version}; open a matching {SIMMER_WEBSITE_REPO} PR that "
+        f"changes {SIMMER_WEBSITE_SKILL_PATH} to {current_version}, or add "
+        "'simmer-website-sync-waived: <reason>' to this PR body."
+    ]
 
 
 def pr_has_sensitive_approval_marker() -> bool:
@@ -301,6 +420,7 @@ def main() -> int:
     errors: list[str] = []
     if paths and base_ref is not None:
         errors.extend(validate_skill_version_bumps(paths, base_ref))
+        errors.extend(validate_simmer_website_sync_gate(paths, base_ref))
     for skill_dir in sorted(skill_dirs):
         errors.extend(validate_skill(skill_dir, pr_approved))
 
