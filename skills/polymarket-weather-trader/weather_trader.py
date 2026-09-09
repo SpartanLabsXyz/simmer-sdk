@@ -58,7 +58,7 @@ CONFIG_SCHEMA = {
     "min_entry_price":   {"env": "SIMMER_WEATHER_MIN_ENTRY_PRICE",   "default": 0.0,   "type": float,
                           "help": "Reject entries below this mid (lottery-ticket floor). 0 = disabled (back-compat). ENTRY_THRESHOLD is the upper bound only."},
     "min_hours_to_resolve": {"env": "SIMMER_WEATHER_MIN_HOURS_TO_RESOLVE", "default": 2, "type": float,
-                             "help": "Skip if market resolves in fewer than this many hours (time-decay safeguard)."},
+                             "help": "Skip if market resolves in fewer than this many hours (time-decay safeguard). Discovery looks ahead max(this, 48h) so a morning run can still see +1/+2 day events."},
     "exit_threshold":    {"env": "SIMMER_WEATHER_EXIT_THRESHOLD",    "default": 0.45,  "type": float},
     "max_position_usd":  {"env": "SIMMER_WEATHER_MAX_POSITION_USD",  "default": 2.00,  "type": float},
     "sizing_pct":        {"env": "SIMMER_WEATHER_SIZING_PCT",        "default": 0.05,  "type": float},
@@ -179,6 +179,9 @@ SLIPPAGE_MAX_PCT = _config["slippage_max"]  # Skip if slippage exceeds this (tun
 MIN_LIQUIDITY_USD = _config["min_liquidity"]  # Skip markets with liquidity below this (0 = disabled)
 TIME_TO_RESOLUTION_MIN_HOURS = _config.get("min_hours_to_resolve", 2)  # Entry-only: skip if resolving sooner
 EXIT_MIN_HOURS_TO_RESOLVE = 2  # Exits keep the original 2h floor regardless of the env knob
+# Same-day fetch/import is newest-first and morning-starves a 24h floor.
+# Horizon tracks the hours knob with a 48h floor so +1/+2 calendar days are visible.
+DISCOVERY_HORIZON_FLOOR_HOURS = 48
 
 # Multi-source bucket-confidence (SIM-2420)
 REQUIRE_SOURCE_AGREEMENT = _config["require_source_agreement"]
@@ -708,8 +711,11 @@ def get_noaa_forecast(location: str) -> dict:
 # Market Parsing
 # =============================================================================
 
-def parse_weather_event(event_name: str) -> dict:
-    """Parse weather event name to extract location, date, metric."""
+def parse_weather_event(event_name: str, now=None) -> dict:
+    """Parse weather event name to extract location, date, metric.
+
+    `now` pins the year / 7-day rollover (tests pass a frozen morning clock).
+    """
     if not event_name:
         return None
 
@@ -800,7 +806,9 @@ def parse_weather_event(event_name: str) -> dict:
     if not month:
         return None
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(timezone.utc) if now is None else now
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
     year = now.year
     try:
         target_date = datetime(year, month, day, tzinfo=timezone.utc)
@@ -811,6 +819,67 @@ def parse_weather_event(event_name: str) -> dict:
         return None
 
     return {"location": location, "date": date_str, "metric": metric, "unit": temp_unit}
+
+
+# Full month names matching parse_weather_event / Polymarket titles ("on September 9").
+_EVENT_MONTH_NAMES = (
+    "january", "february", "march", "april", "may", "june",
+    "july", "august", "september", "october", "november", "december",
+)
+
+
+def discovery_horizon_hours(min_hours=None):
+    """Hours ahead discovery must look: max(MIN_HOURS_TO_RESOLVE, 48h)."""
+    hours = TIME_TO_RESOLUTION_MIN_HOURS if min_hours is None else min_hours
+    try:
+        hours = float(hours)
+    except (TypeError, ValueError):
+        hours = 2.0
+    return max(hours, float(DISCOVERY_HORIZON_FLOOR_HOURS))
+
+
+def discovery_event_dates(now=None, min_hours=None):
+    """UTC calendar dates from today through the discovery horizon (inclusive)."""
+    now = datetime.now(timezone.utc) if now is None else now
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    start = now.date()
+    end = (now + timedelta(hours=discovery_horizon_hours(min_hours))).date()
+    dates = []
+    day = start
+    while day <= end:
+        dates.append(day.isoformat())
+        day += timedelta(days=1)
+    return dates
+
+
+def event_date_query_token(date_str):
+    """'2026-09-10' → 'september 10' (matches parse_weather_event titles)."""
+    dt = datetime.strptime(date_str, "%Y-%m-%d")
+    return f"{_EVENT_MONTH_NAMES[dt.month - 1]} {dt.day}"
+
+
+def discovery_fetch_queries(now=None, min_hours=None):
+    """Unscoped page (None) plus `q` tokens for each extra horizon date."""
+    dates = discovery_event_dates(now=now, min_hours=min_hours)
+    queries = [None]
+    for date_str in dates[1:]:
+        queries.append(event_date_query_token(date_str))
+    return queries
+
+
+def discovery_search_terms(location, now=None, min_hours=None):
+    """Location keywords plus dated terms for +1/+2… days in the horizon."""
+    base = LOCATION_SEARCH_TERMS.get(location, [f"temperature {location.lower()}"])
+    dates = discovery_event_dates(now=now, min_hours=min_hours)
+    extra = [f"{base[0]} {event_date_query_token(date_str)}" for date_str in dates[1:]]
+    return list(base) + extra
+
+
+def select_events_in_horizon(event_infos, now=None, min_hours=None):
+    """Keep parsed events whose date falls in the discovery horizon."""
+    allowed = set(discovery_event_dates(now=now, min_hours=min_hours))
+    return [info for info in event_infos if info and info.get("date") in allowed]
 
 
 def parse_temperature_bucket(outcome_name: str) -> tuple:
@@ -1215,7 +1284,7 @@ LOCATION_SEARCH_TERMS = {
 }
 
 
-def discover_and_import_weather_markets(log=print):
+def discover_and_import_weather_markets(log=print, now=None, min_hours=None):
     """Discover weather markets on Polymarket and auto-import to Simmer.
 
     Searches the importable markets endpoint for weather events matching
@@ -1228,7 +1297,7 @@ def discover_and_import_weather_markets(log=print):
     seen_urls = set()
 
     for location in ACTIVE_LOCATIONS:
-        search_terms = LOCATION_SEARCH_TERMS.get(location, [f"temperature {location.lower()}"])
+        search_terms = discovery_search_terms(location, now=now, min_hours=min_hours)
 
         for term in search_terms:
             try:
@@ -1275,27 +1344,41 @@ def discover_and_import_weather_markets(log=print):
 # Simmer API - Trading
 # =============================================================================
 
-def fetch_weather_markets():
+def fetch_weather_markets(now=None, min_hours=None):
     """Fetch weather-tagged markets from Simmer API.
 
     Requests `resolution_criteria` so we can route each market to the
     specific station Polymarket actually reads (KDAL vs KDFW, KORD vs KMDW,
     LIMC vs LIML, etc.) instead of trusting a city → station hardcode.
+
+    The unscoped `tags=weather` page is newest-first and same-day heavy.
+    Extra pages reuse that fetch with `q=<month day>` for each date past
+    today in the discovery horizon (max(MIN_HOURS_TO_RESOLVE, 48h)).
     """
-    try:
-        result = get_client()._request(
-            "GET", "/api/sdk/markets",
-            params={
-                "tags": "weather",
-                "status": "active",
-                "limit": 100,
-                "include": "resolution_criteria",
-            },
-        )
-        return result.get("markets", [])
-    except Exception:
-        print("  Failed to fetch markets from Simmer API")
-        return []
+    markets = []
+    seen = set()
+    for q in discovery_fetch_queries(now=now, min_hours=min_hours):
+        params = {
+            "tags": "weather",
+            "status": "active",
+            "limit": 100,
+            "include": "resolution_criteria",
+        }
+        if q:
+            params["q"] = q
+        try:
+            result = get_client()._request("GET", "/api/sdk/markets", params=params)
+        except Exception:
+            if q is None:
+                print("  Failed to fetch markets from Simmer API")
+            continue
+        for market in result.get("markets", []) or []:
+            key = market.get("id") or (market.get("question"), market.get("event_ref"))
+            if key in seen:
+                continue
+            seen.add(key)
+            markets.append(market)
+    return markets
 
 
 def execute_trade(market_id: str, side: str, amount: float, reasoning: str = None, signal_data: dict = None) -> dict:
@@ -1516,6 +1599,7 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
         if MIN_ENTRY_PRICE >= ENTRY_THRESHOLD:
             log(f"  ⚠️  Min entry ${MIN_ENTRY_PRICE:.2f} >= entry threshold ${ENTRY_THRESHOLD:.2f}: every candidate will be skipped", force=True)
     log(f"  Min hours to resolve: {TIME_TO_RESOLUTION_MIN_HOURS:g} (entries only; exits keep {EXIT_MIN_HOURS_TO_RESOLVE}h)")
+    log(f"  Discovery horizon:    {discovery_horizon_hours():g}h → {', '.join(discovery_event_dates())}")
     log(f"  Exit threshold:  {EXIT_THRESHOLD:.0%} (sell above this)")
     log(f"  Max position:    ${MAX_POSITION_USD:.2f}")
     log(f"  Max trades/run:  {MAX_TRADES_PER_RUN}")
@@ -1651,6 +1735,9 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
         location = event_info["location"]
         date_str = event_info["date"]
         metric = event_info["metric"]
+
+        if not select_events_in_horizon([event_info]):
+            continue
 
         if location.upper() not in ACTIVE_LOCATIONS:
             continue

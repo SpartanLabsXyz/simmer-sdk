@@ -38,7 +38,7 @@
     {
       "name": "SIMMER_WEATHER_MIN_HOURS_TO_RESOLVE",
       "required": false,
-      "description": "Skip entries if the market resolves in fewer than this many hours (default 2). Entry-only; exits keep a 2h floor."
+      "description": "Skip entries if the market resolves in fewer than this many hours (default 2). Entry-only; exits keep a 2h floor. Discovery looks ahead max(this, 48h) so a morning heartbeat can still see +1/+2 day markets."
     },
     {
       "name": "SIMMER_WEATHER_EXIT_THRESHOLD",
