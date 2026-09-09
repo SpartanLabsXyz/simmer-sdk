@@ -3,7 +3,7 @@ name: polymarket-weather-trader
 description: Trade Polymarket weather markets using NOAA (US) and Open-Meteo (international) forecasts via Simmer API. Inspired by gopfan2's weather trading approach. Use when user wants to trade temperature markets, automate weather bets, check forecasts, or run weather-based strategies.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.23.8"
+  version: "1.23.9"
   displayName: Polymarket Weather Trader
   difficulty: beginner
   attribution: Strategy inspired by gopfan2 (public Polymarket trader — approach referenced, not endorsed).
@@ -50,10 +50,14 @@ Use this skill when the user wants to:
 - Check their weather trading positions
 - Configure trading thresholds or locations
 
+## What's New in v1.23.9
+
+- **Discovery horizon tracks `SIMMER_WEATHER_MIN_HOURS_TO_RESOLVE`.** The existing `tags=weather` fetch and location keyword import were newest-first / same-day heavy. They now also query +1/+2 calendar days so a morning heartbeat with `MIN_HOURS=24` still sees markets that can clear the floor. Horizon is `max(MIN_HOURS, 48h)` — raising the hours knob widens discovery; there is no separate horizon env. Do not lower the hours floor to "fix" morning no-fills.
+
 ## What's New in v1.23.7
 
 - **Min entry price.** `SIMMER_WEATHER_MIN_ENTRY_PRICE` (default `0` = off) rejects lottery-ticket mids below the floor. `SIMMER_WEATHER_ENTRY_THRESHOLD` remains an **upper** bound only (buy when price is below it).
-- **Hours-to-resolve is now an env knob.** `SIMMER_WEATHER_MIN_HOURS_TO_RESOLVE` overrides the previous hardcoded 2h time-decay safeguard. Same check, same `check_context_safeguards` path — raise it (e.g. `24`) to skip resolve-day entries. Entry-only: exits keep the original 2h floor, so a raised value never blocks a sell.
+- **Hours-to-resolve is now an env knob.** `SIMMER_WEATHER_MIN_HOURS_TO_RESOLVE` overrides the previous hardcoded 2h time-decay safeguard. Same check, same `check_context_safeguards` path — raise it (e.g. `24`) to skip resolve-day entries. Entry-only: exits keep the original 2h floor, so a raised value never blocks a sell. Discovery looks ahead `max(this, 48h)` so morning runs still see tomorrow's markets.
 
 ## What's New in v1.23.3
 
@@ -95,7 +99,7 @@ Then `pip install --upgrade simmer-sdk` (>=0.13.0) and configure tunables below.
 | Trading venue | `TRADING_VENUE` | polymarket | Venue to trade on. Set `sim` for paper trading. |
 | Entry threshold | `SIMMER_WEATHER_ENTRY_THRESHOLD` | 0.15 | **Upper** bound — buy when price is *below* this |
 | Min entry price | `SIMMER_WEATHER_MIN_ENTRY_PRICE` | 0 | **Lower** bound — skip lottery tickets below this (`0` = off), e.g. `0.15` to skip sub-15¢ tickets. Must be below the entry threshold. |
-| Min hours to resolve | `SIMMER_WEATHER_MIN_HOURS_TO_RESOLVE` | 2 | Skip entries if the market resolves in fewer than this many hours. Entry-only; exits keep a fixed 2h floor. |
+| Min hours to resolve | `SIMMER_WEATHER_MIN_HOURS_TO_RESOLVE` | 2 | Skip entries if the market resolves in fewer than this many hours. Entry-only; exits keep a fixed 2h floor. Discovery looks ahead `max(this, 48h)` calendar days — raise it and the scan widens; a 24h floor still sees +1/+2 day markets in a morning heartbeat. |
 | Exit threshold | `SIMMER_WEATHER_EXIT_THRESHOLD` | 0.45 | Sell when price above this. Raise this if you raise entry above `0.45`, or the skill will self-exit. |
 | Max position | `SIMMER_WEATHER_MAX_POSITION_USD` | 2.00 | Maximum USD per trade |
 | Max trades/run | `SIMMER_WEATHER_MAX_TRADES_PER_RUN` | 5 | Maximum trades per scan cycle |
@@ -179,9 +183,9 @@ python weather_trader.py --live --quiet
 ## How It Works
 
 Each cycle the script:
-1. Fetches active weather markets from Simmer API
+1. Fetches active weather markets from Simmer API (newest weather page plus dated queries out to `max(MIN_HOURS_TO_RESOLVE, 48h)`)
 2. Groups markets by event (each temperature day is one event)
-3. Parses event names to get location and date
+3. Parses event names to get location and date; keeps events inside that discovery horizon
 4. Fetches NOAA forecast for that location/date
 5. Finds the temperature bucket that matches the forecast
 6. **Safeguards**: Checks context for flip-flop warnings, slippage, time decay
@@ -214,7 +218,7 @@ position_size = base_size × clamp(target_vol / realized_vol, min_alloc, max_lev
 Before trading, the skill checks:
 - **Flip-flop warning**: Skips if you've been reversing too much
 - **Slippage**: Skips if estimated slippage > 15% (tunable via `SIMMER_WEATHER_SLIPPAGE_MAX`)
-- **Time decay**: Skips if market resolves in < `SIMMER_WEATHER_MIN_HOURS_TO_RESOLVE` hours (default 2)
+- **Time decay**: Skips if market resolves in < `SIMMER_WEATHER_MIN_HOURS_TO_RESOLVE` hours (default 2). Discovery looks ahead `max(this, 48h)` so raising the floor does not starve morning heartbeats.
 - **Market status**: Skips if market already resolved
 
 `SIMMER_WEATHER_MIN_ENTRY_PRICE` (default 0 = off) is the other side of the entry-price check, not this list — `--no-safeguards` does not disable it.
@@ -234,7 +238,7 @@ All trades are tagged with `source: "sdk:weather"`. This means:
 
 **"Slippage too high"** — market is illiquid; reduce position size or skip.
 
-**"Resolves in Xh - too soon"** — market resolving sooner than `SIMMER_WEATHER_MIN_HOURS_TO_RESOLVE` (default 2h). Raise the env to skip resolve-day entries.
+**"Resolves in Xh - too soon"** — market resolving sooner than `SIMMER_WEATHER_MIN_HOURS_TO_RESOLVE` (default 2h). Raise the env to skip resolve-day entries. Discovery already looks ahead `max(MIN_HOURS, 48h)`, so a morning run with `MIN_HOURS=24` can still take +1/+2 day markets. Same-day buckets will always fail a 24h floor before they have 24h left.
 
 **"Price $X.XX below min entry"** — mid is below `SIMMER_WEATHER_MIN_ENTRY_PRICE`. Lottery-ticket floor; default is off (`0`).
 

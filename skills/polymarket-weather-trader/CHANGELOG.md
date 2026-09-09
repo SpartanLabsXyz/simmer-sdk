@@ -1,5 +1,13 @@
 # Changelog — polymarket-weather-trader
 
+## [1.23.9] - 2026-09-09
+
+### Fixed
+- Discovery/scan was newest-first and same-calendar-day heavy. A morning heartbeat with `SIMMER_WEATHER_MIN_HOURS_TO_RESOLVE=24` then saw only resolve-day buckets ("Resolves in 10–22h - too soon") and took 0 fills. The existing `tags=weather` fetch and location keyword import now also query +1/+2 calendar days. Horizon is `max(MIN_HOURS_TO_RESOLVE, 48h)` — no new env knob.
+
+### Docs
+- Raising `MIN_HOURS_TO_RESOLVE` widens discovery. Do not lower the hours floor to fix morning no-fills.
+
 ## [1.23.8] - 2026-09-08
 
 ### Added
