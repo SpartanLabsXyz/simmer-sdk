@@ -3,6 +3,10 @@
 All notable changes to `simmer-sdk` are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.25.5 (2026-09-09)
+
+- **`Market` now keeps `sim_tradeable` and `is_orderbook_open` from the markets API.** #352 documented these as the Simmer paper-trading guard and the venue orderbook-liveness flag, but `_parse_market` dropped both, so `get_markets()` / `find_markets()` / `get_fast_markets()` / `get_market_by_id()` returned typed markets that could not be filtered the way the docs said. Missing keys still default to `None`, same as `is_live_now`. Ship this with the #352 wording so the PyPI wheel matches the typed model.
+
 ## 0.25.4 (2026-09-09)
 
 - **`simmer backtest`'s replay server now rejects the `tags` filter on `get_markets()` too.** 0.25.3 closed `venue`/`status`/`category`; `tags` was the one remaining discovery filter the replay engine never implemented, so a backtest narrowed to a tag slice silently ran against the full market universe and reported P&L for markets it never meant to trade. Passing `tags` now raises an error naming the parameter. Omitting it behaves exactly as before. (SIM-5138)

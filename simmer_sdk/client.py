@@ -46,6 +46,8 @@ class Market:
     resolves_at: Optional[str] = None
     is_sdk_only: bool = False  # True for ultra-short-term markets hidden from public UI
     is_live_now: Optional[bool] = None  # True if market window has started; None if field not returned by API
+    sim_tradeable: Optional[bool] = None  # Simmer paper-trading guard; None if field not returned by API
+    is_orderbook_open: Optional[bool] = None  # External venue orderbook liveness; None if field not returned by API
     opens_at: Optional[str] = None  # When the market window opens (fast markets only)
     polymarket_token_id: Optional[str] = None  # YES token ID for CLOB trading
     polymarket_no_token_id: Optional[str] = None  # NO token ID for CLOB trading
@@ -2341,6 +2343,8 @@ class SimmerClient:
             resolves_at=m.get("resolves_at"),
             is_sdk_only=m.get("is_sdk_only", False),
             is_live_now=m.get("is_live_now"),
+            sim_tradeable=m.get("sim_tradeable"),
+            is_orderbook_open=m.get("is_orderbook_open"),
             opens_at=m.get("opens_at"),
             polymarket_token_id=m.get("polymarket_token_id"),
             polymarket_no_token_id=m.get("polymarket_no_token_id"),
