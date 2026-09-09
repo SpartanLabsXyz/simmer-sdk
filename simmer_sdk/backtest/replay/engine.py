@@ -1,4 +1,4 @@
-# vendored from simmer_v3/replay/engine.py @ df6bde474420
+# vendored from simmer_v3/replay/engine.py @ ce89ed16b684
 # DO NOT EDIT HERE — regenerate via scripts/sync_replay_engine.py
 """Replay engine — the tick loop + report builder (SIM-3070 chunk 3).
 
