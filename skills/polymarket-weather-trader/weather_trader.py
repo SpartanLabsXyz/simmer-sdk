@@ -711,8 +711,11 @@ def get_noaa_forecast(location: str) -> dict:
 # Market Parsing
 # =============================================================================
 
-def parse_weather_event(event_name: str) -> dict:
-    """Parse weather event name to extract location, date, metric."""
+def parse_weather_event(event_name: str, now=None) -> dict:
+    """Parse weather event name to extract location, date, metric.
+
+    `now` pins the year / 7-day rollover (tests pass a frozen morning clock).
+    """
     if not event_name:
         return None
 
@@ -803,7 +806,9 @@ def parse_weather_event(event_name: str) -> dict:
     if not month:
         return None
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(timezone.utc) if now is None else now
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
     year = now.year
     try:
         target_date = datetime(year, month, day, tzinfo=timezone.utc)
@@ -1279,7 +1284,7 @@ LOCATION_SEARCH_TERMS = {
 }
 
 
-def discover_and_import_weather_markets(log=print):
+def discover_and_import_weather_markets(log=print, now=None, min_hours=None):
     """Discover weather markets on Polymarket and auto-import to Simmer.
 
     Searches the importable markets endpoint for weather events matching
@@ -1292,7 +1297,7 @@ def discover_and_import_weather_markets(log=print):
     seen_urls = set()
 
     for location in ACTIVE_LOCATIONS:
-        search_terms = discovery_search_terms(location)
+        search_terms = discovery_search_terms(location, now=now, min_hours=min_hours)
 
         for term in search_terms:
             try:
@@ -1339,7 +1344,7 @@ def discover_and_import_weather_markets(log=print):
 # Simmer API - Trading
 # =============================================================================
 
-def fetch_weather_markets():
+def fetch_weather_markets(now=None, min_hours=None):
     """Fetch weather-tagged markets from Simmer API.
 
     Requests `resolution_criteria` so we can route each market to the
@@ -1352,7 +1357,7 @@ def fetch_weather_markets():
     """
     markets = []
     seen = set()
-    for q in discovery_fetch_queries():
+    for q in discovery_fetch_queries(now=now, min_hours=min_hours):
         params = {
             "tags": "weather",
             "status": "active",
@@ -1702,7 +1707,6 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
         events[event_key].append(market)
 
     log(f"  Grouped into {len(events)} events")
-    horizon_dates = set(discovery_event_dates())
 
     forecast_cache = {}
     secondary_cache = {}  # SIM-2420: lazy Open-Meteo cross-check per station
@@ -1732,7 +1736,7 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
         date_str = event_info["date"]
         metric = event_info["metric"]
 
-        if date_str not in horizon_dates:
+        if not select_events_in_horizon([event_info]):
             continue
 
         if location.upper() not in ACTIVE_LOCATIONS:
