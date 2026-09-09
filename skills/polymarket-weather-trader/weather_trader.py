@@ -55,6 +55,10 @@ from simmer_sdk.skill import load_config, update_config, get_config_path
 # resolved as fallbacks below for backwards compatibility.
 CONFIG_SCHEMA = {
     "entry_threshold":   {"env": "SIMMER_WEATHER_ENTRY_THRESHOLD",   "default": 0.15,  "type": float},
+    "min_entry_price":   {"env": "SIMMER_WEATHER_MIN_ENTRY_PRICE",   "default": 0.0,   "type": float,
+                          "help": "Reject entries below this mid (lottery-ticket floor). 0 = disabled (back-compat). ENTRY_THRESHOLD is the upper bound only."},
+    "min_hours_to_resolve": {"env": "SIMMER_WEATHER_MIN_HOURS_TO_RESOLVE", "default": 2, "type": float,
+                             "help": "Skip if market resolves in fewer than this many hours (time-decay safeguard)."},
     "exit_threshold":    {"env": "SIMMER_WEATHER_EXIT_THRESHOLD",    "default": 0.45,  "type": float},
     "max_position_usd":  {"env": "SIMMER_WEATHER_MAX_POSITION_USD",  "default": 2.00,  "type": float},
     "sizing_pct":        {"env": "SIMMER_WEATHER_SIZING_PCT",        "default": 0.05,  "type": float},
@@ -150,6 +154,7 @@ MIN_TICK_SIZE = 0.01        # Minimum tradeable price
 
 # Strategy parameters - from config
 ENTRY_THRESHOLD = _config["entry_threshold"]
+MIN_ENTRY_PRICE = _config.get("min_entry_price", 0.0)
 EXIT_THRESHOLD = _config["exit_threshold"]
 MAX_POSITION_USD = _config["max_position_usd"]
 
@@ -172,7 +177,8 @@ VOL_SPAN = _config["vol_span"]
 # Context safeguard thresholds
 SLIPPAGE_MAX_PCT = _config["slippage_max"]  # Skip if slippage exceeds this (tunable)
 MIN_LIQUIDITY_USD = _config["min_liquidity"]  # Skip markets with liquidity below this (0 = disabled)
-TIME_TO_RESOLUTION_MIN_HOURS = 2  # Skip if resolving in < 2 hours
+TIME_TO_RESOLUTION_MIN_HOURS = _config.get("min_hours_to_resolve", 2)  # Entry-only: skip if resolving sooner
+EXIT_MIN_HOURS_TO_RESOLVE = 2  # Exits keep the original 2h floor regardless of the env knob
 
 # Multi-source bucket-confidence (SIM-2420)
 REQUIRE_SOURCE_AGREEMENT = _config["require_source_agreement"]
@@ -197,6 +203,9 @@ LOCATIONS = {
     "Seattle": {"lat": 47.4502, "lon": -122.3088, "name": "Seattle (Sea-Tac)", "station": "KSEA"},
     "Atlanta": {"lat": 33.6407, "lon": -84.4277, "name": "Atlanta (Hartsfield)", "station": "KATL"},
     "Miami": {"lat": 25.7959, "lon": -80.2870, "name": "Miami (MIA)", "station": "KMIA"},
+    "Austin": {"lat": 30.1831, "lon": -97.6806, "name": "Austin-Bergstrom", "station": "KAUS"},
+    "Houston": {"lat": 29.6458, "lon": -95.2821, "name": "William P. Hobby", "station": "KHOU"},
+    "Denver": {"lat": 39.7130, "lon": -104.7580, "name": "Buckley Space Force Base", "station": "KBKF"},
 }
 
 # Per-station coordinates for NOAA `/points/{lat},{lon}` lookup. Keyed by the
@@ -233,6 +242,9 @@ STATION_ID_TO_NOAA = {
     "KDEN": {"lat": 39.8561, "lon": -104.6737, "name": "Denver International"},
     "KMSP": {"lat": 44.8848, "lon": -93.2223, "name": "Minneapolis-St. Paul International"},
     "KPHL": {"lat": 39.8744, "lon": -75.2424, "name": "Philadelphia International"},
+    "KAUS": {"lat": 30.1831, "lon": -97.6806, "name": "Austin-Bergstrom International Airport"},
+    "KHOU": {"lat": 29.6458, "lon": -95.2821, "name": "William P. Hobby Airport"},
+    "KBKF": {"lat": 39.7130, "lon": -104.7580, "name": "Buckley Space Force Base"},
 }
 
 # Active locations - from config
@@ -284,6 +296,29 @@ INTERNATIONAL_STATION_COORDS = {
     "EHAM": {"lat": 52.3105, "lon": 4.7683, "tz": "Europe/Amsterdam",  "city": "Amsterdam",  "name": "Amsterdam Schiphol Airport"},
     "RCSS": {"lat": 25.0697, "lon": 121.5519, "tz": "Asia/Taipei",     "city": "Taipei",     "name": "Taipei Songshan Airport"},
     "RCTP": {"lat": 25.0777, "lon": 121.2328, "tz": "Asia/Taipei",     "city": "Taipei",     "name": "Taoyuan International Airport"},
+    "ZBAA": {"lat": 40.0820, "lon": 116.6030, "tz": "Asia/Shanghai",    "city": "Beijing",    "name": "Beijing Capital International Airport"},
+    "ZSPD": {"lat": 31.1460, "lon": 121.8000, "tz": "Asia/Shanghai",    "city": "Shanghai",   "name": "Shanghai Pudong International Airport"},
+    "ZGGG": {"lat": 23.3920, "lon": 113.3070, "tz": "Asia/Shanghai",    "city": "Guangzhou",  "name": "Guangzhou Baiyun International Airport"},
+    "ZGSZ": {"lat": 22.6390, "lon": 113.8030, "tz": "Asia/Shanghai",    "city": "Shenzhen",   "name": "Shenzhen Bao'an International Airport"},
+    "ZUUU": {"lat": 30.5760, "lon": 103.9500, "tz": "Asia/Shanghai",    "city": "Chengdu",    "name": "Chengdu Shuangliu International Airport"},
+    "ZUCK": {"lat": 29.7180, "lon": 106.6390, "tz": "Asia/Shanghai",    "city": "Chongqing",  "name": "Chongqing Jiangbei International Airport"},
+    "ZHHH": {"lat": 30.7830, "lon": 114.2050, "tz": "Asia/Shanghai",    "city": "Wuhan",      "name": "Wuhan Tianhe International Airport"},
+    "ZSQD": {"lat": 36.3620, "lon": 120.0870, "tz": "Asia/Shanghai",    "city": "Qingdao",    "name": "Qingdao Jiaodong International Airport"},
+    "ZHCC": {"lat": 34.5200, "lon": 113.8340, "tz": "Asia/Shanghai",    "city": "Zhengzhou",  "name": "Zhengzhou Xinzheng International Airport"},
+    "WSSS": {"lat": 1.3680, "lon": 103.9820, "tz": "Asia/Singapore",    "city": "Singapore",  "name": "Singapore Changi Airport"},
+    "WMKK": {"lat": 2.7470, "lon": 101.7140, "tz": "Asia/Kuala_Lumpur", "city": "Kuala Lumpur", "name": "Kuala Lumpur International Airport"},
+    "RPLL": {"lat": 14.5070, "lon": 121.0040, "tz": "Asia/Manila",      "city": "Manila",     "name": "Ninoy Aquino International Airport"},
+    "RKPK": {"lat": 35.1790, "lon": 128.9380, "tz": "Asia/Seoul",       "city": "Busan",      "name": "Gimhae International Airport"},
+    "CYYZ": {"lat": 43.6790, "lon": -79.6290, "tz": "America/Toronto",   "city": "Toronto",    "name": "Toronto Pearson International Airport"},
+    "SAEZ": {"lat": -34.8220, "lon": -58.5360, "tz": "America/Argentina/Buenos_Aires", "city": "Buenos Aires", "name": "Minister Pistarini International Airport"},
+    "SBGR": {"lat": -23.4320, "lon": -46.4690, "tz": "America/Sao_Paulo", "city": "Sao Paulo", "name": "Sao Paulo-Guarulhos International Airport"},
+    "MMMX": {"lat": 19.4360, "lon": -99.0720, "tz": "America/Mexico_City", "city": "Mexico City", "name": "Benito Juarez International Airport"},
+    "FACT": {"lat": -33.9650, "lon": 18.6020, "tz": "Africa/Johannesburg", "city": "Cape Town", "name": "Cape Town International Airport"},
+    "EFHK": {"lat": 60.3270, "lon": 24.9570, "tz": "Europe/Helsinki",   "city": "Helsinki",   "name": "Helsinki Vantaa Airport"},
+    "OEJN": {"lat": 21.6850, "lon": 39.1660, "tz": "Asia/Riyadh",       "city": "Jeddah",     "name": "King Abdulaziz International Airport"},
+    "EPWA": {"lat": 52.1630, "lon": 20.9610, "tz": "Europe/Warsaw",      "city": "Warsaw",     "name": "Warsaw Chopin Airport"},
+    "LFPB": {"lat": 48.9670, "lon": 2.4280, "tz": "Europe/Paris",        "city": "Paris",      "name": "Paris-Le Bourget Airport"},
+    "MPMG": {"lat": 8.9670, "lon": -79.5550, "tz": "America/Panama",     "city": "Panama City", "name": "Marcos A. Gelabert International Airport"},
 }
 
 
@@ -695,6 +730,9 @@ def parse_weather_event(event_name: str) -> dict:
         'atlanta': 'Atlanta', 'hartsfield': 'Atlanta',
         'dallas': 'Dallas', 'dfw': 'Dallas',
         'miami': 'Miami',
+        'austin': 'Austin',
+        'houston': 'Houston', 'hobby': 'Houston',
+        'denver': 'Denver', 'buckley': 'Denver',
         # International cities (Open-Meteo)
         'tel aviv': 'Tel Aviv',
         'munich': 'Munich',
@@ -708,6 +746,29 @@ def parse_weather_event(event_name: str) -> dict:
         'milan': 'Milan',
         'amsterdam': 'Amsterdam',
         'taipei': 'Taipei',
+        'beijing': 'Beijing',
+        'shanghai': 'Shanghai',
+        'guangzhou': 'Guangzhou',
+        'shenzhen': 'Shenzhen',
+        'chengdu': 'Chengdu',
+        'chongqing': 'Chongqing',
+        'wuhan': 'Wuhan',
+        'qingdao': 'Qingdao',
+        'zhengzhou': 'Zhengzhou',
+        'singapore': 'Singapore',
+        'kuala lumpur': 'Kuala Lumpur',
+        'manila': 'Manila',
+        'busan': 'Busan',
+        'toronto': 'Toronto',
+        'buenos aires': 'Buenos Aires', 'ezeiza': 'Buenos Aires',
+        'sao paulo': 'Sao Paulo', 'são paulo': 'Sao Paulo',
+        'mexico city': 'Mexico City',
+        'cape town': 'Cape Town',
+        'helsinki': 'Helsinki',
+        'jeddah': 'Jeddah',
+        'warsaw': 'Warsaw',
+        'paris': 'Paris',
+        'panama': 'Panama City',
     }
 
     for alias, loc in location_aliases.items():
@@ -928,13 +989,28 @@ def get_price_history(market_id: str) -> list:
         return []
 
 
-def check_context_safeguards(context: dict, use_edge: bool = True) -> tuple:
+def check_entry_price(price: float) -> tuple:
+    """ENTRY_THRESHOLD is an upper bound. MIN_ENTRY_PRICE is the optional floor (0 = off).
+
+    Returns (should_enter, reason). reason is empty when should_enter is True.
+    Used on the entry path only — exits must not inherit the lottery-ticket floor.
+    """
+    if price < MIN_ENTRY_PRICE:
+        return False, f"Price ${price:.2f} below min entry ${MIN_ENTRY_PRICE:.2f}"
+    if price >= ENTRY_THRESHOLD:
+        return False, f"Price ${price:.2f} above threshold ${ENTRY_THRESHOLD:.2f}"
+    return True, ""
+
+
+def check_context_safeguards(context: dict, use_edge: bool = True, min_hours: float = None) -> tuple:
     """
     Check context for safeguards. Returns (should_trade, reasons).
     
     Args:
         context: Context response from SDK
         use_edge: If True, respect edge recommendation (TRADE/HOLD/SKIP)
+        min_hours: Time-decay floor in hours. Defaults to the entry knob
+            TIME_TO_RESOLUTION_MIN_HOURS; exits pass EXIT_MIN_HOURS_TO_RESOLVE.
     """
     if not context:
         return True, []  # No context = proceed (fail open)
@@ -972,7 +1048,8 @@ def check_context_safeguards(context: dict, use_edge: bool = True) -> tuple:
                     h_part = h_part.split("d")[-1].strip()
                 hours += int(h_part)
 
-            if hours < TIME_TO_RESOLUTION_MIN_HOURS:
+            floor = TIME_TO_RESOLUTION_MIN_HOURS if min_hours is None else min_hours
+            if hours < floor:
                 return False, [f"Resolves in {hours}h - too soon"]
         except (ValueError, IndexError):
             pass
@@ -1360,7 +1437,7 @@ def check_exit_opportunities(dry_run: bool = False, use_safeguards: bool = True)
             # Check safeguards before selling
             if use_safeguards:
                 context = get_market_context(market_id)
-                should_trade, reasons = check_context_safeguards(context)
+                should_trade, reasons = check_context_safeguards(context, min_hours=EXIT_MIN_HOURS_TO_RESOLVE)
                 if not should_trade:
                     print(f"     ⏭️  Skipped: {'; '.join(reasons)}")
                     continue
@@ -1433,7 +1510,12 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
         log("\n  [PAPER MODE] Trades will be simulated with real prices. Use --live for real trades.")
 
     log(f"\n⚙️  Configuration:")
-    log(f"  Entry threshold: {ENTRY_THRESHOLD:.0%} (buy below this)")
+    log(f"  Entry threshold: {ENTRY_THRESHOLD:.0%} (buy below this; upper bound only)")
+    if MIN_ENTRY_PRICE > 0:
+        log(f"  Min entry price: {MIN_ENTRY_PRICE:.0%} (reject below this)")
+        if MIN_ENTRY_PRICE >= ENTRY_THRESHOLD:
+            log(f"  ⚠️  Min entry ${MIN_ENTRY_PRICE:.2f} >= entry threshold ${ENTRY_THRESHOLD:.2f}: every candidate will be skipped", force=True)
+    log(f"  Min hours to resolve: {TIME_TO_RESOLUTION_MIN_HOURS:g} (entries only; exits keep {EXIT_MIN_HOURS_TO_RESOLVE}h)")
     log(f"  Exit threshold:  {EXIT_THRESHOLD:.0%} (sell above this)")
     log(f"  Max position:    ${MAX_POSITION_USD:.2f}")
     log(f"  Max trades/run:  {MAX_TRADES_PER_RUN}")
@@ -1740,7 +1822,8 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
             elif trend["direction"] == "up":
                 trend_bonus = f" 📈 (up {trend['change_24h']:.0%} in 24h)"
 
-        if price < ENTRY_THRESHOLD:
+        should_enter, entry_reason = check_entry_price(price)
+        if should_enter:
             position_size = calculate_position_size(MAX_POSITION_USD, smart_sizing)
 
             # Apply volatility targeting
@@ -1854,7 +1937,11 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
                     log(f"  ❌ Trade failed: {error}", force=True)
                     execution_errors.append(error[:120])
         else:
-            log(f"  ⏸️  Price ${price:.2f} above threshold ${ENTRY_THRESHOLD:.2f} - skip")
+            if "below min entry" in entry_reason:
+                log(f"  ⏭️  {entry_reason} - skip")
+                skip_reasons.append("below min entry")
+            else:
+                log(f"  ⏸️  {entry_reason} - skip")
 
     _report_parse_coverage(station_parse_ok, station_parse_unreadable, log)
 
@@ -1941,6 +2028,8 @@ if __name__ == "__main__":
             _config = load_config(CONFIG_SCHEMA, __file__, slug="polymarket-weather-trader")
             # Update module-level vars
             globals()["ENTRY_THRESHOLD"] = _config["entry_threshold"]
+            globals()["MIN_ENTRY_PRICE"] = _config.get("min_entry_price", 0.0)
+            globals()["TIME_TO_RESOLUTION_MIN_HOURS"] = _config.get("min_hours_to_resolve", 2)
             globals()["EXIT_THRESHOLD"] = _config["exit_threshold"]
             globals()["MAX_POSITION_USD"] = _config["max_position_usd"]
             globals()["SMART_SIZING_PCT"] = _config["sizing_pct"]

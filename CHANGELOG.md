@@ -3,6 +3,10 @@
 All notable changes to `simmer-sdk` are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.25.3 (2026-09-08)
+
+- **`simmer backtest`'s replay server now rejects `venue`/`status` filters on `get_markets()` (and `category` on the importable listing) instead of silently ignoring them.** These were never implemented by the replay engine, so passing one previously returned the full unfiltered market list with no indication the filter was dropped — a backtest filtering for one venue could report P&L against markets from a venue it never meant to trade. Passing any of these now raises a clear error naming the parameter instead of returning a misleading result. Omitting them behaves exactly as before. (SIM-5067)
+
 ## 0.25.2 (2026-09-07)
 
 - **`trade(dry_run=True, venue="kalshi")` no longer places a real order.** The Kalshi BYOW path never had a `dry_run` parameter, so a call documented as a no-op fetched a quote, signed a Solana transaction with `SOLANA_PRIVATE_KEY`, and submitted it for real — money moved on a call that promised none would. There is no Kalshi preview pricing yet, so `dry_run=True` on `venue="kalshi"` now returns `success=False` with an error naming the gap, before any quote, signing, or submit call. `dry_run` on `sim` and `polymarket` is unaffected. See SIM-5041.
@@ -77,6 +81,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **Per-skill `readOnlyHint` derived from `read_only` SKILL.md frontmatter (SIM-4439).** Previously the per-skill tool loop registered every bundled skill with a hardcoded `readOnlyHint:true`, which was accurate by coincidence for the current bundle but would silently misclassify any future Tier B skill that executes and writes. `read_only: true` is now parsed from SKILL.md frontmatter; Tier A (instruction-only, no entrypoint) stays `true` by construction; Tier B (has entrypoint) defaults to `false` unless explicitly declared. `preflight` declares `read_only: true` since it only queries state. The `mutates` execution gate is unchanged.
 - **CI: publish-packages verify step no longer false-fails on successful releases.** The verify step now polls the npm and PyPI registries with a bounded retry (up to 120s, 10s interval) when this run just published a package, rather than reading once immediately after the publish step. npm's CDN-cached read path lags writes by seconds, so the single-read approach reliably returned stale data on real releases and left a red workflow run on main for releases that had fully succeeded.
 - **Nansen CreditGuard now tracks credits, not calls.** `CreditGuard` previously capped the number of API calls uniformly, but endpoints cost different amounts: `pnl-by-market` and `top-holders` cost 5 credits each (measured live; Nansen's own docs say 1 and are wrong), while all other prediction-market endpoints cost 1. The guard now accepts `max_credits` (replacing `max_calls`) and deducts the correct per-endpoint cost, so the budget cap means what users expect. The default budget is 45 credits (≈ one 5-credit anchor call plus 40 single-credit enrichment calls). The CLI flag is `--max-credits` (was `--max-calls`).
+- **`preflight` exits cleanly when the installed `simmer-sdk` is below the required floor.** An SDK older than `>=0.17.13` imports without error but then crashes with an `AttributeError` (`SimmerClient.readonly` / `client.preflight` do not exist). The skill now checks the version immediately after import and exits 2 with the install hint instead of producing a traceback.
 
 ### Added
 

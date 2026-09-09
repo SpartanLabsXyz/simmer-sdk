@@ -2374,6 +2374,7 @@ class SimmerClient:
         allow_rebuy: bool = False,
         signal_data: Optional[dict] = None,
         *,
+        skill_version: Optional[str] = None,
         include_hints: bool = False,
         dry_run: bool = False,
     ) -> TradeResult:
@@ -2414,6 +2415,8 @@ class SimmerClient:
                 Used to track which strategy opened each position.
             skill_slug: Optional skill slug for volume attribution (e.g., "polymarket-weather-trader").
                 Matches the ClawHub slug. Used by Simmer to track skill-level trading volume.
+            skill_version: Optional skill package version for adoption attribution.
+                When omitted, the SDK sends the version auto-detected from the caller's SKILL.md.
             allow_rebuy: If False (default), skip buying a market you already hold a
                 position on (same source). Set True for DCA or averaging-in strategies.
             signal_data: Optional structured signal data for backtest replay.
@@ -2632,8 +2635,16 @@ class SimmerClient:
             payload["reasoning"] = reasoning
         if source:
             payload["source"] = source
-        if skill_slug:
-            payload["skill_slug"] = skill_slug
+        auto_skill_slug = getattr(self, "_skill_slug", None)
+        auto_skill_version = getattr(self, "_skill_version", None)
+        effective_skill_slug = skill_slug or auto_skill_slug
+        effective_skill_version = skill_version
+        if effective_skill_version is None and effective_skill_slug == auto_skill_slug:
+            effective_skill_version = auto_skill_version
+        if effective_skill_slug:
+            payload["skill_slug"] = effective_skill_slug
+        if effective_skill_version:
+            payload["skill_version"] = effective_skill_version
         if signal_data:
             payload["signal_data"] = signal_data
         if price is not None:

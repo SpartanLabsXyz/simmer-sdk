@@ -28,12 +28,22 @@
     {
       "name": "SIMMER_WEATHER_ENTRY_THRESHOLD",
       "required": false,
-      "description": "Buy when bucket price below this (default 0.15)."
+      "description": "Upper bound: buy when bucket price is below this (default 0.15)."
+    },
+    {
+      "name": "SIMMER_WEATHER_MIN_ENTRY_PRICE",
+      "required": false,
+      "description": "Lower bound: skip lottery-ticket mids below this (default 0 = off)."
+    },
+    {
+      "name": "SIMMER_WEATHER_MIN_HOURS_TO_RESOLVE",
+      "required": false,
+      "description": "Skip entries if the market resolves in fewer than this many hours (default 2). Entry-only; exits keep a 2h floor."
     },
     {
       "name": "SIMMER_WEATHER_EXIT_THRESHOLD",
       "required": false,
-      "description": "Sell when price above this (default 0.45)."
+      "description": "Sell when price above this (default 0.45). Raise this if you raise ENTRY above 0.45, or the skill will self-exit."
     },
     {
       "name": "SIMMER_WEATHER_MAX_POSITION_USD",
@@ -53,7 +63,7 @@
     {
       "name": "SIMMER_WEATHER_LOCATIONS",
       "required": false,
-      "description": "Comma-separated cities (default 'NYC'). Supported: NYC, Chicago, Seattle, Atlanta, Dallas, Miami."
+      "description": "Comma-separated cities (default 'NYC'). Supported: NYC, Chicago, Seattle, Atlanta, Dallas, Miami, Austin, Houston, Denver, Tel Aviv, Munich, London, Tokyo, Seoul, Ankara, Lucknow, Wellington, Madrid, Milan, Amsterdam, Taipei, Beijing, Shanghai, Guangzhou, Shenzhen, Chengdu, Chongqing, Wuhan, Qingdao, Zhengzhou, Singapore, Kuala Lumpur, Manila, Busan, Toronto, Buenos Aires, Sao Paulo, Mexico City, Cape Town, Helsinki, Jeddah, Warsaw, Paris, Panama City."
     },
     {
       "name": "SIMMER_WEATHER_BINARY_ONLY",
@@ -137,7 +147,29 @@
         0.3
       ],
       "step": 0.01,
-      "label": "Entry edge threshold"
+      "label": "Entry edge threshold (upper bound)"
+    },
+    {
+      "env": "SIMMER_WEATHER_MIN_ENTRY_PRICE",
+      "type": "number",
+      "default": 0,
+      "range": [
+        0,
+        0.5
+      ],
+      "step": 0.01,
+      "label": "Min entry price (lottery-ticket floor; 0 = off)"
+    },
+    {
+      "env": "SIMMER_WEATHER_MIN_HOURS_TO_RESOLVE",
+      "type": "number",
+      "default": 2,
+      "range": [
+        0,
+        72
+      ],
+      "step": 1,
+      "label": "Min hours to resolution (time-decay skip)"
     },
     {
       "env": "SIMMER_WEATHER_EXIT_THRESHOLD",

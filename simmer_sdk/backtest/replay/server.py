@@ -1,4 +1,4 @@
-# vendored from simmer_v3/replay/server.py @ f23de362b27f
+# vendored from simmer_v3/replay/server.py @ e3c361585d16
 # DO NOT EDIT HERE — regenerate via scripts/sync_replay_engine.py
 """Replay API server — the minimal /api/sdk surface skills consume (SIM-3070).
 
@@ -125,6 +125,20 @@ def create_app(session: ReplaySession) -> FastAPI:
     app = FastAPI(title="simmer-replay", docs_url=None, redoc_url=None)
     app.state.session = session
 
+    def _reject_unsupported(**filters: Optional[str]) -> None:
+        """Fail loud on filters this replay server doesn't implement, instead
+        of accepting and silently discarding them (SIM-5067). A caller doing
+        get_markets(venue="kalshi") against a Polymarket tape must not get a
+        plausible-looking result back for a filter that was never applied."""
+        for name, value in filters.items():
+            if value is not None:
+                raise HTTPException(
+                    422,
+                    f"replay does not filter on {name!r} — this parameter is accepted "
+                    f"by the live API but not implemented in replay, so passing it "
+                    f"would silently return an unfiltered result",
+                )
+
     def _budgeted(rows: list) -> list:
         """Enforce the ticks×markets budget AT THE SERVE BOUNDARY: clamp the
         rows to the remaining budget and serve nothing once exhausted. The
@@ -157,6 +171,7 @@ def create_app(session: ReplaySession) -> FastAPI:
         sort: Optional[str] = None,
         venue: Optional[str] = None,
     ):
+        _reject_unsupported(venue=venue, status=status)
         metas = session.view.markets(limit=max(limit * 4, limit))
         if q:
             ql = q.lower()
@@ -185,6 +200,7 @@ def create_app(session: ReplaySession) -> FastAPI:
     @app.get("/api/sdk/markets/importable")
     def importable(limit: int = 50, q: Optional[str] = None, min_volume: float = 0.0,
                    category: Optional[str] = None):
+        _reject_unsupported(category=category)
         metas = session.view.markets(limit=limit * 4)
         if q:
             ql = q.lower()
@@ -246,6 +262,7 @@ def create_app(session: ReplaySession) -> FastAPI:
 
     @app.get("/api/sdk/positions")
     def positions(venue: Optional[str] = None, status: Optional[str] = None):
+        _reject_unsupported(venue=venue)
         rows = _positions_rows(session)
         if status == "resolved":
             rows = [r for r in rows if r["redeemable"]]
