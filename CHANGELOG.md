@@ -3,6 +3,10 @@
 All notable changes to `simmer-sdk` are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.25.4 (2026-09-09)
+
+- **`simmer backtest`'s replay server now rejects the `tags` filter on `get_markets()` too.** 0.25.3 closed `venue`/`status`/`category`; `tags` was the one remaining discovery filter the replay engine never implemented, so a backtest narrowed to a tag slice silently ran against the full market universe and reported P&L for markets it never meant to trade. Passing `tags` now raises an error naming the parameter. Omitting it behaves exactly as before. (SIM-5138)
+
 ## 0.25.3 (2026-09-08)
 
 - **`simmer backtest`'s replay server now rejects `venue`/`status` filters on `get_markets()` (and `category` on the importable listing) instead of silently ignoring them.** These were never implemented by the replay engine, so passing one previously returned the full unfiltered market list with no indication the filter was dropped — a backtest filtering for one venue could report P&L against markets from a venue it never meant to trade. Passing any of these now raises a clear error naming the parameter instead of returning a misleading result. Omitting them behaves exactly as before. (SIM-5067)
