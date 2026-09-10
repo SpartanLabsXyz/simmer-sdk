@@ -18,6 +18,13 @@ sys.modules[SPEC.name] = check_publish_lag
 SPEC.loader.exec_module(check_publish_lag)
 
 
+@pytest.fixture(autouse=True)
+def _clear_github_event_name(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Tests run under this suite's own CI job, where GITHUB_EVENT_NAME=pull_request
+    is genuinely set — isolate it so push/local-shaped tests don't inherit that."""
+    monkeypatch.delenv("GITHUB_EVENT_NAME", raising=False)
+
+
 def write_package_files(root: Path, npm_version: str, pypi_version: str) -> None:
     (root / "mcp").mkdir()
     (root / "mcp" / "package.json").write_text(
