@@ -226,15 +226,37 @@ RETRY_INTERVAL_SECS = 10
 RETRY_MAX_SECS = 120
 
 
-def check_package(label: str, repo_version: str, published_version: str) -> bool:
+def is_pull_request_event() -> bool:
+    return os.environ.get("GITHUB_EVENT_NAME") == "pull_request"
+
+
+def check_package(
+    label: str,
+    repo_version: str,
+    published_version: str,
+    is_pull_request: bool = False,
+) -> bool:
     comparison = compare_versions(repo_version, published_version)
     if comparison > 0:
+        if is_pull_request:
+            print(
+                f"{label}: repo version {repo_version} is ahead of published version "
+                f"{published_version}; publish is pending on merge to main."
+            )
+            return True
         print(
             f"::error::{label} repo version {repo_version} is ahead of "
             f"published version {published_version}. Publish the package before merging."
         )
         return False
     if comparison < 0:
+        if is_pull_request:
+            print(
+                f"::error::{label} published version {published_version} is ahead of "
+                f"repo version {repo_version}. The registry has a version not reflected "
+                "in git — investigate an out-of-band publish before merging."
+            )
+            return False
         print(
             f"{label}: repo version {repo_version} is behind published version "
             f"{published_version}; treating as already published/newer registry state."
@@ -250,6 +272,7 @@ def check_package_with_retry(
     repo_version: str,
     fetch_fn: "Callable[[], str]",
     retry: bool,
+    is_pull_request: bool = False,
 ) -> bool:
     """Check registry version, retrying if the package was just published.
 
@@ -258,7 +281,7 @@ def check_package_with_retry(
     With retry=True, poll up to RETRY_MAX_SECS before giving up.
     """
     if not retry:
-        return check_package(label, repo_version, fetch_fn())
+        return check_package(label, repo_version, fetch_fn(), is_pull_request=is_pull_request)
 
     deadline = time.monotonic() + RETRY_MAX_SECS
     attempt = 0
@@ -268,11 +291,11 @@ def check_package_with_retry(
         comparison = compare_versions(repo_version, published_version)
         if comparison <= 0:
             # registry caught up (match) or is ahead (newer release elsewhere)
-            return check_package(label, repo_version, published_version)
+            return check_package(label, repo_version, published_version, is_pull_request=is_pull_request)
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             # timed out — emit the real error
-            return check_package(label, repo_version, published_version)
+            return check_package(label, repo_version, published_version, is_pull_request=is_pull_request)
         wait = min(RETRY_INTERVAL_SECS, remaining)
         print(
             f"{label}: registry at {published_version}, waiting for {repo_version} to propagate"
@@ -316,22 +339,32 @@ def main() -> int:
 
     retry_npm = getattr(args, "retry_npm", False)
     retry_pypi = getattr(args, "retry_pypi", False)
+    is_pull_request = is_pull_request_event()
 
     if args.npm_published_version:
-        npm_ok = check_package(NPM_PACKAGE, npm_repo_version, args.npm_published_version)
+        npm_ok = check_package(
+            NPM_PACKAGE, npm_repo_version, args.npm_published_version, is_pull_request=is_pull_request
+        )
     else:
         npm_ok = check_package_with_retry(
-            NPM_PACKAGE, npm_repo_version, lambda: fetch_npm_latest(NPM_PACKAGE), retry=retry_npm
+            NPM_PACKAGE,
+            npm_repo_version,
+            lambda: fetch_npm_latest(NPM_PACKAGE),
+            retry=retry_npm,
+            is_pull_request=is_pull_request,
         )
 
     if args.pypi_published_version:
-        pypi_ok = check_package(PYPI_PACKAGE, pypi_repo_version, args.pypi_published_version)
+        pypi_ok = check_package(
+            PYPI_PACKAGE, pypi_repo_version, args.pypi_published_version, is_pull_request=is_pull_request
+        )
     else:
         pypi_ok = check_package_with_retry(
             PYPI_PACKAGE,
             pypi_repo_version,
             lambda: fetch_pypi_latest(PYPI_PACKAGE),
             retry=retry_pypi,
+            is_pull_request=is_pull_request,
         )
 
     errors = validate_mcp_version_bump(root)
