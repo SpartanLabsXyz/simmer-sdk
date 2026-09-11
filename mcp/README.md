@@ -148,6 +148,52 @@ allowlist decision and rationale.
 - Set `SIMMER_MCP_PYTHON` to that interpreter. The server resolves Python from
   `SIMMER_MCP_PYTHON`, then `PATH` — it never discovers a `.venv` on its own.
 
+## OpenAI Agents API (spike)
+
+Proof that a managed [Agents API](https://developers.openai.com/api/docs/guides/agents-api/overview)
+session can drive **this same simmer-mcp package** — markets, a paper `$SIM`
+trade, and briefing. Not a new runtime. Not a Codex fork. See
+[`examples/openai_agents_mcp_spike.py`](../examples/openai_agents_mcp_spike.py)
+and [#365](https://github.com/SpartanLabsXyz/simmer-sdk/issues/365).
+
+This package is still **stdio** (`npx simmer-mcp`). Agents API
+`environment.type: none` can call remote MCP only over **HTTP**, so you put a
+Streamable HTTP front (Smithery, `mcp-proxy`, or your own host) in front of the
+same process. Keep `SIMMER_API_KEY` on that process. Do not commit keys.
+
+```bash
+python examples/openai_agents_mcp_spike.py          # dry-run payload (no secrets)
+python examples/openai_agents_mcp_spike.py --mock   # intended MCP tool sequence
+export OPENAI_API_KEY=...
+export SIMMER_API_KEY=sk_live_...
+export SIMMER_MCP_URL=https://your-host/mcp
+python examples/openai_agents_mcp_spike.py --run    # live Agents session
+```
+
+`--run` needs a current `openai` SDK (`client.beta.agents.sessions.create` plus
+`OpenAI-Beta: agents=v1`). Without `SIMMER_MCP_URL`, pass `--stdio-sandbox` for
+the smallest `openai_hosted` fallback: `npx -y simmer-mcp` inside the sandbox.
+
+### What this spike is not
+
+- Not a generic agent harness, and not a replacement for Grok Bot / Cursor
+  eng-writers.
+- Not live Polymarket or Kalshi. Paper / virtual `$SIM` only
+  (`venue=sim`, `dry_run=true`). Do not set `SIMMER_MCP_ALLOW_LIVE`.
+
+### Auth and API limits
+
+- simmer-mcp reads `SIMMER_API_KEY` from **process env**, not from HTTP
+  `Authorization`. Agents API can send `transport.authorization`; that only
+  helps if your HTTP front-end maps it. Default: leave the header unset and
+  keep the key on the MCP process.
+- `environment.type: none` + HTTP: OpenAI dials your public URL
+  (`connection_origin: service`). Localhost is not reachable.
+- `openai_hosted` + stdio: the sandbox can read `environment.env`. Prefer HTTP
+  so the Simmer key never sits in agent-visible sandbox memory.
+- Agents API is US data residency only and is **not** ZDR. A self-hosted
+  sandbox does not make the API ZDR-eligible.
+
 ## Contributing
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md) for development setup, test structure, and release checklist.
