@@ -285,6 +285,23 @@ def get_context(market_id: str) -> dict:
 # Copytrading Logic
 # =============================================================================
 
+# SIM-5274: substrings of the account-wide structural-blocker error text the
+# server returns when simmer_v3.funding_state_circuit_breaker has tripped for
+# this agent (missing approvals, wrong collateral type, pUSD migration
+# pending). Unlike a per-market rejection, this applies to every remaining
+# signal in the run — matched case-insensitively against trade_result.error.
+_ACCOUNT_BLOCKER_ERROR_MARKERS = (
+    "circuit breaker",
+    "structural funding issue",
+    "trading approvals required",
+)
+
+
+def _is_account_blocker_error(error: Optional[str]) -> bool:
+    if not error:
+        return False
+    lowered = error.lower()
+    return any(marker in lowered for marker in _ACCOUNT_BLOCKER_ERROR_MARKERS)
 
 
 def execute_copytrading(wallets: list, top_n: int = None, max_usd: float = 50.0, dry_run: bool = True, buy_only: bool = True, detect_whale_exits: bool = True, max_trades: int = None, venue: str = None) -> dict:
@@ -371,6 +388,15 @@ def execute_copytrading(wallets: list, top_n: int = None, max_usd: float = 50.0,
                 executed += 1
             elif action == "sell" and not trade_result.retryable:
                 print(f"  ⛔ Sell aborted — position cleared on-chain, skipping retry: {trade_result.error}")
+            elif not trade_result.retryable and _is_account_blocker_error(trade_result.error):
+                # SIM-5274: every remaining signal this run would fail the
+                # same way (missing approvals / wrong collateral / pUSD
+                # migration pending) — stop burning attempts against a
+                # wallet that's structurally blocked account-wide. The
+                # server-side breaker re-probes automatically once it
+                # expires or the wallet activates.
+                print(f"  ⛔ Trading blocked account-wide — stopping this run: {trade_result.error}")
+                break
         except Exception as e:
             t["success"] = False
             t["error"] = str(e)
