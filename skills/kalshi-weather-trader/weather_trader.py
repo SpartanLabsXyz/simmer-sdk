@@ -56,6 +56,8 @@ from simmer_sdk.skill import load_config, update_config, get_config_path
 # resolved as fallbacks below for backwards compatibility.
 CONFIG_SCHEMA = {
     "entry_threshold":   {"env": "SIMMER_WEATHER_ENTRY_THRESHOLD",   "default": 0.15,  "type": float},
+    "min_entry_price":   {"env": "SIMMER_WEATHER_MIN_ENTRY_PRICE",   "default": 0.0,   "type": float},
+    "min_hours_to_resolve": {"env": "SIMMER_WEATHER_MIN_HOURS_TO_RESOLVE", "default": 2, "type": float},
     "exit_threshold":    {"env": "SIMMER_WEATHER_EXIT_THRESHOLD",    "default": 0.45,  "type": float},
     "max_position_usd":  {"env": "SIMMER_WEATHER_MAX_POSITION_USD",  "default": 2.00,  "type": float},
     "sizing_pct":        {"env": "SIMMER_WEATHER_SIZING_PCT",        "default": 0.05,  "type": float},
@@ -114,6 +116,7 @@ MIN_TICK_SIZE = 0.01        # Minimum tradeable price
 
 # Strategy parameters - from config
 ENTRY_THRESHOLD = _config["entry_threshold"]
+MIN_ENTRY_PRICE = _config.get("min_entry_price", 0.0)
 EXIT_THRESHOLD = _config["exit_threshold"]
 MAX_POSITION_USD = _config["max_position_usd"]
 _automaton_max = os.environ.get("AUTOMATON_MAX_BET")
@@ -132,7 +135,8 @@ BINARY_ONLY = _config["binary_only"]
 # Context safeguard thresholds
 SLIPPAGE_MAX_PCT = _config["slippage_max"]  # Skip if slippage exceeds this (tunable)
 MIN_LIQUIDITY_USD = _config["min_liquidity"]  # Skip markets with liquidity below this (0 = disabled)
-TIME_TO_RESOLUTION_MIN_HOURS = 2  # Skip if resolving in < 2 hours
+TIME_TO_RESOLUTION_MIN_HOURS = _config.get("min_hours_to_resolve", 2)  # Entry-only: skip if resolving sooner
+EXIT_MIN_HOURS_TO_RESOLVE = 2  # Exits keep the original 2h floor regardless of the env knob
 
 # Price trend detection
 PRICE_DROP_THRESHOLD = 0.10  # 10% drop in last 24h = stronger signal
@@ -376,13 +380,24 @@ def get_price_history(market_id: str) -> list:
         return []
 
 
-def check_context_safeguards(context: dict, use_edge: bool = True) -> tuple:
+def check_entry_price(price: float) -> tuple:
+    """Validate the entry-only price band. Returns (should_enter, reason)."""
+    if price < MIN_ENTRY_PRICE:
+        return False, f"Price ${price:.2f} below min entry ${MIN_ENTRY_PRICE:.2f}"
+    if price >= ENTRY_THRESHOLD:
+        return False, f"Price ${price:.2f} above threshold ${ENTRY_THRESHOLD:.2f}"
+    return True, ""
+
+
+def check_context_safeguards(context: dict, use_edge: bool = True, min_hours: float = None) -> tuple:
     """
     Check context for safeguards. Returns (should_trade, reasons).
     
     Args:
         context: Context response from SDK
         use_edge: If True, respect edge recommendation (TRADE/HOLD/SKIP)
+        min_hours: Time-decay floor in hours. Defaults to the entry knob;
+            exits pass EXIT_MIN_HOURS_TO_RESOLVE.
     """
     if not context:
         return True, []  # No context = proceed (fail open)
@@ -420,7 +435,8 @@ def check_context_safeguards(context: dict, use_edge: bool = True) -> tuple:
                     h_part = h_part.split("d")[-1].strip()
                 hours += int(h_part)
 
-            if hours < TIME_TO_RESOLUTION_MIN_HOURS:
+            floor = TIME_TO_RESOLUTION_MIN_HOURS if min_hours is None else min_hours
+            if hours < floor:
                 return False, [f"Resolves in {hours}h - too soon"]
         except (ValueError, IndexError):
             pass
@@ -711,7 +727,7 @@ def check_exit_opportunities(dry_run: bool = False, use_safeguards: bool = True)
             # Check safeguards before selling
             if use_safeguards:
                 context = get_market_context(market_id)
-                should_trade, reasons = check_context_safeguards(context)
+                should_trade, reasons = check_context_safeguards(context, min_hours=EXIT_MIN_HOURS_TO_RESOLVE)
                 if not should_trade:
                     print(f"     ⏭️  Skipped: {'; '.join(reasons)}")
                     continue
@@ -770,7 +786,12 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
         log("\n  [PAPER MODE] Trades will be simulated with real prices. Use --live for real trades.")
 
     log(f"\n⚙️  Configuration:")
-    log(f"  Entry threshold: {ENTRY_THRESHOLD:.0%} (buy below this)")
+    log(f"  Entry threshold: {ENTRY_THRESHOLD:.0%} (buy below this; upper bound only)")
+    if MIN_ENTRY_PRICE > 0:
+        log(f"  Min entry price: {MIN_ENTRY_PRICE:.0%} (reject below this)")
+        if MIN_ENTRY_PRICE >= ENTRY_THRESHOLD:
+            log(f"  ⚠️  Min entry ${MIN_ENTRY_PRICE:.2f} >= entry threshold ${ENTRY_THRESHOLD:.2f}: every candidate will be skipped", force=True)
+    log(f"  Min hours to resolve: {TIME_TO_RESOLUTION_MIN_HOURS:g} (entries only; exits keep {EXIT_MIN_HOURS_TO_RESOLVE}h)")
     log(f"  Exit threshold:  {EXIT_THRESHOLD:.0%} (sell above this)")
     log(f"  Max position:    ${MAX_POSITION_USD:.2f}")
     log(f"  Max trades/run:  {MAX_TRADES_PER_RUN}")
@@ -941,6 +962,12 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
             skip_reasons.append("price at extreme")
             continue
 
+        should_enter, entry_reason = check_entry_price(price)
+        if not should_enter:
+            log(f"  ⏸️  {entry_reason} - skip")
+            skip_reasons.append(entry_reason)
+            continue
+
         # Check safeguards with edge analysis
         # NOAA forecasts are ~85% accurate for 1-2 day predictions when in-bucket
         noaa_probability = 0.85
@@ -964,7 +991,7 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
             elif trend["direction"] == "up":
                 trend_bonus = f" 📈 (up {trend['change_24h']:.0%} in 24h)"
 
-        if price < ENTRY_THRESHOLD:
+        if should_enter:
             position_size = calculate_position_size(MAX_POSITION_USD, smart_sizing)
 
             min_cost_for_shares = MIN_SHARES_PER_ORDER * price
@@ -1026,8 +1053,6 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
                 error = result.get("error", "Unknown error")
                 log(f"  ❌ Trade failed: {error}", force=True)
                 execution_errors.append(error[:120])
-        else:
-            log(f"  ⏸️  Price ${price:.2f} above threshold ${ENTRY_THRESHOLD:.2f} - skip")
 
     exits_found, exits_executed = check_exit_opportunities(dry_run, use_safeguards)
 
@@ -1096,6 +1121,8 @@ if __name__ == "__main__":
             _config = load_config(CONFIG_SCHEMA, __file__, slug="kalshi-weather-trader")
             # Update module-level vars
             globals()["ENTRY_THRESHOLD"] = _config["entry_threshold"]
+            globals()["MIN_ENTRY_PRICE"] = _config.get("min_entry_price", 0.0)
+            globals()["TIME_TO_RESOLUTION_MIN_HOURS"] = _config.get("min_hours_to_resolve", 2)
             globals()["EXIT_THRESHOLD"] = _config["exit_threshold"]
             globals()["MAX_POSITION_USD"] = _config["max_position_usd"]
             globals()["SMART_SIZING_PCT"] = _config["sizing_pct"]

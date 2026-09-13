@@ -3,7 +3,7 @@ name: kalshi-weather-trader
 description: Trade Kalshi weather markets using NOAA forecasts via Simmer SDK and DFlow on Solana. Port of the popular polymarket-weather-trader. Use when user wants to trade temperature markets on Kalshi, automate weather bets, or check NOAA forecasts.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.0.11"
+  version: "1.0.12"
   displayName: Kalshi Weather Trader
   difficulty: intermediate
   attribution: Strategy inspired by gopfan2, powered by DFlow
@@ -62,7 +62,9 @@ When user asks to install or configure this skill:
    - USDC on Solana mainnet for trading capital
 
 6. **Ask about settings** (or confirm defaults)
-   - Entry threshold: When to buy (default 15¢)
+   - Entry threshold: Upper bound for when to buy (default 15¢)
+   - Min entry price: Lower bound to skip lottery-ticket mids (default 0 = off)
+   - Min hours to resolve: Skip entries resolving too soon (default 2h; exits keep 2h)
    - Exit threshold: When to sell (default 45¢)
    - Max position: Amount per trade (default $2.00)
    - Locations: Which cities to trade (default NYC)
@@ -75,8 +77,10 @@ When user asks to install or configure this skill:
 
 | Setting | Environment Variable | Default | Description |
 |---------|---------------------|---------|-------------|
-| Entry threshold | `SIMMER_WEATHER_ENTRY_THRESHOLD` | 0.15 | Buy when price below this |
-| Exit threshold | `SIMMER_WEATHER_EXIT_THRESHOLD` | 0.45 | Sell when price above this |
+| Entry threshold | `SIMMER_WEATHER_ENTRY_THRESHOLD` | 0.15 | **Upper** bound — buy when price is *below* this |
+| Min entry price | `SIMMER_WEATHER_MIN_ENTRY_PRICE` | 0 | **Lower** bound — skip lottery tickets below this (`0` = off), e.g. `0.15` to skip sub-15¢ tickets. Must be below the entry threshold. |
+| Min hours to resolve | `SIMMER_WEATHER_MIN_HOURS_TO_RESOLVE` | 2 | Skip entries if the market resolves in fewer than this many hours. Entry-only; exits keep a fixed 2h floor. |
+| Exit threshold | `SIMMER_WEATHER_EXIT_THRESHOLD` | 0.45 | Sell when price above this. Raise this if you raise entry above `0.45`, or the skill will self-exit. |
 | Max position | `SIMMER_WEATHER_MAX_POSITION_USD` | 2.00 | Maximum USD per trade |
 | Max trades/run | `SIMMER_WEATHER_MAX_TRADES_PER_RUN` | 5 | Maximum trades per scan cycle |
 | Locations | `SIMMER_WEATHER_LOCATIONS` | NYC | Comma-separated cities (NYC, Chicago, Seattle, Atlanta, Dallas, Miami) |
@@ -135,7 +139,7 @@ Each cycle the script:
 5. Finds the temperature bucket that matches the forecast
 6. **Safeguards**: Checks context for flip-flop warnings, slippage, time decay
 7. **Trend Detection**: Looks for recent price drops (stronger buy signal)
-8. **Entry**: If bucket price < threshold and safeguards pass → BUY
+8. **Entry**: If min-entry ≤ bucket price < entry threshold and safeguards pass → BUY
 9. **Exit**: Checks open positions, sells if price > exit threshold
 10. **Tagging**: All trades tagged with `sdk:kalshi-weather` for tracking
 
@@ -143,12 +147,14 @@ Each cycle the script:
 
 Before trading, the skill checks:
 - **Flip-flop warning**: Skips if you've been reversing too much
-- **Slippage**: Skips if estimated slippage > 15%
-- **Time decay**: Skips if market resolves in < 2 hours
+- **Slippage**: Skips if estimated slippage > 15% (tunable via `SIMMER_WEATHER_SLIPPAGE_MAX`)
+- **Time decay**: Skips entries if market resolves in < `SIMMER_WEATHER_MIN_HOURS_TO_RESOLVE` hours (default 2)
 - **Market status**: Skips if market already resolved
 - **Kalshi maintenance**: Kalshi's clearinghouse has a weekly maintenance window on Thursdays 3:00-5:00 AM ET — orders during this window will fail
 
-Disable with `--no-safeguards` (not recommended).
+`SIMMER_WEATHER_MIN_ENTRY_PRICE` (default 0 = off) is the other side of the entry-price check, not this list — `--no-safeguards` does not disable it.
+
+Disable the flip-flop / slippage / time-decay / resolved checks with `--no-safeguards` (not recommended).
 
 ## Troubleshooting
 
@@ -158,6 +164,12 @@ Disable with `--no-safeguards` (not recommended).
 
 **"Slippage too high"**
 - Market is illiquid, reduce position size or skip
+
+**"Resolves in Xh - too soon"**
+- Market resolves sooner than `SIMMER_WEATHER_MIN_HOURS_TO_RESOLVE` (default 2h). Raise the env to skip resolve-day entries.
+
+**"Price $X.XX below min entry"**
+- Bucket mid is below `SIMMER_WEATHER_MIN_ENTRY_PRICE`. Lottery-ticket floor; default is off (`0`).
 
 **"No weather markets found"**
 - Weather markets may not be active (seasonal)

@@ -254,6 +254,7 @@ export class SimmerApi {
     status?: string;
     tags?: string;
     sort?: string;
+    tradeable_only?: boolean;
   }): Promise<MarketsResult> {
     const qs = new URLSearchParams();
     if (params.q) qs.set("q", params.q);
@@ -262,6 +263,8 @@ export class SimmerApi {
     if (params.status) qs.set("status", params.status);
     if (params.tags) qs.set("tags", params.tags);
     if (params.sort) qs.set("sort", params.sort);
+    // Only sent when the caller opts out; the server already defaults it to true.
+    if (params.tradeable_only === false) qs.set("tradeable_only", "false");
     const url = `${this.apiUrl}/api/sdk/markets?${qs.toString()}`;
     const resp = await this.timedFetch(url, { headers: this.headers() }, 15_000);
     if (!resp.ok) {

@@ -1,4 +1,4 @@
-# vendored from simmer_v3/replay/store.py @ df6bde474420
+# vendored from simmer_v3/replay/store.py @ ce89ed16b684
 # DO NOT EDIT HERE — regenerate via scripts/sync_replay_engine.py
 """HistoricalStore protocol + the frozen-clock view the replay server uses.
 
@@ -68,7 +68,7 @@ class HistoricalStore(Protocol):
     Policy (clamping to the frozen tick) lives in ReplayView.
     """
 
-    def markets(self, at: datetime, *, limit: int = 500, **filters) -> list[MarketMeta]:
+    def markets(self, at: datetime, *, limit: int = 500, order_by: str = "volume", **filters) -> list[MarketMeta]:
         """Markets tradable at `at`: created_at <= at and not yet ended."""
         ...
 
@@ -117,8 +117,8 @@ class ReplayView:
         response field (e.g. seconds_to_expiry) from this, never wall clock."""
         return self._at
 
-    def markets(self, *, limit: int = 500, **filters) -> list[MarketMeta]:
-        return self._store.markets(self._at, limit=limit, **filters)
+    def markets(self, *, limit: int = 500, order_by: str = "volume", **filters) -> list[MarketMeta]:
+        return self._store.markets(self._at, limit=limit, order_by=order_by, **filters)
 
     def price(self, market_id: str) -> Optional[PricePoint]:
         return self._store.price(market_id, self._at)

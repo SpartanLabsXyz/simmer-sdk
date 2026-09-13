@@ -896,6 +896,9 @@ if (simmer) {
       "applied server-side BEFORE the window, so they reach older-but-active",
       "markets a plain browse would miss.",
       "Default limit is 50; max is 500.",
+      "An empty result carries empty_reason: 'filtered_untradeable' means markets",
+      "matched and the default tradeability filter dropped them — retry with",
+      "tradeable_only=false. 'no_matches' is a real miss.",
     ],
     schema: {
       q: z.string().optional().describe("Text search query (min 2 chars, case-insensitive)"),
@@ -904,11 +907,12 @@ if (simmer) {
       status: z.string().optional().describe("Filter by status ('active', 'resolved', etc.)"),
       tags: z.string().optional().describe("Comma-separated tags to filter by (e.g. 'weather,crypto')"),
       sort: z.enum(["volume", "created"]).optional().describe("Sort order: 'volume' (24h) or 'created'"),
+      tradeable_only: z.boolean().optional().describe("Defaults true. Pass false to include markets the tradeability filter drops (dead external orderbook, stale venue price) — the retry an empty_reason of 'filtered_untradeable' asks for"),
     },
     mutates: false,
     handler: async (args: {
       q?: string; limit?: number; venue?: "sim" | "polymarket" | "kalshi";
-      status?: string; tags?: string; sort?: "volume" | "created";
+      status?: string; tags?: string; sort?: "volume" | "created"; tradeable_only?: boolean;
     }, _ctx) => {
       try {
         const result = await simmer!.getMarkets(args);

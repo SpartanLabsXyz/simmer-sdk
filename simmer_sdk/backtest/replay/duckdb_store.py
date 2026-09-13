@@ -1,4 +1,4 @@
-# vendored from simmer_v3/replay/duckdb_store.py @ df6bde474420
+# vendored from simmer_v3/replay/duckdb_store.py @ ce89ed16b684
 # DO NOT EDIT HERE — regenerate via scripts/sync_replay_engine.py
 """DuckDB-backed HistoricalStore over the Polymarket trade-tape parquet set.
 
@@ -63,7 +63,7 @@ class DuckDBStore:
 
     # -- HistoricalStore ----------------------------------------------------
 
-    def markets(self, at: datetime, *, limit: int = 500, **filters) -> list[MarketMeta]:
+    def markets(self, at: datetime, *, limit: int = 500, order_by: str = "volume", **filters) -> list[MarketMeta]:
         clauses = ["created_at <= ?", "(end_date IS NULL OR end_date > ?)"]
         params: list = [at, at]
         if "event_id" in filters:
@@ -73,11 +73,17 @@ class DuckDBStore:
             clauses.append("slug LIKE ?")
             params.append(filters["slug_like"])
         params.append(limit)
+        if order_by == "created_at":
+            order_clause = "created_at DESC, volume DESC"
+        elif order_by == "volume":
+            order_clause = "volume DESC"
+        else:
+            raise ValueError(f"unsupported replay market ordering: {order_by!r}")
         rows = self._con.execute(
             f"""SELECT id, question, slug, condition_id, answer1, answer2,
                        created_at, end_date, event_id, event_title, neg_risk, volume
                 FROM m WHERE {' AND '.join(clauses)}
-                ORDER BY volume DESC LIMIT ?""",
+                ORDER BY {order_clause} LIMIT ?""",
             params,
         ).fetchall()
         return [

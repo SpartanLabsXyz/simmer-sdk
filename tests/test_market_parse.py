@@ -37,3 +37,33 @@ def test_parse_market_defaults_outcome_to_none_for_pending_markets():
     })
 
     assert market.outcome is None
+    assert market.sim_tradeable is None
+    assert market.is_orderbook_open is None
+
+
+def test_parse_market_preserves_sim_tradeable_and_is_orderbook_open():
+    market = SimmerClient._parse_market({
+        "id": "m4",
+        "question": "Tradeable with a live book?",
+        "status": "active",
+        "current_probability": 0.55,
+        "sim_tradeable": True,
+        "is_orderbook_open": True,
+    })
+
+    assert market.sim_tradeable is True
+    assert market.is_orderbook_open is True
+
+
+def test_parse_market_preserves_false_sim_tradeable_and_closed_book():
+    market = SimmerClient._parse_market({
+        "id": "m5",
+        "question": "Blocked paper trade, closed book?",
+        "status": "active",
+        "current_probability": 0.55,
+        "sim_tradeable": False,
+        "is_orderbook_open": False,
+    })
+
+    assert market.sim_tradeable is False
+    assert market.is_orderbook_open is False

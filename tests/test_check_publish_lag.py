@@ -18,6 +18,13 @@ sys.modules[SPEC.name] = check_publish_lag
 SPEC.loader.exec_module(check_publish_lag)
 
 
+@pytest.fixture(autouse=True)
+def _clear_github_event_name(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Tests run under this suite's own CI job, where GITHUB_EVENT_NAME=pull_request
+    is genuinely set — isolate it so push/local-shaped tests don't inherit that."""
+    monkeypatch.delenv("GITHUB_EVENT_NAME", raising=False)
+
+
 def write_package_files(root: Path, npm_version: str, pypi_version: str) -> None:
     (root / "mcp").mkdir()
     (root / "mcp" / "package.json").write_text(
@@ -246,6 +253,51 @@ def test_mcp_source_change_allows_npm_version_bump(
     )
 
     assert check_publish_lag.main() == 0
+
+
+def test_pull_request_repo_ahead_of_registry_is_green(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A version-bump PR is legitimately ahead of the registry until merge publishes it."""
+    write_package_files(tmp_path, npm_version="3.4.10", pypi_version="0.20.1")
+    monkeypatch.setenv("GITHUB_EVENT_NAME", "pull_request")
+    monkeypatch.setattr(
+        check_publish_lag,
+        "parse_args",
+        lambda: make_args(root=tmp_path, npm_published_version="3.4.9", pypi_published_version="0.20.0"),
+    )
+
+    assert check_publish_lag.main() == 0
+
+
+def test_pull_request_registry_ahead_of_repo_is_red(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Registry ahead of repo means someone published outside git — always a real failure."""
+    write_package_files(tmp_path, npm_version="3.4.9", pypi_version="0.20.0")
+    monkeypatch.setenv("GITHUB_EVENT_NAME", "pull_request")
+    monkeypatch.setattr(
+        check_publish_lag,
+        "parse_args",
+        lambda: make_args(root=tmp_path, npm_published_version="3.4.10", pypi_published_version="0.20.0"),
+    )
+
+    assert check_publish_lag.main() == 1
+
+
+def test_push_repo_ahead_of_registry_still_red(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Push-to-main behaviour is unchanged: repo ahead after merge means publish didn't run."""
+    write_package_files(tmp_path, npm_version="3.4.10", pypi_version="0.20.0")
+    monkeypatch.setenv("GITHUB_EVENT_NAME", "push")
+    monkeypatch.setattr(
+        check_publish_lag,
+        "parse_args",
+        lambda: make_args(root=tmp_path, npm_published_version="3.4.9", pypi_published_version="0.20.0"),
+    )
+
+    assert check_publish_lag.main() == 1
 
 
 def test_non_mcp_package_input_does_not_require_npm_version_bump(
