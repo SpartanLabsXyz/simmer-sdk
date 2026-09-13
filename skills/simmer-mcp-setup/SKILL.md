@@ -1,11 +1,11 @@
 ---
 name: simmer-mcp-setup
-version: "0.3.4"
+version: "0.3.5"
 published: true
 description: One-shot bootstrap for the Simmer MCP server. Detects your agent runtime (Claude Code / Cursor / OpenClaw / Hermes / Codex / Grok Bot), installs simmer-mcp via npm, writes the right MCP config, prompts a restart, and verifies the tool handshake. Use after registering an agent on simmer.markets to run pre-built Simmer trading strategies through your MCP-aware agent.
 metadata:
   author: "Simmer (@simmer_markets)"
-  version: "0.3.4"
+  version: "0.3.5"
   displayName: Simmer MCP Setup
   difficulty: beginner
   primaryEnv: SIMMER_API_KEY
@@ -135,10 +135,18 @@ python3 -m venv .venv && .venv/bin/pip install 'simmer-sdk>=0.17.13'
 ```
 
 Use a venv — most Linux hosts mark the system Python "externally managed", so a bare
-`pip install` fails with PEP 668. If `python3 -m venv` itself fails with
-*"ensurepip is not available"*, the venv module is packaged separately on that distro:
-`sudo apt install python3-venv` (Debian/Ubuntu), or use `pipx`, or as a last resort
-`pip install --break-system-packages`.
+`pip install` fails with PEP 668. Use Python 3.10 or newer for this venv; on macOS,
+`python3` can still be Apple's Python 3.9, which fails to resolve current Simmer SDK
+dependencies with errors such as `No matching distribution found for py-order-utils`.
+If that happens, create the venv with a newer interpreter instead:
+
+```bash
+python3.11 -m venv .venv && .venv/bin/pip install 'simmer-sdk>=0.17.13'
+```
+
+If `python3 -m venv` itself fails with *"ensurepip is not available"*, the venv module is
+packaged separately on that distro: `sudo apt install python3-venv` (Debian/Ubuntu), or
+use `pipx`, or as a last resort `pip install --break-system-packages`.
 
 ⚠️ **Creating the venv is not enough — you must point the server at it.** The server is
 launched by your runtime as `npx -y simmer-mcp` and inherits *that* environment, not your
