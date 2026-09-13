@@ -117,3 +117,118 @@ def test_changed_skill_requires_current_metadata_version(tmp_path, monkeypatch) 
         "skills/weather/SKILL.md is missing metadata.version; add a skill version "
         "so ClawHub can publish it"
     ]
+
+
+def simmer_skill_md(version: str) -> str:
+    return f"""---
+name: simmer
+metadata:
+  author: Simmer
+  version: "{version}"
+---
+# Simmer
+"""
+
+
+def write_simmer_skill(tmp_path: Path, version: str) -> None:
+    skill_dir = tmp_path / "skills" / "simmer"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(simmer_skill_md(version), encoding="utf-8")
+
+
+def patch_simmer_gate_repo(monkeypatch, tmp_path: Path, previous_version: str) -> None:
+    monkeypatch.setattr(check_skill_governance, "ROOT", tmp_path)
+    monkeypatch.setattr(check_skill_governance, "SKILLS_DIR", tmp_path / "skills")
+
+    def fake_git_file_at_ref(ref: str, path: str) -> str | None:
+        assert ref == "base-ref"
+        assert path == "skills/simmer/SKILL.md"
+        return simmer_skill_md(previous_version)
+
+    monkeypatch.setattr(check_skill_governance, "git_file_at_ref", fake_git_file_at_ref)
+
+
+def test_simmer_website_sync_gate_ignores_non_version_change(tmp_path, monkeypatch) -> None:
+    write_simmer_skill(tmp_path, "1.25.2")
+    patch_simmer_gate_repo(monkeypatch, tmp_path, previous_version="1.25.2")
+    monkeypatch.setattr(
+        check_skill_governance,
+        "open_simmer_website_sync_pr",
+        lambda version: (_ for _ in ()).throw(AssertionError("should not query GitHub")),
+    )
+
+    assert (
+        check_skill_governance.validate_simmer_website_sync_gate(
+            ["skills/simmer/SKILL.md"],
+            "base-ref",
+        )
+        == []
+    )
+
+
+def test_simmer_website_sync_gate_allows_pr_body_waiver(tmp_path, monkeypatch) -> None:
+    write_simmer_skill(tmp_path, "1.25.3")
+    patch_simmer_gate_repo(monkeypatch, tmp_path, previous_version="1.25.2")
+    monkeypatch.setattr(
+        check_skill_governance,
+        "current_pull_request",
+        lambda: {"body": "simmer-website-sync-waived: emergency hotfix"},
+    )
+    monkeypatch.setattr(
+        check_skill_governance,
+        "open_simmer_website_sync_pr",
+        lambda version: (_ for _ in ()).throw(AssertionError("should not query GitHub")),
+    )
+
+    assert (
+        check_skill_governance.validate_simmer_website_sync_gate(
+            ["skills/simmer/SKILL.md"],
+            "base-ref",
+        )
+        == []
+    )
+
+
+def test_simmer_website_sync_gate_allows_matching_open_sync_pr(
+    tmp_path, monkeypatch
+) -> None:
+    write_simmer_skill(tmp_path, "1.25.3")
+    patch_simmer_gate_repo(monkeypatch, tmp_path, previous_version="1.25.2")
+    monkeypatch.setattr(check_skill_governance, "current_pull_request", lambda: {"body": ""})
+    monkeypatch.setattr(
+        check_skill_governance,
+        "open_simmer_website_sync_pr",
+        lambda version: "https://github.com/SupaFund/simmer/pull/2000",
+    )
+
+    assert (
+        check_skill_governance.validate_simmer_website_sync_gate(
+            ["skills/simmer/SKILL.md"],
+            "base-ref",
+        )
+        == []
+    )
+
+
+def test_simmer_website_sync_gate_requires_matching_open_sync_pr(
+    tmp_path, monkeypatch
+) -> None:
+    write_simmer_skill(tmp_path, "1.25.3")
+    patch_simmer_gate_repo(monkeypatch, tmp_path, previous_version="1.25.2")
+    monkeypatch.setattr(check_skill_governance, "current_pull_request", lambda: {"body": ""})
+    monkeypatch.setattr(
+        check_skill_governance,
+        "open_simmer_website_sync_pr",
+        lambda version: None,
+    )
+
+    errors = check_skill_governance.validate_simmer_website_sync_gate(
+        ["skills/simmer/SKILL.md"],
+        "base-ref",
+    )
+
+    assert errors == [
+        "skills/simmer/SKILL.md metadata.version changed from 1.25.2 to 1.25.3; "
+        "open a matching SupaFund/simmer PR that changes website/public/skill.md "
+        "to 1.25.3, or add 'simmer-website-sync-waived: <reason>' to this PR body."
+    ]

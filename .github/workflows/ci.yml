@@ -56,6 +56,7 @@ jobs:
       - name: Check skill governance
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          SIMMER_WEBSITE_SYNC_GITHUB_TOKEN: ${{ secrets.SIMMER_WEBSITE_SYNC_GITHUB_TOKEN }}
         run: python3 scripts/check-skill-governance.py
 
   build:
