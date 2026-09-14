@@ -17,6 +17,7 @@ Requires:
 
 from __future__ import annotations
 
+import os
 import sys
 import re
 import json
@@ -1201,7 +1202,8 @@ def apply_vol_targeting(base_size: float, current_vol: float | None,
 # (/search requires auth). Tested Feb 2026: 600+ events paginated, zero weather.
 # This path is slower but is the only way to discover weather markets by keyword.
 # Trading does NOT depend on discovery — v1.10.1+ trades from already-imported
-# markets via GET /api/sdk/markets?tags=weather.
+# markets via GET /api/sdk/markets?tags=weather (live) or q=temperature
+# (replay; the tape rejects tags/status).
 # =============================================================================
 
 # Search terms per location (matching Polymarket event naming)
@@ -1275,27 +1277,54 @@ def discover_and_import_weather_markets(log=print):
 # Simmer API - Trading
 # =============================================================================
 
+class MarketFetchError(RuntimeError):
+    """Weather market listing failed. Fail-closed so a backtest is not clean
+    on a 0-eval tick (replay maps a non-zero skill exit to failed_ticks)."""
+
+
+def _is_replay() -> bool:
+    """True inside the Simmer replay harness (SIMMER_REPLAY=1)."""
+    return os.environ.get("SIMMER_REPLAY") == "1"
+
+
+def _weather_markets_params() -> dict:
+    """Live uses tags=weather; replay uses the existing q= filter.
+
+    Replay rejects tags/status with 422 (0.25.3/0.25.4) — MarketMeta has no
+    tags field, so accepting those filters would silently ignore them.
+    Replay already matches q against question/slug. Weather slugs and many
+    questions carry "temperature"; live questions like "Austin 82-83F on
+    Sep 7" do not, which is why live still needs the tag.
+    """
+    params = {"limit": 100, "include": "resolution_criteria"}
+    if _is_replay():
+        params["q"] = "temperature"
+    else:
+        params["tags"] = "weather"
+        params["status"] = "active"
+    return params
+
+
 def fetch_weather_markets():
     """Fetch weather-tagged markets from Simmer API.
 
     Requests `resolution_criteria` so we can route each market to the
     specific station Polymarket actually reads (KDAL vs KDFW, KORD vs KMDW,
     LIMC vs LIML, etc.) instead of trusting a city → station hardcode.
+
+    Under replay, drops tags/status and uses q=temperature (see
+    `_weather_markets_params`). A failed listing raises MarketFetchError
+    instead of returning [] — empty tape after a 200 is honest; a 422 is not.
     """
     try:
         result = get_client()._request(
             "GET", "/api/sdk/markets",
-            params={
-                "tags": "weather",
-                "status": "active",
-                "limit": 100,
-                "include": "resolution_criteria",
-            },
+            params=_weather_markets_params(),
         )
         return result.get("markets", [])
-    except Exception:
+    except Exception as exc:
         print("  Failed to fetch markets from Simmer API")
-        return []
+        raise MarketFetchError("Failed to fetch markets from Simmer API") from exc
 
 
 def execute_trade(market_id: str, side: str, amount: float, reasoning: str = None, signal_data: dict = None) -> dict:
