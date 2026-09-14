@@ -174,7 +174,65 @@ describe("executeTrade — resolveVenue coercion gate", () => {
     assert.equal(result.isError, true);
     assert.ok(result.content[0].text.includes("ok_to_trade=False"));
     assert.ok(result.content[0].text.includes("WALLET_UNVERIFIED"));
+    assert.ok(!result.content[0].text.includes("SIMMER_SKIP_PREFLIGHT"), "must not advertise the skip valve to the agent");
     assert.equal(tradePosts.length, 0, "must not POST /trade when preflight blocks");
+  });
+
+  it("tighter EXPOSURE_CAP_USD blocks the POST with EXPOSURE_CAP_EXCEEDED", async () => {
+    // $10 planned + $0 open > $5 cap — same verdict the SDK preflight would return.
+    const tradePosts: string[] = [];
+    mockFetch(async (url, init) => {
+      const u = url.toString();
+      if (u.includes("/api/sdk/agents/me")) {
+        return okJson({ real_trading_enabled: true, wallet_address: "0xabc" });
+      }
+      if (u.includes("/api/sdk/briefing")) {
+        return okJson({ venues: { polymarket: { balance: 50 } }, risk_alerts: [] });
+      }
+      if (u.includes("/api/sdk/positions")) {
+        return okJson({ positions: [] });
+      }
+      tradePosts.push(init?.method ?? "GET");
+      return okJson({ status: "executed" });
+    });
+
+    const result = await executeTrade(
+      api,
+      { market_id: "m1", side: "yes", action: "buy", amount: 10, venue: "polymarket", dry_run: false },
+      { ...ctxLive, exposureCapUsd: 5 },
+    );
+
+    assert.equal(result.isError, true);
+    assert.ok(result.content[0].text.includes("EXPOSURE_CAP_EXCEEDED"));
+    assert.equal(tradePosts.length, 0, "must not POST /trade when cap would fail SDK preflight");
+  });
+
+  it("non-finite position current_value fail-closes as EXPOSURE_UNKNOWN", async () => {
+    const tradePosts: string[] = [];
+    mockFetch(async (url, init) => {
+      const u = url.toString();
+      if (u.includes("/api/sdk/agents/me")) {
+        return okJson({ real_trading_enabled: true, wallet_address: "0xabc" });
+      }
+      if (u.includes("/api/sdk/briefing")) {
+        return okJson({ venues: { polymarket: { balance: 50 } }, risk_alerts: [] });
+      }
+      if (u.includes("/api/sdk/positions")) {
+        return okJson({ positions: [{ venue: "polymarket", current_value: "not-a-number" }] });
+      }
+      tradePosts.push(init?.method ?? "GET");
+      return okJson({ status: "executed" });
+    });
+
+    const result = await executeTrade(
+      api,
+      { market_id: "m1", side: "yes", action: "buy", amount: 10, venue: "polymarket", dry_run: false },
+      ctxLive,
+    );
+
+    assert.equal(result.isError, true);
+    assert.ok(result.content[0].text.includes("EXPOSURE_UNKNOWN"));
+    assert.equal(tradePosts.length, 0, "must not treat non-finite current_value as 0");
   });
 
   it("skipPreflight bypasses the live preflight gate", async () => {

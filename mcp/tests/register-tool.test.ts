@@ -209,6 +209,22 @@ describe("registerTool pass-through — mutates:false", () => {
     assert.equal(calls[0].ctx.live, false, "ctx.live is always false for mutates:false");
     assert.equal(calls[0].ctx.allowLive, true, "ctx.allowLive reflects env (true when set)");
   });
+
+  it("plumbs EXPOSURE_CAP_USD onto ctx (handlers must not re-read process.env)", async () => {
+    const { server, getLastHandler } = makeMockServer();
+    const { handler, calls } = recordingHandler();
+
+    registerTool(server, {
+      name: "simmer_trade",
+      description: "test",
+      schema: {},
+      mutates: false,
+      handler,
+    }, { EXPOSURE_CAP_USD: "25" });
+
+    await getLastHandler()({});
+    assert.equal(calls[0].ctx.exposureCapUsd, 25);
+  });
 });
 
 // ---------------------------------------------------------------------------

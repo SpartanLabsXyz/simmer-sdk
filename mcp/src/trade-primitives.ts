@@ -100,6 +100,7 @@ export async function executeTrade(
       const verdict = await evaluateSdkPreflight(api, {
         venue: resolvedVenue,
         plannedAmount,
+        exposureCapUsd: ctx.exposureCapUsd,
       });
       if (!verdict.ok_to_trade) {
         const blockers = verdict.blockers.join(", ") || "unknown";
@@ -108,7 +109,7 @@ export async function executeTrade(
             type: "text" as const,
             text:
               `❌ Preflight blocked live trade (ok_to_trade=False): ${blockers}. ` +
-              `Resolve the blockers (or set SIMMER_SKIP_PREFLIGHT=1 for one release).`,
+              `Resolve the blockers before retrying the live trade.`,
           }],
           isError: true,
         };

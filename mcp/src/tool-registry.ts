@@ -28,6 +28,7 @@
  */
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { parseExposureCapUsd } from "./preflight-gate.js";
 
 export type ToolContext = {
   /** true iff mutates:true AND SIMMER_MCP_ALLOW_LIVE=true. Always false for mutates:false tools. */
@@ -39,6 +40,12 @@ export type ToolContext = {
    * tests that construct ctx by hand stay valid (undefined = gated).
    */
   skipPreflight?: boolean;
+  /**
+   * From EXPOSURE_CAP_USD (skill-documented). Same default as
+   * SimmerClient._preflight_exposure_cap_usd ($100). Optional so hand-built
+   * test ctx stays valid.
+   */
+  exposureCapUsd?: number;
 };
 
 export type ToolResult = {
@@ -119,6 +126,11 @@ export function registerTool<A>(
     const skipPreflight = ["1", "true", "yes"].includes(
       (processEnv.SIMMER_SKIP_PREFLIGHT || "").trim().toLowerCase(),
     );
-    return tool.handler(args, { live: tool.mutates && allowLive, allowLive, skipPreflight });
+    return tool.handler(args, {
+      live: tool.mutates && allowLive,
+      allowLive,
+      skipPreflight,
+      exposureCapUsd: parseExposureCapUsd(processEnv.EXPOSURE_CAP_USD),
+    });
   });
 }

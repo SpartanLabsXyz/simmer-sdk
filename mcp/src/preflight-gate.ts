@@ -26,9 +26,24 @@ function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
 }
 
-function num(value: unknown): number {
+/** Same default and fallback as SimmerClient._preflight_exposure_cap_usd. */
+export function parseExposureCapUsd(raw: unknown): number {
+  if (typeof raw === "number" && Number.isFinite(raw)) return raw;
+  if (typeof raw !== "string") return 100;
+  const trimmed = raw.trim();
+  if (!trimmed) return 100;
+  const n = Number(trimmed);
+  return Number.isFinite(n) ? n : 100;
+}
+
+/**
+ * Parse a position current_value. Missing/empty matches the SDK (`or 0`).
+ * Non-finite values must not become 0 (that understates exposure).
+ */
+function parseExposureValue(value: unknown): number | null {
+  if (value === null || value === undefined || value === "") return 0;
   const n = typeof value === "number" ? value : Number(value);
-  return Number.isFinite(n) ? n : 0;
+  return Number.isFinite(n) ? n : null;
 }
 
 /**
@@ -88,18 +103,30 @@ export async function evaluateSdkPreflight(
     const positions = Array.isArray((posData as { positions?: unknown }).positions)
       ? (posData as { positions: Array<Record<string, unknown>> }).positions
       : [];
-    const realExp = positions.reduce((sum, p) => {
+    let realExp = 0;
+    let simExp = 0;
+    let exposureUnknown = false;
+    for (const p of positions) {
+      const parsed = parseExposureValue(p.current_value);
+      if (parsed === null) {
+        exposureUnknown = true;
+        break;
+      }
       const pVenue = p.venue;
-      if (pVenue === undefined || pVenue === "sim") return sum;
-      return sum + num(p.current_value);
-    }, 0);
-    const simExp = positions.reduce((sum, p) => {
-      const pVenue = p.venue;
-      if (pVenue !== undefined && pVenue !== "sim") return sum;
-      return sum + num(p.current_value);
-    }, 0);
-    openExposure = venue === "sim" ? simExp : realExp;
-    positionsOk = true;
+      if (pVenue === undefined || pVenue === "sim") {
+        simExp += parsed;
+      } else {
+        realExp += parsed;
+      }
+    }
+    if (exposureUnknown) {
+      if (REAL_VENUES.has(venue) && exposureCapUsd > 0) {
+        blockers.push("EXPOSURE_UNKNOWN");
+      }
+    } else {
+      openExposure = venue === "sim" ? simExp : realExp;
+      positionsOk = true;
+    }
   } catch {
     if (REAL_VENUES.has(venue) && exposureCapUsd > 0) {
       blockers.push("EXPOSURE_UNKNOWN");
