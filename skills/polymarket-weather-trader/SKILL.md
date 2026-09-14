@@ -3,7 +3,7 @@ name: polymarket-weather-trader
 description: Trade Polymarket weather markets using NOAA (US) and Open-Meteo (international) forecasts via Simmer API. Inspired by gopfan2's weather trading approach. Use when user wants to trade temperature markets, automate weather bets, check forecasts, or run weather-based strategies.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.23.8"
+  version: "1.23.9"
   displayName: Polymarket Weather Trader
   difficulty: beginner
   attribution: Strategy inspired by gopfan2 (public Polymarket trader — approach referenced, not endorsed).
@@ -49,6 +49,12 @@ Use this skill when the user wants to:
 - Buy low on weather predictions
 - Check their weather trading positions
 - Configure trading thresholds or locations
+
+## What's New in v1.23.9
+
+- **Replay-compatible discovery.** Under `simmer backtest` (`SIMMER_REPLAY=1`) the skill lists markets with `q=temperature` instead of `tags=weather&status=active`. Replay rejects those filters (422). Live still uses the tag.
+- **Fail-closed on listing failure.** A failed market fetch now exits non-zero (`MarketFetchError`) so `bundle.clean` is not green on a 0-eval tick. An empty listing after a successful fetch is still a clean no-trade — that is an empty tape, not a fetch failure.
+- **Tape follow-up.** Default HF volume slices often have **0** weather markets (vol floor ~$201k in the #368 dogfood). `--min-volume` / a weather-capable tape query is server-side work; this skill does not invent weather on a high-volume slice.
 
 ## What's New in v1.23.7
 
@@ -239,6 +245,8 @@ All trades are tagged with `source: "sdk:weather"`. This means:
 **"Price $X.XX below min entry"** — mid is below `SIMMER_WEATHER_MIN_ENTRY_PRICE`. Lottery-ticket floor; default is off (`0`).
 
 **"No weather markets found"** — weather markets may not be active (seasonal).
+
+**`simmer backtest` / "Failed to fetch markets from Simmer API"** — replay does not implement `tags` or `status` (422 since sdk 0.25.3/0.25.4). v1.23.9+ uses `q=temperature` under replay. A fetch failure now fails the tick (`failed_ticks`, not a clean 0-eval). If the fetch succeeds and you still see 0 weather markets, the HF volume slice likely has none — default `--min-volume` / top-volume selection is a tape follow-up, not a skill bug. Replay listings also omit `resolution_criteria`, so even a weather-capable tape may skip every event at the station-parse gate.
 
 **"External wallet requires a pre-signed order"** — `WALLET_PRIVATE_KEY` is not set. Fix: `export WALLET_PRIVATE_KEY=0x<your-polymarket-wallet-private-key>`. The SDK signs orders automatically when this env var is present — do not attempt to sign orders manually.
 

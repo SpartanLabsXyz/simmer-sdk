@@ -1,5 +1,14 @@
 # Changelog — polymarket-weather-trader
 
+## [1.23.9] - 2026-09-14
+
+### Fixed
+- **Replay discovery.** `GET /api/sdk/markets?tags=weather&status=active` 422s on the backtest replay server (sdk 0.25.3/0.25.4). Under `SIMMER_REPLAY=1` the skill now uses the existing replay `q=` path (`q=temperature`) and omits `tags`/`status`. Live still uses the weather tag — questions like "Austin 82-83F on Sep 7" do not contain "weather".
+- **Fail-closed on listing failure.** `fetch_weather_markets()` used to swallow the 422, return `[]`, and exit 0 — `bundle.clean=true` with 0 evals. It now raises `MarketFetchError` so the tick is `failed_ticks`. An empty 200 is still a clean no-trade (empty tape).
+
+### Docs
+- Tape gap: default HF volume slices in the #368 dogfood had 0 weather/temperature markets (vol floor ~$201k). A weather-capable tape query (`tags`, lower `--min-volume`, or a dedicated weather slice) is server/slice follow-up. This skill does not pretend a high-volume slice contains weather.
+
 ## [1.23.8] - 2026-09-08
 
 ### Added
