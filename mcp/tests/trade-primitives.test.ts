@@ -119,9 +119,19 @@ describe("executeTrade — resolveVenue coercion gate", () => {
     assert.equal(captured[0].dry_run, true, "dry_run coerced to true");
   });
 
-  it("allows live trade when dry_run=false + live venue + allowLive=true", async () => {
+  it("allows live trade when dry_run=false + live venue + allowLive=true + preflight ok", async () => {
     const captured: Record<string, unknown>[] = [];
-    mockFetch(async (_url, init) => {
+    mockFetch(async (url, init) => {
+      const u = url.toString();
+      if (u.includes("/api/sdk/agents/me")) {
+        return okJson({ real_trading_enabled: true, wallet_address: "0xabc" });
+      }
+      if (u.includes("/api/sdk/briefing")) {
+        return okJson({ venues: { polymarket: { balance: 50 } }, risk_alerts: [] });
+      }
+      if (u.includes("/api/sdk/positions")) {
+        return okJson({ positions: [] });
+      }
       captured.push(JSON.parse((init?.body as string) ?? "{}") as Record<string, unknown>);
       return okJson({ status: "executed", venue: "polymarket" });
     });
@@ -136,6 +146,57 @@ describe("executeTrade — resolveVenue coercion gate", () => {
     assert.equal(captured[0].venue, "polymarket", "venue NOT coerced when live allowed");
     assert.equal(captured[0].dry_run, false, "dry_run NOT coerced when live allowed");
     assert.ok(result.content[0].text.includes("Trade result"), "label reflects live trade");
+  });
+
+  it("blocks live trade when preflight ok_to_trade is false", async () => {
+    const tradePosts: string[] = [];
+    mockFetch(async (url, init) => {
+      const u = url.toString();
+      if (u.includes("/api/sdk/agents/me")) {
+        return okJson({ real_trading_enabled: false });
+      }
+      if (u.includes("/api/sdk/briefing")) {
+        return okJson({ venues: {}, risk_alerts: [] });
+      }
+      if (u.includes("/api/sdk/positions")) {
+        return okJson({ positions: [] });
+      }
+      tradePosts.push(init?.method ?? "GET");
+      return okJson({ status: "executed" });
+    });
+
+    const result = await executeTrade(
+      api,
+      { market_id: "m1", side: "yes", action: "buy", amount: 10, venue: "polymarket", dry_run: false },
+      ctxLive,
+    );
+
+    assert.equal(result.isError, true);
+    assert.ok(result.content[0].text.includes("ok_to_trade=False"));
+    assert.ok(result.content[0].text.includes("WALLET_UNVERIFIED"));
+    assert.equal(tradePosts.length, 0, "must not POST /trade when preflight blocks");
+  });
+
+  it("skipPreflight bypasses the live preflight gate", async () => {
+    const captured: Record<string, unknown>[] = [];
+    mockFetch(async (url, init) => {
+      const u = url.toString();
+      if (u.includes("/api/sdk/agents/me") || u.includes("/briefing") || u.includes("/positions")) {
+        throw new Error("preflight endpoints must not be called when skipPreflight");
+      }
+      captured.push(JSON.parse((init?.body as string) ?? "{}") as Record<string, unknown>);
+      return okJson({ status: "executed" });
+    });
+
+    const result = await executeTrade(
+      api,
+      { market_id: "m1", side: "yes", action: "buy", amount: 10, venue: "polymarket", dry_run: false },
+      { ...ctxLive, skipPreflight: true },
+    );
+
+    assert.ok(!result.isError);
+    assert.equal(captured[0].venue, "polymarket");
+    assert.equal(captured[0].dry_run, false);
   });
 
   it("paper trade on sim venue passes through without coercion even without allowLive", async () => {

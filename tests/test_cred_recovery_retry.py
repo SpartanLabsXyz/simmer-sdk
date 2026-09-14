@@ -30,6 +30,10 @@ def _make_external_client(venue="polymarket"):
     client._warn_approvals_once = MagicMock()
     client._build_signed_order = MagicMock(return_value=None)  # skip signing in tests
     client._is_agent_wallet_registered = MagicMock(return_value=False)
+    _ok = MagicMock()
+    _ok.ok_to_trade = True
+    _ok.blockers = []
+    client.preflight = MagicMock(return_value=_ok)
     return client
 
 

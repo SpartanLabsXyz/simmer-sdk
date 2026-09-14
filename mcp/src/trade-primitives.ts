@@ -11,6 +11,7 @@
 
 import type { SimmerApi, TradeParams } from "./api.js";
 import { BackendError } from "./errors.js";
+import { evaluateSdkPreflight } from "./preflight-gate.js";
 import type { ToolContext, ToolResult } from "./tool-registry.js";
 
 // Allowlist of live venues. Anything outside this list (including "", undefined,
@@ -85,6 +86,35 @@ export async function executeTrade(
   if (args.shares !== undefined) params.shares = args.shares;
   if (args.reasoning) params.reasoning = args.reasoning;
   if (args.source) params.source = args.source;
+
+  // Additional live gate on top of SIMMER_MCP_ALLOW_LIVE: refuse real-money
+  // placement when a fresh preflight would return ok_to_trade=False.
+  if (!effectiveDryRun) {
+    if (ctx.skipPreflight) {
+      console.warn(
+        "[simmer-mcp] SIMMER_SKIP_PREFLIGHT bypasses the live preflight gate " +
+        "(deprecated migrate valve). Live trades will require ok_to_trade=True after this release.",
+      );
+    } else {
+      const plannedAmount = args.action === "sell" ? 0 : (args.amount ?? 0);
+      const verdict = await evaluateSdkPreflight(api, {
+        venue: resolvedVenue,
+        plannedAmount,
+      });
+      if (!verdict.ok_to_trade) {
+        const blockers = verdict.blockers.join(", ") || "unknown";
+        return {
+          content: [{
+            type: "text" as const,
+            text:
+              `❌ Preflight blocked live trade (ok_to_trade=False): ${blockers}. ` +
+              `Resolve the blockers (or set SIMMER_SKIP_PREFLIGHT=1 for one release).`,
+          }],
+          isError: true,
+        };
+      }
+    }
+  }
 
   try {
     const result = await api.trade(params);

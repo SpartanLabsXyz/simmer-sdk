@@ -1,12 +1,12 @@
 ---
 name: simmer-preflight
-version: "0.3.3"
+version: "0.3.4"
 published: true
 read_only: true
-description: Pre-trade readiness check for autonomous agents. One call returns wallet identity, venue status, spendable balance, open exposure, and a structured ok_to_trade verdict. Run before every real-money trade to prevent cap overruns and catch config issues before they become P&L issues.
+description: Pre-trade readiness check for autonomous agents. One call returns wallet identity, venue status, spendable balance, open exposure, and a structured ok_to_trade verdict. Live real-venue trades auto-run this check and refuse when ok_to_trade is False.
 metadata:
   author: "Simmer (@simmer_markets)"
-  version: "0.3.3"
+  version: "0.3.4"
   displayName: Simmer Preflight
   difficulty: beginner
   primaryEnv: SIMMER_API_KEY
@@ -18,7 +18,9 @@ metadata:
 
 # Simmer Preflight
 
-Run `client.preflight()` before every real-money trade. One call returns:
+Live real-money trades now **enforce** this check. `client.trade(..., dry_run=False)` and `client.place_combo(..., dry_run=False)` on a `live=True` client against a real venue (`polymarket` / `kalshi`) auto-run `preflight()` with the planned spend and refuse if `ok_to_trade` is False, surfacing the blocker codes. Paper, `venue="sim"`, and `dry_run=True` are unchanged. One-release migrate valve: `skip_preflight=True` or `SIMMER_SKIP_PREFLIGHT=1` (deprecation warning). MCP `simmer_trade` uses the same live gate; `SIMMER_MCP_ALLOW_LIVE` is still required and is not a replacement.
+
+Call `client.preflight()` yourself when you want the full result (wallet, exposure, `client_preflight_id`) before you size or submit. One call returns:
 
 - **Who you are**: agent ID, tier, venue resolved from your API key context
 - **Which wallet will sign**: execution wallet, deposit wallet, signer mode (OWS / external key / managed)
@@ -170,7 +172,7 @@ Preflight is read-only. It never signs, trades, redeems, or mutates settings. It
 - `gas_balance` is always `None` — on-chain RPC not available in the SDK client. Use the dashboard to verify POL / SOL balance.
 - `INSUFFICIENT_GAS` is only detected if the briefing risk_alerts mention gas explicitly — not from an on-chain query.
 - Server-side `preflight_id` (stable, storable) deferred to v1.
-- MCP tool exposure deferred to v1.
+- MCP `simmer_preflight` is available; live `simmer_trade` now enforces the same `ok_to_trade` gate.
 
 ## Links
 

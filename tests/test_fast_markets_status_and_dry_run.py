@@ -24,6 +24,10 @@ def _client(**attrs) -> SimmerClient:
     client._wallet_address = None
     client._readonly = False
     client._held_markets_cache = None
+    _ok = MagicMock()
+    _ok.ok_to_trade = True
+    _ok.blockers = []
+    client.preflight = MagicMock(return_value=_ok)
     for key, value in attrs.items():
         setattr(client, key, value)
     return client

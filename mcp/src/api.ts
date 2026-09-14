@@ -228,6 +228,23 @@ export class SimmerApi {
   }
 
   /**
+   * Agent identity used by the live preflight gate. Throws BackendError on 4xx/5xx.
+   */
+  async getAgentMe(): Promise<Record<string, unknown>> {
+    const resp = await this.timedFetch(
+      `${this.apiUrl}/api/sdk/agents/me`,
+      { headers: this.headers() },
+      15_000,
+    );
+    if (!resp.ok) {
+      const detail = await this.extractDetail(resp);
+      const upgradeUrl = resp.status === 403 ? "https://simmer.markets/pro" : undefined;
+      throw new BackendError(resp.status, detail, upgradeUrl);
+    }
+    return (await resp.json()) as Record<string, unknown>;
+  }
+
+  /**
    * Get the agent briefing (portfolio, positions, opportunities, performance).
    * Throws BackendError on 4xx/5xx.
    */

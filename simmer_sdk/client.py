@@ -1380,6 +1380,66 @@ class SimmerClient:
             warnings=warnings_list,
         )
 
+    @staticmethod
+    def _is_real_money_venue(venue: str) -> bool:
+        """True for venues that place real (non-$SIM) orders."""
+        resolved = "sim" if venue in ("simmer", "sandbox") else venue
+        return resolved in ("polymarket", "kalshi")
+
+    @staticmethod
+    def _preflight_exposure_cap_usd() -> float:
+        """Honor the skill-documented EXPOSURE_CAP_USD env; default $100."""
+        raw = os.environ.get("EXPOSURE_CAP_USD", "").strip()
+        if not raw:
+            return 100.0
+        try:
+            return float(raw)
+        except ValueError:
+            return 100.0
+
+    @staticmethod
+    def _env_skip_preflight() -> bool:
+        return os.environ.get("SIMMER_SKIP_PREFLIGHT", "").strip().lower() in (
+            "1", "true", "yes",
+        )
+
+    def _blocked_live_preflight(
+        self,
+        *,
+        venue: str,
+        planned_amount: float,
+        skip_preflight: bool,
+    ) -> Optional["PreflightResult"]:
+        """Run preflight for a live real-money placement.
+
+        Returns the blocked ``PreflightResult`` when the trade must be
+        refused. Returns ``None`` when the call may proceed (ok, or the
+        one-release skip valve).
+        """
+        if skip_preflight or self._env_skip_preflight():
+            import warnings
+            warnings.warn(
+                "skip_preflight=True and SIMMER_SKIP_PREFLIGHT are a one-release "
+                "migrate valve. Live trades will require a passing preflight "
+                "(ok_to_trade=True) after this release. Fix the blockers instead "
+                "of skipping.",
+                DeprecationWarning,
+                stacklevel=3,
+            )
+            logger.warning(
+                "Live preflight gate skipped via skip_preflight / "
+                "SIMMER_SKIP_PREFLIGHT (deprecated migrate valve)"
+            )
+            return None
+        result = self.preflight(
+            venue=venue,
+            planned_amount=planned_amount,
+            exposure_cap_usd=self._preflight_exposure_cap_usd(),
+        )
+        if result.ok_to_trade:
+            return None
+        return result
+
     def _get_clob_client(self):
         """Get or create an authenticated ClobClient for local CLOB operations."""
         if self._clob_client is not None:
@@ -1410,6 +1470,7 @@ class SimmerClient:
         max_retries: int = 2,
         on_status: Optional[Callable[[str], None]] = None,
         allow_deposit_wallet: bool = False,
+        skip_preflight: bool = False,
     ) -> Dict[str, Any]:
         """Place a Polymarket combo (parlay) via the requester RFQ gateway.
 
@@ -1449,6 +1510,9 @@ class SimmerClient:
                 combo-approval pre-check for a DW placement (use only if you've
                 already activated combos and want to avoid the extra RPC read,
                 or the check is misbehaving). DW combos are allowed either way.
+            skip_preflight: one-release migrate valve. When True (or when
+                ``SIMMER_SKIP_PREFLIGHT=1``), skip the live ``ok_to_trade``
+                gate. Emits a deprecation warning. Default is gated.
 
         Returns the dry-run plan, or ``{status, tx_hash, rfq_id}`` on a fill.
         """
@@ -1489,6 +1553,18 @@ class SimmerClient:
                 "place_combo(dry_run=False) requires the client in live mode. "
                 "Refusing to place a real combo from a non-live client."
             )
+
+        if not dry_run and self.live:
+            blocked = self._blocked_live_preflight(
+                venue="polymarket",
+                planned_amount=float(size_usdc),
+                skip_preflight=skip_preflight,
+            )
+            if blocked is not None:
+                raise RuntimeError(
+                    "place_combo(dry_run=False) refused: preflight "
+                    f"ok_to_trade=False (blockers: {', '.join(blocked.blockers)})."
+                )
 
         # Deposit-wallet combo-approval pre-check. DW combos settle on the
         # combo exchange (COMBO_EXCHANGE), which the standard DW activation
@@ -1943,6 +2019,15 @@ class SimmerClient:
                 "code": "insufficient_balance",
                 "message": text,
                 "hint": "Call get_portfolio() to check available balance before retrying with a smaller amount.",
+            }
+        if "preflight" in lower and ("block" in lower or "ok_to_trade" in lower):
+            return {
+                "code": "preflight_blocked",
+                "message": text,
+                "hint": (
+                    "Call client.preflight() and resolve the blockers listed "
+                    "in the error before retrying the live trade."
+                ),
             }
         if "unauthorized" in lower or "invalid api key" in lower or "credentials" in lower:
             return {
@@ -2444,6 +2529,7 @@ class SimmerClient:
         skill_version: Optional[str] = None,
         include_hints: bool = False,
         dry_run: bool = False,
+        skip_preflight: bool = False,
     ) -> TradeResult:
         """
         Execute a trade on a market.
@@ -2493,6 +2579,11 @@ class SimmerClient:
                 "signal_source": "noaa", "forecast_temp": 35}
             include_hints: Populate ``next_steps`` and structured error hints on
                 the returned TradeResult.
+            skip_preflight: One-release migrate valve. When True (or when
+                ``SIMMER_SKIP_PREFLIGHT=1``), skip the live ``ok_to_trade``
+                gate. Emits a deprecation warning. Default is gated: a live
+                real-venue ``dry_run=False`` trade auto-runs ``preflight()``
+                with the planned spend and refuses if ``ok_to_trade`` is False.
             dry_run: Validate and price the trade without executing it. No money
                 moves and no order is signed or submitted. Use it to confirm the
                 exact fill count before committing size. On a ``live=False``
@@ -2644,6 +2735,22 @@ class SimmerClient:
                 market_id, side, amount, shares, action, effective_venue,
                 dry_run=dry_run,
             )
+
+        # Hard live control point: real-venue dry_run=False must pass
+        # preflight ok_to_trade. Paper / sim / dry_run are unchanged.
+        if not dry_run and self._is_real_money_venue(effective_venue):
+            planned = 0.0 if is_sell else float(amount)
+            blocked = self._blocked_live_preflight(
+                venue=effective_venue,
+                planned_amount=planned,
+                skip_preflight=skip_preflight,
+            )
+            if blocked is not None:
+                blockers = ", ".join(blocked.blockers) or "unknown"
+                return _failure_result(
+                    f"Preflight blocked live trade (ok_to_trade=False): {blockers}",
+                    "preflight_blocked",
+                )
 
         # Position conflict checks (buy only — sells always allowed)
         if action == "buy" and not allow_rebuy and not source:

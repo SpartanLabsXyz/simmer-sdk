@@ -25,6 +25,10 @@ def _make_client(venue="polymarket"):
     client._held_markets_cache = None
     client._request = MagicMock()
     client._get_held_markets = MagicMock(return_value={})
+    _ok = MagicMock()
+    _ok.ok_to_trade = True
+    _ok.blockers = []
+    client.preflight = MagicMock(return_value=_ok)
     return client
 
 

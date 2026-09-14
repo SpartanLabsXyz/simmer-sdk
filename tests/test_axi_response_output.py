@@ -17,6 +17,10 @@ def _client() -> SimmerClient:
     client._held_markets_cache = None
     client.live = True
     client.venue = "polymarket"
+    _ok = MagicMock()
+    _ok.ok_to_trade = True
+    _ok.blockers = []
+    client.preflight = MagicMock(return_value=_ok)
     return client
 
 

@@ -75,6 +75,10 @@ def _make_client(private_key=FAKE_PRIVATE_KEY, *, dw=False, live=False):
     client._uses_deposit_wallet = dw
     client._deposit_wallet_address = FAKE_DW if dw else None
     client._clob_client = None
+    _ok = MagicMock()
+    _ok.ok_to_trade = True
+    _ok.blockers = []
+    client.preflight = MagicMock(return_value=_ok)
     return client
 
 
