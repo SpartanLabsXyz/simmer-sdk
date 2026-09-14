@@ -57,6 +57,45 @@ def test_no_subcommand_errors():
     assert exc.value.code != 0
 
 
+def test_backtest_q_flag_reaches_run_backtest(monkeypatch, tmp_path):
+    captured = {}
+
+    def fake_run_backtest(bundle, **kwargs):
+        captured.update(kwargs)
+        return {"summary": {}, "bundle": {}}
+
+    import simmer_sdk.backtest as bt_mod
+    monkeypatch.setattr(bt_mod, "run_backtest", fake_run_backtest)
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    (bundle / "run.py").write_text("")
+
+    rc = cli.main(["backtest", str(bundle), "--entrypoint", "run.py",
+                   "--tape", str(tmp_path), "--t0", "2026-03-01", "--t1", "2026-03-08",
+                   "--q", "temperature"])
+    assert rc == 0
+    assert captured["q"] == "temperature"
+
+
+def test_backtest_q_flag_defaults_to_none(monkeypatch, tmp_path):
+    captured = {}
+
+    def fake_run_backtest(bundle, **kwargs):
+        captured.update(kwargs)
+        return {"summary": {}, "bundle": {}}
+
+    import simmer_sdk.backtest as bt_mod
+    monkeypatch.setattr(bt_mod, "run_backtest", fake_run_backtest)
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    (bundle / "run.py").write_text("")
+
+    rc = cli.main(["backtest", str(bundle), "--entrypoint", "run.py",
+                   "--tape", str(tmp_path), "--t0", "2026-03-01", "--t1", "2026-03-08"])
+    assert rc == 0
+    assert captured["q"] is None
+
+
 # -- demo end-to-end (gated on the [backtest] extra) --------------------------
 
 def test_demo_runs_offline(tmp_path, capsys):

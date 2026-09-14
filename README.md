@@ -177,6 +177,11 @@ simmer backtest ./my-skill --entrypoint run.py \
 # ...or by duration, and with your own local slice (BYO):
 simmer backtest ./my-skill --entrypoint run.py --window 30d
 simmer backtest ./my-skill --entrypoint run.py --tape ./slice --t0 2026-03-01 --t1 2026-03-08
+
+# Narrow the fetched slice to a topic — matches question OR slug, applied
+# before the volume cap, so a niche topic isn't crowded out by high-volume noise:
+simmer backtest ./weather-skill --entrypoint run.py \
+    --t0 2026-03-01 --t1 2026-03-08 --q temperature
 ```
 
 The engine replays your **unmodified** skill against a frozen, look-ahead-safe

@@ -78,6 +78,7 @@ def fetch_tape(
     *,
     max_markets: int = 300,
     min_volume: float = 1000.0,
+    q: Optional[str] = None,
     base_url: Optional[str] = None,
     api_key: Optional[str] = None,
     cache_dir: Optional[str] = None,
@@ -90,7 +91,7 @@ def fetch_tape(
     Calls ``POST {base_url}/api/backtest/tape`` (Simmer API key required — the
     same ``SIMMER_API_KEY`` you trade with); downloads the presigned
     markets.parquet + quant.parquet + manifest.json into ``~/.simmer/tapes/<key>/``.
-    The server keys the slice by (dataset_rev, window, max_markets, min_volume),
+    The server keys the slice by (dataset_rev, window, max_markets, min_volume, q),
     so the cache key is stable across callers.
     """
     base = _resolve_base_url(base_url)
@@ -107,8 +108,11 @@ def fetch_tape(
         "max_markets": int(max_markets),
         "min_volume": float(min_volume),
     }
+    if q:
+        payload["q"] = q
     log(f"requesting tape slice {payload['t0']}..{payload['t1']} "
-        f"(max {max_markets} markets, min volume {min_volume:,.0f}) from {base}...")
+        f"(max {max_markets} markets, min volume {min_volume:,.0f}"
+        f"{f', q={q!r}' if q else ''}) from {base}...")
     try:
         resp = requests.post(
             base + _TAPE_ENDPOINT, json=payload,

@@ -142,6 +142,7 @@ def run_backtest(
     t1: Union[str, datetime],
     max_markets: int = 300,
     min_volume: float = 1000.0,
+    q: Optional[str] = None,
     base_url: Optional[str] = None,
     api_key: Optional[str] = None,
     cadence: Union[str, int, float, timedelta] = "15m",
@@ -170,6 +171,9 @@ def run_backtest(
         max_markets: cap on markets in a fetched slice (server clamps to 1000).
             Ignored when ``tape`` is an explicit local dir.
         min_volume: min market volume for a fetched slice. Ignored for a local tape.
+        q: case-insensitive substring match on question OR slug for a fetched
+            slice, applied before the volume cap (e.g. ``temperature`` for
+            weather markets). Ignored for a local tape.
         base_url: tape-service base URL (default: ``SIMMER_API_URL`` env or
             production). Ignored when ``tape`` is an explicit local dir.
         api_key: Simmer API key for the tape fetch (default: ``SIMMER_API_KEY``
@@ -222,7 +226,7 @@ def run_backtest(
 
         try:
             tape = fetch_tape(
-                t0, t1, max_markets=max_markets, min_volume=min_volume,
+                t0, t1, max_markets=max_markets, min_volume=min_volume, q=q,
                 base_url=base_url, api_key=api_key,
             )
         except TapeFetchError as exc:

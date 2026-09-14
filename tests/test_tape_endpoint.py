@@ -79,6 +79,35 @@ def test_fetch_tape_success_and_request_shape(cache, monkeypatch):
     assert os.path.exists(os.path.join(out, "quant.parquet"))
 
 
+def test_fetch_tape_passes_q_when_given(cache, monkeypatch):
+    captured = {}
+
+    def fake_post(url, json=None, headers=None, timeout=None):
+        captured["json"] = json
+        return _Resp(200, _ok_body())
+
+    monkeypatch.setattr(tp.requests, "post", fake_post)
+    _patch_download(monkeypatch)
+
+    tp.fetch_tape("2026-03-01", "2026-03-08", max_markets=50, min_volume=2000,
+                  q="temperature", base_url="http://localhost:8000")
+    assert captured["json"]["q"] == "temperature"
+
+
+def test_fetch_tape_omits_q_when_not_given(cache, monkeypatch):
+    captured = {}
+
+    def fake_post(url, json=None, headers=None, timeout=None):
+        captured["json"] = json
+        return _Resp(200, _ok_body())
+
+    monkeypatch.setattr(tp.requests, "post", fake_post)
+    _patch_download(monkeypatch)
+
+    tp.fetch_tape("2026-03-01", "2026-03-08", base_url="http://localhost:8000")
+    assert "q" not in captured["json"]
+
+
 def test_fetch_tape_requires_api_key(tmp_path, monkeypatch):
     monkeypatch.setenv("SIMMER_TAPE_CACHE", str(tmp_path))
     monkeypatch.delenv("SIMMER_API_KEY", raising=False)
