@@ -95,6 +95,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **`simmer backtest --q <text>` narrows the fetched tape slice to a topic.** The tape service was slicing top-N-by-volume with no keyword filter, so a niche-topic skill (e.g. a weather trader) could get a slice with zero matching markets even over a window where they existed, just outranked by higher-volume noise. `--q` (and `run_backtest(..., q=...)`) does a case-insensitive substring match on question OR slug, applied *before* the volume cap, so matching markets survive the cut. Omitting it is unchanged.
+
 - **Hyperliquid trading with pmxt-constructed orders (SIM-4222).**
   `PmxtHyperliquidVenue` implements `VenueAdapter` against a self-hosted,
   construction-only pmxt sidecar: pmxt builds the unsigned action, the SDK

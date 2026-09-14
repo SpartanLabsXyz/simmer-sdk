@@ -180,6 +180,7 @@ def _cmd_backtest(args: argparse.Namespace) -> int:
             t1=t1,
             max_markets=args.max_markets,
             min_volume=args.min_volume,
+            q=args.q,
             base_url=args.base_url,
             cadence=cadence,
             balance=args.balance,
@@ -235,6 +236,10 @@ def _build_parser() -> argparse.ArgumentParser:
                     help="cap on markets in a fetched slice (default 300; server clamps to 1000)")
     bt.add_argument("--min-volume", type=float, default=1000.0, dest="min_volume",
                     help="min market volume for a fetched slice (default 1000)")
+    bt.add_argument("--q", default=None, dest="q",
+                    help="case-insensitive substring match on question OR slug for a "
+                         "fetched slice, applied before the volume cap (e.g. 'temperature' "
+                         "for weather markets)")
     bt.add_argument("--base-url", default=None, dest="base_url",
                     help="tape-service base URL (default: SIMMER_API_URL env or production)")
     bt.add_argument("--cadence", default="15m", help="tick spacing: 15m / 12h / 30d / minutes (default 15m)")
