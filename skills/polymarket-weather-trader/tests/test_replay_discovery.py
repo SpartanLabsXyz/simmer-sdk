@@ -11,7 +11,7 @@ import os
 import sys
 import types
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 
 _SKILL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -154,13 +154,15 @@ class TestRunFailClosedOnFetch(unittest.TestCase):
     def test_run_propagates_fetch_failure(self):
         client = MagicMock()
         client.auto_redeem.return_value = []
-        wt.get_client = MagicMock(return_value=client)
-        wt.discover_and_import_weather_markets = MagicMock(return_value=0)
-        wt.fetch_weather_markets = MagicMock(
+        fetch = MagicMock(
             side_effect=wt.MarketFetchError("Failed to fetch markets from Simmer API")
         )
-
-        with self.assertRaises(wt.MarketFetchError):
+        # patch.object restores the module attributes after the test; a bare
+        # assignment leaks the raising mock into whichever test runs next.
+        with patch.object(wt, "get_client", MagicMock(return_value=client)), \
+             patch.object(wt, "discover_and_import_weather_markets", MagicMock(return_value=0)), \
+             patch.object(wt, "fetch_weather_markets", fetch), \
+             self.assertRaises(wt.MarketFetchError):
             wt.run_weather_strategy(dry_run=True, quiet=True)
 
 
