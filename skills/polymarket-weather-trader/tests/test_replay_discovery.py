@@ -93,14 +93,21 @@ class TestFetchWeatherMarketsFailClosed(unittest.TestCase):
 
         markets = wt.fetch_weather_markets()
 
+        # Same market on every horizon page dedupes to one row.
         self.assertEqual(markets, [{"id": "m1"}])
-        _method, path = client._request.call_args.args[:2]
-        self.assertEqual(_method, "GET")
-        self.assertEqual(path, "/api/sdk/markets")
-        sent = client._request.call_args.kwargs["params"]
-        self.assertEqual(sent["tags"], "weather")
-        self.assertEqual(sent["status"], "active")
-        self.assertNotIn("q", sent)
+        calls = client._request.call_args_list
+        # Base page first (no q), then one dated page per horizon day.
+        self.assertGreaterEqual(len(calls), 2)
+        for call in calls:
+            _method, path = call.args[:2]
+            self.assertEqual(_method, "GET")
+            self.assertEqual(path, "/api/sdk/markets")
+            sent = call.kwargs["params"]
+            self.assertEqual(sent["tags"], "weather")
+            self.assertEqual(sent["status"], "active")
+        self.assertNotIn("q", calls[0].kwargs["params"])
+        for call in calls[1:]:
+            self.assertIn("q", call.kwargs["params"])
 
     def test_replay_request_omits_filters_that_422(self):
         client = MagicMock()
