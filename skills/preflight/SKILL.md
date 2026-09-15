@@ -139,16 +139,25 @@ If you see warnings, log them. Fetch failures on individual endpoints are gracef
 import os
 from simmer_sdk import SimmerClient
 
-EXPOSURE_CAP = float(os.environ.get("EXPOSURE_CAP_USD", "100"))
-
 client = SimmerClient.from_env(venue="polymarket")
 
 def safe_trade(market_id: str, side: str, amount: float):
-    pf = client.preflight(
-        venue="polymarket",
-        planned_amount=amount,
-        exposure_cap_usd=EXPOSURE_CAP,
-    )
+    # Live auto-gate: EXPOSURE_CAP_USD is opt-in (unset = no cap, no $100 default).
+    # Manual preflight() still accepts an explicit exposure_cap_usd.
+    cap_raw = os.environ.get("EXPOSURE_CAP_USD")
+    if cap_raw:
+        pf = client.preflight(
+            venue="polymarket",
+            planned_amount=amount,
+            exposure_cap_usd=float(cap_raw),
+        )
+    else:
+        # No env cap: live trade() will not enforce one. This explicit
+        # preflight() call still uses the method default (exposure_cap_usd=100).
+        pf = client.preflight(
+            venue="polymarket",
+            planned_amount=amount,
+        )
     if not pf.ok_to_trade:
         print(f"Preflight blocked ({pf.blockers}), skipping trade")
         return None
@@ -157,7 +166,7 @@ def safe_trade(market_id: str, side: str, amount: float):
 
     # Log preflight before order submission
     print(f"Preflight OK — id={pf.client_preflight_id} "
-          f"exposure={pf.open_exposure_total:.2f}+{amount:.2f}/{EXPOSURE_CAP}")
+          f"exposure={pf.open_exposure_total:.2f}+{amount:.2f}/{pf.exposure_cap_usd}")
 
     return client.trade(market_id=market_id, side=side, amount=amount)
 ```
