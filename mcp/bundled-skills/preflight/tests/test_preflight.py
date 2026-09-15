@@ -468,6 +468,7 @@ class TestPreflightPendingAlerts(unittest.TestCase):
         result = client.preflight(venue="sim", exposure_cap_usd=0)
         self.assertEqual(len(result.pending_alerts), 1)
         self.assertEqual(result.pending_alerts[0]["message"], "2 positions expiring in <6h")
+        self.assertEqual(result.pending_alerts[0]["code"], "2 positions expiring in <6h")
 
     def test_dict_alert_preserved(self):
         client = _make_client()
