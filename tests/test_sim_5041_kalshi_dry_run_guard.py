@@ -14,7 +14,7 @@ out of scope here).
 
 from __future__ import annotations
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -37,6 +37,10 @@ def _make_client(*, solana_key_available: bool = True) -> SimmerClient:
     client._approvals_warned = False
     client.ORDER_TYPES = {"FAK", "FOK", "GTC", "GTD"}
     client.VENUES = {"sim", "polymarket", "kalshi", "simmer"}
+    _ok = MagicMock()
+    _ok.ok_to_trade = True
+    _ok.blockers = []
+    client.preflight = MagicMock(return_value=_ok)
     return client
 
 

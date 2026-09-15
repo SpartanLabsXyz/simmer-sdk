@@ -28,12 +28,24 @@
  */
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { parseExposureCapUsd } from "./preflight-gate.js";
 
 export type ToolContext = {
   /** true iff mutates:true AND SIMMER_MCP_ALLOW_LIVE=true. Always false for mutates:false tools. */
   live: boolean;
   /** Raw SIMMER_MCP_ALLOW_LIVE env flag. Available to all handlers regardless of mutates. */
   allowLive: boolean;
+  /**
+   * One-release migrate valve from SIMMER_SKIP_PREFLIGHT. Optional so existing
+   * tests that construct ctx by hand stay valid (undefined = gated).
+   */
+  skipPreflight?: boolean;
+  /**
+   * From EXPOSURE_CAP_USD (skill-documented). Auto-gate is opt-in: unset → 0
+   * (cap disabled). Non-finite env values are NaN so the live gate can reject.
+   * Optional so hand-built test ctx stays valid.
+   */
+  exposureCapUsd?: number;
 };
 
 export type ToolResult = {
@@ -111,6 +123,14 @@ export function registerTool<A>(
         isError: true,
       };
     }
-    return tool.handler(args, { live: tool.mutates && allowLive, allowLive });
+    const skipPreflight = ["1", "true", "yes"].includes(
+      (processEnv.SIMMER_SKIP_PREFLIGHT || "").trim().toLowerCase(),
+    );
+    return tool.handler(args, {
+      live: tool.mutates && allowLive,
+      allowLive,
+      skipPreflight,
+      exposureCapUsd: parseExposureCapUsd(processEnv.EXPOSURE_CAP_USD),
+    });
   });
 }

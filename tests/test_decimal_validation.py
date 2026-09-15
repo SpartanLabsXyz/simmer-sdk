@@ -7,6 +7,8 @@ round() workaround (SIM-3272). Tick-aware rounding of the on-chain order amounts
 stays in signing.py — this layer only quantizes the human-facing inputs.
 """
 
+from unittest.mock import MagicMock
+
 import pytest
 
 from simmer_sdk.client import SimmerClient
@@ -42,6 +44,10 @@ def _make_client():
         }
 
     client._request = _fake_request
+    _ok = MagicMock()
+    _ok.ok_to_trade = True
+    _ok.blockers = []
+    client.preflight = MagicMock(return_value=_ok)
     return client
 
 

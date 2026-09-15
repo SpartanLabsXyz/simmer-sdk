@@ -119,9 +119,19 @@ describe("executeTrade — resolveVenue coercion gate", () => {
     assert.equal(captured[0].dry_run, true, "dry_run coerced to true");
   });
 
-  it("allows live trade when dry_run=false + live venue + allowLive=true", async () => {
+  it("allows live trade when dry_run=false + live venue + allowLive=true + preflight ok", async () => {
     const captured: Record<string, unknown>[] = [];
-    mockFetch(async (_url, init) => {
+    mockFetch(async (url, init) => {
+      const u = url.toString();
+      if (u.includes("/api/sdk/agents/me")) {
+        return okJson({ real_trading_enabled: true, wallet_address: "0xabc" });
+      }
+      if (u.includes("/api/sdk/briefing")) {
+        return okJson({ venues: { polymarket: { balance: 50 } }, risk_alerts: [] });
+      }
+      if (u.includes("/api/sdk/positions")) {
+        return okJson({ positions: [] });
+      }
       captured.push(JSON.parse((init?.body as string) ?? "{}") as Record<string, unknown>);
       return okJson({ status: "executed", venue: "polymarket" });
     });
@@ -136,6 +146,216 @@ describe("executeTrade — resolveVenue coercion gate", () => {
     assert.equal(captured[0].venue, "polymarket", "venue NOT coerced when live allowed");
     assert.equal(captured[0].dry_run, false, "dry_run NOT coerced when live allowed");
     assert.ok(result.content[0].text.includes("Trade result"), "label reflects live trade");
+  });
+
+  it("blocks live trade when preflight ok_to_trade is false", async () => {
+    const tradePosts: string[] = [];
+    mockFetch(async (url, init) => {
+      const u = url.toString();
+      if (u.includes("/api/sdk/agents/me")) {
+        return okJson({ real_trading_enabled: false });
+      }
+      if (u.includes("/api/sdk/briefing")) {
+        return okJson({ venues: {}, risk_alerts: [] });
+      }
+      if (u.includes("/api/sdk/positions")) {
+        return okJson({ positions: [] });
+      }
+      tradePosts.push(init?.method ?? "GET");
+      return okJson({ status: "executed" });
+    });
+
+    const result = await executeTrade(
+      api,
+      { market_id: "m1", side: "yes", action: "buy", amount: 10, venue: "polymarket", dry_run: false },
+      ctxLive,
+    );
+
+    assert.equal(result.isError, true);
+    assert.ok(result.content[0].text.includes("ok_to_trade=False"));
+    assert.ok(result.content[0].text.includes("WALLET_UNVERIFIED"));
+    assert.ok(!result.content[0].text.includes("SIMMER_SKIP_PREFLIGHT"), "must not advertise the skip valve to the agent");
+    assert.equal(tradePosts.length, 0, "must not POST /trade when preflight blocks");
+  });
+
+  it("tighter EXPOSURE_CAP_USD blocks the POST with EXPOSURE_CAP_EXCEEDED", async () => {
+    // $10 planned + $0 open > $5 cap — same verdict the SDK preflight would return.
+    const tradePosts: string[] = [];
+    mockFetch(async (url, init) => {
+      const u = url.toString();
+      if (u.includes("/api/sdk/agents/me")) {
+        return okJson({ real_trading_enabled: true, wallet_address: "0xabc" });
+      }
+      if (u.includes("/api/sdk/briefing")) {
+        return okJson({ venues: { polymarket: { balance: 50 } }, risk_alerts: [] });
+      }
+      if (u.includes("/api/sdk/positions")) {
+        return okJson({ positions: [] });
+      }
+      tradePosts.push(init?.method ?? "GET");
+      return okJson({ status: "executed" });
+    });
+
+    const result = await executeTrade(
+      api,
+      { market_id: "m1", side: "yes", action: "buy", amount: 10, venue: "polymarket", dry_run: false },
+      { ...ctxLive, exposureCapUsd: 5 },
+    );
+
+    assert.equal(result.isError, true);
+    assert.ok(result.content[0].text.includes("EXPOSURE_CAP_EXCEEDED"));
+    assert.equal(tradePosts.length, 0, "must not POST /trade when cap would fail SDK preflight");
+  });
+
+  it("non-finite position current_value fail-closes as EXPOSURE_UNKNOWN", async () => {
+    const tradePosts: string[] = [];
+    mockFetch(async (url, init) => {
+      const u = url.toString();
+      if (u.includes("/api/sdk/agents/me")) {
+        return okJson({ real_trading_enabled: true, wallet_address: "0xabc" });
+      }
+      if (u.includes("/api/sdk/briefing")) {
+        return okJson({ venues: { polymarket: { balance: 50 } }, risk_alerts: [] });
+      }
+      if (u.includes("/api/sdk/positions")) {
+        return okJson({ positions: [{ venue: "polymarket", current_value: "not-a-number" }] });
+      }
+      tradePosts.push(init?.method ?? "GET");
+      return okJson({ status: "executed" });
+    });
+
+    const result = await executeTrade(
+      api,
+      { market_id: "m1", side: "yes", action: "buy", amount: 10, venue: "polymarket", dry_run: false },
+      { ...ctxLive, exposureCapUsd: 100 },
+    );
+
+    assert.equal(result.isError, true);
+    assert.ok(result.content[0].text.includes("EXPOSURE_UNKNOWN"));
+    assert.equal(tradePosts.length, 0, "must not treat non-finite current_value as 0");
+  });
+
+  it("unset exposure cap does not default to $100 on a live buy", async () => {
+    const captured: Record<string, unknown>[] = [];
+    mockFetch(async (url, init) => {
+      const u = url.toString();
+      if (u.includes("/api/sdk/agents/me")) {
+        return okJson({ real_trading_enabled: true, wallet_address: "0xabc" });
+      }
+      if (u.includes("/api/sdk/briefing")) {
+        return okJson({ venues: { polymarket: { balance: 50 } }, risk_alerts: [] });
+      }
+      if (u.includes("/api/sdk/positions")) {
+        return okJson({ positions: [{ venue: "polymarket", current_value: 150 }] });
+      }
+      captured.push(JSON.parse((init?.body as string) ?? "{}") as Record<string, unknown>);
+      return okJson({ status: "executed" });
+    });
+
+    const result = await executeTrade(
+      api,
+      { market_id: "m1", side: "yes", action: "buy", amount: 10, venue: "polymarket", dry_run: false },
+      ctxLive, // no exposureCapUsd — opt-in, must not apply $100
+    );
+
+    assert.ok(!result.isError, "unset cap must not block a $150 book");
+    assert.equal(captured.length, 1, "must POST /trade when cap is unset");
+  });
+
+  it("sell is exempt from the exposure cap even when EXPOSURE_CAP_USD is set", async () => {
+    const captured: Record<string, unknown>[] = [];
+    mockFetch(async (url, init) => {
+      const u = url.toString();
+      if (u.includes("/api/sdk/agents/me")) {
+        return okJson({ real_trading_enabled: true, wallet_address: "0xabc" });
+      }
+      if (u.includes("/api/sdk/briefing")) {
+        return okJson({ venues: { polymarket: { balance: 50 } }, risk_alerts: [] });
+      }
+      if (u.includes("/api/sdk/positions")) {
+        return okJson({ positions: [{ venue: "polymarket", current_value: 150 }] });
+      }
+      captured.push(JSON.parse((init?.body as string) ?? "{}") as Record<string, unknown>);
+      return okJson({ status: "executed" });
+    });
+
+    const result = await executeTrade(
+      api,
+      { market_id: "m1", side: "yes", action: "sell", shares: 5, venue: "polymarket", dry_run: false },
+      { ...ctxLive, exposureCapUsd: 10 },
+    );
+
+    assert.ok(!result.isError, "sell must not be blocked by an over-cap book");
+    assert.equal(captured.length, 1, "must POST /trade for a sell over the cap");
+    assert.equal(captured[0].action, "sell");
+  });
+
+  it("sell skips a non-finite EXPOSURE_CAP_USD and still POSTs", async () => {
+    const captured: Record<string, unknown>[] = [];
+    mockFetch(async (url, init) => {
+      const u = url.toString();
+      if (u.includes("/api/sdk/agents/me")) {
+        return okJson({ real_trading_enabled: true, wallet_address: "0xabc" });
+      }
+      if (u.includes("/api/sdk/briefing")) {
+        return okJson({ venues: { polymarket: { balance: 50 } }, risk_alerts: [] });
+      }
+      if (u.includes("/api/sdk/positions")) {
+        return okJson({ positions: [{ venue: "polymarket", current_value: 150 }] });
+      }
+      captured.push(JSON.parse((init?.body as string) ?? "{}") as Record<string, unknown>);
+      return okJson({ status: "executed" });
+    });
+
+    const result = await executeTrade(
+      api,
+      { market_id: "m1", side: "yes", action: "sell", shares: 5, venue: "polymarket", dry_run: false },
+      { ...ctxLive, exposureCapUsd: Number.NaN },
+    );
+
+    assert.ok(!result.isError, "sell must skip the bad-cap finiteness check");
+    assert.equal(captured.length, 1, "must POST /trade for a sell with a bad cap");
+    assert.equal(captured[0].action, "sell");
+  });
+
+  it("rejects non-finite EXPOSURE_CAP_USD before POST", async () => {
+    const tradePosts: string[] = [];
+    mockFetch(async (url, init) => {
+      tradePosts.push(init?.method ?? "GET");
+      return okJson({ status: "executed" });
+    });
+
+    const result = await executeTrade(
+      api,
+      { market_id: "m1", side: "yes", action: "buy", amount: 10, venue: "polymarket", dry_run: false },
+      { ...ctxLive, exposureCapUsd: Number.NaN },
+    );
+
+    assert.equal(result.isError, true);
+    assert.ok(result.content[0].text.includes("finite number"));
+    assert.equal(tradePosts.length, 0);
+  });
+
+  it("skipPreflight bypasses the live preflight gate", async () => {
+    const captured: Record<string, unknown>[] = [];
+    mockFetch(async (url, init) => {
+      const u = url.toString();
+      if (u.includes("/api/sdk/agents/me") || u.includes("/briefing") || u.includes("/positions")) {
+        throw new Error("preflight endpoints must not be called when skipPreflight");
+      }
+      captured.push(JSON.parse((init?.body as string) ?? "{}") as Record<string, unknown>);
+      return okJson({ status: "executed" });
+    });
+
+    const result = await executeTrade(
+      api,
+      { market_id: "m1", side: "yes", action: "buy", amount: 10, venue: "polymarket", dry_run: false },
+      { ...ctxLive, skipPreflight: true },
+    );
+
+    assert.ok(!result.isError);
+    assert.equal(captured[0].venue, "polymarket");
+    assert.equal(captured[0].dry_run, false);
   });
 
   it("paper trade on sim venue passes through without coercion even without allowLive", async () => {

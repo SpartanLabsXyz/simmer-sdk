@@ -830,6 +830,7 @@ if (simmer) {
       "",
       "Safety triple-gate: a live trade on a real venue requires (1) dry_run=false,",
       "(2) venue='polymarket' or 'kalshi', AND (3) SIMMER_MCP_ALLOW_LIVE=true env.",
+      "A live placement also auto-runs preflight and refuses if ok_to_trade is False.",
       "Any missing gate coerces to sim with a warning. Default: dry_run=true (paper mode).",
       "",
       "Use 'amount' (USD) for action='buy', 'shares' for action='sell'.",

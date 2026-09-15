@@ -5,6 +5,7 @@ Simple Python client for trading on Simmer prediction markets.
 """
 
 import hashlib
+import math
 import os
 import sys
 import time
@@ -205,10 +206,10 @@ class PreflightResult:
 
     Blocker codes (v0):
         EXPOSURE_CAP_EXCEEDED  — open_exposure_total + planned_amount > exposure_cap_usd
-        EXPOSURE_UNKNOWN       — real venue + active cap but positions fetch failed (fail-closed)
+        EXPOSURE_UNKNOWN       — real venue + active cap but positions fetch or parse failed (fail-closed)
         WALLET_UNVERIFIED      — real venue requested but agent not real-trading-enabled
         VENUE_UNSUPPORTED      — venue string not recognised by the SDK
-        INSUFFICIENT_GAS       — gas signal detected in risk_alerts (v0 proxy; no on-chain query)
+        INSUFFICIENT_GAS       — structured risk_alert code INSUFFICIENT_GAS (v0 proxy; no on-chain query)
 
     ``gas_balance`` is None in v0 — on-chain RPC query is deferred to v1.
     ``warnings`` are non-blocking advisories (fetch failures, skipped checks).
@@ -1163,6 +1164,12 @@ class SimmerClient:
         import uuid as _uuid
 
         client_preflight_id = str(_uuid.uuid4())
+        try:
+            exposure_cap_usd = float(exposure_cap_usd)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("exposure_cap_usd must be a finite number") from exc
+        if not math.isfinite(exposure_cap_usd):
+            raise ValueError("exposure_cap_usd must be a finite number")
 
         # Resolve and normalise venue
         resolved_venue = venue or self.venue
@@ -1198,7 +1205,9 @@ class SimmerClient:
         dw_active = bool(getattr(self, "_uses_deposit_wallet", False))
 
         try:
-            me = self._request("GET", "/api/sdk/agents/me")
+            me = self._request(
+                "GET", "/api/sdk/agents/me", timeout=self._PREFLIGHT_READ_TIMEOUT_S,
+            )
             agent_id = me.get("agent_id")
             _rl = me.get("rate_limits") or {}
             tier = _rl.get("tier")
@@ -1267,7 +1276,10 @@ class SimmerClient:
                 deposit_wallet if (dw_active and deposit_wallet) else execution_wallet
             )
             try:
-                _appr = self.check_approvals(address=approvals_address)
+                _appr = self.check_approvals(
+                    address=approvals_address,
+                    timeout=self._PREFLIGHT_READ_TIMEOUT_S,
+                )
                 if not _appr.get("all_set", True):
                     warnings_list.append("POLYMARKET_APPROVALS_MISSING")
             except Exception:
@@ -1280,12 +1292,16 @@ class SimmerClient:
         _has_briefing_sim_exposure = False
 
         try:
-            briefing = self._request("GET", "/api/sdk/briefing")
+            briefing = self._request(
+                "GET", "/api/sdk/briefing", timeout=self._PREFLIGHT_READ_TIMEOUT_S,
+            )
 
-            # Normalise risk alerts to list[dict]
+            # Normalise risk alerts to list[dict]. Preserve a bare string as
+            # both message and code so structured INSUFFICIENT_GAS matching
+            # still works after this wrap (CTO review round 2).
             for _a in (briefing.get("risk_alerts") or []):
                 if isinstance(_a, str):
-                    pending_alerts.append({"message": _a})
+                    pending_alerts.append({"message": _a, "code": _a})
                 elif isinstance(_a, dict):
                     pending_alerts.append(_a)
 
@@ -1313,12 +1329,19 @@ class SimmerClient:
         _positions_ok = False
 
         try:
-            _pos_data = self._request("GET", "/api/sdk/positions")
+            _pos_data = self._request(
+                "GET", "/api/sdk/positions", timeout=self._PREFLIGHT_READ_TIMEOUT_S,
+            )
             _positions = _pos_data.get("positions") or []
 
             # Sum current_value by real vs sim venue so the cap check operates
             # on the right currency domain. $SIM (virtual) never counts toward
             # a USD cap; real positions (polymarket, kalshi) always count.
+            # venue=None is sim (virtual), matching the server's missing-venue
+            # default — never count it as real USDC exposure.
+            # float() parse failures are caught below so a bad current_value
+            # becomes EXPOSURE_UNKNOWN (real venue + cap) or a warning —
+            # never an uncaught raise out of trade().
             _real_exp = sum(
                 float(p.get("current_value") or 0)
                 for p in _positions
@@ -1350,10 +1373,10 @@ class SimmerClient:
 
         # ── Gas balance (v0: deferred — no on-chain RPC in SDK client) ────
         gas_balance: Optional[float] = None
-        # Proxy: check risk_alerts for gas/POL signals from the server.
+        # Structured signal only — do not scan free text for "gas" / "pol"
+        # (those substrings false-positive on "policy", "political", "vegas").
         for _alert in pending_alerts:
-            _msg = (_alert.get("message") or "").lower() if isinstance(_alert, dict) else str(_alert).lower()
-            if "gas" in _msg or ("pol" in _msg and "polymarket" not in _msg):
+            if self._alert_signals_insufficient_gas(_alert):
                 if "INSUFFICIENT_GAS" not in blockers:
                     blockers.append("INSUFFICIENT_GAS")
                 break
@@ -1379,6 +1402,113 @@ class SimmerClient:
             blockers=blockers,
             warnings=warnings_list,
         )
+
+    # Per-call socket bound for the three serial preflight reads (identity,
+    # briefing, positions) plus the optional approvals check. Worst case is
+    # 15 s plus one 5 s approvals call. No threads.
+    _PREFLIGHT_READ_TIMEOUT_S = 5
+
+    @staticmethod
+    def _is_real_money_venue(venue: str) -> bool:
+        """True for venues that place real (non-$SIM) orders."""
+        resolved = "sim" if venue in ("simmer", "sandbox") else venue
+        return resolved in ("polymarket", "kalshi")
+
+    @staticmethod
+    def _alert_signals_insufficient_gas(alert: Any) -> bool:
+        """True when a briefing risk_alert carries structured INSUFFICIENT_GAS.
+
+        Matches ``code`` / ``type`` / ``alert_code`` / ``blocker``, or a bare
+        string that is exactly that code. Does not scan free-text ``message``
+        for ``gas`` or ``pol`` — those substrings false-positive.
+        """
+        if isinstance(alert, str):
+            return alert.strip().upper() == "INSUFFICIENT_GAS"
+        if not isinstance(alert, dict):
+            return False
+        for key in ("code", "type", "alert_code", "blocker"):
+            val = alert.get(key)
+            if isinstance(val, str) and val.strip().upper() == "INSUFFICIENT_GAS":
+                return True
+        return False
+
+    @staticmethod
+    def _preflight_exposure_cap_usd() -> float:
+        """Honor EXPOSURE_CAP_USD when set. Unset disables the auto-gate cap.
+
+        The live auto-gate is opt-in: wallet / venue / gas blockers still run
+        when the env is unset. ``preflight()`` itself keeps its documented
+        ``exposure_cap_usd=100`` default for explicit calls. Non-finite values
+        (NaN / Infinity) raise so a bad env cannot silently disable or default.
+        """
+        raw = os.environ.get("EXPOSURE_CAP_USD", "").strip()
+        if not raw:
+            return 0.0
+        try:
+            value = float(raw)
+        except ValueError:
+            raise ValueError(
+                f"EXPOSURE_CAP_USD must be a finite number, got {raw!r}"
+            ) from None
+        if not math.isfinite(value):
+            raise ValueError(
+                f"EXPOSURE_CAP_USD must be a finite number, got {raw!r}"
+            )
+        return value
+
+    @staticmethod
+    def _env_skip_preflight() -> bool:
+        return os.environ.get("SIMMER_SKIP_PREFLIGHT", "").strip().lower() in (
+            "1", "true", "yes",
+        )
+
+    def _blocked_live_preflight(
+        self,
+        *,
+        venue: str,
+        planned_amount: float,
+        skip_preflight: bool,
+        skip_exposure_cap: bool = False,
+    ) -> Optional["PreflightResult"]:
+        """Run preflight for a live real-money placement.
+
+        Returns the blocked ``PreflightResult`` when the trade must be
+        refused. Returns ``None`` when the call may proceed (ok, or the
+        one-release skip valve).
+
+        The auto-gate exposure cap is opt-in (``EXPOSURE_CAP_USD`` set) and
+        is skipped for sells so an over-cap book can still reduce exposure.
+        Wallet / venue / gas blockers still run.
+        """
+        if skip_preflight or self._env_skip_preflight():
+            import warnings
+            warnings.warn(
+                "skip_preflight=True and SIMMER_SKIP_PREFLIGHT are a one-release "
+                "migrate valve. Live trades will require a passing preflight "
+                "(ok_to_trade=True) after this release. Fix the blockers instead "
+                "of skipping.",
+                DeprecationWarning,
+                stacklevel=3,
+            )
+            logger.warning(
+                "Live preflight gate skipped via skip_preflight / "
+                "SIMMER_SKIP_PREFLIGHT (deprecated migrate valve)"
+            )
+            return None
+        # Sells skip cap parsing entirely (exempt from cap math). A bad
+        # EXPOSURE_CAP_USD must not raise out of a sell.
+        if skip_exposure_cap:
+            cap = 0.0
+        else:
+            cap = self._preflight_exposure_cap_usd()
+        result = self.preflight(
+            venue=venue,
+            planned_amount=planned_amount,
+            exposure_cap_usd=cap,
+        )
+        if result.ok_to_trade:
+            return None
+        return result
 
     def _get_clob_client(self):
         """Get or create an authenticated ClobClient for local CLOB operations."""
@@ -1410,6 +1540,7 @@ class SimmerClient:
         max_retries: int = 2,
         on_status: Optional[Callable[[str], None]] = None,
         allow_deposit_wallet: bool = False,
+        skip_preflight: bool = False,
     ) -> Dict[str, Any]:
         """Place a Polymarket combo (parlay) via the requester RFQ gateway.
 
@@ -1449,6 +1580,9 @@ class SimmerClient:
                 combo-approval pre-check for a DW placement (use only if you've
                 already activated combos and want to avoid the extra RPC read,
                 or the check is misbehaving). DW combos are allowed either way.
+            skip_preflight: one-release migrate valve. When True (or when
+                ``SIMMER_SKIP_PREFLIGHT=1``), skip the live ``ok_to_trade``
+                gate. Emits a deprecation warning. Default is gated.
 
         Returns the dry-run plan, or ``{status, tx_hash, rfq_id}`` on a fill.
         """
@@ -1489,6 +1623,20 @@ class SimmerClient:
                 "place_combo(dry_run=False) requires the client in live mode. "
                 "Refusing to place a real combo from a non-live client."
             )
+
+        if not dry_run and self.live:
+            combo_is_sell = str(direction).upper() == "SELL"
+            blocked = self._blocked_live_preflight(
+                venue="polymarket",
+                planned_amount=0.0 if combo_is_sell else float(size_usdc),
+                skip_preflight=skip_preflight,
+                skip_exposure_cap=combo_is_sell,
+            )
+            if blocked is not None:
+                raise RuntimeError(
+                    "place_combo(dry_run=False) refused: preflight "
+                    f"ok_to_trade=False (blockers: {', '.join(blocked.blockers)})."
+                )
 
         # Deposit-wallet combo-approval pre-check. DW combos settle on the
         # combo exchange (COMBO_EXCHANGE), which the standard DW activation
@@ -1943,6 +2091,24 @@ class SimmerClient:
                 "code": "insufficient_balance",
                 "message": text,
                 "hint": "Call get_portfolio() to check available balance before retrying with a smaller amount.",
+            }
+        if "preflight" in lower and ("block" in lower or "ok_to_trade" in lower):
+            return {
+                "code": "preflight_blocked",
+                "message": text,
+                "hint": (
+                    "Call client.preflight() and resolve the blockers listed "
+                    "in the error before retrying the live trade."
+                ),
+            }
+        if "exposure_cap_usd" in lower and "finite" in lower:
+            return {
+                "code": "preflight_blocked",
+                "message": text,
+                "hint": (
+                    "Set EXPOSURE_CAP_USD to a finite number, or unset it to "
+                    "disable the auto-gate cap, then retry the live trade."
+                ),
             }
         if "unauthorized" in lower or "invalid api key" in lower or "credentials" in lower:
             return {
@@ -2444,6 +2610,7 @@ class SimmerClient:
         skill_version: Optional[str] = None,
         include_hints: bool = False,
         dry_run: bool = False,
+        skip_preflight: bool = False,
     ) -> TradeResult:
         """
         Execute a trade on a market.
@@ -2493,6 +2660,11 @@ class SimmerClient:
                 "signal_source": "noaa", "forecast_temp": 35}
             include_hints: Populate ``next_steps`` and structured error hints on
                 the returned TradeResult.
+            skip_preflight: One-release migrate valve. When True (or when
+                ``SIMMER_SKIP_PREFLIGHT=1``), skip the live ``ok_to_trade``
+                gate. Emits a deprecation warning. Default is gated: a live
+                real-venue ``dry_run=False`` trade auto-runs ``preflight()``
+                with the planned spend and refuses if ``ok_to_trade`` is False.
             dry_run: Validate and price the trade without executing it. No money
                 moves and no order is signed or submitted. Use it to confirm the
                 exact fill count before committing size. On a ``live=False``
@@ -2644,6 +2816,31 @@ class SimmerClient:
                 market_id, side, amount, shares, action, effective_venue,
                 dry_run=dry_run,
             )
+
+        # Hard live control point: real-venue dry_run=False must pass
+        # preflight ok_to_trade. Paper / sim / dry_run are unchanged.
+        if not dry_run and self._is_real_money_venue(effective_venue):
+            planned = 0.0 if is_sell else float(amount)
+            try:
+                blocked = self._blocked_live_preflight(
+                    venue=effective_venue,
+                    planned_amount=planned,
+                    skip_preflight=skip_preflight,
+                    skip_exposure_cap=is_sell,
+                )
+            except ValueError as exc:
+                if "EXPOSURE_CAP_USD must be a finite number" in str(exc):
+                    return _failure_result(
+                        "EXPOSURE_CAP_USD must be a finite number",
+                        "preflight_blocked",
+                    )
+                raise
+            if blocked is not None:
+                blockers = ", ".join(blocked.blockers) or "unknown"
+                return _failure_result(
+                    f"Preflight blocked live trade (ok_to_trade=False): {blockers}",
+                    "preflight_blocked",
+                )
 
         # Position conflict checks (buy only — sells always allowed)
         if action == "buy" and not allow_rebuy and not source:
@@ -6036,7 +6233,7 @@ class SimmerClient:
         )
         return summary
 
-    def check_approvals(self, address: Optional[str] = None, no_cache: bool = False, include_tx_params: bool = False) -> Dict[str, Any]:
+    def check_approvals(self, address: Optional[str] = None, no_cache: bool = False, include_tx_params: bool = False, timeout: Optional[int] = None) -> Dict[str, Any]:
         """
         Check Polymarket token approvals for a wallet.
 
@@ -6076,7 +6273,7 @@ class SimmerClient:
         path = f"/api/polymarket/allowances/{check_address}"
         if params:
             path += "?" + "&".join(f"{k}={v}" for k, v in params.items())
-        return self._request("GET", path)
+        return self._request("GET", path, timeout=timeout)
 
     def _probe_managed_wallet(self) -> Optional[Dict[str, Any]]:
         """Probe the server for a managed-wallet account on this API key.

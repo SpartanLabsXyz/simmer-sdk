@@ -20,6 +20,10 @@ def _make_client(**overrides):
 
     # Mock _request to capture calls
     client._request = MagicMock()
+    _ok = MagicMock()
+    _ok.ok_to_trade = True
+    _ok.blockers = []
+    client.preflight = MagicMock(return_value=_ok)
     return client
 
 

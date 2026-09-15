@@ -11,6 +11,7 @@
 
 import type { SimmerApi, TradeParams } from "./api.js";
 import { BackendError } from "./errors.js";
+import { evaluateSdkPreflight } from "./preflight-gate.js";
 import type { ToolContext, ToolResult } from "./tool-registry.js";
 
 // Allowlist of live venues. Anything outside this list (including "", undefined,
@@ -85,6 +86,49 @@ export async function executeTrade(
   if (args.shares !== undefined) params.shares = args.shares;
   if (args.reasoning) params.reasoning = args.reasoning;
   if (args.source) params.source = args.source;
+
+  // Additional live gate on top of SIMMER_MCP_ALLOW_LIVE: refuse real-money
+  // placement when a fresh preflight would return ok_to_trade=False.
+  if (!effectiveDryRun) {
+    if (ctx.skipPreflight) {
+      console.warn(
+        "[simmer-mcp] SIMMER_SKIP_PREFLIGHT bypasses the live preflight gate " +
+        "(deprecated migrate valve). Live trades will require ok_to_trade=True after this release.",
+      );
+    } else {
+      // Sells skip the cap (and its finiteness check) — they reduce exposure.
+      // Unset cap is 0 — auto-gate cap is opt-in via EXPOSURE_CAP_USD.
+      const isSell = args.action === "sell";
+      if (!isSell && ctx.exposureCapUsd !== undefined && !Number.isFinite(ctx.exposureCapUsd)) {
+        return {
+          content: [{
+            type: "text" as const,
+            text: "❌ EXPOSURE_CAP_USD must be a finite number.",
+          }],
+          isError: true,
+        };
+      }
+      const plannedAmount = isSell ? 0 : (args.amount ?? 0);
+      const exposureCapUsd = isSell ? 0 : (ctx.exposureCapUsd ?? 0);
+      const verdict = await evaluateSdkPreflight(api, {
+        venue: resolvedVenue,
+        plannedAmount,
+        exposureCapUsd,
+      });
+      if (!verdict.ok_to_trade) {
+        const blockers = verdict.blockers.join(", ") || "unknown";
+        return {
+          content: [{
+            type: "text" as const,
+            text:
+              `❌ Preflight blocked live trade (ok_to_trade=False): ${blockers}. ` +
+              `Resolve the blockers before retrying the live trade.`,
+          }],
+          isError: true,
+        };
+      }
+    }
+  }
 
   try {
     const result = await api.trade(params);

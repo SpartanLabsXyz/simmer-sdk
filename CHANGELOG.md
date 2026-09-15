@@ -3,6 +3,14 @@
 All notable changes to `simmer-sdk` are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.25.6 (2026-09-14)
+
+- **Live trades now require a passing preflight.** `client.trade(dry_run=False)` on a `live=True` client against a real venue (`polymarket` / `kalshi`) auto-runs `preflight()` and returns `success=False` (`error_code=preflight_blocked`) when `ok_to_trade` is False, listing the blockers. `place_combo(dry_run=False)` raises the same refusal. The auto-gate exposure cap is opt-in (`EXPOSURE_CAP_USD` set → enforced; unset → no $100 default) and sells are exempt from cap math so an over-cap book can still reduce exposure. Wallet / venue / gas blockers still run. `INSUFFICIENT_GAS` matches a structured risk_alert code (including a bare `"INSUFFICIENT_GAS"` string), not free-text `pol` / `gas`. A non-finite `EXPOSURE_CAP_USD` returns a `preflight_blocked` failure result on buys and is skipped on sells — it does not raise out of `trade()`. Unparseable position `current_value` is `EXPOSURE_UNKNOWN` (real venue + active cap), not a crash. Identity / briefing / positions (and approvals) are serial `_request` calls with `timeout=5`. Paper, `venue="sim"`, and `dry_run=True` are unchanged. One-release migrate valve: `skip_preflight=True` or `SIMMER_SKIP_PREFLIGHT=1` (deprecation warning). MCP `simmer_trade` applies the same live gate; `SIMMER_MCP_ALLOW_LIVE` is still required. This control point covers polymarket/kalshi live `trade()` and `place_combo()`, not `client.hyperliquid.place_order()` — Hyperliquid is still ungated because `preflight()` would return `VENUE_UNSUPPORTED`. Fixes #371. SIM-5388.
+
+## simmer-mcp v3.5.5 — 2026-09-14
+
+- **`simmer_trade` refuses a live placement when preflight would return `ok_to_trade=False`.** Additional gate on top of `SIMMER_MCP_ALLOW_LIVE`. Exposure cap is opt-in (`EXPOSURE_CAP_USD`); sells skip cap math and the cap finiteness check; `venue: null` positions count as sim (same as Python); non-finite caps are rejected on buys. Identity / briefing / positions reads run in parallel under an 8s budget. Set `SIMMER_SKIP_PREFLIGHT=1` to bypass for one release (warned). Paper / dry-run / coerced-to-sim paths are unchanged.
+
 ## 0.25.5 (2026-09-10)
 
 - **`Market` now keeps `sim_tradeable` and `is_orderbook_open` from the markets API.** #352 documented these as the Simmer paper-trading guard and the venue orderbook-liveness flag, but `_parse_market` dropped both, so `get_markets()` / `find_markets()` / `get_fast_markets()` / `get_market_by_id()` returned typed markets that could not be filtered the way the docs said. Missing keys still default to `None`, same as `is_live_now`.
