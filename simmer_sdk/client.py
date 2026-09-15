@@ -11,8 +11,7 @@ import sys
 import time
 import logging
 import requests
-from concurrent.futures import ThreadPoolExecutor, wait
-from typing import Optional, List, Dict, Any, Callable, Sequence, Union, Tuple
+from typing import Optional, List, Dict, Any, Callable, Sequence, Union
 from dataclasses import dataclass
 from urllib.parse import quote, urlparse
 from datetime import datetime, timezone
@@ -207,7 +206,7 @@ class PreflightResult:
 
     Blocker codes (v0):
         EXPOSURE_CAP_EXCEEDED  — open_exposure_total + planned_amount > exposure_cap_usd
-        EXPOSURE_UNKNOWN       — real venue + active cap but positions fetch failed (fail-closed)
+        EXPOSURE_UNKNOWN       — real venue + active cap but positions fetch or parse failed (fail-closed)
         WALLET_UNVERIFIED      — real venue requested but agent not real-trading-enabled
         VENUE_UNSUPPORTED      — venue string not recognised by the SDK
         INSUFFICIENT_GAS       — structured risk_alert code INSUFFICIENT_GAS (v0 proxy; no on-chain query)
@@ -1205,10 +1204,10 @@ class SimmerClient:
         # overrides below per cohort.
         dw_active = bool(getattr(self, "_uses_deposit_wallet", False))
 
-        me, me_err, briefing, briefing_err, _pos_data, _pos_err = self._preflight_parallel_reads()
-        if me_err is not None:
-            warnings_list.append(f"identity_fetch_failed: {me_err}")
-        elif isinstance(me, dict):
+        try:
+            me = self._request(
+                "GET", "/api/sdk/agents/me", timeout=self._PREFLIGHT_READ_TIMEOUT_S,
+            )
             agent_id = me.get("agent_id")
             _rl = me.get("rate_limits") or {}
             tier = _rl.get("tier")
@@ -1239,6 +1238,8 @@ class SimmerClient:
                     deposit_wallet = me.get("deposit_wallet_address")
                 if "wallet_uses_deposit_wallet" in me and me.get("wallet_uses_deposit_wallet") is not None:
                     dw_active = bool(me.get("wallet_uses_deposit_wallet"))
+        except Exception as _e:
+            warnings_list.append(f"identity_fetch_failed: {_e}")
 
         # ── Venue support ─────────────────────────────────────────────────
         _SUPPORTED_VENUES = ("sim", "polymarket", "kalshi")
@@ -1275,7 +1276,10 @@ class SimmerClient:
                 deposit_wallet if (dw_active and deposit_wallet) else execution_wallet
             )
             try:
-                _appr = self.check_approvals(address=approvals_address)
+                _appr = self.check_approvals(
+                    address=approvals_address,
+                    timeout=self._PREFLIGHT_READ_TIMEOUT_S,
+                )
                 if not _appr.get("all_set", True):
                     warnings_list.append("POLYMARKET_APPROVALS_MISSING")
             except Exception:
@@ -1287,13 +1291,17 @@ class SimmerClient:
         _briefing_sim_exposure: float = 0.0
         _has_briefing_sim_exposure = False
 
-        if briefing_err is not None:
-            warnings_list.append(f"briefing_fetch_failed: {briefing_err}")
-        elif isinstance(briefing, dict):
-            # Normalise risk alerts to list[dict]
+        try:
+            briefing = self._request(
+                "GET", "/api/sdk/briefing", timeout=self._PREFLIGHT_READ_TIMEOUT_S,
+            )
+
+            # Normalise risk alerts to list[dict]. Preserve a bare string as
+            # both message and code so structured INSUFFICIENT_GAS matching
+            # still works after this wrap (CTO review round 2).
             for _a in (briefing.get("risk_alerts") or []):
                 if isinstance(_a, str):
-                    pending_alerts.append({"message": _a})
+                    pending_alerts.append({"message": _a, "code": _a})
                 elif isinstance(_a, dict):
                     pending_alerts.append(_a)
 
@@ -1313,21 +1321,17 @@ class SimmerClient:
             elif resolved_venue == "kalshi":
                 _kal = _venues.get("kalshi") or {}
                 spendable_balance = _kal.get("balance")
+        except Exception as _e:
+            warnings_list.append(f"briefing_fetch_failed: {_e}")
 
         # ── Positions: precise open exposure ──────────────────────────────
         open_exposure_total = 0.0
         _positions_ok = False
 
-        if _pos_err is not None:
-            warnings_list.append(f"positions_fetch_failed: {_pos_err}")
-            # Fallback: briefing portfolio_value for sim venue only.
-            # For real venues with an active cap, unknown exposure is unsafe —
-            # block rather than silently assume zero open positions.
-            if _has_briefing_sim_exposure and resolved_venue == "sim":
-                open_exposure_total = _briefing_sim_exposure
-            elif resolved_venue not in (None, "sim") and exposure_cap_usd > 0:
-                blockers.append("EXPOSURE_UNKNOWN")
-        elif isinstance(_pos_data, dict):
+        try:
+            _pos_data = self._request(
+                "GET", "/api/sdk/positions", timeout=self._PREFLIGHT_READ_TIMEOUT_S,
+            )
             _positions = _pos_data.get("positions") or []
 
             # Sum current_value by real vs sim venue so the cap check operates
@@ -1335,6 +1339,9 @@ class SimmerClient:
             # a USD cap; real positions (polymarket, kalshi) always count.
             # venue=None is sim (virtual), matching the server's missing-venue
             # default — never count it as real USDC exposure.
+            # float() parse failures are caught below so a bad current_value
+            # becomes EXPOSURE_UNKNOWN (real venue + cap) or a warning —
+            # never an uncaught raise out of trade().
             _real_exp = sum(
                 float(p.get("current_value") or 0)
                 for p in _positions
@@ -1347,8 +1354,11 @@ class SimmerClient:
             )
             open_exposure_total = _sim_exp if resolved_venue == "sim" else _real_exp
             _positions_ok = True
-        else:
-            warnings_list.append("positions_fetch_failed: empty response")
+        except Exception as _e:
+            warnings_list.append(f"positions_fetch_failed: {_e}")
+            # Fallback: briefing portfolio_value for sim venue only.
+            # For real venues with an active cap, unknown exposure is unsafe —
+            # block rather than silently assume zero open positions.
             if _has_briefing_sim_exposure and resolved_venue == "sim":
                 open_exposure_total = _briefing_sim_exposure
             elif resolved_venue not in (None, "sim") and exposure_cap_usd > 0:
@@ -1393,11 +1403,10 @@ class SimmerClient:
             warnings=warnings_list,
         )
 
-    # Shared live-preflight read budget. Serial 30s × 3–4 calls would stall a
-    # permitted fast-loop order; parallel GETs + a short per-call timeout keep
-    # the gate on the wallet/venue/gas blockers without adding 15–30s.
+    # Per-call socket bound for the three serial preflight reads (identity,
+    # briefing, positions) plus the optional approvals check. Worst case is
+    # 15 s plus one 5 s approvals call. No threads.
     _PREFLIGHT_READ_TIMEOUT_S = 5
-    _PREFLIGHT_BUDGET_S = 8.0
 
     @staticmethod
     def _is_real_money_venue(venue: str) -> bool:
@@ -1453,48 +1462,6 @@ class SimmerClient:
             "1", "true", "yes",
         )
 
-    def _preflight_parallel_reads(
-        self,
-    ) -> Tuple[Any, Optional[BaseException], Any, Optional[BaseException], Any, Optional[BaseException]]:
-        """Fetch identity, briefing, and positions under a shared time budget."""
-        endpoints = (
-            "/api/sdk/agents/me",
-            "/api/sdk/briefing",
-            "/api/sdk/positions",
-        )
-        results: Dict[str, Any] = {}
-        errors: Dict[str, BaseException] = {}
-
-        def _one(endpoint: str) -> Tuple[str, Any]:
-            return endpoint, self._request(
-                "GET", endpoint, timeout=self._PREFLIGHT_READ_TIMEOUT_S,
-            )
-
-        with ThreadPoolExecutor(max_workers=3) as pool:
-            future_to_ep = {pool.submit(_one, ep): ep for ep in endpoints}
-            done, not_done = wait(future_to_ep, timeout=self._PREFLIGHT_BUDGET_S)
-            for fut in done:
-                ep = future_to_ep[fut]
-                try:
-                    _, data = fut.result()
-                    results[ep] = data
-                except Exception as exc:
-                    errors[ep] = exc
-            for fut in not_done:
-                ep = future_to_ep[fut]
-                errors[ep] = TimeoutError(f"preflight read timed out: {ep}")
-                fut.cancel()
-
-        def _pair(endpoint: str) -> Tuple[Any, Optional[BaseException]]:
-            if endpoint in errors:
-                return None, errors[endpoint]
-            return results.get(endpoint), None
-
-        me, me_err = _pair("/api/sdk/agents/me")
-        briefing, briefing_err = _pair("/api/sdk/briefing")
-        positions, positions_err = _pair("/api/sdk/positions")
-        return me, me_err, briefing, briefing_err, positions, positions_err
-
     def _blocked_live_preflight(
         self,
         *,
@@ -1528,9 +1495,12 @@ class SimmerClient:
                 "SIMMER_SKIP_PREFLIGHT (deprecated migrate valve)"
             )
             return None
-        cap = self._preflight_exposure_cap_usd()
+        # Sells skip cap parsing entirely (exempt from cap math). A bad
+        # EXPOSURE_CAP_USD must not raise out of a sell.
         if skip_exposure_cap:
             cap = 0.0
+        else:
+            cap = self._preflight_exposure_cap_usd()
         result = self.preflight(
             venue=venue,
             planned_amount=planned_amount,
@@ -2129,6 +2099,15 @@ class SimmerClient:
                 "hint": (
                     "Call client.preflight() and resolve the blockers listed "
                     "in the error before retrying the live trade."
+                ),
+            }
+        if "exposure_cap_usd" in lower and "finite" in lower:
+            return {
+                "code": "preflight_blocked",
+                "message": text,
+                "hint": (
+                    "Set EXPOSURE_CAP_USD to a finite number, or unset it to "
+                    "disable the auto-gate cap, then retry the live trade."
                 ),
             }
         if "unauthorized" in lower or "invalid api key" in lower or "credentials" in lower:
@@ -2842,12 +2821,20 @@ class SimmerClient:
         # preflight ok_to_trade. Paper / sim / dry_run are unchanged.
         if not dry_run and self._is_real_money_venue(effective_venue):
             planned = 0.0 if is_sell else float(amount)
-            blocked = self._blocked_live_preflight(
-                venue=effective_venue,
-                planned_amount=planned,
-                skip_preflight=skip_preflight,
-                skip_exposure_cap=is_sell,
-            )
+            try:
+                blocked = self._blocked_live_preflight(
+                    venue=effective_venue,
+                    planned_amount=planned,
+                    skip_preflight=skip_preflight,
+                    skip_exposure_cap=is_sell,
+                )
+            except ValueError as exc:
+                if "EXPOSURE_CAP_USD must be a finite number" in str(exc):
+                    return _failure_result(
+                        "EXPOSURE_CAP_USD must be a finite number",
+                        "preflight_blocked",
+                    )
+                raise
             if blocked is not None:
                 blockers = ", ".join(blocked.blockers) or "unknown"
                 return _failure_result(
@@ -6246,7 +6233,7 @@ class SimmerClient:
         )
         return summary
 
-    def check_approvals(self, address: Optional[str] = None, no_cache: bool = False, include_tx_params: bool = False) -> Dict[str, Any]:
+    def check_approvals(self, address: Optional[str] = None, no_cache: bool = False, include_tx_params: bool = False, timeout: Optional[int] = None) -> Dict[str, Any]:
         """
         Check Polymarket token approvals for a wallet.
 
@@ -6286,7 +6273,7 @@ class SimmerClient:
         path = f"/api/polymarket/allowances/{check_address}"
         if params:
             path += "?" + "&".join(f"{k}={v}" for k, v in params.items())
-        return self._request("GET", path)
+        return self._request("GET", path, timeout=timeout)
 
     def _probe_managed_wallet(self) -> Optional[Dict[str, Any]]:
         """Probe the server for a managed-wallet account on this API key.

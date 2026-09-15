@@ -426,6 +426,23 @@ class TestPreflightGracefulDegradation(unittest.TestCase):
         result = client.preflight(venue="sim", exposure_cap_usd=0)
         self.assertNotIn("EXPOSURE_UNKNOWN", result.blockers)
 
+    def test_non_numeric_current_value_is_exposure_unknown(self):
+        """current_value='unknown' must not raise; real venue + cap → EXPOSURE_UNKNOWN."""
+        client = _make_client()
+        positions = [
+            {"venue": "polymarket", "current_value": "unknown", "market_id": "m1",
+             "shares_yes": 10, "shares_no": 0, "pnl": 0, "status": "active", "question": "Q1"},
+        ]
+        _mock_request(
+            client,
+            me_resp=_agents_me(real_trading_enabled=True),
+            positions_resp=_positions(positions),
+        )
+        result = client.preflight(venue="polymarket", planned_amount=5.0, exposure_cap_usd=100.0)
+        self.assertIn("EXPOSURE_UNKNOWN", result.blockers)
+        self.assertFalse(result.ok_to_trade)
+        self.assertTrue(any("positions_fetch_failed" in w for w in result.warnings))
+
     def test_positions_failure_real_venue_cap_zero_no_blocker(self):
         """Real venue but cap=0 (disabled) — positions failure should NOT block."""
         client = _make_client()
@@ -612,7 +629,7 @@ class TestPreflightApprovalsWarning(unittest.TestCase):
             per_agent_dw_active=True,
         ))
         captured = {}
-        def _capture(address):
+        def _capture(address, **_kwargs):
             captured["address"] = address
             return {"all_set": True}
         client.check_approvals = _capture
@@ -641,7 +658,7 @@ class TestPreflightApprovalsWarning(unittest.TestCase):
             per_agent_dw_active=False,
         ))
         captured = {}
-        def _capture(address):
+        def _capture(address, **_kwargs):
             captured["address"] = address
             return {"all_set": True}
         client.check_approvals = _capture
@@ -661,7 +678,7 @@ class TestPreflightApprovalsWarning(unittest.TestCase):
         )
         _mock_request(client, me_resp=_agents_me(real_trading_enabled=True))
         captured = {}
-        def _capture(address):
+        def _capture(address, **_kwargs):
             captured["address"] = address
             return {"all_set": True}
         client.check_approvals = _capture
@@ -684,7 +701,7 @@ class TestPreflightApprovalsWarning(unittest.TestCase):
             wallet_uses_deposit_wallet=True,
         ))
         captured = {}
-        def _capture(address):
+        def _capture(address, **_kwargs):
             captured["address"] = address
             return {"all_set": True}
         client.check_approvals = _capture
@@ -725,7 +742,7 @@ class TestPreflightApprovalsWarning(unittest.TestCase):
         client._request = _side_effect
 
         captured = {}
-        def _capture(address):
+        def _capture(address, **_kwargs):
             captured["address"] = address
             return {"all_set": True}
         client.check_approvals = _capture
@@ -790,6 +807,19 @@ class TestPreflightGasHeuristic(unittest.TestCase):
         result = client.preflight(venue="polymarket", exposure_cap_usd=0)
         self.assertIn("INSUFFICIENT_GAS", result.blockers)
         self.assertFalse(result.ok_to_trade)
+
+    def test_bare_string_alert_blocks(self):
+        """Normalization must keep code so a bare INSUFFICIENT_GAS string matches."""
+        client = _make_client()
+        _mock_request(
+            client,
+            me_resp=_agents_me(real_trading_enabled=True),
+            briefing_resp=_briefing(alerts=["INSUFFICIENT_GAS"]),
+        )
+        result = client.preflight(venue="polymarket", exposure_cap_usd=0)
+        self.assertIn("INSUFFICIENT_GAS", result.blockers)
+        self.assertFalse(result.ok_to_trade)
+        self.assertEqual(result.pending_alerts[0].get("code"), "INSUFFICIENT_GAS")
 
 
 if __name__ == "__main__":

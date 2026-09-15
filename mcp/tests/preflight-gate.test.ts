@@ -135,6 +135,21 @@ describe("evaluateSdkPreflight", () => {
     assert.equal(verdict.ok_to_trade, true);
   });
 
+  it("fires INSUFFICIENT_GAS on a bare string alert", async () => {
+    mockFetch(liveOkReads({
+      riskAlerts: ["INSUFFICIENT_GAS"],
+    }));
+
+    const verdict = await evaluateSdkPreflight(api, {
+      venue: "polymarket",
+      plannedAmount: 10,
+      exposureCapUsd: 0,
+    });
+
+    assert.equal(verdict.blockers.includes("INSUFFICIENT_GAS"), true);
+    assert.equal(verdict.ok_to_trade, false);
+  });
+
   it("fires INSUFFICIENT_GAS on a structured code", async () => {
     mockFetch(liveOkReads({
       riskAlerts: [{ code: "INSUFFICIENT_GAS", message: "fund wallet POL" }],
@@ -147,6 +162,21 @@ describe("evaluateSdkPreflight", () => {
     });
 
     assert.equal(verdict.blockers.includes("INSUFFICIENT_GAS"), true);
+    assert.equal(verdict.ok_to_trade, false);
+  });
+
+  it("treats non-numeric current_value as EXPOSURE_UNKNOWN", async () => {
+    mockFetch(liveOkReads({
+      positions: [{ venue: "polymarket", current_value: "unknown" }],
+    }));
+
+    const verdict = await evaluateSdkPreflight(api, {
+      venue: "polymarket",
+      plannedAmount: 5,
+      exposureCapUsd: 100,
+    });
+
+    assert.equal(verdict.blockers.includes("EXPOSURE_UNKNOWN"), true);
     assert.equal(verdict.ok_to_trade, false);
   });
 

@@ -232,16 +232,34 @@ def test_exposure_cap_env_is_forwarded_to_preflight(monkeypatch):
 
 
 @pytest.mark.parametrize("raw", ["NaN", "Infinity", "+Infinity", "-Infinity", "1e309"])
-def test_exposure_cap_env_rejects_non_finite(raw, monkeypatch):
+def test_exposure_cap_env_buy_returns_failure_result(raw, monkeypatch):
+    """Bad EXPOSURE_CAP_USD must not raise ValueError out of trade() on a buy."""
     monkeypatch.setenv("EXPOSURE_CAP_USD", raw)
     client = _live_client()
     client.preflight = MagicMock(return_value=_ok_preflight())
 
-    with pytest.raises(ValueError, match="finite number"):
-        client.trade("m1", "yes", amount=10.0, venue="polymarket")
+    result = client.trade("m1", "yes", amount=10.0, venue="polymarket")
 
+    assert result.success is False
+    assert result.skip_reason == "preflight_blocked"
+    assert result.error_code == "preflight_blocked"
+    assert result.error == "EXPOSURE_CAP_USD must be a finite number"
     client.preflight.assert_not_called()
     client._request.assert_not_called()
+
+
+def test_sell_skips_bad_exposure_cap_parse(monkeypatch):
+    """Sells skip cap parsing — a bad EXPOSURE_CAP_USD must not raise or block."""
+    monkeypatch.setenv("EXPOSURE_CAP_USD", "NaN")
+    client = _live_client()
+    client.preflight = MagicMock(return_value=_ok_preflight())
+
+    result = client.trade("m1", "yes", shares=5.0, action="sell", venue="polymarket")
+
+    assert result.success is True
+    client.preflight.assert_called_once()
+    assert client.preflight.call_args.kwargs["exposure_cap_usd"] == 0.0
+    client._request.assert_called_once()
 
 
 def test_place_combo_sell_skips_exposure_cap(monkeypatch):
@@ -293,9 +311,7 @@ def test_structured_insufficient_gas_code_matches():
 
 def test_preflight_rejects_non_finite_exposure_cap_arg():
     client = _live_client()
-    client._preflight_parallel_reads = MagicMock(
-        side_effect=AssertionError("must reject before reads")
-    )
+    client._request = MagicMock(side_effect=AssertionError("must reject before reads"))
     with pytest.raises(ValueError, match="finite number"):
         client.preflight(venue="polymarket", exposure_cap_usd=float("nan"))
     with pytest.raises(ValueError, match="finite number"):
@@ -338,6 +354,174 @@ def test_preflight_null_venue_position_counts_as_sim():
     assert result.ok_to_trade is True
 
 
+def test_preflight_non_numeric_current_value_is_exposure_unknown():
+    """Parse failures must become EXPOSURE_UNKNOWN, not an uncaught raise."""
+    client = _live_client()
+    client._ows_wallet = None
+    client._deposit_wallet_address = None
+    client._uses_deposit_wallet = False
+    client._solana_key_available = False
+    client._wallet_address = "0xabc"
+
+    def _request(method, endpoint, **kwargs):
+        if "/agents/me" in endpoint:
+            return {
+                "agent_id": "a1",
+                "rate_limits": {"tier": "pro"},
+                "real_trading_enabled": True,
+                "wallet_address": "0xabc",
+            }
+        if "/briefing" in endpoint:
+            return {"risk_alerts": [], "venues": {"polymarket": {"balance": 50}}}
+        if "/positions" in endpoint:
+            return {
+                "positions": [
+                    {"venue": "polymarket", "current_value": "unknown"},
+                ]
+            }
+        if "/allowances/" in endpoint:
+            return {"all_set": True}
+        raise AssertionError(f"unexpected {endpoint}")
+
+    client._request = _request
+    result = client.preflight(
+        venue="polymarket", planned_amount=5.0, exposure_cap_usd=100.0,
+    )
+    assert "EXPOSURE_UNKNOWN" in result.blockers
+    assert result.ok_to_trade is False
+    assert any("positions_fetch_failed" in w for w in result.warnings)
+
+
+def test_live_trade_unknown_current_value_does_not_crash(monkeypatch):
+    """trade() must return a failure result, not raise, when current_value is junk."""
+    monkeypatch.setenv("EXPOSURE_CAP_USD", "100")
+    client = _live_client()
+    client._ows_wallet = None
+    client._deposit_wallet_address = None
+    client._uses_deposit_wallet = False
+    client._solana_key_available = False
+    client._wallet_address = "0xabc"
+
+    def _request(method, endpoint, **kwargs):
+        if "/agents/me" in endpoint:
+            return {
+                "agent_id": "a1",
+                "rate_limits": {"tier": "pro"},
+                "real_trading_enabled": True,
+                "wallet_address": "0xabc",
+            }
+        if "/briefing" in endpoint:
+            return {"risk_alerts": [], "venues": {"polymarket": {"balance": 50}}}
+        if "/positions" in endpoint:
+            return {
+                "positions": [
+                    {"venue": "polymarket", "current_value": "unknown"},
+                ]
+            }
+        if "/allowances/" in endpoint:
+            return {"all_set": True}
+        if endpoint == "/api/sdk/trade":
+            raise AssertionError("trade must not POST when exposure is unknown")
+        raise AssertionError(f"unexpected {endpoint}")
+
+    client._request = _request
+    result = client.trade("m1", "yes", amount=10.0, venue="polymarket")
+    assert result.success is False
+    assert result.skip_reason == "preflight_blocked"
+    assert "EXPOSURE_UNKNOWN" in result.error
+
+
+def test_live_sell_unknown_current_value_does_not_crash(monkeypatch):
+    """Sells skip the cap, so a junk current_value is a warning — not a crash."""
+    monkeypatch.setenv("EXPOSURE_CAP_USD", "100")
+    client = _live_client()
+    client._ows_wallet = None
+    client._deposit_wallet_address = None
+    client._uses_deposit_wallet = False
+    client._solana_key_available = False
+    client._wallet_address = "0xabc"
+    posted = []
+
+    def _request(method, endpoint, **kwargs):
+        if "/agents/me" in endpoint:
+            return {
+                "agent_id": "a1",
+                "rate_limits": {"tier": "pro"},
+                "real_trading_enabled": True,
+                "wallet_address": "0xabc",
+            }
+        if "/briefing" in endpoint:
+            return {"risk_alerts": [], "venues": {"polymarket": {"balance": 50}}}
+        if "/positions" in endpoint:
+            return {
+                "positions": [
+                    {"venue": "polymarket", "current_value": "unknown"},
+                ]
+            }
+        if "/allowances/" in endpoint:
+            return {"all_set": True}
+        if endpoint == "/api/sdk/trade":
+            posted.append(kwargs.get("json") or {})
+            return {"success": True, "market_id": "m1", "side": "yes"}
+        raise AssertionError(f"unexpected {endpoint}")
+
+    client._request = _request
+    result = client.trade("m1", "yes", shares=5.0, action="sell", venue="polymarket")
+    assert result.success is True
+    assert len(posted) == 1
+
+
+def test_preflight_reads_are_serial_with_timeout_5():
+    """Identity / briefing / positions (and approvals) are serial 5s reads. No threads."""
+    import inspect
+
+    from simmer_sdk import client as client_mod
+
+    module_src = inspect.getsource(client_mod)
+    assert "ThreadPoolExecutor" not in module_src
+    assert "_preflight_parallel_reads" not in module_src
+    assert "concurrent.futures" not in module_src
+
+    client = _live_client()
+    client._ows_wallet = "agent-wallet"
+    client._private_key = None
+    client._deposit_wallet_address = None
+    client._uses_deposit_wallet = False
+    client._solana_key_available = False
+    client._wallet_address = "0xabc"
+    timeouts = []
+
+    def _request(method, endpoint, **kwargs):
+        timeouts.append((endpoint, kwargs.get("timeout")))
+        if "/agents/me" in endpoint:
+            return {
+                "agent_id": "a1",
+                "rate_limits": {"tier": "pro"},
+                "real_trading_enabled": True,
+                "wallet_address": "0xabc",
+                "per_agent_wallet_address": "0xabc",
+            }
+        if "/briefing" in endpoint:
+            return {"risk_alerts": [], "venues": {"polymarket": {"balance": 50}}}
+        if "/positions" in endpoint:
+            return {"positions": []}
+        if "/allowances/" in endpoint:
+            return {"all_set": True}
+        raise AssertionError(f"unexpected {endpoint}")
+
+    client._request = _request
+    result = client.preflight(venue="polymarket", exposure_cap_usd=0)
+    assert result.ok_to_trade is True
+    assert len(timeouts) >= 3
+    by_ep = {ep: timeout for ep, timeout in timeouts}
+    assert by_ep["/api/sdk/agents/me"] == SimmerClient._PREFLIGHT_READ_TIMEOUT_S
+    assert by_ep["/api/sdk/briefing"] == SimmerClient._PREFLIGHT_READ_TIMEOUT_S
+    assert by_ep["/api/sdk/positions"] == SimmerClient._PREFLIGHT_READ_TIMEOUT_S
+    allowances = [t for ep, t in timeouts if "/allowances/" in ep]
+    assert allowances == [SimmerClient._PREFLIGHT_READ_TIMEOUT_S]
+    assert SimmerClient._PREFLIGHT_READ_TIMEOUT_S == 5
+
+
 def test_preflight_free_text_pol_does_not_block_gas():
     client = _live_client()
     client._ows_wallet = None
@@ -369,6 +553,42 @@ def test_preflight_free_text_pol_does_not_block_gas():
     result = client.preflight(venue="polymarket", exposure_cap_usd=0)
     assert "INSUFFICIENT_GAS" not in result.blockers
     assert result.ok_to_trade is True
+
+
+def test_preflight_bare_string_insufficient_gas_blocks():
+    """Bare-string alerts must still match after message/code normalization."""
+    client = _live_client()
+    client._ows_wallet = None
+    client._deposit_wallet_address = None
+    client._uses_deposit_wallet = False
+    client._solana_key_available = False
+    client._wallet_address = "0xabc"
+
+    def _request(method, endpoint, **kwargs):
+        if "/agents/me" in endpoint:
+            return {
+                "agent_id": "a1",
+                "rate_limits": {"tier": "pro"},
+                "real_trading_enabled": True,
+                "wallet_address": "0xabc",
+            }
+        if "/briefing" in endpoint:
+            return {
+                "risk_alerts": ["INSUFFICIENT_GAS"],
+                "venues": {"polymarket": {"balance": 50}},
+            }
+        if "/positions" in endpoint:
+            return {"positions": []}
+        if "/allowances/" in endpoint:
+            return {"all_set": True}
+        raise AssertionError(f"unexpected {endpoint}")
+
+    client._request = _request
+    result = client.preflight(venue="polymarket", exposure_cap_usd=0)
+    assert "INSUFFICIENT_GAS" in result.blockers
+    assert result.ok_to_trade is False
+    assert result.pending_alerts[0]["code"] == "INSUFFICIENT_GAS"
+    assert result.pending_alerts[0]["message"] == "INSUFFICIENT_GAS"
 
 
 def test_preflight_structured_gas_code_blocks():

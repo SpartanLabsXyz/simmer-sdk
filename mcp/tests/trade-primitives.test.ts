@@ -290,6 +290,34 @@ describe("executeTrade — resolveVenue coercion gate", () => {
     assert.equal(captured[0].action, "sell");
   });
 
+  it("sell skips a non-finite EXPOSURE_CAP_USD and still POSTs", async () => {
+    const captured: Record<string, unknown>[] = [];
+    mockFetch(async (url, init) => {
+      const u = url.toString();
+      if (u.includes("/api/sdk/agents/me")) {
+        return okJson({ real_trading_enabled: true, wallet_address: "0xabc" });
+      }
+      if (u.includes("/api/sdk/briefing")) {
+        return okJson({ venues: { polymarket: { balance: 50 } }, risk_alerts: [] });
+      }
+      if (u.includes("/api/sdk/positions")) {
+        return okJson({ positions: [{ venue: "polymarket", current_value: 150 }] });
+      }
+      captured.push(JSON.parse((init?.body as string) ?? "{}") as Record<string, unknown>);
+      return okJson({ status: "executed" });
+    });
+
+    const result = await executeTrade(
+      api,
+      { market_id: "m1", side: "yes", action: "sell", shares: 5, venue: "polymarket", dry_run: false },
+      { ...ctxLive, exposureCapUsd: Number.NaN },
+    );
+
+    assert.ok(!result.isError, "sell must skip the bad-cap finiteness check");
+    assert.equal(captured.length, 1, "must POST /trade for a sell with a bad cap");
+    assert.equal(captured[0].action, "sell");
+  });
+
   it("rejects non-finite EXPOSURE_CAP_USD before POST", async () => {
     const tradePosts: string[] = [];
     mockFetch(async (url, init) => {
