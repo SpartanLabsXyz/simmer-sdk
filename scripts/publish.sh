@@ -8,7 +8,7 @@
 # Safety:
 #   - Skills publish by default. Add `published: false` to SKILL.md frontmatter
 #     to opt OUT (mirrors npm's `private: true` convention).
-#   - Refuses if clawhub.json has `"publish": false`
+#   - Refuses if clawhub.json has `"published": false`
 #   - Slug comes from `name:` field (no folder name guessing)
 #   - Version comes from `version:` field (matches --version flag)
 #   - Copies full directory (no missing files)
@@ -88,13 +88,13 @@ if [ "$PUBLISHED" = "false" ]; then
   exit 1
 fi
 
-# Second guard: honor clawhub.json "publish": false
+# Second guard: honor clawhub.json "published": false
 CLAWHUB_JSON="$SKILL_DIR/clawhub.json"
 if [ -f "$CLAWHUB_JSON" ]; then
-  PUBLISH_FLAG=$(python3 -c "import json,sys; print(json.load(open('$CLAWHUB_JSON')).get('publish', True))" 2>/dev/null || echo "True")
+  PUBLISH_FLAG=$(python3 -c "import json,sys; print(json.load(open('$CLAWHUB_JSON')).get('published', True))" 2>/dev/null || echo "True")
   if [ "$PUBLISH_FLAG" = "False" ]; then
     REASON=$(python3 -c "import json; print(json.load(open('$CLAWHUB_JSON')).get('publish_reason', 'no reason given'))" 2>/dev/null || echo "unknown")
-    echo "❌ Skill '$NAME' is marked 'publish: false' in clawhub.json"
+    echo "❌ Skill '$NAME' is marked 'published: false' in clawhub.json"
     echo "   Reason: $REASON"
     echo "   Remove the flag from clawhub.json if you intend to publish."
     exit 1
@@ -120,6 +120,7 @@ cp -r "$SKILL_DIR" "$TMP_DIR"
 # Clean up unwanted files. The old top-level-only rm missed NESTED caches
 # (e.g. tests/__pycache__), so a stale 90KB .pyc shipped in the copytrader
 # 0.1.1 bundle. Prune every __pycache__ dir + loose .pyc/.pyo recursively.
+find "$TMP_DIR" -type d -name tests -prune -exec rm -rf {} + 2>/dev/null || true
 find "$TMP_DIR" -type d -name __pycache__ -prune -exec rm -rf {} + 2>/dev/null || true
 find "$TMP_DIR" -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete 2>/dev/null || true
 rm -rf "$TMP_DIR"/.* 2>/dev/null || true

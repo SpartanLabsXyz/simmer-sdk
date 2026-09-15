@@ -3,7 +3,7 @@ name: prediction-trade-journal
 description: Auto-log trades with context, track outcomes, generate calibration reports to improve trading.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.1.8"
+  version: "1.1.13"
   displayName: Prediction Trade Journal
   difficulty: beginner
 ---
