@@ -3,6 +3,10 @@
 All notable changes to `simmer-sdk` are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Skill 1.25.3 — 2026-09-15
+
+- **`simmer` skill quick start is leaner and every step tells you when you're done.** The `dry_run` and Kalshi caveats now point at the [Trading Guide](https://docs.simmer.markets/trading-guide#dry-run) instead of living inline, each quick-start step ends on a concrete "done when" check, and the Grok Bot setup note links out to the [Runtimes](https://docs.simmer.markets/runtimes#grok-bot) page.
+
 ## simmer-mcp v3.5.7 — 2026-09-15
 
 - **Bundled `preflight` skill 0.3.6: `EXPOSURE_CAP_USD` copy matches the opt-in auto-gate.** `clawhub.json` and the skill example no longer say the cap "defaults to 100"; the live auto-gate enforces a cap only when the env is set, while an explicit `client.preflight()` call keeps its documented `exposure_cap_usd=100` default. Docs only, no code change. SIM-5396.
