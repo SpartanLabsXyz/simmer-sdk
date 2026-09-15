@@ -1,6 +1,6 @@
 ---
 name: polymarket-btc-up-down-trader
-description: Trade Polymarket BTC daily and weekly UP/DOWN markets with empirically-anchored exit discipline. Enters on CEX momentum divergence; exits automatically on time cap, volume spike, or target capture. Use when the user wants to trade BTC direction markets (hours/days duration), not fast 5-minute markets.
+description: Trade Polymarket BTC daily and weekly UP/DOWN markets, apply systematic exit discipline, or monitor auto-exits. Enters on CEX momentum divergence; exits automatically on time cap, volume spike, or target capture. Not for fast 5-minute markets.
 metadata:
   author: Simmer (@simmer_markets)
   version: "1.2.5"
@@ -35,14 +35,6 @@ Trade Polymarket's BTC daily and weekly UP/DOWN markets with built-in exit disci
 - **Keep / kill / fix** for this path is in Troubleshooting. Do not add a second capital lane until a full-tape run can produce an honest KEEP or KILL.
 
 > ⚠️ **BTC UP/DOWN markets carry Polymarket's crypto taker fee.** Effective rate is 3.5% at 50¢, up to ~6.6% on cheap shares. Makers pay 0% and earn a 20% rebate from collected taker fees. Factor this into your minimum edge threshold.
-
-## When to Use This Skill
-
-Use this skill when the user wants to:
-- Trade BTC daily or weekly UP/DOWN prediction markets on Polymarket
-- Apply systematic exit discipline (don't hold to settlement)
-- Use CEX price momentum as the entry signal
-- Monitor open positions and auto-exit when targets are hit
 
 ## Setup Flow
 

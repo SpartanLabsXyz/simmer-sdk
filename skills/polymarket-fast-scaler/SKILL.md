@@ -1,9 +1,9 @@
 ---
 name: polymarket-fast-scaler
-description: Trade Polymarket BTC 5-minute fast markets using a magnitude-gated conviction-ladder strategy. Only fires when |1m BTC momentum| >= 0.10%, the magnitude threshold the strategy is built around. Position size scales with signal strength (3 conviction tiers). Reference template for gate-filtered BTC fast-market trading; the original performance claim was retracted (see below).
+description: Trade BTC 5-minute fast markets on Polymarket with a magnitude-gated conviction ladder. Use for BTC 5-minute only; not for ETH/SOL/XRP, 15m windows, raw momentum, or signals below the 0.10% magnitude gate. Reference template; the original performance claim was retracted.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.2.3"
+  version: "1.2.4"
   displayName: Polymarket FastScaler
   difficulty: advanced
 ---
@@ -42,14 +42,6 @@ Trade Polymarket BTC 5-minute fast markets with a conviction-ladder strategy. On
 
 **Backtest status (2026-06-12)**: the original +5.04% / 89.4% backtest was **retracted**. A look-ahead-enforced replay found it used in-window price action (the first minute *inside* the window) that is not available when the entry decision is made. The live-actionable signal showed no measured edge. See the retraction note at the top and DISCLAIMER.md.
 
-## When to Use This Skill
-
-Use this skill when the user wants to:
-- Trade BTC 5-minute fast markets on Polymarket with a validated magnitude filter
-- Automate conviction-scaled position sizing based on signal strength
-- Run a disciplined, gate-filtered fast-market strategy (not raw momentum)
-
-**Do NOT use for**: ETH/SOL/XRP fast markets (separate backtest required), 15m windows (backtest pending), or any strategy where the user wants to trade below the 0.10% magnitude gate.
 
 ## Setup Flow
 

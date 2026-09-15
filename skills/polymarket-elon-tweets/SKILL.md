@@ -1,9 +1,9 @@
 ---
 name: polymarket-elon-tweets
-description: 'Trade Polymarket "Elon Musk # tweets" markets using XTracker post count data. Buys adjacent range buckets when combined cost < $1 for structural edge. Use when user wants to trade tweet count markets, automate Elon tweet bets, check XTracker stats, or run noovd-style trading.'
+description: Trade Polymarket "Elon Musk # tweets" markets, check XTracker pace, monitor tweet-market positions, or configure bucket spreads and entry thresholds. Buys adjacent range buckets when combined cost < $1 for structural edge.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.3.6"
+  version: "1.3.7"
   displayName: Polymarket Elon Tweet Trader
   difficulty: advanced
   attribution: Strategy inspired by @noovd
@@ -14,14 +14,6 @@ Trade "Elon Musk # tweets" markets on Polymarket using XTracker post count data.
 
 > 🚨 **Framework, not a production trading system.** Read [DISCLAIMER.md](./DISCLAIMER.md) before connecting to a wallet with real funds.
 
-## When to Use This Skill
-
-Use this skill when the user wants to:
-- Trade Elon Musk tweet count markets automatically
-- Set up @noovd-style bucket trading
-- Check XTracker pace and stats for current tweet events
-- Monitor and exit existing tweet market positions
-- Configure bucket spread or entry thresholds
 
 ## How the Strategy Works
 
