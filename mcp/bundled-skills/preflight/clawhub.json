@@ -23,7 +23,7 @@
     {
       "name": "EXPOSURE_CAP_USD",
       "required": false,
-      "description": "Maximum total open exposure in USD across real venues. Defaults to 100.0 if not set."
+      "description": "Optional live auto-gate cap in USD across real venues. Set to enforce; unset disables the cap (no $100 default). Manual client.preflight() still accepts an explicit exposure_cap_usd."
     }
   ],
   "cron": null,
