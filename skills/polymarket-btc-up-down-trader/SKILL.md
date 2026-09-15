@@ -1,9 +1,9 @@
 ---
 name: polymarket-btc-up-down-trader
-description: Trade Polymarket BTC daily and weekly UP/DOWN markets with empirically-anchored exit discipline. Enters on CEX momentum divergence; exits automatically on time cap, volume spike, or target capture. Use when the user wants to trade BTC direction markets (hours/days duration), not fast 5-minute markets.
+description: Trade Polymarket BTC daily and weekly UP/DOWN markets, apply systematic exit discipline, or monitor auto-exits. Enters on CEX momentum divergence; exits automatically on time cap, volume spike, or target capture. Not for fast 5-minute markets.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.1.0"
+  version: "1.1.1"
   displayName: Polymarket BTC Up-Down Trader
   difficulty: intermediate
 ---
@@ -34,13 +34,6 @@ When the gate fires:
 
 This is a **defensive halt only**. Do not use it as a buy signal or to copy the attacker's position. See `simmer_sdk/risk/oracle_engineering.py` for the full detector implementation and `shared-knowledge/entities/concepts/oracle-engineering.md` for threat-model background.
 
-## When to Use This Skill
-
-Use this skill when the user wants to:
-- Trade BTC daily or weekly UP/DOWN prediction markets on Polymarket
-- Apply systematic exit discipline (don't hold to settlement)
-- Use CEX price momentum as the entry signal
-- Monitor open positions and auto-exit when targets are hit
 
 ## Setup Flow
 

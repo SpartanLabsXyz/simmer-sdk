@@ -1,5 +1,14 @@
 # Changelog — polymarket-weather-trader
 
+## [1.23.10] - 2026-09-15
+
+### Docs
+- Moved inline version history out of `SKILL.md`; behavior changes now live in this changelog.
+- Clarified that `SIMMER_WEATHER_EXIT_THRESHOLD` owns the entry/exit threshold interaction, and safety rails point there instead of repeating it.
+- Clarified that `SIMMER_WEATHER_MIN_HOURS_TO_RESOLVE=24` widens discovery to +1/+2-day markets during morning heartbeats.
+- Reframed `--no-safeguards` as a backtest-only escape hatch.
+
+
 ## [1.23.8] - 2026-09-08
 
 ### Added
@@ -36,6 +45,35 @@
 ### Fixed
 - Added `EGLC` (London City Airport) to the international station coordinate map so Polymarket London weather markets that cite the official London City station can route to Open-Meteo instead of fail-closing as an unsupported station. This does not change markets whose Simmer/SDK metadata lacks usable `resolution_criteria`; those still fail closed.
 - `order_type=FOK` (Fill Or Kill) is now overridden to GTC, the same way `FAK` has been since v1.20.0. Weather markets are structurally illiquid — both FOK and FAK orders are cancelled immediately with no fill, creating a retry-loop that burns attempts on every run. The warning message now names the actual configured type (`FAK` or `FOK`) so it's actionable.
+
+## [1.23.3] - 2026-07-07
+
+### Fixed
+- Event grouping now keys on `event_ref` (the canonical parent-event id, present on every market) instead of the legacy `event_id`, which SDK-imported markets historically lacked. Fixes temperature buckets silently dropping out of their event group when `event_id` came back null.
+
+## [1.21.0] - 2026-05-03
+
+### Added
+- Per-market resolution source routing. Each market is routed to the specific weather station Polymarket reads, parsed from `resolution_criteria`, instead of a hardcoded city-to-station map. Unknown stations are skipped with a log line.
+- Expanded NOAA coverage: KLGA, KJFK, KEWR, KNYC, KORD, KMDW, KSEA, KATL, KDAL, KDFW, KMIA, KBOS, KDCA, KIAD, KPHX, KLAS, KSFO, KLAX, KDEN, KMSP, KPHL.
+- Expanded international coverage: Madrid, Milan, Amsterdam, and Taipei.
+
+### Changed
+- Requires the `?include=resolution_criteria` flag on `/api/sdk/markets` (live on Simmer backend 2026-05-03).
+
+## [1.20.1] - 2026-04-24
+
+### Docs
+- Surfaced safety rails at the top: paper-default, `--live` requirement, configurable caps, server-side risk monitor, strategy-side safeguards, and reversibility.
+- Genericized risk-monitor framing around configurable user settings.
+- Pointed wallet setup to `docs.simmer.markets/wallets`.
+
+## [1.20.0] - 2026-04-20
+
+### Changed
+- Uses `SimmerClient.from_env()` from `simmer-sdk>=0.13.0`, auto-reading `SIMMER_API_KEY` and raising a dashboard-linked `RuntimeError` if unset.
+- Trimmed duplicated wallet-setup, changelog, and decorative content as part of the slim per-skill catalog reshape.
+- Removed retired `AUTOMATON_*` env reads.
 
 ## [1.22.2] - 2026-05-24
 

@@ -1,9 +1,9 @@
 ---
 name: polymarket-signal-sniper
-description: Snipe Polymarket opportunities from your own signal sources. Monitors RSS feeds with Trading Agent-grade safeguards.
+description: Monitor RSS feeds for breaking-news trading opportunities, configure custom signal sources and keywords, and trade with Trading Agent-grade safeguards.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.5.4"
+  version: "1.5.5"
   displayName: Polymarket Signal Sniper
   difficulty: intermediate
 ---
@@ -15,13 +15,6 @@ Your signals, Simmer's trading intelligence.
 
 > **This is a template.** The default signal source is RSS feeds — remix it with any data source (APIs, webhooks, social media, custom scrapers). The skill handles all the plumbing (market matching, safeguards, trade execution). Your agent provides the alpha.
 
-## When to Use This Skill
-
-Use this skill when the user wants to:
-- Monitor RSS feeds for trading opportunities
-- Trade on breaking news before markets react
-- Configure their own signal sources and keywords
-- Get Trading Agent-grade safeguards on their trades
 
 ## Setup Flow
 
