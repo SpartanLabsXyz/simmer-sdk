@@ -3,6 +3,10 @@
 All notable changes to `simmer-sdk` are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## simmer-mcp v3.5.7 — 2026-09-15
+
+- **Bundled `preflight` skill 0.3.6: `EXPOSURE_CAP_USD` copy matches the opt-in auto-gate.** `clawhub.json` and the skill example no longer say the cap "defaults to 100"; the live auto-gate enforces a cap only when the env is set, while an explicit `client.preflight()` call keeps its documented `exposure_cap_usd=100` default. Docs only, no code change. SIM-5396.
+
 ## simmer-mcp v3.5.6 — 2026-09-15
 
 - **`timedFetch` keeps its abort armed through `resp.json()`.** The timer used to clear when headers arrived, so a stalled body on the live preflight reads (`getAgentMe` / `getBriefing` / `getPositions`) could hold a permitted `simmer_trade` past the budget. A mocked fetch whose body stalls past the timeout now rejects. SIM-5395.
