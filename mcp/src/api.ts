@@ -230,11 +230,11 @@ export class SimmerApi {
   /**
    * Agent identity used by the live preflight gate. Throws BackendError on 4xx/5xx.
    */
-  async getAgentMe(): Promise<Record<string, unknown>> {
+  async getAgentMe(timeoutMs = 15_000): Promise<Record<string, unknown>> {
     const resp = await this.timedFetch(
       `${this.apiUrl}/api/sdk/agents/me`,
       { headers: this.headers() },
-      15_000,
+      timeoutMs,
     );
     if (!resp.ok) {
       const detail = await this.extractDetail(resp);
@@ -248,11 +248,11 @@ export class SimmerApi {
    * Get the agent briefing (portfolio, positions, opportunities, performance).
    * Throws BackendError on 4xx/5xx.
    */
-  async getBriefing(since?: string): Promise<BriefingResult> {
+  async getBriefing(since?: string, timeoutMs = 15_000): Promise<BriefingResult> {
     const url = since
       ? `${this.apiUrl}/api/sdk/briefing?since=${encodeURIComponent(since)}`
       : `${this.apiUrl}/api/sdk/briefing`;
-    const resp = await this.timedFetch(url, { headers: this.headers() }, 15_000);
+    const resp = await this.timedFetch(url, { headers: this.headers() }, timeoutMs);
     if (!resp.ok) {
       const detail = await this.extractDetail(resp);
       const upgradeUrl = resp.status === 403 ? "https://simmer.markets/pro" : undefined;
@@ -341,12 +341,12 @@ export class SimmerApi {
     return (await resp.json()) as PortfolioResult;
   }
 
-  async getPositions(params: { venue?: string } = {}): Promise<PositionsResult> {
+  async getPositions(params: { venue?: string } = {}, timeoutMs = 15_000): Promise<PositionsResult> {
     const qs = new URLSearchParams();
     if (params.venue) qs.set("venue", params.venue);
     const qStr = qs.toString();
     const url = `${this.apiUrl}/api/sdk/positions${qStr ? `?${qStr}` : ""}`;
-    const resp = await this.timedFetch(url, { headers: this.headers() }, 15_000);
+    const resp = await this.timedFetch(url, { headers: this.headers() }, timeoutMs);
     if (!resp.ok) {
       const detail = await this.extractDetail(resp);
       const upgradeUrl = resp.status === 403 ? "https://simmer.markets/pro" : undefined;

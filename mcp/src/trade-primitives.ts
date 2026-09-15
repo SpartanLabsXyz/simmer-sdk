@@ -96,11 +96,23 @@ export async function executeTrade(
         "(deprecated migrate valve). Live trades will require ok_to_trade=True after this release.",
       );
     } else {
+      if (ctx.exposureCapUsd !== undefined && !Number.isFinite(ctx.exposureCapUsd)) {
+        return {
+          content: [{
+            type: "text" as const,
+            text: "❌ EXPOSURE_CAP_USD must be a finite number.",
+          }],
+          isError: true,
+        };
+      }
+      // Sells are exempt from the exposure cap (they reduce open exposure).
+      // Unset cap is 0 — auto-gate cap is opt-in via EXPOSURE_CAP_USD.
       const plannedAmount = args.action === "sell" ? 0 : (args.amount ?? 0);
+      const exposureCapUsd = args.action === "sell" ? 0 : (ctx.exposureCapUsd ?? 0);
       const verdict = await evaluateSdkPreflight(api, {
         venue: resolvedVenue,
         plannedAmount,
-        exposureCapUsd: ctx.exposureCapUsd,
+        exposureCapUsd,
       });
       if (!verdict.ok_to_trade) {
         const blockers = verdict.blockers.join(", ") || "unknown";

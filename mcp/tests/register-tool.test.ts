@@ -225,6 +225,38 @@ describe("registerTool pass-through — mutates:false", () => {
     await getLastHandler()({});
     assert.equal(calls[0].ctx.exposureCapUsd, 25);
   });
+
+  it("plumbs unset EXPOSURE_CAP_USD as 0 (auto-gate cap is opt-in)", async () => {
+    const { server, getLastHandler } = makeMockServer();
+    const { handler, calls } = recordingHandler();
+
+    registerTool(server, {
+      name: "simmer_trade",
+      description: "test",
+      schema: {},
+      mutates: false,
+      handler,
+    }, { /* EXPOSURE_CAP_USD unset */ });
+
+    await getLastHandler()({});
+    assert.equal(calls[0].ctx.exposureCapUsd, 0);
+  });
+
+  it("plumbs non-finite EXPOSURE_CAP_USD as NaN so the live gate can reject", async () => {
+    const { server, getLastHandler } = makeMockServer();
+    const { handler, calls } = recordingHandler();
+
+    registerTool(server, {
+      name: "simmer_trade",
+      description: "test",
+      schema: {},
+      mutates: false,
+      handler,
+    }, { EXPOSURE_CAP_USD: "NaN" });
+
+    await getLastHandler()({});
+    assert.equal(Number.isFinite(calls[0].ctx.exposureCapUsd), false);
+  });
 });
 
 // ---------------------------------------------------------------------------

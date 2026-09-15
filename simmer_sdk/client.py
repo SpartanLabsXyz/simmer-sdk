@@ -5,12 +5,14 @@ Simple Python client for trading on Simmer prediction markets.
 """
 
 import hashlib
+import math
 import os
 import sys
 import time
 import logging
 import requests
-from typing import Optional, List, Dict, Any, Callable, Sequence, Union
+from concurrent.futures import ThreadPoolExecutor, wait
+from typing import Optional, List, Dict, Any, Callable, Sequence, Union, Tuple
 from dataclasses import dataclass
 from urllib.parse import quote, urlparse
 from datetime import datetime, timezone
@@ -208,7 +210,7 @@ class PreflightResult:
         EXPOSURE_UNKNOWN       — real venue + active cap but positions fetch failed (fail-closed)
         WALLET_UNVERIFIED      — real venue requested but agent not real-trading-enabled
         VENUE_UNSUPPORTED      — venue string not recognised by the SDK
-        INSUFFICIENT_GAS       — gas signal detected in risk_alerts (v0 proxy; no on-chain query)
+        INSUFFICIENT_GAS       — structured risk_alert code INSUFFICIENT_GAS (v0 proxy; no on-chain query)
 
     ``gas_balance`` is None in v0 — on-chain RPC query is deferred to v1.
     ``warnings`` are non-blocking advisories (fetch failures, skipped checks).
@@ -1163,6 +1165,12 @@ class SimmerClient:
         import uuid as _uuid
 
         client_preflight_id = str(_uuid.uuid4())
+        try:
+            exposure_cap_usd = float(exposure_cap_usd)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("exposure_cap_usd must be a finite number") from exc
+        if not math.isfinite(exposure_cap_usd):
+            raise ValueError("exposure_cap_usd must be a finite number")
 
         # Resolve and normalise venue
         resolved_venue = venue or self.venue
@@ -1197,8 +1205,10 @@ class SimmerClient:
         # overrides below per cohort.
         dw_active = bool(getattr(self, "_uses_deposit_wallet", False))
 
-        try:
-            me = self._request("GET", "/api/sdk/agents/me")
+        me, me_err, briefing, briefing_err, _pos_data, _pos_err = self._preflight_parallel_reads()
+        if me_err is not None:
+            warnings_list.append(f"identity_fetch_failed: {me_err}")
+        elif isinstance(me, dict):
             agent_id = me.get("agent_id")
             _rl = me.get("rate_limits") or {}
             tier = _rl.get("tier")
@@ -1229,8 +1239,6 @@ class SimmerClient:
                     deposit_wallet = me.get("deposit_wallet_address")
                 if "wallet_uses_deposit_wallet" in me and me.get("wallet_uses_deposit_wallet") is not None:
                     dw_active = bool(me.get("wallet_uses_deposit_wallet"))
-        except Exception as _e:
-            warnings_list.append(f"identity_fetch_failed: {_e}")
 
         # ── Venue support ─────────────────────────────────────────────────
         _SUPPORTED_VENUES = ("sim", "polymarket", "kalshi")
@@ -1279,9 +1287,9 @@ class SimmerClient:
         _briefing_sim_exposure: float = 0.0
         _has_briefing_sim_exposure = False
 
-        try:
-            briefing = self._request("GET", "/api/sdk/briefing")
-
+        if briefing_err is not None:
+            warnings_list.append(f"briefing_fetch_failed: {briefing_err}")
+        elif isinstance(briefing, dict):
             # Normalise risk alerts to list[dict]
             for _a in (briefing.get("risk_alerts") or []):
                 if isinstance(_a, str):
@@ -1305,20 +1313,28 @@ class SimmerClient:
             elif resolved_venue == "kalshi":
                 _kal = _venues.get("kalshi") or {}
                 spendable_balance = _kal.get("balance")
-        except Exception as _e:
-            warnings_list.append(f"briefing_fetch_failed: {_e}")
 
         # ── Positions: precise open exposure ──────────────────────────────
         open_exposure_total = 0.0
         _positions_ok = False
 
-        try:
-            _pos_data = self._request("GET", "/api/sdk/positions")
+        if _pos_err is not None:
+            warnings_list.append(f"positions_fetch_failed: {_pos_err}")
+            # Fallback: briefing portfolio_value for sim venue only.
+            # For real venues with an active cap, unknown exposure is unsafe —
+            # block rather than silently assume zero open positions.
+            if _has_briefing_sim_exposure and resolved_venue == "sim":
+                open_exposure_total = _briefing_sim_exposure
+            elif resolved_venue not in (None, "sim") and exposure_cap_usd > 0:
+                blockers.append("EXPOSURE_UNKNOWN")
+        elif isinstance(_pos_data, dict):
             _positions = _pos_data.get("positions") or []
 
             # Sum current_value by real vs sim venue so the cap check operates
             # on the right currency domain. $SIM (virtual) never counts toward
             # a USD cap; real positions (polymarket, kalshi) always count.
+            # venue=None is sim (virtual), matching the server's missing-venue
+            # default — never count it as real USDC exposure.
             _real_exp = sum(
                 float(p.get("current_value") or 0)
                 for p in _positions
@@ -1331,11 +1347,8 @@ class SimmerClient:
             )
             open_exposure_total = _sim_exp if resolved_venue == "sim" else _real_exp
             _positions_ok = True
-        except Exception as _e:
-            warnings_list.append(f"positions_fetch_failed: {_e}")
-            # Fallback: briefing portfolio_value for sim venue only.
-            # For real venues with an active cap, unknown exposure is unsafe —
-            # block rather than silently assume zero open positions.
+        else:
+            warnings_list.append("positions_fetch_failed: empty response")
             if _has_briefing_sim_exposure and resolved_venue == "sim":
                 open_exposure_total = _briefing_sim_exposure
             elif resolved_venue not in (None, "sim") and exposure_cap_usd > 0:
@@ -1350,10 +1363,10 @@ class SimmerClient:
 
         # ── Gas balance (v0: deferred — no on-chain RPC in SDK client) ────
         gas_balance: Optional[float] = None
-        # Proxy: check risk_alerts for gas/POL signals from the server.
+        # Structured signal only — do not scan free text for "gas" / "pol"
+        # (those substrings false-positive on "policy", "political", "vegas").
         for _alert in pending_alerts:
-            _msg = (_alert.get("message") or "").lower() if isinstance(_alert, dict) else str(_alert).lower()
-            if "gas" in _msg or ("pol" in _msg and "polymarket" not in _msg):
+            if self._alert_signals_insufficient_gas(_alert):
                 if "INSUFFICIENT_GAS" not in blockers:
                     blockers.append("INSUFFICIENT_GAS")
                 break
@@ -1380,6 +1393,12 @@ class SimmerClient:
             warnings=warnings_list,
         )
 
+    # Shared live-preflight read budget. Serial 30s × 3–4 calls would stall a
+    # permitted fast-loop order; parallel GETs + a short per-call timeout keep
+    # the gate on the wallet/venue/gas blockers without adding 15–30s.
+    _PREFLIGHT_READ_TIMEOUT_S = 5
+    _PREFLIGHT_BUDGET_S = 8.0
+
     @staticmethod
     def _is_real_money_venue(venue: str) -> bool:
         """True for venues that place real (non-$SIM) orders."""
@@ -1387,15 +1406,46 @@ class SimmerClient:
         return resolved in ("polymarket", "kalshi")
 
     @staticmethod
+    def _alert_signals_insufficient_gas(alert: Any) -> bool:
+        """True when a briefing risk_alert carries structured INSUFFICIENT_GAS.
+
+        Matches ``code`` / ``type`` / ``alert_code`` / ``blocker``, or a bare
+        string that is exactly that code. Does not scan free-text ``message``
+        for ``gas`` or ``pol`` — those substrings false-positive.
+        """
+        if isinstance(alert, str):
+            return alert.strip().upper() == "INSUFFICIENT_GAS"
+        if not isinstance(alert, dict):
+            return False
+        for key in ("code", "type", "alert_code", "blocker"):
+            val = alert.get(key)
+            if isinstance(val, str) and val.strip().upper() == "INSUFFICIENT_GAS":
+                return True
+        return False
+
+    @staticmethod
     def _preflight_exposure_cap_usd() -> float:
-        """Honor the skill-documented EXPOSURE_CAP_USD env; default $100."""
+        """Honor EXPOSURE_CAP_USD when set. Unset disables the auto-gate cap.
+
+        The live auto-gate is opt-in: wallet / venue / gas blockers still run
+        when the env is unset. ``preflight()`` itself keeps its documented
+        ``exposure_cap_usd=100`` default for explicit calls. Non-finite values
+        (NaN / Infinity) raise so a bad env cannot silently disable or default.
+        """
         raw = os.environ.get("EXPOSURE_CAP_USD", "").strip()
         if not raw:
-            return 100.0
+            return 0.0
         try:
-            return float(raw)
+            value = float(raw)
         except ValueError:
-            return 100.0
+            raise ValueError(
+                f"EXPOSURE_CAP_USD must be a finite number, got {raw!r}"
+            ) from None
+        if not math.isfinite(value):
+            raise ValueError(
+                f"EXPOSURE_CAP_USD must be a finite number, got {raw!r}"
+            )
+        return value
 
     @staticmethod
     def _env_skip_preflight() -> bool:
@@ -1403,18 +1453,65 @@ class SimmerClient:
             "1", "true", "yes",
         )
 
+    def _preflight_parallel_reads(
+        self,
+    ) -> Tuple[Any, Optional[BaseException], Any, Optional[BaseException], Any, Optional[BaseException]]:
+        """Fetch identity, briefing, and positions under a shared time budget."""
+        endpoints = (
+            "/api/sdk/agents/me",
+            "/api/sdk/briefing",
+            "/api/sdk/positions",
+        )
+        results: Dict[str, Any] = {}
+        errors: Dict[str, BaseException] = {}
+
+        def _one(endpoint: str) -> Tuple[str, Any]:
+            return endpoint, self._request(
+                "GET", endpoint, timeout=self._PREFLIGHT_READ_TIMEOUT_S,
+            )
+
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            future_to_ep = {pool.submit(_one, ep): ep for ep in endpoints}
+            done, not_done = wait(future_to_ep, timeout=self._PREFLIGHT_BUDGET_S)
+            for fut in done:
+                ep = future_to_ep[fut]
+                try:
+                    _, data = fut.result()
+                    results[ep] = data
+                except Exception as exc:
+                    errors[ep] = exc
+            for fut in not_done:
+                ep = future_to_ep[fut]
+                errors[ep] = TimeoutError(f"preflight read timed out: {ep}")
+                fut.cancel()
+
+        def _pair(endpoint: str) -> Tuple[Any, Optional[BaseException]]:
+            if endpoint in errors:
+                return None, errors[endpoint]
+            return results.get(endpoint), None
+
+        me, me_err = _pair("/api/sdk/agents/me")
+        briefing, briefing_err = _pair("/api/sdk/briefing")
+        positions, positions_err = _pair("/api/sdk/positions")
+        return me, me_err, briefing, briefing_err, positions, positions_err
+
     def _blocked_live_preflight(
         self,
         *,
         venue: str,
         planned_amount: float,
         skip_preflight: bool,
+        skip_exposure_cap: bool = False,
     ) -> Optional["PreflightResult"]:
         """Run preflight for a live real-money placement.
 
         Returns the blocked ``PreflightResult`` when the trade must be
         refused. Returns ``None`` when the call may proceed (ok, or the
         one-release skip valve).
+
+        The auto-gate exposure cap is opt-in (``EXPOSURE_CAP_USD`` set) and
+        is skipped for sells so an over-cap book can still reduce exposure.
+        Wallet / venue / gas blockers still run.
         """
         if skip_preflight or self._env_skip_preflight():
             import warnings
@@ -1431,10 +1528,13 @@ class SimmerClient:
                 "SIMMER_SKIP_PREFLIGHT (deprecated migrate valve)"
             )
             return None
+        cap = self._preflight_exposure_cap_usd()
+        if skip_exposure_cap:
+            cap = 0.0
         result = self.preflight(
             venue=venue,
             planned_amount=planned_amount,
-            exposure_cap_usd=self._preflight_exposure_cap_usd(),
+            exposure_cap_usd=cap,
         )
         if result.ok_to_trade:
             return None
@@ -1555,10 +1655,12 @@ class SimmerClient:
             )
 
         if not dry_run and self.live:
+            combo_is_sell = str(direction).upper() == "SELL"
             blocked = self._blocked_live_preflight(
                 venue="polymarket",
-                planned_amount=float(size_usdc),
+                planned_amount=0.0 if combo_is_sell else float(size_usdc),
                 skip_preflight=skip_preflight,
+                skip_exposure_cap=combo_is_sell,
             )
             if blocked is not None:
                 raise RuntimeError(
@@ -2744,6 +2846,7 @@ class SimmerClient:
                 venue=effective_venue,
                 planned_amount=planned,
                 skip_preflight=skip_preflight,
+                skip_exposure_cap=is_sell,
             )
             if blocked is not None:
                 blockers = ", ".join(blocked.blockers) or "unknown"

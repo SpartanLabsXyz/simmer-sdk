@@ -41,9 +41,9 @@ export type ToolContext = {
    */
   skipPreflight?: boolean;
   /**
-   * From EXPOSURE_CAP_USD (skill-documented). Same default as
-   * SimmerClient._preflight_exposure_cap_usd ($100). Optional so hand-built
-   * test ctx stays valid.
+   * From EXPOSURE_CAP_USD (skill-documented). Auto-gate is opt-in: unset → 0
+   * (cap disabled). Non-finite env values are NaN so the live gate can reject.
+   * Optional so hand-built test ctx stays valid.
    */
   exposureCapUsd?: number;
 };

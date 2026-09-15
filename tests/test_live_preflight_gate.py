@@ -99,7 +99,7 @@ def test_live_trade_refuses_when_preflight_blocked():
     assert "WALLET_UNVERIFIED" in result.error
     assert "EXPOSURE_CAP_EXCEEDED" in result.error
     client.preflight.assert_called_once_with(
-        venue="polymarket", planned_amount=10.0, exposure_cap_usd=100.0,
+        venue="polymarket", planned_amount=10.0, exposure_cap_usd=0.0,
     )
     client._request.assert_not_called()
 
@@ -124,6 +124,40 @@ def test_live_sell_passes_planned_amount_zero():
     client.trade("m1", "yes", shares=5.0, action="sell", venue="polymarket")
 
     assert client.preflight.call_args.kwargs["planned_amount"] == 0.0
+
+
+def test_live_sell_skips_exposure_cap_even_when_env_set(monkeypatch):
+    """Sells must not be blocked by an already-over-cap book (CTO P1)."""
+    monkeypatch.setenv("EXPOSURE_CAP_USD", "10")
+    client = _live_client()
+    client.preflight = MagicMock(return_value=_ok_preflight())
+
+    client.trade("m1", "yes", shares=5.0, action="sell", venue="polymarket")
+
+    assert client.preflight.call_args.kwargs["planned_amount"] == 0.0
+    assert client.preflight.call_args.kwargs["exposure_cap_usd"] == 0.0
+
+
+def test_live_buy_without_env_does_not_apply_default_cap(monkeypatch):
+    """Auto-gate cap is opt-in — unset EXPOSURE_CAP_USD must not default to $100."""
+    monkeypatch.delenv("EXPOSURE_CAP_USD", raising=False)
+    client = _live_client()
+    client.preflight = MagicMock(return_value=_ok_preflight())
+
+    client.trade("m1", "yes", amount=10.0, venue="polymarket")
+
+    assert client.preflight.call_args.kwargs["exposure_cap_usd"] == 0.0
+
+
+def test_exposure_cap_env_zero_is_not_re_capped(monkeypatch):
+    """Skills that disable via EXPOSURE_CAP_USD=0 must not be re-capped."""
+    monkeypatch.setenv("EXPOSURE_CAP_USD", "0")
+    client = _live_client()
+    client.preflight = MagicMock(return_value=_ok_preflight())
+
+    client.trade("m1", "yes", amount=10.0, venue="polymarket")
+
+    assert client.preflight.call_args.kwargs["exposure_cap_usd"] == 0.0
 
 
 # --- trade(): paper / sim / dry_run unchanged -------------------------------
@@ -195,6 +229,179 @@ def test_exposure_cap_env_is_forwarded_to_preflight(monkeypatch):
     client.trade("m1", "yes", amount=10.0, venue="polymarket")
 
     assert client.preflight.call_args.kwargs["exposure_cap_usd"] == 250.0
+
+
+@pytest.mark.parametrize("raw", ["NaN", "Infinity", "+Infinity", "-Infinity", "1e309"])
+def test_exposure_cap_env_rejects_non_finite(raw, monkeypatch):
+    monkeypatch.setenv("EXPOSURE_CAP_USD", raw)
+    client = _live_client()
+    client.preflight = MagicMock(return_value=_ok_preflight())
+
+    with pytest.raises(ValueError, match="finite number"):
+        client.trade("m1", "yes", amount=10.0, venue="polymarket")
+
+    client.preflight.assert_not_called()
+    client._request.assert_not_called()
+
+
+def test_place_combo_sell_skips_exposure_cap(monkeypatch):
+    monkeypatch.setenv("EXPOSURE_CAP_USD", "10")
+    client = _combo_client()
+    client.preflight = MagicMock(return_value=_ok_preflight())
+    client._combo_dw_approved = MagicMock(return_value=True)
+
+    with patch("simmer_sdk.combo.place_combo", return_value={"status": "ok"}) as mock_place:
+        with patch("py_clob_client.client.ClobClient"):
+            result = client.place_combo(
+                leg_position_ids=["111", "222"],
+                size_usdc=5.0,
+                direction="SELL",
+                dry_run=False,
+            )
+
+    assert result == {"status": "ok"}
+    client.preflight.assert_called_once()
+    assert client.preflight.call_args.kwargs["planned_amount"] == 0.0
+    assert client.preflight.call_args.kwargs["exposure_cap_usd"] == 0.0
+    mock_place.assert_called_once()
+
+
+# --- preflight() helpers: gas + finiteness + null venue ---------------------
+
+
+def test_pol_substring_in_alert_message_is_not_insufficient_gas():
+    assert SimmerClient._alert_signals_insufficient_gas(
+        {"message": "Review the political risk policy before trading"}
+    ) is False
+    assert SimmerClient._alert_signals_insufficient_gas(
+        {"message": "low pol on the wallet"}
+    ) is False
+    assert SimmerClient._alert_signals_insufficient_gas(
+        {"message": "insufficient gas on polygon"}
+    ) is False
+
+
+def test_structured_insufficient_gas_code_matches():
+    assert SimmerClient._alert_signals_insufficient_gas(
+        {"code": "INSUFFICIENT_GAS", "message": "political headline"}
+    ) is True
+    assert SimmerClient._alert_signals_insufficient_gas("INSUFFICIENT_GAS") is True
+    assert SimmerClient._alert_signals_insufficient_gas(
+        {"type": "insufficient_gas"}
+    ) is True
+
+
+def test_preflight_rejects_non_finite_exposure_cap_arg():
+    client = _live_client()
+    client._preflight_parallel_reads = MagicMock(
+        side_effect=AssertionError("must reject before reads")
+    )
+    with pytest.raises(ValueError, match="finite number"):
+        client.preflight(venue="polymarket", exposure_cap_usd=float("nan"))
+    with pytest.raises(ValueError, match="finite number"):
+        client.preflight(venue="polymarket", exposure_cap_usd=float("inf"))
+
+
+def test_preflight_null_venue_position_counts_as_sim():
+    """venue=None is virtual $SIM, not real USDC exposure (keep MCP in sync)."""
+    client = _live_client()
+    client._ows_wallet = None
+    client._deposit_wallet_address = None
+    client._uses_deposit_wallet = False
+    client._solana_key_available = False
+    client._wallet_address = "0xabc"
+
+    def _request(method, endpoint, **kwargs):
+        if "/agents/me" in endpoint:
+            return {
+                "agent_id": "a1",
+                "rate_limits": {"tier": "pro"},
+                "real_trading_enabled": True,
+                "wallet_address": "0xabc",
+            }
+        if "/briefing" in endpoint:
+            return {"risk_alerts": [], "venues": {"polymarket": {"balance": 50}}}
+        if "/positions" in endpoint:
+            return {
+                "positions": [
+                    {"venue": None, "current_value": 80.0},
+                    {"venue": "polymarket", "current_value": 15.0},
+                ]
+            }
+        raise AssertionError(f"unexpected {endpoint}")
+
+    client._request = _request
+    result = client.preflight(
+        venue="polymarket", planned_amount=0.0, exposure_cap_usd=100.0,
+    )
+    assert result.open_exposure_total == 15.0
+    assert result.ok_to_trade is True
+
+
+def test_preflight_free_text_pol_does_not_block_gas():
+    client = _live_client()
+    client._ows_wallet = None
+    client._deposit_wallet_address = None
+    client._uses_deposit_wallet = False
+    client._solana_key_available = False
+    client._wallet_address = "0xabc"
+
+    def _request(method, endpoint, **kwargs):
+        if "/agents/me" in endpoint:
+            return {
+                "agent_id": "a1",
+                "rate_limits": {"tier": "pro"},
+                "real_trading_enabled": True,
+                "wallet_address": "0xabc",
+            }
+        if "/briefing" in endpoint:
+            return {
+                "risk_alerts": [{"message": "political / policy watch: vegas event"}],
+                "venues": {"polymarket": {"balance": 50}},
+            }
+        if "/positions" in endpoint:
+            return {"positions": []}
+        if "/allowances/" in endpoint:
+            return {"all_set": True}
+        raise AssertionError(f"unexpected {endpoint}")
+
+    client._request = _request
+    result = client.preflight(venue="polymarket", exposure_cap_usd=0)
+    assert "INSUFFICIENT_GAS" not in result.blockers
+    assert result.ok_to_trade is True
+
+
+def test_preflight_structured_gas_code_blocks():
+    client = _live_client()
+    client._ows_wallet = None
+    client._deposit_wallet_address = None
+    client._uses_deposit_wallet = False
+    client._solana_key_available = False
+    client._wallet_address = "0xabc"
+
+    def _request(method, endpoint, **kwargs):
+        if "/agents/me" in endpoint:
+            return {
+                "agent_id": "a1",
+                "rate_limits": {"tier": "pro"},
+                "real_trading_enabled": True,
+                "wallet_address": "0xabc",
+            }
+        if "/briefing" in endpoint:
+            return {
+                "risk_alerts": [{"code": "INSUFFICIENT_GAS", "message": "fund wallet POL"}],
+                "venues": {"polymarket": {"balance": 50}},
+            }
+        if "/positions" in endpoint:
+            return {"positions": []}
+        if "/allowances/" in endpoint:
+            return {"all_set": True}
+        raise AssertionError(f"unexpected {endpoint}")
+
+    client._request = _request
+    result = client.preflight(venue="polymarket", exposure_cap_usd=0)
+    assert "INSUFFICIENT_GAS" in result.blockers
+    assert result.ok_to_trade is False
 
 
 # --- place_combo ------------------------------------------------------------
