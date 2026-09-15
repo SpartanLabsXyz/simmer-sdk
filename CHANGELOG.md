@@ -3,6 +3,10 @@
 All notable changes to `simmer-sdk` are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## simmer-mcp v3.5.6 — 2026-09-15
+
+- **`timedFetch` keeps its abort armed through `resp.json()`.** The timer used to clear when headers arrived, so a stalled body on the live preflight reads (`getAgentMe` / `getBriefing` / `getPositions`) could hold a permitted `simmer_trade` past the budget. A mocked fetch whose body stalls past the timeout now rejects. SIM-5395.
+
 ## 0.25.6 (2026-09-14)
 
 - **Live trades now require a passing preflight.** `client.trade(dry_run=False)` on a `live=True` client against a real venue (`polymarket` / `kalshi`) auto-runs `preflight()` and returns `success=False` (`error_code=preflight_blocked`) when `ok_to_trade` is False, listing the blockers. `place_combo(dry_run=False)` raises the same refusal. The auto-gate exposure cap is opt-in (`EXPOSURE_CAP_USD` set → enforced; unset → no $100 default) and sells are exempt from cap math so an over-cap book can still reduce exposure. Wallet / venue / gas blockers still run. `INSUFFICIENT_GAS` matches a structured risk_alert code (including a bare `"INSUFFICIENT_GAS"` string), not free-text `pol` / `gas`. A non-finite `EXPOSURE_CAP_USD` returns a `preflight_blocked` failure result on buys and is skipped on sells — it does not raise out of `trade()`. Unparseable position `current_value` is `EXPOSURE_UNKNOWN` (real venue + active cap), not a crash. Identity / briefing / positions (and approvals) are serial `_request` calls with `timeout=5`. Paper, `venue="sim"`, and `dry_run=True` are unchanged. One-release migrate valve: `skip_preflight=True` or `SIMMER_SKIP_PREFLIGHT=1` (deprecation warning). MCP `simmer_trade` applies the same live gate; `SIMMER_MCP_ALLOW_LIVE` is still required. This control point covers polymarket/kalshi live `trade()` and `place_combo()`, not `client.hyperliquid.place_order()` — Hyperliquid is still ungated because `preflight()` would return `VENUE_UNSUPPORTED`. Fixes #371. SIM-5388.
