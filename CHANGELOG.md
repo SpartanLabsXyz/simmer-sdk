@@ -3,6 +3,10 @@
 All notable changes to `simmer-sdk` are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## simmer-mcp v3.5.8 — 2026-09-15
+
+- **Bundled `simmer` skill copy refreshed to 1.25.3.** No behavior change — regenerates `mcp/bundled-skills/simmer/SKILL.md` to match the skill quick-start rewrite below. SIM-5391.
+
 ## Skill 1.25.3 — 2026-09-15
 
 - **`simmer` skill quick start is leaner and every step tells you when you're done.** The `dry_run` and Kalshi caveats now point at the [Trading Guide](https://docs.simmer.markets/trading-guide#dry-run) instead of living inline, each quick-start step ends on a concrete "done when" check, and the Grok Bot setup note links out to the [Runtimes](https://docs.simmer.markets/runtimes#grok-bot) page.
