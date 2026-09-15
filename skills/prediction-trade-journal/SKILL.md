@@ -1,9 +1,9 @@
 ---
 name: prediction-trade-journal
-description: Auto-log trades with context, track outcomes, generate calibration reports to improve trading.
+description: Auto-log trades with context, inspect trade history, track win rate and P&L, generate reports, and analyze which strategies work best.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.1.8"
+  version: "1.1.9"
   displayName: Prediction Trade Journal
   difficulty: beginner
 ---
@@ -11,13 +11,6 @@ metadata:
 
 Track every trade, learn from outcomes, improve your edge.
 
-## When to Use This Skill
-
-Use this skill when the user wants to:
-- See their trade history
-- Track win rate and P&L
-- Generate trading reports
-- Analyze which strategies work best
 
 ## Setup Flow
 
