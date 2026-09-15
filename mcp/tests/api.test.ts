@@ -57,6 +57,54 @@ describe("SimmerApi.checkPro", () => {
   });
 });
 
+describe("SimmerApi timedFetch body timeout (SIM-5395)", () => {
+  beforeEach(() => { savedFetch = global.fetch; });
+  afterEach(() => { global.fetch = savedFetch; });
+
+  function stalledJsonResponse(stallMs: number): Response {
+    const payload = new TextEncoder().encode(JSON.stringify({ ok: true }));
+    const stream = new ReadableStream({
+      start(controller) {
+        setTimeout(() => {
+          controller.enqueue(payload);
+          controller.close();
+        }, stallMs);
+      },
+    });
+    return new Response(stream, {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  const cases: Array<{
+    name: string;
+    call: (api: SimmerApi) => Promise<unknown>;
+  }> = [
+    { name: "getAgentMe", call: (api) => api.getAgentMe(20) },
+    { name: "getBriefing", call: (api) => api.getBriefing(undefined, 20) },
+    { name: "getPositions", call: (api) => api.getPositions({}, 20) },
+  ];
+
+  for (const { name, call } of cases) {
+    it(`${name} rejects when the body stalls past the timeout`, async () => {
+      mockFetch(async () => stalledJsonResponse(200));
+      const api = new SimmerApi("sk_test", "https://api.simmer.markets", "3.5.5");
+      const t0 = Date.now();
+      await assert.rejects(
+        () => call(api),
+        (err: unknown) => {
+          assert.ok(err instanceof Error, `expected Error, got ${err}`);
+          assert.equal(err.name, "AbortError");
+          return true;
+        },
+      );
+      const elapsed = Date.now() - t0;
+      assert.ok(elapsed < 150, `stalled body must abort near 20ms, took ${elapsed}ms`);
+    });
+  }
+});
+
 describe("SimmerApi.backtest — throws BackendError on 4xx/5xx", () => {
   beforeEach(() => { savedFetch = global.fetch; });
   afterEach(() => { global.fetch = savedFetch; });
