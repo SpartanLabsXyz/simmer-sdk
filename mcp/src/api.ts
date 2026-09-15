@@ -105,14 +105,67 @@ export class SimmerApi {
     };
   }
 
+  /**
+   * Fetch with a wall-clock abort that stays armed through resp.json().
+   * Clearing the timer when headers arrive lets a stalled body outlive
+   * timeoutMs (SIM-5395).
+   */
   private async timedFetch(url: string, init?: RequestInit, timeoutMs = 5000): Promise<Response> {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), timeoutMs);
     try {
-      return await fetch(url, { ...init, signal: ctrl.signal });
-    } finally {
+      const resp = await fetch(url, { ...init, signal: ctrl.signal });
+      return this.bindAbortToJson(resp, ctrl.signal, timer);
+    } catch (err) {
       clearTimeout(timer);
+      throw err;
     }
+  }
+
+  private bindAbortToJson(
+    resp: Response,
+    signal: AbortSignal,
+    timer: ReturnType<typeof setTimeout>,
+  ): Response {
+    const readJson = resp.json.bind(resp);
+    Object.defineProperty(resp, "json", {
+      configurable: true,
+      value: () => this.awaitWhileSignal(readJson(), signal, timer),
+    });
+    return resp;
+  }
+
+  private awaitWhileSignal<T>(
+    pending: Promise<T>,
+    signal: AbortSignal,
+    timer: ReturnType<typeof setTimeout>,
+  ): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      const onAbort = () => {
+        cleanup();
+        reject(new DOMException("The operation was aborted", "AbortError"));
+      };
+      const cleanup = () => {
+        clearTimeout(timer);
+        signal.removeEventListener("abort", onAbort);
+      };
+      if (signal.aborted) {
+        onAbort();
+        void pending.catch(() => undefined);
+        return;
+      }
+      signal.addEventListener("abort", onAbort);
+      pending.then(
+        (value) => {
+          cleanup();
+          resolve(value);
+        },
+        (err) => {
+          cleanup();
+          reject(err);
+        },
+      );
+    });
   }
 
   private async extractDetail(resp: Response): Promise<string> {
