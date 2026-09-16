@@ -15,9 +15,9 @@ Usage (from repo root or this skill dir):
 
 Optional full-tape read (needs `pip install 'simmer-sdk[backtest]'`, a
 weather-capable slice — `--q temperature`, low `--min-volume` — and a
-real forecast archive that covers the window). The harness strips host
-env; put the JSON in the skill dir so the bundle copy sees it.
-`.sample.json` is invented test data and is never auto-loaded:
+real forecast archive that covers the window). Copy your archive to
+fixtures/replay_forecasts.json (uncommitted); the .sample.json is shape
+reference only and is never loaded:
 
     cp /path/to/window-archive.json \\
         skills/polymarket-weather-trader/fixtures/replay_forecasts.json

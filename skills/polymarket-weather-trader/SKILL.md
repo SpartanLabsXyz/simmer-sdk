@@ -3,7 +3,7 @@ name: polymarket-weather-trader
 description: Trade Polymarket weather markets using NOAA (US) and Open-Meteo (international) forecasts via Simmer API. Inspired by gopfan2's weather trading approach. Use when user wants to trade temperature markets, automate weather bets, check forecasts, or run weather-based strategies.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.23.13"
+  version: "1.23.14"
   displayName: Polymarket Weather Trader
   difficulty: beginner
   attribution: Strategy inspired by gopfan2 (public Polymarket trader — approach referenced, not endorsed).
@@ -50,10 +50,14 @@ Use this skill when the user wants to:
 - Check their weather trading positions
 - Configure trading thresholds or locations
 
+## What's New in v1.23.14
+
+- **Replay forecast archive (SIM-5429).** This release ships a **loader**, not an archive. Under `SIMMER_REPLAY=1` the skill fills `_REPLAY_FORECASTS` from `SIMMER_REPLAY_FORECASTS=/path.json`, or from a user file `fixtures/replay_forecasts.json` when present (uncommitted). Copy your archive to `fixtures/replay_forecasts.json` (uncommitted); the `.sample.json` is shape reference only and is never loaded. Live NOAA stays dark. A set-but-missing path fails the tick. One forced provenance line (`force=True`, survives `--quiet`): path, station count, min/max date — or `no archive: NOAA dark, 0 entries is FIX`.
+- **KEEP/KILL path.** A full-tape run stays **FIX** until a real historical-forecast file covers the window. Do not treat the sample temps as history.
+
 ## What's New in v1.23.13
 
-- **Replay forecast archive (SIM-5429).** Under `SIMMER_REPLAY=1` the skill loads `_REPLAY_FORECASTS` from `SIMMER_REPLAY_FORECASTS=/path.json` (same `{station: {YYYY-MM-DD: {high, low}}}` shape the tests inject). If the env is unset, it reads a user file `fixtures/replay_forecasts.json` when present (not committed; the harness copies the skill dir). The shipped `fixtures/replay_forecasts.sample.json` is a shape example only — invented test temps, never auto-loaded. Live NOAA/Open-Meteo stay dark. A set-but-missing path fails the tick. The archive line always prints (`force=True`) with station count and min/max date.
-- **KEEP/KILL path.** Full-tape `evals>0` + `entries=0` with NOAA dark is **FIX** until a real window-covering archive is in place. Do not treat the sample as history.
+- **Replay forecast archive (SIM-5429) first cut.** Loader + sample. Round 2 (1.23.14) stopped auto-loading the invented sample.
 
 ## What's New in v1.23.12
 
@@ -216,9 +220,9 @@ python skills/polymarket-weather-trader/scripts/run_backtest_gate.py
 # Same tests, direct
 python -m pytest skills/polymarket-weather-trader/tests/test_replay_discovery.py -q
 
-# Full-tape KEEP/KILL — needs a real archive that covers the window.
-# The replay harness strips host env, so put the file in the skill dir
-# (copied with the bundle). .sample.json is invented test data — not history.
+# Full-tape KEEP/KILL — this skill ships a loader, not an archive.
+# Copy your archive to fixtures/replay_forecasts.json (uncommitted);
+# the .sample.json is shape reference only and is never loaded.
 cp /path/to/window-archive.json \
   skills/polymarket-weather-trader/fixtures/replay_forecasts.json
 # Optional in-process / pytest: export SIMMER_REPLAY_FORECASTS=/path/to/window-archive.json

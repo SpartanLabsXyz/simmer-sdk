@@ -1,5 +1,15 @@
 # Changelog — polymarket-weather-trader
 
+## [1.23.14] - 2026-09-16
+
+### Fixed
+- The committed sample is never auto-loaded. Invented KLGA / 2026-04-30 temps live only in `fixtures/replay_forecasts.sample.json` (shape reference). Auto-load is `SIMMER_REPLAY_FORECASTS` or a user file `fixtures/replay_forecasts.json` (gitignored). Default plane is empty → honest FIX.
+- One forced provenance line (`force=True`): path, station count, min/max date, or `no archive: NOAA dark, 0 entries is FIX`.
+- Startup uses `_ensure_replay_forecasts_loaded()` so an inject is not clobbered by a later file load.
+
+### Docs
+- Copy your archive to `fixtures/replay_forecasts.json` (uncommitted); the `.sample.json` is shape reference only and is never loaded. This release ships a loader, not an archive. A full-tape run stays FIX until a real historical-forecast file covers the window.
+
 ## [1.23.13] - 2026-09-16
 
 ### Added

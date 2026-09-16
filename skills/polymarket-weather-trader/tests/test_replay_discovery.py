@@ -449,9 +449,9 @@ class TestReplayEntryPath(unittest.TestCase):
             }))
         text = buf.getvalue()
         self.assertIn("Replay: archive", text)
-        self.assertIn("1 station(s)", text)
+        self.assertIn(_SAMPLE_ARCHIVE, text)
+        self.assertIn("stations=1", text)
         self.assertIn("2026-04-30", text)
-        self.assertIn("no live NOAA", text)
 
     def test_forced_empty_archive_log_when_sample_only(self):
         os.environ["SIMMER_REPLAY"] = "1"
@@ -461,9 +461,7 @@ class TestReplayEntryPath(unittest.TestCase):
         with patch("sys.stdout", buf):
             self._run([_replay_market()], MagicMock())
         text = buf.getvalue()
-        self.assertIn("forecast archive empty", text)
-        self.assertIn("FIX", text)
-        self.assertIn(".sample.json is not auto-loaded", text)
+        self.assertIn("no archive: NOAA dark, 0 entries is FIX", text)
 
     def test_unparseable_criteria_does_not_city_fallback(self):
         """Present-but-unreadable criteria still skips — not KLGA."""

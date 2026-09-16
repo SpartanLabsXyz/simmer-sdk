@@ -1420,6 +1420,7 @@ _SAMPLE_REPLAY_FORECASTS_PATH = os.path.join(
 )
 _REPLAY_FORECASTS: dict = {}
 _replay_forecasts_load_attempted = False
+_REPLAY_FORECASTS_SOURCE = None  # resolved archive path, or None
 
 
 class ReplayForecastArchiveError(RuntimeError):
@@ -1431,9 +1432,10 @@ class ReplayForecastArchiveError(RuntimeError):
 
 def reset_replay_forecasts() -> None:
     """Clear the replay forecast plane. Tests only."""
-    global _replay_forecasts_load_attempted
+    global _replay_forecasts_load_attempted, _REPLAY_FORECASTS_SOURCE
     _REPLAY_FORECASTS.clear()
     _replay_forecasts_load_attempted = False
+    _REPLAY_FORECASTS_SOURCE = None
 
 
 def _resolve_replay_forecasts_path(path: str | None = None) -> str | None:
@@ -1505,7 +1507,7 @@ def load_replay_forecasts(path: str | None = None) -> dict:
     user file ``fixtures/replay_forecasts.json`` when it exists.
     The committed ``.sample.json`` is never selected.
     """
-    global _replay_forecasts_load_attempted
+    global _replay_forecasts_load_attempted, _REPLAY_FORECASTS_SOURCE
     _replay_forecasts_load_attempted = True
     if not _is_replay():
         return {}
@@ -1521,6 +1523,7 @@ def load_replay_forecasts(path: str | None = None) -> dict:
         ) from exc
     parsed = _parse_replay_forecast_archive(raw)
     _REPLAY_FORECASTS.update(parsed)
+    _REPLAY_FORECASTS_SOURCE = resolved
     return parsed
 
 
@@ -1535,17 +1538,16 @@ def _ensure_replay_forecasts_loaded() -> None:
     load_replay_forecasts()
 
 
-def _replay_forecast_plane_summary(forecasts: dict) -> str:
-    """Station count + date span for the forced replay archive log."""
+def _replay_forecast_provenance_line() -> str:
+    """One forced line: path + stations + date span, or empty-plane FIX."""
+    if not _REPLAY_FORECASTS:
+        return "Replay: no archive: NOAA dark, 0 entries is FIX"
     dates = []
-    for days in forecasts.values():
+    for days in _REPLAY_FORECASTS.values():
         dates.extend(str(d) for d in days)
-    n_stations = len(forecasts)
-    n_days = len(dates)
-    if not dates:
-        return "empty"
+    source = _REPLAY_FORECASTS_SOURCE or "inject"
     return (
-        f"{n_days} station-date(s), {n_stations} station(s), "
+        f"Replay: archive {source} stations={len(_REPLAY_FORECASTS)} "
         f"{min(dates)}–{max(dates)}"
     )
 
@@ -1950,15 +1952,7 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
         log("  Replay: tape already holds markets — skip live import")
         newly_imported = 0
         _ensure_replay_forecasts_loaded()
-        summary = _replay_forecast_plane_summary(_REPLAY_FORECASTS)
-        if summary == "empty":
-            log("  Replay: forecast archive empty — NOAA stays dark. "
-                f"0 entries is FIX (set {REPLAY_FORECASTS_ENV} or copy a "
-                "real archive to fixtures/replay_forecasts.json; "
-                ".sample.json is not auto-loaded), not KILL.",
-                force=True)
-        else:
-            log(f"  Replay: archive {summary}; no live NOAA", force=True)
+        log(f"  {_replay_forecast_provenance_line()}", force=True)
     else:
         newly_imported = discover_and_import_weather_markets(log=log)
     if newly_imported:
