@@ -804,7 +804,10 @@ def _normalize_open_position(pos):
     same share fields and no source/side/quantity/entry_price. Dicts from
     older tests still work.
 
-    Entry is YES-scale: YES is cost_basis/shares; NO is 1 - cost_basis/shares.
+    Entry is YES-scale for `check_target_hit_exit`. Live `avg_cost` is the
+    held-side price (`cost_basis / total_shares`). Using it raw on a NO
+    book made target_hit miss. Derive from cost_basis first; `avg_cost`
+    is a last resort and is flipped for NO (`1 - avg_cost`).
     """
     market_id = _pos_get(pos, "market_id", "marketId", "conditionId")
     shares_yes = float(_pos_get(pos, "shares_yes", default=0) or 0)
@@ -834,11 +837,19 @@ def _normalize_open_position(pos):
         return None
     if not _position_is_ours(_pos_get(pos, "sources", "source")):
         return None
-    entry_price = _pos_get(pos, "entry_price", "avgPrice", "avg_price", "avg_cost")
-    cost_basis = _pos_get(pos, "cost_basis")
-    if entry_price is None and cost_basis is not None and quantity > 0:
-        avg = float(cost_basis) / quantity
-        entry_price = (1.0 - avg) if side == "NO" else avg
+    # YES-scale fields only. Do not read avg_cost here — it is held-side.
+    entry_price = _pos_get(pos, "entry_price", "avgPrice", "avg_price")
+    if entry_price is None:
+        cost_basis = _pos_get(pos, "cost_basis")
+        held_avg = None
+        if cost_basis is not None and quantity > 0:
+            held_avg = float(cost_basis) / quantity
+        else:
+            raw_avg = _pos_get(pos, "avg_cost")
+            if raw_avg is not None:
+                held_avg = float(raw_avg)
+        if held_avg is not None:
+            entry_price = (1.0 - held_avg) if side == "NO" else held_avg
     return {
         "market_id": market_id,
         "side": side,
@@ -1124,7 +1135,7 @@ def _emit_automaton_output(positions, markets, config_snapshot):
     block = {
         "automaton": {
             "skill": SKILL_SLUG,
-            "version": "1.2.1",
+            "version": "1.2.2",
             "status": "running",
             "open_positions": len(positions),
             "active_markets_found": len(markets),

@@ -1,5 +1,10 @@
 # Changelog — polymarket-btc-up-down-trader
 
+## [1.2.2] - 2026-09-16
+
+### Fixed
+- **Live NO `avg_cost` is held-side, not YES-scale (SIM-5442 F4).** `_normalize_open_position` preferred `avg_cost` over the `cost_basis` derivation. A NO bought at 0.30 (YES 0.70) stored `entry_price=0.30`, so `check_target_hit_exit` never fired when YES fell. Replay rows omit `avg_cost`, so a backtest looked right. Entry now comes from `cost_basis / shares` (NO: `1 - avg`). `avg_cost` is last-resort and is flipped for NO.
+
 ## [1.2.1] - 2026-09-16
 
 ### Fixed

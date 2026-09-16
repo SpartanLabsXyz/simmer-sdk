@@ -361,6 +361,22 @@ class TestReplayEntryAndSpend(_ReplayEnvMixin, unittest.TestCase):
         self.assertEqual(norm["quantity"], 10.0)
         self.assertAlmostEqual(norm["entry_price"], 0.60)
 
+    def test_normalize_live_no_avg_cost_is_yes_scale(self):
+        """F4: live avg_cost is held-side. NO @ 0.30 → YES-scale 0.70."""
+        os.environ.pop("SIMMER_REPLAY", None)
+        pos = _live_position(
+            shares_yes=0.0,
+            shares_no=10.0,
+            cost_basis=3.0,
+            avg_cost=0.30,
+            current_value=0.50,
+        )
+        self.assertIsInstance(pos, Position)
+        norm = strat._normalize_open_position(pos)
+        self.assertEqual(norm["side"], "NO")
+        self.assertEqual(norm["quantity"], 10.0)
+        self.assertAlmostEqual(norm["entry_price"], 0.70)
+
     def test_live_position_without_source_is_not_ours(self):
         os.environ.pop("SIMMER_REPLAY", None)
         self.assertIsNone(strat._normalize_open_position(_live_position(sources=None)))
@@ -402,6 +418,29 @@ class TestReplayEntryAndSpend(_ReplayEnvMixin, unittest.TestCase):
         }
         with patch.object(strat, "_api_request", return_value=market), \
              patch.object(strat, "fetch_live_midpoint", return_value=0.41), \
+             patch.object(strat, "check_volume_spike_exit", return_value=(False, None, {})):
+            closed = strat.run_exit_monitor(client, live=False, quiet=True)
+        self.assertEqual(closed, 1)
+
+    def test_live_no_avg_cost_target_hit_fires(self):
+        """F4: YES falls to 0.05. Held-side 0.30 would miss; YES-scale 0.70 hits."""
+        os.environ.pop("SIMMER_REPLAY", None)
+        pos = _live_position(
+            shares_yes=0.0,
+            shares_no=10.0,
+            cost_basis=3.0,
+            avg_cost=0.30,
+            current_value=0.50,
+        )
+        client = MagicMock()
+        client.get_positions.return_value = [pos]
+        market = {
+            "question": "Bitcoin Up or Down on April 15?",
+            "endDate": (datetime.now(timezone.utc) + timedelta(hours=8)).isoformat(),
+            "clobTokenIds": ["yes_token", "no_token"],
+        }
+        with patch.object(strat, "_api_request", return_value=market), \
+             patch.object(strat, "fetch_live_midpoint", return_value=0.05), \
              patch.object(strat, "check_volume_spike_exit", return_value=(False, None, {})):
             closed = strat.run_exit_monitor(client, live=False, quiet=True)
         self.assertEqual(closed, 1)
