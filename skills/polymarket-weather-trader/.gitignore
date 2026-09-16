@@ -1,0 +1,4 @@
+# User-supplied replay archive. Not a historical forecast — copy a real
+# window file here, or copy replay_forecasts.sample.json for a pinned demo.
+# The sample is never auto-loaded.
+fixtures/replay_forecasts.json

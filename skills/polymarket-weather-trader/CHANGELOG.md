@@ -1,5 +1,23 @@
 # Changelog — polymarket-weather-trader
 
+## [1.23.14] - 2026-09-16
+
+### Fixed
+- The committed sample is never auto-loaded. Invented KLGA / 2026-04-30 temps live only in `fixtures/replay_forecasts.sample.json` (shape reference). Auto-load is `SIMMER_REPLAY_FORECASTS` or a user file `fixtures/replay_forecasts.json` (gitignored). Default plane is empty → honest FIX.
+- One forced provenance line (`force=True`): path, station count, min/max date, or `no archive: NOAA dark, 0 entries is FIX`.
+- Startup uses `_ensure_replay_forecasts_loaded()` so an inject is not clobbered by a later file load.
+
+### Docs
+- Copy your archive to `fixtures/replay_forecasts.json` (uncommitted); the `.sample.json` is shape reference only and is never loaded. This release ships a loader, not an archive. A full-tape run stays FIX until a real historical-forecast file covers the window.
+
+## [1.23.13] - 2026-09-16
+
+### Added
+- **Replay forecast archive loader (SIM-5429).** Under `SIMMER_REPLAY=1`, `load_replay_forecasts()` fills `_REPLAY_FORECASTS` from `SIMMER_REPLAY_FORECASTS=/path.json` (same `{station: {YYYY-MM-DD: {high, low}}}` shape the tests inject). If the env is unset, a user file `fixtures/replay_forecasts.json` is used when present (not committed). The shipped `fixtures/replay_forecasts.sample.json` is a shape example only and is never auto-loaded. Live NOAA/Open-Meteo stay dark. A set-but-missing path raises `ReplayForecastArchiveError`. The replay archive line always prints (`force=True`) with station count and min/max date.
+
+### Docs
+- Full-tape KEEP/KILL: copy a window-covering archive to `fixtures/replay_forecasts.json`, then `simmer backtest … --q temperature`. 0 entries with NOAA dark is FIX when no user archive is in place. Do not treat the sample temps as history.
+
 ## [1.23.12] - 2026-09-16
 
 ### Fixed

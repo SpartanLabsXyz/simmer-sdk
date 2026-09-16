@@ -1405,10 +1405,153 @@ def _market_yes_price(market: dict) -> float:
     return market.get("external_price_yes") or 0.5
 
 
-# Tests / a local harness may inject
+# Tests / a local harness / SIMMER_REPLAY_FORECASTS may inject
 # `{station_id: {YYYY-MM-DD: {"high": t, "low": t}}}`. Live NOAA / Open-Meteo
 # never run under replay — that would be look-ahead vs the frozen tick.
+REPLAY_FORECASTS_ENV = "SIMMER_REPLAY_FORECASTS"
+_SKILL_DIR = os.path.dirname(os.path.abspath(__file__))
+# User-supplied archive. Not committed (see .gitignore). Auto-load only this.
+_DEFAULT_REPLAY_FORECASTS_PATH = os.path.join(
+    _SKILL_DIR, "fixtures", "replay_forecasts.json"
+)
+# Pinned shape example. Never auto-loaded — invented test temps, not history.
+_SAMPLE_REPLAY_FORECASTS_PATH = os.path.join(
+    _SKILL_DIR, "fixtures", "replay_forecasts.sample.json"
+)
 _REPLAY_FORECASTS: dict = {}
+_replay_forecasts_load_attempted = False
+_REPLAY_FORECASTS_SOURCE = None  # resolved archive path, or None
+
+
+class ReplayForecastArchiveError(RuntimeError):
+    """Archive path was set but the file could not be read or parsed.
+
+    Fail closed so a typo does not look like an honest empty tape.
+    """
+
+
+def reset_replay_forecasts() -> None:
+    """Clear the replay forecast plane. Tests only."""
+    global _replay_forecasts_load_attempted, _REPLAY_FORECASTS_SOURCE
+    _REPLAY_FORECASTS.clear()
+    _replay_forecasts_load_attempted = False
+    _REPLAY_FORECASTS_SOURCE = None
+
+
+def _resolve_replay_forecasts_path(path: str | None = None) -> str | None:
+    """Return a readable archive path, or None if none was requested.
+
+    A set-but-missing path raises. An unset path loads the user file
+    ``fixtures/replay_forecasts.json`` when present (bundle-local so
+    ``simmer backtest`` sees it after the harness copies the skill).
+    The committed ``.sample.json`` is never selected.
+    """
+    explicit = path is not None
+    if path is None:
+        path = (os.environ.get(REPLAY_FORECASTS_ENV) or "").strip()
+        explicit = bool(path)
+    if not path:
+        if os.path.isfile(_DEFAULT_REPLAY_FORECASTS_PATH):
+            return _DEFAULT_REPLAY_FORECASTS_PATH
+        return None
+    candidates = [os.path.expanduser(path)]
+    if not os.path.isabs(path):
+        candidates.append(
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), path)
+        )
+    for candidate in candidates:
+        if os.path.isfile(candidate):
+            return candidate
+    if explicit:
+        raise ReplayForecastArchiveError(
+            f"Replay forecast archive not found: {path} "
+            f"(set {REPLAY_FORECASTS_ENV} to a JSON file matching "
+            '{station: {YYYY-MM-DD: {high, low}}})'
+        )
+    return None
+
+
+def _parse_replay_forecast_archive(raw) -> dict:
+    """Validate the inject shape. Root is station → date → {high, low}."""
+    if not isinstance(raw, dict):
+        raise ReplayForecastArchiveError(
+            "archive root must be an object keyed by station id"
+        )
+    out = {}
+    for station, days in raw.items():
+        if not isinstance(station, str) or not station.strip():
+            raise ReplayForecastArchiveError("station keys must be non-empty strings")
+        if not isinstance(days, dict):
+            raise ReplayForecastArchiveError(f"{station}: expected a date map")
+        parsed_days = {}
+        for date_str, temps in days.items():
+            if not isinstance(temps, dict):
+                raise ReplayForecastArchiveError(
+                    f"{station}/{date_str}: expected {{high, low}} object"
+                )
+            parsed_days[str(date_str)] = {
+                "high": temps.get("high"),
+                "low": temps.get("low"),
+            }
+        out[station] = parsed_days
+    return out
+
+
+def load_replay_forecasts(path: str | None = None) -> dict:
+    """Fill ``_REPLAY_FORECASTS`` from a JSON archive. Replay-only.
+
+    Shape matches the test inject:
+    ``{station_id: {YYYY-MM-DD: {"high": t, "low": t}}}``.
+
+    Path order: ``path`` argument, else ``SIMMER_REPLAY_FORECASTS``, else
+    user file ``fixtures/replay_forecasts.json`` when it exists.
+    The committed ``.sample.json`` is never selected.
+    """
+    global _replay_forecasts_load_attempted, _REPLAY_FORECASTS_SOURCE
+    _replay_forecasts_load_attempted = True
+    if not _is_replay():
+        return {}
+    resolved = _resolve_replay_forecasts_path(path)
+    if resolved is None:
+        return {}
+    try:
+        with open(resolved, encoding="utf-8") as fh:
+            raw = json.load(fh)
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ReplayForecastArchiveError(
+            f"Failed to read replay forecast archive {resolved}"
+        ) from exc
+    parsed = _parse_replay_forecast_archive(raw)
+    _REPLAY_FORECASTS.update(parsed)
+    _REPLAY_FORECASTS_SOURCE = resolved
+    return parsed
+
+
+def _ensure_replay_forecasts_loaded() -> None:
+    """Load the archive once under replay. Does not clobber a test inject."""
+    global _replay_forecasts_load_attempted
+    if _replay_forecasts_load_attempted:
+        return
+    if _REPLAY_FORECASTS:
+        _replay_forecasts_load_attempted = True
+        return
+    load_replay_forecasts()
+
+
+def _replay_forecast_provenance_line() -> str:
+    """One forced line: path + stations + date span, or empty-plane FIX."""
+    dates = []
+    for days in _REPLAY_FORECASTS.values():
+        dates.extend(str(d) for d in days)
+    if not dates:
+        # Covers both an empty plane and an archive whose stations carry no
+        # dates ({"KLGA": {}}): min()/max() on [] would abort the tick.
+        return "Replay: no archive: NOAA dark, 0 entries is FIX"
+    source = _REPLAY_FORECASTS_SOURCE or "inject"
+    return (
+        f"Replay: archive {source} stations={len(_REPLAY_FORECASTS)} "
+        f"{min(dates)}–{max(dates)}"
+    )
 
 
 def _city_fallback_station(location: str):
@@ -1431,6 +1574,7 @@ def _city_fallback_station(location: str):
 def _station_forecast(station_id: str, is_international: bool) -> dict:
     """Forecast map `{date: {high, low}}`. Live vendors never run under replay."""
     if _is_replay():
+        _ensure_replay_forecasts_loaded()
         raw = _REPLAY_FORECASTS.get(station_id) or {}
         return {d: dict(v) for d, v in raw.items()} if raw else {}
     if is_international:
@@ -1809,6 +1953,8 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
         # max_evaluations before fetch_weather_markets runs.
         log("  Replay: tape already holds markets — skip live import")
         newly_imported = 0
+        _ensure_replay_forecasts_loaded()
+        log(f"  {_replay_forecast_provenance_line()}", force=True)
     else:
         newly_imported = discover_and_import_weather_markets(log=log)
     if newly_imported:
