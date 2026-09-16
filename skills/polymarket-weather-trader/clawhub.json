@@ -133,7 +133,7 @@
     {
       "name": "SIMMER_REPLAY_FORECASTS",
       "required": false,
-      "description": "Replay-only. Path to a JSON forecast archive {station: {YYYY-MM-DD: {high, low}}}. Live NOAA is never used under replay. For simmer backtest, put the file at fixtures/replay_forecasts.json in the skill dir (host env is stripped)."
+      "description": "Replay-only. Path to a JSON forecast archive {station: {YYYY-MM-DD: {high, low}}}. Live NOAA is never used under replay. For simmer backtest, copy a real archive to fixtures/replay_forecasts.json (not committed; host env is stripped). The .sample.json file is never auto-loaded."
     }
   ],
   "cron": null,

@@ -3,10 +3,10 @@
 ## [1.23.13] - 2026-09-16
 
 ### Added
-- **Replay forecast archive loader (SIM-5429).** Under `SIMMER_REPLAY=1`, `load_replay_forecasts()` fills `_REPLAY_FORECASTS` from `SIMMER_REPLAY_FORECASTS=/path.json` (same `{station: {YYYY-MM-DD: {high, low}}}` shape the tests inject). If the env is unset, the bundle-local sample `fixtures/replay_forecasts.json` is used so `simmer backtest` still sees an archive after the harness copies the skill. Live NOAA/Open-Meteo stay dark. A set-but-missing path raises `ReplayForecastArchiveError`.
+- **Replay forecast archive loader (SIM-5429).** Under `SIMMER_REPLAY=1`, `load_replay_forecasts()` fills `_REPLAY_FORECASTS` from `SIMMER_REPLAY_FORECASTS=/path.json` (same `{station: {YYYY-MM-DD: {high, low}}}` shape the tests inject). If the env is unset, a user file `fixtures/replay_forecasts.json` is used when present (not committed). The shipped `fixtures/replay_forecasts.sample.json` is a shape example only and is never auto-loaded. Live NOAA/Open-Meteo stay dark. A set-but-missing path raises `ReplayForecastArchiveError`. The replay archive line always prints (`force=True`) with station count and min/max date.
 
 ### Docs
-- Full-tape KEEP/KILL now has a path: replace the sample with a window-covering archive, then `simmer backtest … --q temperature`. 0 entries with NOAA dark is still FIX when the archive is missing or does not cover the tape dates.
+- Full-tape KEEP/KILL: copy a window-covering archive to `fixtures/replay_forecasts.json`, then `simmer backtest … --q temperature`. 0 entries with NOAA dark is FIX when no user archive is in place. Do not treat the sample temps as history.
 
 ## [1.23.12] - 2026-09-16
 

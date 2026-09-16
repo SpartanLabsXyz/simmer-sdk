@@ -1409,8 +1409,14 @@ def _market_yes_price(market: dict) -> float:
 # `{station_id: {YYYY-MM-DD: {"high": t, "low": t}}}`. Live NOAA / Open-Meteo
 # never run under replay — that would be look-ahead vs the frozen tick.
 REPLAY_FORECASTS_ENV = "SIMMER_REPLAY_FORECASTS"
+_SKILL_DIR = os.path.dirname(os.path.abspath(__file__))
+# User-supplied archive. Not committed (see .gitignore). Auto-load only this.
 _DEFAULT_REPLAY_FORECASTS_PATH = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), "fixtures", "replay_forecasts.json"
+    _SKILL_DIR, "fixtures", "replay_forecasts.json"
+)
+# Pinned shape example. Never auto-loaded — invented test temps, not history.
+_SAMPLE_REPLAY_FORECASTS_PATH = os.path.join(
+    _SKILL_DIR, "fixtures", "replay_forecasts.sample.json"
 )
 _REPLAY_FORECASTS: dict = {}
 _replay_forecasts_load_attempted = False
@@ -1433,9 +1439,10 @@ def reset_replay_forecasts() -> None:
 def _resolve_replay_forecasts_path(path: str | None = None) -> str | None:
     """Return a readable archive path, or None if none was requested.
 
-    A set-but-missing path raises. An unset path falls back to the
-    bundle-local sample so ``simmer backtest`` still sees an archive after
-    the harness copies the skill (host env is stripped).
+    A set-but-missing path raises. An unset path loads the user file
+    ``fixtures/replay_forecasts.json`` when present (bundle-local so
+    ``simmer backtest`` sees it after the harness copies the skill).
+    The committed ``.sample.json`` is never selected.
     """
     explicit = path is not None
     if path is None:
@@ -1495,7 +1502,8 @@ def load_replay_forecasts(path: str | None = None) -> dict:
     ``{station_id: {YYYY-MM-DD: {"high": t, "low": t}}}``.
 
     Path order: ``path`` argument, else ``SIMMER_REPLAY_FORECASTS``, else
-    ``fixtures/replay_forecasts.json`` next to this file when it exists.
+    user file ``fixtures/replay_forecasts.json`` when it exists.
+    The committed ``.sample.json`` is never selected.
     """
     global _replay_forecasts_load_attempted
     _replay_forecasts_load_attempted = True
@@ -1518,11 +1526,28 @@ def load_replay_forecasts(path: str | None = None) -> dict:
 
 def _ensure_replay_forecasts_loaded() -> None:
     """Load the archive once under replay. Does not clobber a test inject."""
+    global _replay_forecasts_load_attempted
     if _replay_forecasts_load_attempted:
         return
     if _REPLAY_FORECASTS:
+        _replay_forecasts_load_attempted = True
         return
     load_replay_forecasts()
+
+
+def _replay_forecast_plane_summary(forecasts: dict) -> str:
+    """Station count + date span for the forced replay archive log."""
+    dates = []
+    for days in forecasts.values():
+        dates.extend(str(d) for d in days)
+    n_stations = len(forecasts)
+    n_days = len(dates)
+    if not dates:
+        return "empty"
+    return (
+        f"{n_days} station-date(s), {n_stations} station(s), "
+        f"{min(dates)}–{max(dates)}"
+    )
 
 
 def _city_fallback_station(location: str):
@@ -1924,15 +1949,16 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
         # max_evaluations before fetch_weather_markets runs.
         log("  Replay: tape already holds markets — skip live import")
         newly_imported = 0
-        loaded = load_replay_forecasts()
-        n_days = sum(len(days) for days in _REPLAY_FORECASTS.values())
-        if n_days:
-            log(f"  Replay: loaded {n_days} station-date forecast(s) "
-                f"({len(loaded) or len(_REPLAY_FORECASTS)} station(s); no live NOAA)")
-        else:
+        _ensure_replay_forecasts_loaded()
+        summary = _replay_forecast_plane_summary(_REPLAY_FORECASTS)
+        if summary == "empty":
             log("  Replay: forecast archive empty — NOAA stays dark. "
-                f"0 entries is FIX (set {REPLAY_FORECASTS_ENV} or "
-                "fixtures/replay_forecasts.json), not KILL.")
+                f"0 entries is FIX (set {REPLAY_FORECASTS_ENV} or copy a "
+                "real archive to fixtures/replay_forecasts.json; "
+                ".sample.json is not auto-loaded), not KILL.",
+                force=True)
+        else:
+            log(f"  Replay: archive {summary}; no live NOAA", force=True)
     else:
         newly_imported = discover_and_import_weather_markets(log=log)
     if newly_imported:
