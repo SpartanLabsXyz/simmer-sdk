@@ -10,10 +10,16 @@ path must work under replay (frozen clock, replay price fields, city
 fallback when the tape omits resolution_criteria, no live NOAA look-ahead,
 preflight skipped so WALLET_UNVERIFIED cannot block SimState fills).
 
+SIM-5429 adds the archive loader (`SIMMER_REPLAY_FORECASTS` / bundle-local
+fixtures/replay_forecasts.json) so a full-tape run can fill `_REPLAY_FORECASTS`
+without live NOAA.
+
 Pure-unit: no network, no live Polymarket, no SIMMER_API_KEY.
 """
+import json
 import os
 import sys
+import tempfile
 import types
 import unittest
 from datetime import datetime, timezone
@@ -21,7 +27,19 @@ from unittest.mock import MagicMock, patch
 
 
 _SKILL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_FIXTURE_ARCHIVE = os.path.join(_SKILL_DIR, "fixtures", "replay_forecasts.json")
 sys.path.insert(0, _SKILL_DIR)
+
+
+def _write_archive(data: dict) -> str:
+    fd, path = tempfile.mkstemp(suffix=".json", prefix="wx-replay-fcst-")
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        json.dump(data, fh)
+    return path
+
+
+def _empty_archive() -> str:
+    return _write_archive({})
 
 _mock_cfg = {
     "entry_threshold": 0.15,
@@ -271,7 +289,8 @@ class TestReplayClockAndPrice(unittest.TestCase):
 class TestReplayStationAndForecast(unittest.TestCase):
     def tearDown(self):
         os.environ.pop("SIMMER_REPLAY", None)
-        wt._REPLAY_FORECASTS.clear()
+        os.environ.pop("SIMMER_REPLAY_FORECASTS", None)
+        wt.reset_replay_forecasts()
 
     def test_city_fallback_nyc_not_dallas(self):
         station, is_intl = wt._city_fallback_station("NYC")
@@ -282,7 +301,8 @@ class TestReplayStationAndForecast(unittest.TestCase):
 
     def test_replay_forecast_never_calls_live_noaa(self):
         os.environ["SIMMER_REPLAY"] = "1"
-        wt._REPLAY_FORECASTS.clear()
+        os.environ["SIMMER_REPLAY_FORECASTS"] = _empty_archive()
+        wt.reset_replay_forecasts()
         noaa = MagicMock(side_effect=AssertionError("live NOAA is look-ahead"))
         with patch.object(wt, "get_noaa_forecast_for_station", noaa), \
              patch.object(wt, "get_openmeteo_forecast_for_station", noaa):
@@ -337,7 +357,8 @@ class TestReplayEntryPath(unittest.TestCase):
     def tearDown(self):
         os.environ.pop("SIMMER_REPLAY", None)
         os.environ.pop("SIMMER_REPLAY_NOW", None)
-        wt._REPLAY_FORECASTS.clear()
+        os.environ.pop("SIMMER_REPLAY_FORECASTS", None)
+        wt.reset_replay_forecasts()
         wt._client = None
 
     def _run(self, markets, execute, import_fn=None):
@@ -377,11 +398,28 @@ class TestReplayEntryPath(unittest.TestCase):
         noaa.assert_not_called()
 
     def test_no_inject_is_honest_no_entry_not_look_ahead(self):
+        """Empty archive (not the shipped sample) → 0 entries, NOAA dark."""
         os.environ["SIMMER_REPLAY"] = "1"
         os.environ["SIMMER_REPLAY_NOW"] = REPLAY_NOW
+        os.environ["SIMMER_REPLAY_FORECASTS"] = _empty_archive()
         execute = MagicMock()
         _import_fn, noaa = self._run([_replay_market()], execute)
         execute.assert_not_called()
+        noaa.assert_not_called()
+
+    def test_archive_file_reaches_trade(self):
+        """SIM-5429: loader fills the inject plane; entry sees the sample."""
+        os.environ["SIMMER_REPLAY"] = "1"
+        os.environ["SIMMER_REPLAY_NOW"] = REPLAY_NOW
+        os.environ["SIMMER_REPLAY_FORECASTS"] = _FIXTURE_ARCHIVE
+        execute = MagicMock(return_value={
+            "success": True, "trade_id": "replay-1", "shares_bought": 20,
+            "simulated": True,
+        })
+        import_fn, noaa = self._run([_replay_market()], execute)
+        execute.assert_called_once()
+        self.assertEqual(execute.call_args.args[0], "wx-nyc-72")
+        import_fn.assert_not_called()
         noaa.assert_not_called()
 
     def test_unparseable_criteria_does_not_city_fallback(self):
@@ -395,6 +433,82 @@ class TestReplayEntryPath(unittest.TestCase):
             execute,
         )
         execute.assert_not_called()
+
+
+class TestReplayForecastLoader(unittest.TestCase):
+    """SIM-5429: env / fixture archive fills `_REPLAY_FORECASTS`; never NOAA."""
+
+    def tearDown(self):
+        os.environ.pop("SIMMER_REPLAY", None)
+        os.environ.pop("SIMMER_REPLAY_FORECASTS", None)
+        wt.reset_replay_forecasts()
+
+    def test_loader_fills_dict_from_env_path(self):
+        os.environ["SIMMER_REPLAY"] = "1"
+        os.environ["SIMMER_REPLAY_FORECASTS"] = _FIXTURE_ARCHIVE
+        loaded = wt.load_replay_forecasts()
+        self.assertEqual(loaded["KLGA"]["2026-04-30"]["high"], 72)
+        self.assertEqual(wt._REPLAY_FORECASTS["KLGA"]["2026-04-30"]["low"], 50)
+
+    def test_loader_fills_dict_from_explicit_path(self):
+        os.environ["SIMMER_REPLAY"] = "1"
+        loaded = wt.load_replay_forecasts(_FIXTURE_ARCHIVE)
+        self.assertEqual(loaded["KLGA"]["2026-04-30"]["high"], 72)
+
+    def test_loader_is_noop_outside_replay(self):
+        os.environ.pop("SIMMER_REPLAY", None)
+        os.environ["SIMMER_REPLAY_FORECASTS"] = _FIXTURE_ARCHIVE
+        self.assertEqual(wt.load_replay_forecasts(), {})
+        self.assertEqual(wt._REPLAY_FORECASTS, {})
+
+    def test_live_station_forecast_still_calls_noaa_not_archive(self):
+        os.environ.pop("SIMMER_REPLAY", None)
+        os.environ["SIMMER_REPLAY_FORECASTS"] = _FIXTURE_ARCHIVE
+        noaa = MagicMock(return_value={"2026-04-30": {"high": 1, "low": 0}})
+        with patch.object(wt, "get_noaa_forecast_for_station", noaa):
+            out = wt._station_forecast("KLGA", False)
+        noaa.assert_called_once_with("KLGA")
+        self.assertEqual(out["2026-04-30"]["high"], 1)
+        self.assertEqual(wt._REPLAY_FORECASTS, {})
+
+    def test_missing_env_path_raises_not_look_ahead(self):
+        os.environ["SIMMER_REPLAY"] = "1"
+        os.environ["SIMMER_REPLAY_FORECASTS"] = "/no/such/wx-replay-archive.json"
+        with self.assertRaises(wt.ReplayForecastArchiveError) as ctx:
+            wt.load_replay_forecasts()
+        self.assertIn("not found", str(ctx.exception))
+        self.assertEqual(wt._REPLAY_FORECASTS, {})
+
+    def test_empty_archive_leaves_dict_empty(self):
+        os.environ["SIMMER_REPLAY"] = "1"
+        os.environ["SIMMER_REPLAY_FORECASTS"] = _empty_archive()
+        self.assertEqual(wt.load_replay_forecasts(), {})
+        self.assertEqual(wt._REPLAY_FORECASTS, {})
+
+    def test_invalid_json_raises(self):
+        os.environ["SIMMER_REPLAY"] = "1"
+        fd, path = tempfile.mkstemp(suffix=".json", prefix="wx-replay-bad-")
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write("not-json")
+        with self.assertRaises(wt.ReplayForecastArchiveError):
+            wt.load_replay_forecasts(path)
+
+    def test_default_fixture_loads_when_env_unset(self):
+        """Bundle-local sample so simmer backtest sees an archive (env stripped)."""
+        os.environ["SIMMER_REPLAY"] = "1"
+        os.environ.pop("SIMMER_REPLAY_FORECASTS", None)
+        loaded = wt.load_replay_forecasts()
+        self.assertEqual(loaded["KLGA"]["2026-04-30"]["high"], 72)
+
+    def test_station_forecast_loads_default_fixture_without_noaa(self):
+        os.environ["SIMMER_REPLAY"] = "1"
+        os.environ.pop("SIMMER_REPLAY_FORECASTS", None)
+        noaa = MagicMock(side_effect=AssertionError("live NOAA is look-ahead"))
+        with patch.object(wt, "get_noaa_forecast_for_station", noaa), \
+             patch.object(wt, "get_openmeteo_forecast_for_station", noaa):
+            out = wt._station_forecast("KLGA", False)
+        self.assertEqual(out["2026-04-30"]["high"], 72)
+        noaa.assert_not_called()
 
 
 if __name__ == "__main__":

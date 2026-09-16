@@ -129,6 +129,11 @@
       "name": "SIMMER_WEATHER_MAX_SOURCE_SPREAD_F",
       "required": false,
       "description": "Max degrees-F spread between primary + secondary forecast before skipping outright (default 2.0)."
+    },
+    {
+      "name": "SIMMER_REPLAY_FORECASTS",
+      "required": false,
+      "description": "Replay-only. Path to a JSON forecast archive {station: {YYYY-MM-DD: {high, low}}}. Live NOAA is never used under replay. For simmer backtest, put the file at fixtures/replay_forecasts.json in the skill dir (host env is stripped)."
     }
   ],
   "cron": null,

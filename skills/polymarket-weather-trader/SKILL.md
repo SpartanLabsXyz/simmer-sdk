@@ -3,7 +3,7 @@ name: polymarket-weather-trader
 description: Trade Polymarket weather markets using NOAA (US) and Open-Meteo (international) forecasts via Simmer API. Inspired by gopfan2's weather trading approach. Use when user wants to trade temperature markets, automate weather bets, check forecasts, or run weather-based strategies.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.23.12"
+  version: "1.23.13"
   displayName: Polymarket Weather Trader
   difficulty: beginner
   attribution: Strategy inspired by gopfan2 (public Polymarket trader — approach referenced, not endorsed).
@@ -49,6 +49,11 @@ Use this skill when the user wants to:
 - Buy low on weather predictions
 - Check their weather trading positions
 - Configure trading thresholds or locations
+
+## What's New in v1.23.13
+
+- **Replay forecast archive (SIM-5429).** Under `SIMMER_REPLAY=1` the skill loads `_REPLAY_FORECASTS` from `SIMMER_REPLAY_FORECASTS=/path.json` (same `{station: {YYYY-MM-DD: {high, low}}}` shape the tests inject). If the env is unset, it reads the bundle-local sample at `fixtures/replay_forecasts.json` so `simmer backtest` still sees an archive after the harness copies the skill (host env is stripped). Live NOAA/Open-Meteo stay dark. A set-but-missing path fails the tick. Replace the sample with a window-covering archive before a 7d/30d KEEP/KILL run.
+- **KEEP/KILL path.** Full-tape `evals>0` + `entries=0` with NOAA dark is still **FIX** when the archive is missing or does not cover the tape dates. With an archive that covers the window, entries > 0 can produce KEEP or KILL.
 
 ## What's New in v1.23.12
 
@@ -131,6 +136,7 @@ Then `pip install --upgrade simmer-sdk` (>=0.13.0) and configure tunables below.
 | Vol min alloc | `SIMMER_WEATHER_VOL_MIN_ALLOC` | 0.2 | Min allocation floor in volatile markets (0.2 = 20%) |
 | Vol EWMA span | `SIMMER_WEATHER_VOL_SPAN` | 10 | EWMA span for vol calculation (lower = more responsive) |
 | Order type | `SIMMER_WEATHER_ORDER_TYPE` | GTC | GTC (limit, waits for fill) or FAK (cancel if not filled). GTC recommended. |
+| Replay forecast archive | `SIMMER_REPLAY_FORECASTS` | `fixtures/replay_forecasts.json` | Replay-only. JSON `{station: {YYYY-MM-DD: {high, low}}}`. Live NOAA is never used under replay. Required for a full-tape KEEP/KILL (replace the sample with dates that cover the window). |
 
 **Legacy env var aliases** (still accepted for backwards compatibility): `SIMMER_WEATHER_ENTRY`, `SIMMER_WEATHER_EXIT`, `SIMMER_WEATHER_MAX_POSITION`, `SIMMER_WEATHER_MAX_TRADES`
 
@@ -210,7 +216,12 @@ python skills/polymarket-weather-trader/scripts/run_backtest_gate.py
 # Same tests, direct
 python -m pytest skills/polymarket-weather-trader/tests/test_replay_discovery.py -q
 
-# Optional full-tape read (needs simmer-sdk[backtest] + a weather-capable slice)
+# Full-tape KEEP/KILL — needs an archive that covers the window.
+# The replay harness strips host env, so put the file in the skill dir
+# (copied with the bundle). The sample is KLGA / 2026-04-30 only.
+cp /path/to/window-archive.json \
+  skills/polymarket-weather-trader/fixtures/replay_forecasts.json
+# Optional in-process / pytest: export SIMMER_REPLAY_FORECASTS=/path/to/window-archive.json
 simmer backtest skills/polymarket-weather-trader \
   --entrypoint weather_trader.py --window 30d --q temperature \
   --min-volume 0 --out /tmp/wx-bt.json
@@ -218,11 +229,11 @@ simmer backtest skills/polymarket-weather-trader \
 
 | Verdict | What the backtest / replay outcome means for the money path |
 |---------|--------------------------------------------------------------|
-| **FIX** | Path is broken or the tape cannot evaluate the skill. Do not add capital. Repair: discovery 422 / fail-open empty listing; wall-clock horizon under replay; `yes_price` ignored (silent 0.50); every event skipped for missing `resolution_criteria`; live NOAA/Open-Meteo under replay (look-ahead); preflight `WALLET_UNVERIFIED` blocking SimState fills; 0 temperature markets on a high-volume slice (`--q temperature`, lower `--min-volume`); 0 entries because no archived/injected forecast (missing forecast plane, not "no edge"). |
-| **KILL** | Pinned pytest gate fails, **or** the path is green on a weather-capable tape, evals > 0, and the skill still cannot reach `execute_trade` when a forecast is injected, **or** after the path works, P&L after costs is clearly ≤ 0 on an honest (not live-NOAA) forecast. Do not add more real capital. |
-| **KEEP** | Full-tape `simmer backtest ... --q temperature` with evals > 0 **and** entries > 0 **and** an honest forecast (not live NOAA). Pinned unit tests passing is a path check only — not KEEP. Provisional; the 90-day Simmer P&L lock still decides scale-up. |
+| **FIX** | Path is broken or the tape cannot evaluate the skill. Do not add capital. Repair: discovery 422 / fail-open empty listing; wall-clock horizon under replay; `yes_price` ignored (silent 0.50); every event skipped for missing `resolution_criteria`; live NOAA/Open-Meteo under replay (look-ahead); preflight `WALLET_UNVERIFIED` blocking SimState fills; 0 temperature markets on a high-volume slice (`--q temperature`, lower `--min-volume`); 0 entries because the forecast archive is missing, empty, or does not cover the tape dates (`SIMMER_REPLAY_FORECASTS` / `fixtures/replay_forecasts.json` — missing forecast plane, not "no edge"). |
+| **KILL** | Pinned pytest gate fails, **or** the path is green on a weather-capable tape, evals > 0, and the skill still cannot reach `execute_trade` when a forecast is injected or loaded from the archive, **or** after the path works, P&L after costs is clearly ≤ 0 on an honest (not live-NOAA) forecast. Do not add more real capital. |
+| **KEEP** | Full-tape `simmer backtest ... --q temperature` with evals > 0 **and** entries > 0 **and** an honest archive (not live NOAA). Pinned unit tests passing is a path check only — not KEEP. Provisional; the 90-day Simmer P&L lock still decides scale-up. |
 
-A green full-tape run that places **0** trades because NOAA is correctly dark is **FIX** (forecast plane), not **KILL**.
+A green full-tape run that places **0** trades because NOAA is correctly dark is **FIX** (forecast plane), not **KILL**. Load or replace `fixtures/replay_forecasts.json` with dates that cover the window, then re-run.
 
 ## How It Works
 
@@ -230,7 +241,7 @@ Each cycle the script:
 1. Fetches active weather markets from Simmer API (newest weather page plus dated queries out to `max(MIN_HOURS_TO_RESOLVE, 48h)`)
 2. Groups markets by event (each temperature day is one event)
 3. Parses event names to get location and date; keeps events inside that discovery horizon
-4. Fetches NOAA forecast for that location/date
+4. Fetches NOAA forecast for that location/date (under replay: archive only — never live NOAA)
 5. Finds the temperature bucket that matches the forecast
 6. **Safeguards**: Checks context for flip-flop warnings, slippage, time decay
 7. **Trend Detection**: Looks for recent price drops (stronger buy signal)
@@ -290,7 +301,7 @@ All trades are tagged with `source: "sdk:weather"`. This means:
 
 **`simmer backtest` / "Failed to fetch markets from Simmer API"** — replay does not implement `tags` or `status` (422 since sdk 0.25.3/0.25.4). v1.23.9+ uses `q=temperature` under replay. A fetch failure now fails the tick (`failed_ticks`, not a clean 0-eval). If the fetch succeeds and you still see 0 weather markets, the HF volume slice likely has none — default `--min-volume` / top-volume selection is a tape follow-up, not a skill bug. Replay listings omit `resolution_criteria`; v1.23.11+ falls back to the city station table only when criteria is **missing** (Dallas excluded; present-but-unreadable still skips). Live NOAA is never called under replay.
 
-**A full-tape run cannot produce KEEP or KILL until a forecast archive exists; 0 entries with NOAA dark is FIX.** `_REPLAY_FORECASTS` has no writer outside tests. Do not treat a 0-entry tape as no-edge. See **Backtest gate** above.
+**A full-tape run with 0 entries and NOAA dark is FIX** until an archive covers the tape dates. Set `SIMMER_REPLAY_FORECASTS=/path.json` (pytest / in-process) or replace `fixtures/replay_forecasts.json` before `simmer backtest` (harness strips host env; the bundle-local file is copied). Shape: `{ "KLGA": { "2026-04-30": { "high": 72, "low": 50 } } }`. The shipped sample is that one station/date. A set-but-missing path fails the tick. Do not treat a 0-entry tape as no-edge. See **Backtest gate** above.
 
 **"External wallet requires a pre-signed order"** — `WALLET_PRIVATE_KEY` is not set. Fix: `export WALLET_PRIVATE_KEY=0x<your-polymarket-wallet-private-key>`. The SDK signs orders automatically when this env var is present — do not attempt to sign orders manually.
 

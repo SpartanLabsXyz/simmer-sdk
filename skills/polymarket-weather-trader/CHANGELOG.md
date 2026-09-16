@@ -1,5 +1,13 @@
 # Changelog — polymarket-weather-trader
 
+## [1.23.13] - 2026-09-16
+
+### Added
+- **Replay forecast archive loader (SIM-5429).** Under `SIMMER_REPLAY=1`, `load_replay_forecasts()` fills `_REPLAY_FORECASTS` from `SIMMER_REPLAY_FORECASTS=/path.json` (same `{station: {YYYY-MM-DD: {high, low}}}` shape the tests inject). If the env is unset, the bundle-local sample `fixtures/replay_forecasts.json` is used so `simmer backtest` still sees an archive after the harness copies the skill. Live NOAA/Open-Meteo stay dark. A set-but-missing path raises `ReplayForecastArchiveError`.
+
+### Docs
+- Full-tape KEEP/KILL now has a path: replace the sample with a window-covering archive, then `simmer backtest … --q temperature`. 0 entries with NOAA dark is still FIX when the archive is missing or does not cover the tape dates.
+
 ## [1.23.12] - 2026-09-16
 
 ### Fixed

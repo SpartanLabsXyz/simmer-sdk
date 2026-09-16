@@ -13,9 +13,13 @@ Usage (from repo root or this skill dir):
 
     python skills/polymarket-weather-trader/scripts/run_backtest_gate.py
 
-Optional full-tape read (needs `pip install 'simmer-sdk[backtest]'` and a
-weather-capable slice — `--q temperature`, low `--min-volume`):
+Optional full-tape read (needs `pip install 'simmer-sdk[backtest]'`, a
+weather-capable slice — `--q temperature`, low `--min-volume` — and a
+forecast archive that covers the window). The harness strips host env;
+put the JSON in the skill dir so the bundle copy sees it:
 
+    cp /path/to/window-archive.json \\
+        skills/polymarket-weather-trader/fixtures/replay_forecasts.json
     simmer backtest skills/polymarket-weather-trader \\
         --entrypoint weather_trader.py --window 30d --q temperature \\
         --min-volume 0 --out /tmp/wx-bt.json
@@ -47,15 +51,18 @@ FIX  (do not add capital; repair the skill or the tape)
   - Missing resolution_criteria skips every event and no city fallback.
   - Live NOAA/Open-Meteo fires under replay (look-ahead).
   - Preflight WALLET_UNVERIFIED blocks SimState fills.
-  - Weather-capable tape + path green + 0 entries because no injected /
-    archived forecast — that is a missing forecast plane, not "no edge".
+  - Weather-capable tape + path green + 0 entries because the forecast
+    archive is missing, empty, or does not cover the tape dates
+    (SIMMER_REPLAY_FORECASTS / fixtures/replay_forecasts.json) — that is
+    a missing forecast plane, not "no edge".
   - HF volume slice with 0 temperature markets — use --q temperature and
     a lower --min-volume. Do not treat an empty high-volume slice as kill.
 
 KILL  (do not add more real capital)
   - Pinned pytest gate fails.
   - Path is green on a weather-capable tape, evals > 0, and the skill
-    still cannot reach execute_trade when a forecast is injected.
+    still cannot reach execute_trade when a forecast is injected or
+    loaded from the archive.
   - After the path works: backtest P&L after costs is clearly ≤ 0 on a
     weather-capable tape with an honest forecast (not live NOAA).
 
