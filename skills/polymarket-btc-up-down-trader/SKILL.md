@@ -3,7 +3,7 @@ name: polymarket-btc-up-down-trader
 description: Trade Polymarket BTC daily and weekly UP/DOWN markets with empirically-anchored exit discipline. Enters on CEX momentum divergence; exits automatically on time cap, volume spike, or target capture. Use when the user wants to trade BTC direction markets (hours/days duration), not fast 5-minute markets.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.1.0"
+  version: "1.2.0"
   displayName: Polymarket BTC Up-Down Trader
   difficulty: intermediate
 ---
@@ -16,6 +16,11 @@ Trade Polymarket's BTC daily and weekly UP/DOWN markets with built-in exit disci
 > **Polymarket only.** All trades execute on Polymarket with real USDC. Use `--live` for real trades; default is dry run.
 
 > **Not for fast (5m/15m) markets.** Use `polymarket-fast-loop` for those. This skill targets daily and weekly BTC direction markets with hours-to-days of duration.
+
+## What's New in v1.2.0
+
+- **Replay plane (SIM-5442).** Under `simmer backtest` (`SIMMER_REPLAY=1`) discovery, prices, and the clock come from the existing replay harness — same `SIMMER_REPLAY` / `SIMMER_REPLAY_NOW` pattern as weather. Live Gamma and CLOB midpoint stay dark. Candles were already replay-safe.
+- **Keep / kill / fix** for this path is in Troubleshooting. Do not add a second capital lane until a full-tape run can produce an honest KEEP or KILL.
 
 > ⚠️ **BTC UP/DOWN markets carry Polymarket's crypto taker fee.** Effective rate is 3.5% at 50¢, up to ~6.6% on cheap shares. Makers pay 0% and earn a 20% rebate from collected taker fees. Factor this into your minimum edge threshold.
 
@@ -202,8 +207,23 @@ All trades are tagged `source: "sdk:btcupdown"`. This keeps BTC UP/DOWN P&L sepa
 
 ## Troubleshooting
 
+### Replay KEEP / KILL (SIM-5442)
+
+Reuse `simmer backtest` / `SIMMER_REPLAY=1`. Do not invent a second harness. Pinned path check:
+
+```bash
+python -m pytest skills/polymarket-btc-up-down-trader/tests/test_replay_plane.py -q
+```
+
+| Verdict | What it means |
+|---------|----------------|
+| **FIX** | Path is broken or the tape cannot evaluate the skill. Do not add capital. Repair: live Gamma / CLOB under replay (look-ahead); wall-clock horizon dropping historical dailies; `yes_price` ignored; listing 422 from `tags`/`status`; failed fills burning daily spend; 0 BTC Up/Down rows on the slice (`--q "up or down"`, lower `--min-volume`). |
+| **KILL** | Pinned pytest fails, **or** a full-tape run has evals > 0 and the skill still cannot reach `trade()` on a tape daily, **or** P&L after costs is clearly ≤ 0 on honest (not live-Gamma) prices. No second-lane capital. |
+| **KEEP** | Full-tape `simmer backtest` with evals > 0 **and** trades > 0 on tape prices and `SIMMER_REPLAY_NOW`. Pinned unit tests are a path check only — not KEEP. |
+
 **"No active BTC UP/DOWN markets found"**
-- Gamma API may be slow or markets may not be trading. Try again in a few minutes.
+- Live: Gamma API may be slow or markets may not be trading. Try again in a few minutes.
+- Replay: the skill lists from the tape with `q=up or down`. A high-volume slice with 0 Up/Down dailies is FIX, not "no edge".
 - Check polymarket.com directly for active BTC UP/DOWN markets.
 
 **"Could not fetch BTC momentum"**
