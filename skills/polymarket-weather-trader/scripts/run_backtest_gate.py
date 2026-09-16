@@ -60,10 +60,9 @@ KILL  (do not add more real capital)
     weather-capable tape with an honest forecast (not live NOAA).
 
 KEEP  (provisional — 90d Simmer P&L is still the lock)
-  - `python scripts/run_backtest_gate.py` exits 0.
-  - Discovery uses q=temperature under replay; fetch failures raise.
-  - Injected forecast + replay-shaped listing reaches execute_trade.
-  - Live NOAA is not called under replay.
+  - Full-tape `simmer backtest ... --q temperature` with evals > 0 AND
+    entries > 0 AND an honest forecast (not live NOAA).
+  - Pinned unit tests passing is a path check only. It is not KEEP.
   - Then, and only then, more real capital may be considered. The 90-day
     Simmer P&L lock still decides scale-up.
 """.strip()
@@ -79,8 +78,7 @@ def main() -> int:
     )
     if result.returncode == 0:
         print(flush=True)
-        print("GATE PASS: pinned replay discovery+entry tests are green.", flush=True)
-        print("Verdict so far: KEEP (provisional). 90d Simmer P&L is the lock.", flush=True)
+        print("PATH CHECKS PASS: pinned replay tests green. No keep/kill verdict yet — run the full-tape command and read the table.", flush=True)
     else:
         print(flush=True)
         print("GATE FAIL: pinned tests are red. Verdict: FIX or KILL — no more capital.", flush=True)

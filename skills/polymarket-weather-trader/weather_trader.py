@@ -1385,10 +1385,16 @@ def _clock() -> datetime:
 
 
 def _market_yes_price(market: dict) -> float:
-    """Live listings use `external_price_yes`; replay payload uses `yes_price`."""
+    """Live path is `external_price_yes or 0.5`. Replay may fall through.
+
+    On live, `None` and `0.0` are both falsy — same as main. Replay listings
+    omit `external_price_yes` and expose `yes_price` / `current_probability`.
+    """
     if not market:
         return 0.5
-    for key in ("external_price_yes", "yes_price", "current_probability"):
+    if not _is_replay():
+        return market.get("external_price_yes") or 0.5
+    for key in ("yes_price", "current_probability"):
         val = market.get(key)
         if val is None:
             continue
@@ -1396,7 +1402,7 @@ def _market_yes_price(market: dict) -> float:
             return float(val)
         except (TypeError, ValueError):
             continue
-    return 0.5
+    return market.get("external_price_yes") or 0.5
 
 
 # Tests / a local harness may inject
@@ -1848,6 +1854,7 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
     # known, is the only place it is cheap to see. See _report_parse_coverage.
     station_parse_ok = 0
     station_parse_unreadable = 0
+    station_parse_fallback = 0
     execution_errors = []
 
     for event_id, event_markets in events.items():
@@ -1886,14 +1893,21 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
         parse_result = parse_resolution_station_result(sample_criteria)
         parsed = parse_result["station"]
         if not parsed:
-            fallback_id = (
-                _city_fallback_station(location)[0] if _is_replay() else None
-            )
-            if fallback_id:
-                # Replay tape omits resolution_criteria. City fallback is
-                # the existing last-resort table (Dallas excluded).
-                log(f"  Replay: no resolution_criteria — city fallback {location} → {fallback_id}")
-                parsed = {"station_id": fallback_id, "station_name": location}
+            # City fallback is replay-only and only when criteria is absent.
+            # Present-but-unreadable still skips — that is a parser miss.
+            if (
+                parse_result["reason"] == SKIP_MISSING_CRITERIA
+                and _is_replay()
+            ):
+                fallback_id = _city_fallback_station(location)[0]
+                if fallback_id:
+                    log(f"  Replay: no resolution_criteria — city fallback {location} → {fallback_id}")
+                    parsed = {"station_id": fallback_id, "station_name": location}
+                    station_parse_fallback += 1
+                else:
+                    log("  ⏭️  Skipping — market carries no resolution_criteria")
+                    skip_reasons.append("missing resolution_criteria")
+                    continue
             elif parse_result["reason"] == SKIP_MISSING_CRITERIA:
                 log("  ⏭️  Skipping — market carries no resolution_criteria")
                 skip_reasons.append("missing resolution_criteria")
@@ -1904,7 +1918,7 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
                     "could be read from it (parser may be behind Polymarket's wording)")
                 skip_reasons.append("unparseable resolution_criteria")
                 continue
-        if parsed:
+        else:
             station_parse_ok += 1
 
         station_id = parsed.get("station_id")
@@ -1926,7 +1940,6 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
         # original Dallas bug hid).
         is_international = False
         if station_id and station_id in STATION_ID_TO_NOAA:
-            is_international = False
             log(f"  Oracle: {station_name} ({station_id}) → NOAA")
         elif station_id and station_id in INTERNATIONAL_STATION_COORDS:
             is_international = True
@@ -2164,6 +2177,8 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
                 log(f"  ⏸️  {entry_reason} - skip")
 
     _report_parse_coverage(station_parse_ok, station_parse_unreadable, log)
+    if station_parse_fallback:
+        log(f"  Replay: {station_parse_fallback} event(s) used city-station fallback (no resolution_criteria)")
 
     exits_found, exits_executed = check_exit_opportunities(dry_run, use_safeguards)
 

@@ -232,13 +232,22 @@ class TestReplayClockAndPrice(unittest.TestCase):
         )
         self.assertEqual(parsed["date"], "2026-04-30")
 
+    def test_live_price_is_external_or_half(self):
+        """Live path is `external_price_yes or 0.5` — None and 0.0 stay 0.5."""
+        os.environ.pop("SIMMER_REPLAY", None)
+        self.assertEqual(
+            wt._market_yes_price(
+                {"external_price_yes": None, "current_probability": 0.10}
+            ),
+            0.5,
+        )
+        self.assertEqual(wt._market_yes_price({"external_price_yes": 0.0}), 0.5)
+        self.assertEqual(wt._market_yes_price({"external_price_yes": 0.12}), 0.12)
+
     def test_replay_yes_price_not_default_half(self):
+        os.environ["SIMMER_REPLAY"] = "1"
         self.assertEqual(wt._market_yes_price({"yes_price": 0.10}), 0.10)
         self.assertEqual(wt._market_yes_price({"current_probability": 0.11}), 0.11)
-        self.assertEqual(
-            wt._market_yes_price({"external_price_yes": 0.12, "yes_price": 0.10}),
-            0.12,
-        )
         self.assertEqual(wt._market_yes_price({}), 0.5)
 
     def test_seconds_to_resolution_honors_hours_floor(self):
@@ -374,6 +383,18 @@ class TestReplayEntryPath(unittest.TestCase):
         _import_fn, noaa = self._run([_replay_market()], execute)
         execute.assert_not_called()
         noaa.assert_not_called()
+
+    def test_unparseable_criteria_does_not_city_fallback(self):
+        """Present-but-unreadable criteria still skips — not KLGA."""
+        os.environ["SIMMER_REPLAY"] = "1"
+        os.environ["SIMMER_REPLAY_NOW"] = REPLAY_NOW
+        wt._REPLAY_FORECASTS["KLGA"] = {"2026-04-30": {"high": 72, "low": 50}}
+        execute = MagicMock()
+        self._run(
+            [_replay_market(resolution_criteria="This market resolves on a coin flip.")],
+            execute,
+        )
+        execute.assert_not_called()
 
 
 if __name__ == "__main__":
