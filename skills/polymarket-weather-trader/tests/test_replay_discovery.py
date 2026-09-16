@@ -573,6 +573,15 @@ class TestReplayForecastLoader(_PatchDefaultArchiveMixin, unittest.TestCase):
         loaded = wt.load_replay_forecasts()
         self.assertEqual(loaded["KLGA"]["2026-04-30"]["high"], 72)
 
+    def test_provenance_line_handles_station_with_no_dates(self):
+        """{"KLGA": {}} loads but has no dates; must read as FIX, not crash."""
+        os.environ["SIMMER_REPLAY"] = "1"
+        wt._REPLAY_FORECASTS["KLGA"] = {}
+        self.assertEqual(
+            wt._replay_forecast_provenance_line(),
+            "Replay: no archive: NOAA dark, 0 entries is FIX",
+        )
+
     def test_empty_plane_does_not_depend_on_working_tree_user_file(self):
         """Pinned gate stays green if KEEP docs put an archive in the skill dir."""
         os.environ["SIMMER_REPLAY"] = "1"

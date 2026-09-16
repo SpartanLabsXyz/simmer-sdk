@@ -1540,11 +1540,13 @@ def _ensure_replay_forecasts_loaded() -> None:
 
 def _replay_forecast_provenance_line() -> str:
     """One forced line: path + stations + date span, or empty-plane FIX."""
-    if not _REPLAY_FORECASTS:
-        return "Replay: no archive: NOAA dark, 0 entries is FIX"
     dates = []
     for days in _REPLAY_FORECASTS.values():
         dates.extend(str(d) for d in days)
+    if not dates:
+        # Covers both an empty plane and an archive whose stations carry no
+        # dates ({"KLGA": {}}): min()/max() on [] would abort the tick.
+        return "Replay: no archive: NOAA dark, 0 entries is FIX"
     source = _REPLAY_FORECASTS_SOURCE or "inject"
     return (
         f"Replay: archive {source} stations={len(_REPLAY_FORECASTS)} "
