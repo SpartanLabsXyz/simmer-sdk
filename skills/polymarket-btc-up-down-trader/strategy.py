@@ -177,8 +177,25 @@ VOLUME_BASELINE_WINDOWS = cfg["volume_baseline_windows"]
 # HTTP helpers
 # =============================================================================
 
+_LIVE_VENDOR_HOSTS = ("gamma-api.polymarket.com", "clob.polymarket.com")
+
+
+class MarketFetchError(RuntimeError):
+    """Replay listing failed. Fail-closed so a 0-eval tick is not bundle.clean."""
+
+
+class ReplayClockError(RuntimeError):
+    """SIMMER_REPLAY_NOW was set but unusable. Wall clock would be look-ahead."""
+
+
+def _is_live_vendor_url(url):
+    return any(host in url for host in _LIVE_VENDOR_HOSTS)
+
+
 def _api_request(url, method="GET", data=None, headers=None, timeout=15):
     """HTTP request to external APIs. Returns parsed JSON or error dict."""
+    if _is_replay() and _is_live_vendor_url(url):
+        raise MarketFetchError(f"live vendor blocked under replay: {url}")
     try:
         req_headers = headers or {}
         if "User-Agent" not in req_headers:
@@ -228,21 +245,175 @@ def get_client(live=True):
 
 
 # =============================================================================
+# Replay clock / discovery / price plane (SIM-5442)
+# =============================================================================
+
+def _is_replay():
+    """True inside the Simmer replay harness (SIMMER_REPLAY=1). Decision data
+    must then come ONLY from the Simmer API — a direct-vendor fetch would be
+    future data relative to the frozen tick."""
+    return os.environ.get("SIMMER_REPLAY") == "1"
+
+
+def _clock():
+    """Wall clock, or the replay frozen tick (`SIMMER_REPLAY_NOW`).
+
+    Horizon and daily-spend date used `datetime.now()`. Under replay that is
+    the real present, so a historical tape is already resolved and the skill
+    look-aheads to today's live 'Bitcoin Up or Down' market. The harness
+    already sets `SIMMER_REPLAY_NOW` per tick.
+    """
+    if _is_replay():
+        raw = os.environ.get("SIMMER_REPLAY_NOW")
+        if raw:
+            try:
+                dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                return dt.astimezone(timezone.utc)
+            except ValueError as exc:
+                raise ReplayClockError(
+                    f"SIMMER_REPLAY_NOW is not a valid timestamp: {raw!r}"
+                ) from exc
+    return datetime.now(timezone.utc)
+
+
+def _btc_markets_params():
+    """Replay listing params. Live Gamma is a different HTTP surface.
+
+    Replay rejects tags/status (sdk 0.25.3/0.25.4, 422). `q` is the only
+    filter the replay server applies. Tape questions are 'Bitcoin Up or Down
+    on …'. A tight `q` keeps ETH/SOL/hourly rows off the eval budget.
+    """
+    return {"q": "bitcoin up or down", "limit": 200}
+
+
+def _is_btc_updown_text(question, title, slug):
+    """Daily/weekly BTC UP/DOWN only — not ETH/SOL, not 5m/15m fast markets."""
+    blob = f"{question} {title} {slug}"
+    if "up or down" not in blob and "up-or-down" not in blob:
+        return False
+    if any(marker in blob for marker in ("5m", "15m", "5-minute", "15-minute")):
+        return False
+    return "bitcoin" in blob or "btc" in blob
+
+
+def _parse_end_dt(market):
+    end_date = (
+        market.get("endDate")
+        or market.get("end_date_iso")
+        or market.get("resolves_at")
+        or market.get("end_date")
+    )
+    if not end_date:
+        return None
+    try:
+        if isinstance(end_date, (int, float)):
+            return datetime.fromtimestamp(end_date, tz=timezone.utc)
+        return datetime.fromisoformat(str(end_date).replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return None
+
+
+def _normalize_btc_markets(rows):
+    """Shared filter + horizon. Clock is `_clock()` so replay honors the tick."""
+    now = _clock()
+    markets = []
+    for m in rows:
+        question = (m.get("question") or "").lower()
+        title = (m.get("groupItemTitle") or m.get("event_name") or "").lower()
+        slug = (m.get("slug") or "").lower()
+        if not _is_btc_updown_text(question, title, slug):
+            continue
+        end_dt = _parse_end_dt(m)
+        if not end_dt:
+            continue
+        hours_to_resolution = (end_dt - now).total_seconds() / 3600.0
+        if hours_to_resolution <= 0:
+            continue
+        m["_hours_to_resolution"] = hours_to_resolution
+        m["_end_dt"] = end_dt
+        markets.append(m)
+    return markets
+
+
+def _market_yes_price(market):
+    """Replay listings expose `yes_price` / `current_probability`, not CLOB.
+
+    Missing tape price is None (skip) — do not invent 0.50. Live callers
+    still use `fetch_live_midpoint`.
+    """
+    if not market:
+        return None
+    for key in ("yes_price", "current_probability"):
+        val = market.get(key)
+        if val is None:
+            continue
+        try:
+            return float(val)
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def _market_id(market):
+    if _is_replay():
+        return market.get("id") or market.get("polymarket_condition_id")
+    return market.get("conditionId") or market.get("id")
+
+
+def _yes_token_id(market):
+    tokens = market.get("clobTokenIds") or market.get("tokens") or []
+    if isinstance(tokens, str):
+        try:
+            tokens = json.loads(tokens)
+        except json.JSONDecodeError:
+            tokens = [tokens]
+    if tokens:
+        return tokens[0]
+    return market.get("polymarket_token_id")
+
+
+def _trade_kwargs(**kwargs):
+    if _is_replay():
+        kwargs["skip_preflight"] = True
+    return kwargs
+
+
+def _trade_succeeded(result):
+    """True only on an explicit success. Failed fills must not burn daily spend."""
+    if result is None:
+        return False
+    if isinstance(result, dict):
+        if result.get("error"):
+            return False
+        return bool(result.get("success"))
+    if getattr(result, "error", None) and not getattr(result, "success", False):
+        return False
+    return bool(getattr(result, "success", False))
+
+
+# =============================================================================
 # Market discovery
 # =============================================================================
 
 def fetch_btc_updown_markets():
     """
-    Discover active BTC UP/DOWN markets from Gamma API.
-    Filters out fast (5m/15m) markets — those are for polymarket-fast-loop.
-    Returns list of market dicts.
+    Discover active BTC UP/DOWN markets.
 
-    Note: Gamma /markets does NOT support server-side tag or question filtering —
-    those params are silently ignored. We fetch by volume (BTC UP/DOWN markets are
-    typically high-volume) and filter client-side on "up or down" substring.
+    Live: Gamma (volume-sorted; Gamma ignores server-side q/tags).
+    Replay (`SIMMER_REPLAY=1`): Simmer tape via `/api/sdk/markets?q=bitcoin up or down`
+    — no live Gamma, no tags/status (those 422 on replay).
+    Filters out fast (5m/15m) markets — those are for polymarket-fast-loop.
     """
+    if _is_replay():
+        return _fetch_btc_updown_markets_replay()
+    return _fetch_btc_updown_markets_live()
+
+
+def _fetch_btc_updown_markets_live():
     # Fetch top 200 by 24h volume — BTC UP/DOWN markets surface near the top.
-    # Client-side "up or down" filter handles the rest.
+    # Client-side filter handles the rest. Gamma ignores q/tags.
     url = (
         f"{GAMMA_API}/markets"
         "?active=true&closed=false&limit=200"
@@ -251,58 +422,49 @@ def fetch_btc_updown_markets():
     data = _api_request(url)
     if not isinstance(data, list):
         data = (data or {}).get("markets", [])
+    if not isinstance(data, list):
+        return []
+    return _normalize_btc_markets(data)
 
-    markets = []
-    for m in data:
-        question = (m.get("question") or "").lower()
-        title = (m.get("groupItemTitle") or "").lower()
-        slug = (m.get("slug") or "").lower()
 
-        # Must be an UP/DOWN style market
-        if "up or down" not in question and "up or down" not in title and "up or down" not in slug:
-            continue
+def _fetch_btc_updown_markets_replay():
+    """Tape listing. A failed request raises; empty 200 is an honest empty tape."""
+    try:
+        result = get_client()._request(
+            "GET", "/api/sdk/markets", params=_btc_markets_params()
+        )
+    except MarketFetchError:
+        raise
+    except Exception as exc:
+        print("  Failed to fetch markets from Simmer API")
+        raise MarketFetchError("Failed to fetch markets from Simmer API") from exc
+    if not isinstance(result, dict):
+        print("  Failed to fetch markets from Simmer API")
+        raise MarketFetchError("Failed to fetch markets from Simmer API")
+    rows = result.get("markets", [])
+    if not isinstance(rows, list):
+        print("  Failed to fetch markets from Simmer API")
+        raise MarketFetchError("Failed to fetch markets from Simmer API")
+    return _normalize_btc_markets(rows)
 
-        # Skip fast markets (5m/15m) — those belong to polymarket-fast-loop
-        if any(marker in title or marker in question for marker in ["5m", "15m", "5-minute", "15-minute"]):
-            continue
 
-        # Must have a resolution time
-        end_date = m.get("endDate") or m.get("end_date_iso")
-        if not end_date:
-            continue
-
-        # Parse resolution time
-        try:
-            if isinstance(end_date, (int, float)):
-                end_dt = datetime.fromtimestamp(end_date, tz=timezone.utc)
-            else:
-                end_dt = datetime.fromisoformat(end_date.replace("Z", "+00:00"))
-        except (ValueError, TypeError):
-            continue
-
-        now = datetime.now(timezone.utc)
-        hours_to_resolution = (end_dt - now).total_seconds() / 3600.0
-
-        # Skip already-resolved or too-close-to-resolution
-        if hours_to_resolution <= 0:
-            continue
-
-        m["_hours_to_resolution"] = hours_to_resolution
-        m["_end_dt"] = end_dt
-        markets.append(m)
-
-    return markets
+def _fetch_replay_market(client, market_id):
+    """Single-market tape row. Live Gamma is never used under replay."""
+    try:
+        result = client._request("GET", f"/api/sdk/context/{market_id}")
+    except Exception:
+        return None
+    if not isinstance(result, dict):
+        return None
+    market = result.get("market") or result
+    if not isinstance(market, dict) or market.get("error"):
+        return None
+    return market
 
 
 # =============================================================================
 # Price signals
 # =============================================================================
-
-def _is_replay():
-    """True inside the Simmer replay harness (SIMMER_REPLAY=1). Decision data
-    must then come ONLY from the Simmer API — a direct-vendor fetch would be
-    future data relative to the frozen tick."""
-    return os.environ.get("SIMMER_REPLAY") == "1"
 
 
 def fetch_btc_momentum(lookback_minutes):
@@ -356,7 +518,13 @@ def fetch_btc_momentum(lookback_minutes):
 
 
 def fetch_live_midpoint(token_id):
-    """Fetch live midpoint price from Polymarket CLOB for a token."""
+    """Fetch live midpoint price from Polymarket CLOB for a token.
+
+    Under replay this is look-ahead — return None and never hit CLOB.
+    Entry/exit use `_market_yes_price` from the tape listing instead.
+    """
+    if _is_replay():
+        return None
     result = _api_request(f"{CLOB_API}/midpoint?token_id={quote(str(token_id))}", timeout=5)
     if not result or isinstance(result, dict) and result.get("error"):
         return None
@@ -380,7 +548,7 @@ def check_time_cap_exit(hours_to_resolution, end_dt):
     if EXIT_BEFORE_RESOLUTION_HOURS <= 0:
         return False, None
 
-    now = datetime.now(timezone.utc)
+    now = _clock()
     seconds_remaining = (end_dt - now).total_seconds()
 
     if seconds_remaining < MIN_EXIT_TIME_REMAINING_SEC:
@@ -529,13 +697,17 @@ def check_target_hit_exit(entry_price, current_price, side):
     return False, None, details
 
 
-def evaluate_exit_triggers(position, end_dt, yes_token_id):
+def evaluate_exit_triggers(position, end_dt, yes_token_id, current_price=None):
     """
     Run all three exit triggers on a position.
     Returns (should_exit: bool, exit_reason: str | None, details: dict).
     Priority: time_cap > target_hit > volume_spike
+
+    `current_price` is the YES mid (0-1). Replay passes tape `yes_price`;
+    live fetches CLOB. Volume spike is live-only — CLOB trades under replay
+    would be look-ahead.
     """
-    now = datetime.now(timezone.utc)
+    now = _clock()
     hours_to_resolution = (end_dt - now).total_seconds() / 3600.0
 
     # 1. Time cap (highest priority — hard deadline)
@@ -543,8 +715,8 @@ def evaluate_exit_triggers(position, end_dt, yes_token_id):
     if fired:
         return True, reason, {"hours_to_resolution": round(hours_to_resolution, 2)}
 
-    # Need live price for the remaining triggers
-    current_price = fetch_live_midpoint(yes_token_id)
+    if current_price is None and not _is_replay():
+        current_price = fetch_live_midpoint(yes_token_id)
 
     # 2. Target hit (second priority — lock in gains)
     entry_price = position.get("entry_price")
@@ -553,10 +725,11 @@ def evaluate_exit_triggers(position, end_dt, yes_token_id):
     if fired:
         return True, reason, details
 
-    # 3. Volume spike (third priority — smart money signal)
-    fired, reason, details = check_volume_spike_exit(yes_token_id)
-    if fired:
-        return True, reason, details
+    # 3. Volume spike (third priority — smart money signal). Live CLOB only.
+    if not _is_replay():
+        fired, reason, details = check_volume_spike_exit(yes_token_id)
+        if fired:
+            return True, reason, details
 
     return False, None, {
         "hours_to_resolution": round(hours_to_resolution, 2),
@@ -574,7 +747,7 @@ def _get_spend_path():
 
 def _load_daily_spend():
     spend_path = _get_spend_path()
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    today = _clock().strftime("%Y-%m-%d")
     if spend_path.exists():
         try:
             with open(spend_path) as f:
@@ -595,18 +768,115 @@ def _save_daily_spend(spend_data):
 # Core trading logic
 # =============================================================================
 
+def _pos_get(pos, *names, default=None):
+    """Read a field from a Position dataclass or a dict. 0 is a real value."""
+    if isinstance(pos, dict):
+        for name in names:
+            if name in pos and pos[name] is not None:
+                return pos[name]
+        return default
+    for name in names:
+        val = getattr(pos, name, None)
+        if val is not None:
+            return val
+    return default
+
+
+def _position_is_ours(sources):
+    """Live: require sdk:btcupdown. Replay: the session only runs this skill."""
+    if sources is None or sources == "" or sources == []:
+        return _is_replay()
+    if isinstance(sources, str):
+        return sources == TRADE_SOURCE or "btcupdown" in sources
+    if isinstance(sources, (list, tuple)):
+        return any(
+            s == TRADE_SOURCE or (s and "btcupdown" in str(s))
+            for s in sources
+        )
+    return "btcupdown" in str(sources)
+
+
+def _normalize_open_position(pos):
+    """SDK Position / replay row → {market_id, side, quantity, entry_price}.
+
+    Live `client.get_positions()` returns Position dataclasses (shares_yes /
+    shares_no / sources / cost_basis). Replay `/api/sdk/positions` has the
+    same share fields and no source/side/quantity/entry_price. Dicts from
+    older tests still work.
+
+    Entry is YES-scale for `check_target_hit_exit`. Live `avg_cost` is the
+    held-side price (`cost_basis / total_shares`). Using it raw on a NO
+    book made target_hit miss. Derive from cost_basis first; `avg_cost`
+    is a last resort and is flipped for NO (`1 - avg_cost`).
+    """
+    market_id = _pos_get(pos, "market_id", "marketId", "conditionId")
+    shares_yes = float(_pos_get(pos, "shares_yes", default=0) or 0)
+    shares_no = float(_pos_get(pos, "shares_no", default=0) or 0)
+    side = _pos_get(pos, "side")
+    quantity = _pos_get(pos, "quantity")
+    if side is None or quantity is None:
+        if shares_yes > 0 and shares_no <= 0:
+            side = "YES"
+            quantity = shares_yes
+        elif shares_no > 0 and shares_yes <= 0:
+            side = "NO"
+            quantity = shares_no
+        elif shares_yes > 0 or shares_no > 0:
+            if shares_yes >= shares_no:
+                side = "YES"
+                quantity = shares_yes
+            else:
+                side = "NO"
+                quantity = shares_no
+        else:
+            return None
+    else:
+        side = str(side).upper()
+        quantity = float(quantity)
+    if not market_id or quantity <= 0:
+        return None
+    if not _position_is_ours(_pos_get(pos, "sources", "source")):
+        return None
+    # YES-scale fields only. Do not read avg_cost here — it is held-side.
+    entry_price = _pos_get(pos, "entry_price", "avgPrice", "avg_price")
+    if entry_price is None:
+        cost_basis = _pos_get(pos, "cost_basis")
+        held_avg = None
+        if cost_basis is not None and quantity > 0:
+            held_avg = float(cost_basis) / quantity
+        else:
+            raw_avg = _pos_get(pos, "avg_cost")
+            if raw_avg is not None:
+                held_avg = float(raw_avg)
+        if held_avg is not None:
+            entry_price = (1.0 - held_avg) if side == "NO" else held_avg
+    return {
+        "market_id": market_id,
+        "side": side,
+        "quantity": quantity,
+        "entry_price": float(entry_price) if entry_price is not None else None,
+        "source": TRADE_SOURCE,
+    }
+
+
 def get_open_positions(client):
-    """Fetch open BTC UP/DOWN positions tagged with our source."""
+    """Fetch open BTC UP/DOWN positions tagged with our source.
+
+    Accepts Position dataclasses (live SDK) and replay share-rows. Never
+    calls `.get` on a dataclass — that crashed the exit monitor after the
+    first fill (AttributeError) and killed every later tick.
+    """
     try:
         positions = client.get_positions() or []
     except Exception as e:
         print(f"  Warning: could not fetch positions: {e}")
         return []
-    return [
-        p for p in positions
-        if (p.get("source") == TRADE_SOURCE or "btcupdown" in str(p.get("source", "")))
-        and float(p.get("quantity", 0)) > 0
-    ]
+    out = []
+    for pos in positions:
+        norm = _normalize_open_position(pos)
+        if norm:
+            out.append(norm)
+    return out
 
 
 def run_exit_monitor(client, live=False, quiet=False):
@@ -636,44 +906,32 @@ def run_exit_monitor(client, live=False, quiet=False):
         if not market_id or quantity <= 0:
             continue
 
-        # Look up market details from Gamma for resolution time and token IDs
-        market_data = _api_request(f"{GAMMA_API}/markets/{market_id}", timeout=10)
-        if not market_data or not isinstance(market_data, dict) or market_data.get("error"):
-            # Try by condition ID
-            market_data = _api_request(
-                f"{GAMMA_API}/markets?conditionId={market_id}&limit=1", timeout=10
-            )
-            if isinstance(market_data, list) and market_data:
-                market_data = market_data[0]
-            elif isinstance(market_data, dict) and "markets" in market_data:
-                markets = market_data.get("markets", [])
-                market_data = markets[0] if markets else {}
+        # Live: Gamma for resolution time and token IDs. Replay: tape context.
+        if _is_replay():
+            market_data = _fetch_replay_market(client, market_id)
+        else:
+            market_data = _api_request(f"{GAMMA_API}/markets/{market_id}", timeout=10)
+            if not market_data or not isinstance(market_data, dict) or market_data.get("error"):
+                market_data = _api_request(
+                    f"{GAMMA_API}/markets?conditionId={market_id}&limit=1", timeout=10
+                )
+                if isinstance(market_data, list) and market_data:
+                    market_data = market_data[0]
+                elif isinstance(market_data, dict) and "markets" in market_data:
+                    markets = market_data.get("markets", [])
+                    market_data = markets[0] if markets else {}
 
         if not market_data or not isinstance(market_data, dict):
             if not quiet:
                 print(f"  ⚠️  Could not fetch market data for {market_id} — skipping")
             continue
 
-        end_date = market_data.get("endDate") or market_data.get("end_date_iso")
-        if not end_date:
-            continue
-        try:
-            if isinstance(end_date, (int, float)):
-                end_dt = datetime.fromtimestamp(end_date, tz=timezone.utc)
-            else:
-                end_dt = datetime.fromisoformat(end_date.replace("Z", "+00:00"))
-        except (ValueError, TypeError):
+        end_dt = _parse_end_dt(market_data)
+        if not end_dt:
             continue
 
-        tokens = market_data.get("clobTokenIds") or market_data.get("tokens") or []
-        if isinstance(tokens, str):
-            try:
-                tokens = json.loads(tokens)
-            except json.JSONDecodeError:
-                tokens = [tokens]
-        yes_token_id = tokens[0] if tokens else None
-
-        if not yes_token_id:
+        yes_token_id = _yes_token_id(market_data)
+        if not yes_token_id and not _is_replay():
             continue
 
         pos_with_entry = dict(pos)
@@ -682,15 +940,15 @@ def run_exit_monitor(client, live=False, quiet=False):
             pos_with_entry["side"] = side
 
         question = market_data.get("question", market_id)
+        replay_price = _market_yes_price(market_data) if _is_replay() else None
 
         if not quiet:
-            now = datetime.now(timezone.utc)
-            h = (end_dt - now).total_seconds() / 3600
+            h = (end_dt - _clock()).total_seconds() / 3600
             print(f"\n  📊 {question[:60]}")
             print(f"     Side: {side} | Qty: {quantity:.1f} | Hours left: {h:.1f}h")
 
         should_exit, exit_reason, details = evaluate_exit_triggers(
-            pos_with_entry, end_dt, yes_token_id
+            pos_with_entry, end_dt, yes_token_id, current_price=replay_price
         )
 
         if should_exit:
@@ -698,13 +956,15 @@ def run_exit_monitor(client, live=False, quiet=False):
             if live:
                 try:
                     result = client.trade(
-                        market_id=market_id,
-                        side=side.lower(),
-                        action="sell",
-                        shares=quantity,
-                        venue="polymarket",
-                        source=TRADE_SOURCE,
-                        skill_slug=SKILL_SLUG,
+                        **_trade_kwargs(
+                            market_id=market_id,
+                            side=side.lower(),
+                            action="sell",
+                            shares=quantity,
+                            venue="polymarket",
+                            source=TRADE_SOURCE,
+                            skill_slug=SKILL_SLUG,
+                        )
                     )
                     log_trade(
                         market_id=market_id,
@@ -770,17 +1030,13 @@ def run_entry_scan(client, live=False, quiet=False):
         if hours_left < MIN_HOURS_TO_RESOLUTION:
             continue
 
-        tokens = m.get("clobTokenIds") or m.get("tokens") or []
-        if isinstance(tokens, str):
-            try:
-                tokens = json.loads(tokens)
-            except json.JSONDecodeError:
-                tokens = [tokens]
-        if not tokens:
-            continue
-
-        yes_token = tokens[0]
-        live_price = fetch_live_midpoint(yes_token)
+        if _is_replay():
+            live_price = _market_yes_price(m)
+        else:
+            yes_token = _yes_token_id(m)
+            if not yes_token:
+                continue
+            live_price = fetch_live_midpoint(yes_token)
         if live_price is None:
             continue
 
@@ -810,7 +1066,7 @@ def run_entry_scan(client, live=False, quiet=False):
             break
 
         question = m.get("question", m.get("slug", "Unknown"))
-        market_id = m.get("conditionId") or m.get("id")
+        market_id = _market_id(m)
 
         if not quiet:
             print(f"\n  📈 Entry: {question[:60]}")
@@ -819,27 +1075,37 @@ def run_entry_scan(client, live=False, quiet=False):
         if live:
             try:
                 result = client.trade(
-                    market_id=market_id,
-                    side=side.lower(),
-                    action="buy",
-                    amount=trade_size,
-                    venue="polymarket",
-                    source=TRADE_SOURCE,
-                    skill_slug=SKILL_SLUG,
+                    **_trade_kwargs(
+                        market_id=market_id,
+                        side=side.lower(),
+                        action="buy",
+                        amount=trade_size,
+                        venue="polymarket",
+                        source=TRADE_SOURCE,
+                        skill_slug=SKILL_SLUG,
+                    )
                 )
-                log_trade(
-                    market_id=market_id,
-                    side=side,
-                    amount_usd=trade_size,
-                    action="entry",
-                    entry_price=live_price,
-                    source=TRADE_SOURCE,
-                )
-                spend["spent"] += trade_size
-                spend["trades"] += 1
-                _save_daily_spend(spend)
-                print(f"  ✅ Entered: {result}")
-                entered += 1
+                if not _trade_succeeded(result):
+                    err = None
+                    if isinstance(result, dict):
+                        err = result.get("error")
+                    else:
+                        err = getattr(result, "error", None)
+                    print(f"  ❌ Entry failed: {err or result}")
+                else:
+                    log_trade(
+                        market_id=market_id,
+                        side=side,
+                        amount_usd=trade_size,
+                        action="entry",
+                        entry_price=live_price,
+                        source=TRADE_SOURCE,
+                    )
+                    spend["spent"] += trade_size
+                    spend["trades"] += 1
+                    _save_daily_spend(spend)
+                    print(f"  ✅ Entered: {result}")
+                    entered += 1
             except Exception as e:
                 print(f"  ❌ Entry failed: {e}")
         else:
@@ -869,7 +1135,7 @@ def _emit_automaton_output(positions, markets, config_snapshot):
     block = {
         "automaton": {
             "skill": SKILL_SLUG,
-            "version": "1.0.0",
+            "version": "1.2.2",
             "status": "running",
             "open_positions": len(positions),
             "active_markets_found": len(markets),
