@@ -1124,7 +1124,7 @@ def _emit_automaton_output(positions, markets, config_snapshot):
     block = {
         "automaton": {
             "skill": SKILL_SLUG,
-            "version": "1.2.0",
+            "version": "1.2.1",
             "status": "running",
             "open_positions": len(positions),
             "active_markets_found": len(markets),

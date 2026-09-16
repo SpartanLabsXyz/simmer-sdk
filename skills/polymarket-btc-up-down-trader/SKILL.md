@@ -3,7 +3,7 @@ name: polymarket-btc-up-down-trader
 description: Trade Polymarket BTC daily and weekly UP/DOWN markets with empirically-anchored exit discipline. Enters on CEX momentum divergence; exits automatically on time cap, volume spike, or target capture. Use when the user wants to trade BTC direction markets (hours/days duration), not fast 5-minute markets.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.2.0"
+  version: "1.2.1"
   displayName: Polymarket BTC Up-Down Trader
   difficulty: intermediate
 ---
@@ -16,6 +16,10 @@ Trade Polymarket's BTC daily and weekly UP/DOWN markets with built-in exit disci
 > **Polymarket only.** All trades execute on Polymarket with real USDC. Use `--live` for real trades; default is dry run.
 
 > **Not for fast (5m/15m) markets.** Use `polymarket-fast-loop` for those. This skill targets daily and weekly BTC direction markets with hours-to-days of duration.
+
+## What's New in v1.2.1
+
+- **Exit monitor reads real `Position` objects.** `client.get_positions()` returns dataclasses, not dicts. Replay rows have shares + `cost_basis` only. Side, size, and YES-scale entry are derived. A missing `sources` list under replay is this skill.
 
 ## What's New in v1.2.0
 

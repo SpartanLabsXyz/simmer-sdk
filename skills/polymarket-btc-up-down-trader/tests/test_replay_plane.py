@@ -15,11 +15,20 @@ import os
 import sys
 import types
 import unittest
-from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Optional
 from unittest.mock import MagicMock, patch
 
+# test_exits.py stubs simmer_sdk for the shared skill-suite process. Pop the
+# stub long enough to import the real SDK Position, then put it back.
+_sdk_stubs = {
+    k: sys.modules[k]
+    for k in list(sys.modules)
+    if k == "simmer_sdk" or k.startswith("simmer_sdk.")
+}
+for _k in _sdk_stubs:
+    del sys.modules[_k]
+from simmer_sdk.client import Position  # noqa: E402
+sys.modules.update(_sdk_stubs)
 
 _SKILL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, _SKILL_DIR)
@@ -51,24 +60,6 @@ REPLAY_NOW = "2026-04-14T12:00:00+00:00"
 REPLAY_DT = datetime(2026, 4, 14, 12, tzinfo=timezone.utc)
 
 
-@dataclass
-class Position:
-    """SDK Position shape. Live returns this dataclass, not a dict."""
-
-    market_id: str
-    question: str = ""
-    shares_yes: float = 0.0
-    shares_no: float = 0.0
-    current_value: float = 0.0
-    pnl: float = 0.0
-    status: str = "active"
-    venue: str = "polymarket"
-    cost_basis: Optional[float] = None
-    avg_cost: Optional[float] = None
-    current_price: Optional[float] = None
-    sources: Optional[list] = None
-
-
 def _live_position(**overrides):
     row = Position(
         market_id="btc-ud-2026-04-15",
@@ -76,6 +67,9 @@ def _live_position(**overrides):
         shares_yes=5.0,
         shares_no=0.0,
         current_value=2.0,
+        pnl=0.0,
+        status="active",
+        venue="polymarket",
         cost_basis=2.0,
         sources=["sdk:btcupdown"],
     )
@@ -88,9 +82,13 @@ def _replay_position(**overrides):
     """Replay /api/sdk/positions row after client hydrate: shares only, no source."""
     row = Position(
         market_id="btc-ud-2026-04-15",
+        question="",
         shares_yes=5.0,
         shares_no=0.0,
         current_value=2.0,
+        pnl=0.0,
+        status="active",
+        venue="polymarket",
         cost_basis=2.0,
         sources=None,
     )
@@ -339,7 +337,10 @@ class TestReplayEntryAndSpend(_ReplayEnvMixin, unittest.TestCase):
 
     def test_normalize_live_position_dataclass(self):
         os.environ.pop("SIMMER_REPLAY", None)
-        norm = strat._normalize_open_position(_live_position())
+        pos = _live_position()
+        self.assertIsInstance(pos, Position)
+        self.assertFalse(hasattr(pos, "get"))
+        norm = strat._normalize_open_position(pos)
         self.assertEqual(norm["market_id"], "btc-ud-2026-04-15")
         self.assertEqual(norm["side"], "YES")
         self.assertEqual(norm["quantity"], 5.0)

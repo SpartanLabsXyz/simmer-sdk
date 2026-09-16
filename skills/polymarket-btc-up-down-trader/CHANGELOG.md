@@ -1,5 +1,10 @@
 # Changelog — polymarket-btc-up-down-trader
 
+## [1.2.1] - 2026-09-16
+
+### Fixed
+- **Exit monitor no longer crashes on SDK `Position` (SIM-5442 hold-merge).** `get_open_positions` used `p.get("source")` on a dataclass. That `AttributeError` killed every tick after the first fill. The skill now reads Position attributes. Replay share-rows (`market_id`, `shares_yes`/`shares_no`, `cost_basis`, no `source`) normalize to side, size, and YES-scale entry (`cost_basis/shares`; NO is `1 - cost_basis/shares_no`). Missing `sources` under replay is this skill.
+
 ## [1.2.0] - 2026-09-16
 
 ### Added
