@@ -184,6 +184,10 @@ class MarketFetchError(RuntimeError):
     """Replay listing failed. Fail-closed so a 0-eval tick is not bundle.clean."""
 
 
+class ReplayClockError(RuntimeError):
+    """SIMMER_REPLAY_NOW was set but unusable. Wall clock would be look-ahead."""
+
+
 def _is_live_vendor_url(url):
     return any(host in url for host in _LIVE_VENDOR_HOSTS)
 
@@ -267,8 +271,10 @@ def _clock():
                 if dt.tzinfo is None:
                     dt = dt.replace(tzinfo=timezone.utc)
                 return dt.astimezone(timezone.utc)
-            except ValueError:
-                pass
+            except ValueError as exc:
+                raise ReplayClockError(
+                    f"SIMMER_REPLAY_NOW is not a valid timestamp: {raw!r}"
+                ) from exc
     return datetime.now(timezone.utc)
 
 
@@ -276,10 +282,10 @@ def _btc_markets_params():
     """Replay listing params. Live Gamma is a different HTTP surface.
 
     Replay rejects tags/status (sdk 0.25.3/0.25.4, 422). `q` is the only
-    filter the replay server applies. Questions are 'Bitcoin Up or Down on
-    …'; slugs are often `bitcoin-up-or-down-…` and are filtered client-side.
+    filter the replay server applies. Tape questions are 'Bitcoin Up or Down
+    on …'. A tight `q` keeps ETH/SOL/hourly rows off the eval budget.
     """
-    return {"q": "up or down", "limit": 200}
+    return {"q": "bitcoin up or down", "limit": 200}
 
 
 def _is_btc_updown_text(question, title, slug):
@@ -396,7 +402,7 @@ def fetch_btc_updown_markets():
     Discover active BTC UP/DOWN markets.
 
     Live: Gamma (volume-sorted; Gamma ignores server-side q/tags).
-    Replay (`SIMMER_REPLAY=1`): Simmer tape via `/api/sdk/markets?q=up or down`
+    Replay (`SIMMER_REPLAY=1`): Simmer tape via `/api/sdk/markets?q=bitcoin up or down`
     — no live Gamma, no tags/status (those 422 on replay).
     Filters out fast (5m/15m) markets — those are for polymarket-fast-loop.
     """
@@ -762,18 +768,104 @@ def _save_daily_spend(spend_data):
 # Core trading logic
 # =============================================================================
 
+def _pos_get(pos, *names, default=None):
+    """Read a field from a Position dataclass or a dict. 0 is a real value."""
+    if isinstance(pos, dict):
+        for name in names:
+            if name in pos and pos[name] is not None:
+                return pos[name]
+        return default
+    for name in names:
+        val = getattr(pos, name, None)
+        if val is not None:
+            return val
+    return default
+
+
+def _position_is_ours(sources):
+    """Live: require sdk:btcupdown. Replay: the session only runs this skill."""
+    if sources is None or sources == "" or sources == []:
+        return _is_replay()
+    if isinstance(sources, str):
+        return sources == TRADE_SOURCE or "btcupdown" in sources
+    if isinstance(sources, (list, tuple)):
+        return any(
+            s == TRADE_SOURCE or (s and "btcupdown" in str(s))
+            for s in sources
+        )
+    return "btcupdown" in str(sources)
+
+
+def _normalize_open_position(pos):
+    """SDK Position / replay row → {market_id, side, quantity, entry_price}.
+
+    Live `client.get_positions()` returns Position dataclasses (shares_yes /
+    shares_no / sources / cost_basis). Replay `/api/sdk/positions` has the
+    same share fields and no source/side/quantity/entry_price. Dicts from
+    older tests still work.
+
+    Entry is YES-scale: YES is cost_basis/shares; NO is 1 - cost_basis/shares.
+    """
+    market_id = _pos_get(pos, "market_id", "marketId", "conditionId")
+    shares_yes = float(_pos_get(pos, "shares_yes", default=0) or 0)
+    shares_no = float(_pos_get(pos, "shares_no", default=0) or 0)
+    side = _pos_get(pos, "side")
+    quantity = _pos_get(pos, "quantity")
+    if side is None or quantity is None:
+        if shares_yes > 0 and shares_no <= 0:
+            side = "YES"
+            quantity = shares_yes
+        elif shares_no > 0 and shares_yes <= 0:
+            side = "NO"
+            quantity = shares_no
+        elif shares_yes > 0 or shares_no > 0:
+            if shares_yes >= shares_no:
+                side = "YES"
+                quantity = shares_yes
+            else:
+                side = "NO"
+                quantity = shares_no
+        else:
+            return None
+    else:
+        side = str(side).upper()
+        quantity = float(quantity)
+    if not market_id or quantity <= 0:
+        return None
+    if not _position_is_ours(_pos_get(pos, "sources", "source")):
+        return None
+    entry_price = _pos_get(pos, "entry_price", "avgPrice", "avg_price", "avg_cost")
+    cost_basis = _pos_get(pos, "cost_basis")
+    if entry_price is None and cost_basis is not None and quantity > 0:
+        avg = float(cost_basis) / quantity
+        entry_price = (1.0 - avg) if side == "NO" else avg
+    return {
+        "market_id": market_id,
+        "side": side,
+        "quantity": quantity,
+        "entry_price": float(entry_price) if entry_price is not None else None,
+        "source": TRADE_SOURCE,
+    }
+
+
 def get_open_positions(client):
-    """Fetch open BTC UP/DOWN positions tagged with our source."""
+    """Fetch open BTC UP/DOWN positions tagged with our source.
+
+    Accepts Position dataclasses (live SDK) and replay share-rows. Never
+    calls `.get` on a dataclass — that crashed the exit monitor after the
+    first fill (AttributeError) and killed every later tick.
+    """
     try:
         positions = client.get_positions() or []
     except Exception as e:
         print(f"  Warning: could not fetch positions: {e}")
         return []
-    return [
-        p for p in positions
-        if (p.get("source") == TRADE_SOURCE or "btcupdown" in str(p.get("source", "")))
-        and float(p.get("quantity", 0)) > 0
-    ]
+    out = []
+    for pos in positions:
+        norm = _normalize_open_position(pos)
+        if norm:
+            out.append(norm)
+    return out
 
 
 def run_exit_monitor(client, live=False, quiet=False):

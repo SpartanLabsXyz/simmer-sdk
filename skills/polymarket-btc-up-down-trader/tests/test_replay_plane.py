@@ -1,7 +1,7 @@
 """Pinned proofs for SIM-5442: BTC up-down replay plane.
 
 Under SIMMER_REPLAY=1 the skill must:
-  - list markets from the Simmer tape (q=up or down; no tags/status)
+  - list markets from the Simmer tape (q=bitcoin up or down; no tags/status)
   - never hit live Gamma or CLOB
   - honor SIMMER_REPLAY_NOW for horizon
   - use tape yes_price (not a live midpoint)
@@ -15,7 +15,9 @@ import os
 import sys
 import types
 import unittest
-from datetime import datetime, timezone
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+from typing import Optional
 from unittest.mock import MagicMock, patch
 
 
@@ -49,6 +51,54 @@ REPLAY_NOW = "2026-04-14T12:00:00+00:00"
 REPLAY_DT = datetime(2026, 4, 14, 12, tzinfo=timezone.utc)
 
 
+@dataclass
+class Position:
+    """SDK Position shape. Live returns this dataclass, not a dict."""
+
+    market_id: str
+    question: str = ""
+    shares_yes: float = 0.0
+    shares_no: float = 0.0
+    current_value: float = 0.0
+    pnl: float = 0.0
+    status: str = "active"
+    venue: str = "polymarket"
+    cost_basis: Optional[float] = None
+    avg_cost: Optional[float] = None
+    current_price: Optional[float] = None
+    sources: Optional[list] = None
+
+
+def _live_position(**overrides):
+    row = Position(
+        market_id="btc-ud-2026-04-15",
+        question="Bitcoin Up or Down on April 15?",
+        shares_yes=5.0,
+        shares_no=0.0,
+        current_value=2.0,
+        cost_basis=2.0,
+        sources=["sdk:btcupdown"],
+    )
+    for key, val in overrides.items():
+        setattr(row, key, val)
+    return row
+
+
+def _replay_position(**overrides):
+    """Replay /api/sdk/positions row after client hydrate: shares only, no source."""
+    row = Position(
+        market_id="btc-ud-2026-04-15",
+        shares_yes=5.0,
+        shares_no=0.0,
+        current_value=2.0,
+        cost_basis=2.0,
+        sources=None,
+    )
+    for key, val in overrides.items():
+        setattr(row, key, val)
+    return row
+
+
 def _tape_market(**overrides):
     """Replay /api/sdk/markets row: yes_price + resolves_at, no CLOB tokens."""
     row = {
@@ -77,7 +127,7 @@ class TestReplayFlag(_ReplayEnvMixin, unittest.TestCase):
         os.environ["SIMMER_REPLAY"] = "true"
         self.assertFalse(strat._is_replay())
         params = strat._btc_markets_params()
-        self.assertEqual(params["q"], "up or down")
+        self.assertEqual(params["q"], "bitcoin up or down")
 
     def test_is_replay_true_only_for_one(self):
         os.environ["SIMMER_REPLAY"] = "1"
@@ -87,7 +137,7 @@ class TestReplayFlag(_ReplayEnvMixin, unittest.TestCase):
 class TestReplayDiscoveryParams(_ReplayEnvMixin, unittest.TestCase):
     def test_replay_params_are_q_only(self):
         params = strat._btc_markets_params()
-        self.assertEqual(params["q"], "up or down")
+        self.assertEqual(params["q"], "bitcoin up or down")
         self.assertNotIn("tags", params)
         self.assertNotIn("status", params)
         self.assertEqual(params["limit"], 200)
@@ -105,7 +155,7 @@ class TestFetchReplayMarkets(_ReplayEnvMixin, unittest.TestCase):
             markets = strat.fetch_btc_updown_markets()
         self.assertEqual(len(markets), 1)
         sent = client._request.call_args.kwargs["params"]
-        self.assertEqual(sent["q"], "up or down")
+        self.assertEqual(sent["q"], "bitcoin up or down")
         self.assertNotIn("tags", sent)
         self.assertNotIn("status", sent)
         live_vendor.assert_not_called()
@@ -170,6 +220,12 @@ class TestReplayClockAndPrice(_ReplayEnvMixin, unittest.TestCase):
         os.environ["SIMMER_REPLAY"] = "1"
         os.environ["SIMMER_REPLAY_NOW"] = REPLAY_NOW
         self.assertEqual(strat._clock(), REPLAY_DT)
+
+    def test_clock_unparseable_raises_not_wall_clock(self):
+        os.environ["SIMMER_REPLAY"] = "1"
+        os.environ["SIMMER_REPLAY_NOW"] = "not-a-date"
+        with self.assertRaises(strat.ReplayClockError):
+            strat._clock()
 
     def test_horizon_keeps_tape_row_wall_clock_would_drop(self):
         """Wall-clock Sept 2026 would mark an April 15 daily as already resolved."""
@@ -281,27 +337,73 @@ class TestReplayEntryAndSpend(_ReplayEnvMixin, unittest.TestCase):
         live_vendor.assert_not_called()
         self.assertEqual(details["current_price"], 0.41)
 
-    def test_replay_exit_looks_up_tape_not_gamma(self):
+    def test_normalize_live_position_dataclass(self):
+        os.environ.pop("SIMMER_REPLAY", None)
+        norm = strat._normalize_open_position(_live_position())
+        self.assertEqual(norm["market_id"], "btc-ud-2026-04-15")
+        self.assertEqual(norm["side"], "YES")
+        self.assertEqual(norm["quantity"], 5.0)
+        self.assertAlmostEqual(norm["entry_price"], 0.40)
+
+    def test_normalize_replay_position_no_source(self):
+        os.environ["SIMMER_REPLAY"] = "1"
+        norm = strat._normalize_open_position(_replay_position())
+        self.assertEqual(norm["side"], "YES")
+        self.assertEqual(norm["quantity"], 5.0)
+        self.assertAlmostEqual(norm["entry_price"], 0.40)
+
+    def test_normalize_replay_no_side_from_shares_and_cost(self):
+        os.environ["SIMMER_REPLAY"] = "1"
+        pos = _replay_position(shares_yes=0.0, shares_no=10.0, cost_basis=4.0)
+        norm = strat._normalize_open_position(pos)
+        self.assertEqual(norm["side"], "NO")
+        self.assertEqual(norm["quantity"], 10.0)
+        self.assertAlmostEqual(norm["entry_price"], 0.60)
+
+    def test_live_position_without_source_is_not_ours(self):
+        os.environ.pop("SIMMER_REPLAY", None)
+        self.assertIsNone(strat._normalize_open_position(_live_position(sources=None)))
+
+    def test_get_open_positions_does_not_call_dict_get_on_position(self):
+        """F1: Position has no .get — this used to AttributeError after first fill."""
+        os.environ.pop("SIMMER_REPLAY", None)
+        client = MagicMock()
+        client.get_positions.return_value = [_live_position()]
+        opened = strat.get_open_positions(client)
+        self.assertEqual(len(opened), 1)
+        self.assertEqual(opened[0]["quantity"], 5.0)
+
+    def test_replay_exit_fires_on_replay_shaped_position(self):
+        """F2/F3: replay shares-only row, no source — time_cap must fire."""
         os.environ["SIMMER_REPLAY"] = "1"
         os.environ["SIMMER_REPLAY_NOW"] = REPLAY_NOW
         client = MagicMock()
-        client.get_positions.return_value = [
-            {
-                "marketId": "btc-ud-2026-04-15",
-                "side": "YES",
-                "quantity": 5.0,
-                "source": strat.TRADE_SOURCE,
-                "entry_price": 0.40,
-            }
-        ]
-        client._request.return_value = {"market": _tape_market()}
+        client.get_positions.return_value = [_replay_position()]
+        market = _tape_market(resolves_at="2026-04-14T12:30:00+00:00", yes_price=0.41)
+        client._request.return_value = {"market": market}
         live_vendor = MagicMock(side_effect=AssertionError("Gamma is look-ahead"))
         with patch.object(strat, "_api_request", live_vendor):
             closed = strat.run_exit_monitor(client, live=False, quiet=True)
-        self.assertEqual(closed, 0)
+        self.assertEqual(closed, 1)
         live_vendor.assert_not_called()
         path = client._request.call_args.args[1]
         self.assertEqual(path, "/api/sdk/context/btc-ud-2026-04-15")
+
+    def test_exit_fires_on_live_shaped_position(self):
+        """F3: live Position dataclass with sources — time_cap must fire."""
+        os.environ.pop("SIMMER_REPLAY", None)
+        client = MagicMock()
+        client.get_positions.return_value = [_live_position()]
+        market = {
+            "question": "Bitcoin Up or Down on April 15?",
+            "endDate": (datetime.now(timezone.utc) + timedelta(minutes=30)).isoformat(),
+            "clobTokenIds": ["yes_token", "no_token"],
+        }
+        with patch.object(strat, "_api_request", return_value=market), \
+             patch.object(strat, "fetch_live_midpoint", return_value=0.41), \
+             patch.object(strat, "check_volume_spike_exit", return_value=(False, None, {})):
+            closed = strat.run_exit_monitor(client, live=False, quiet=True)
+        self.assertEqual(closed, 1)
 
 
 if __name__ == "__main__":
