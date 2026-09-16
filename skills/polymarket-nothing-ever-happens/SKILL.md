@@ -3,7 +3,7 @@ name: polymarket-nothing-ever-happens
 description: Buy NO on standalone non-sports yes/no Polymarket markets priced below a configurable cap. Based on the "nothing-ever-happens" thesis — binary markets often resolve NO, and cheap NO shares offer asymmetric value. Scans for candidates via Gamma API, filters out sports and grouped markets, checks fees, and executes.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.0.5"
+  version: "1.1.0"
   displayName: Polymarket Nothing-Ever-Happens
   difficulty: beginner
 ---
@@ -12,6 +12,10 @@ metadata:
 Buy NO on standalone yes/no Polymarket markets priced below a configurable cap.
 
 > 🚨 **Framework, not a production trading system.** Read [DISCLAIMER.md](./DISCLAIMER.md) before connecting to a wallet with real funds.
+
+## What's New in v1.1.0
+
+- **Replay plane (SIM-5443).** Under `simmer backtest` (`SIMMER_REPLAY=1`) discovery, import, and the clock come from the existing replay harness — same `SIMMER_REPLAY` / `SIMMER_REPLAY_NOW` pattern as BTC up-down and weather. Live Gamma stays dark. Import accepts replay `status=active`. Sports still drop when tape tags are empty (question/slug tokens). Daily-spend uses the frozen tick, not wall clock.
 
 > **This is a template.** The default logic buys NO on any non-sports standalone market where NO costs ≤5¢. Remix it with custom filters (minimum volume thresholds, specific categories, date ranges) or pair it with a signal to skip markets where YES might actually happen. The skill handles plumbing (discovery, import, fee checks, execution). You define which markets to trade.
 
@@ -92,7 +96,7 @@ Update via CLI: `python nothing_ever_happens.py --set price_cap=0.03`
 
 ### Market Discovery
 
-The skill fetches active Polymarket events via the Gamma API, sorted by 24h volume. It only considers **standalone events** — events with exactly one market. Grouped events (e.g. "Who wins Iowa?" alongside "Who wins Florida?" in a presidential election group) are excluded because:
+The skill fetches active Polymarket events via the Gamma API, sorted by 24h volume. Under `simmer backtest` (`SIMMER_REPLAY=1`) it lists from the Simmer tape instead — live Gamma would be look-ahead. It only considers **standalone events** — events with exactly one market. Grouped events (e.g. "Who wins Iowa?" alongside "Who wins Florida?" in a presidential election group) are excluded because:
 - They're often higher-profile and more efficiently priced
 - The original strategy targets isolated, under-the-radar markets
 
@@ -131,6 +135,20 @@ For each candidate, the skill:
 - `GET /api/sdk/positions` — Current positions (avoid doubling up)
 
 ## Troubleshooting
+
+### Replay KEEP / KILL (SIM-5443)
+
+Reuse `simmer backtest` / `SIMMER_REPLAY=1`. Do not invent a second harness. Pinned path check:
+
+```bash
+python -m pytest skills/polymarket-nothing-ever-happens/tests/test_replay_plane.py -q
+```
+
+| Verdict | What it means |
+|---------|----------------|
+| **FIX** | Path is broken or the tape cannot evaluate the skill. Do not add capital. Repair: live Gamma under replay (look-ahead); `Unexpected import status: active`; wall-clock daily-spend; sports leak from empty tape tags; listing 422 from `tags`/`status`. |
+| **KILL** | Pinned pytest fails, **or** a full-tape run has evals > 0 and the skill still cannot reach `trade()` on a tape cheap-NO, **or** P&L after costs is clearly ≤ 0 on honest (not live-Gamma) prices. No second-lane capital. |
+| **KEEP** | Full-tape `simmer backtest` with evals > 0 **and** trades > 0 on tape prices and `SIMMER_REPLAY_NOW`. Pinned unit tests are a path check only — not KEEP. |
 
 **"No candidates below price cap"**
 → All standalone non-sports markets have NO > cap. Lower `price_cap` (e.g. `--set price_cap=0.08`) or wait — cheap NO opportunities appear sporadically.

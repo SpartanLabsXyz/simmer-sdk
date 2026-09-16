@@ -21,6 +21,7 @@ import os
 import sys
 import json
 import argparse
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -104,6 +105,47 @@ SPORTS_CATEGORIES = {
     "golf", "formula-1", "f1", "boxing", "wrestling", "esports",
     "olympics", "fifa", "epl", "college", "ncaa", "rugby", "cricket",
 }
+# Fine as Gamma tags/categories; too loose in question/slug text. Replay
+# listings have empty tags, so text is the only sports signal — do not
+# drop "electoral college" or "sports betting" or "Trump golf".
+_AMBIGUOUS_SPORTS_TEXT = {"college", "sports", "golf"}
+
+
+class MarketFetchError(RuntimeError):
+    """Replay listing failed. Fail-closed so a 0-eval tick is not bundle.clean."""
+
+
+class ReplayClockError(RuntimeError):
+    """SIMMER_REPLAY_NOW was set but unusable. Wall clock would be look-ahead."""
+
+
+def _is_replay():
+    """True inside the Simmer replay harness (SIMMER_REPLAY=1). Decision data
+    must then come ONLY from the Simmer tape — a live Gamma fetch would be
+    future data relative to the frozen tick."""
+    return os.environ.get("SIMMER_REPLAY") == "1"
+
+
+def _clock():
+    """Wall clock, or the replay frozen tick (`SIMMER_REPLAY_NOW`).
+
+    Daily-spend used `datetime.now()`. Under replay that is the real present,
+    so a historical tape shares today's live budget file. The harness already
+    sets `SIMMER_REPLAY_NOW` per tick.
+    """
+    if _is_replay():
+        raw = os.environ.get("SIMMER_REPLAY_NOW")
+        if raw:
+            try:
+                dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                return dt.astimezone(timezone.utc)
+            except ValueError as exc:
+                raise ReplayClockError(
+                    f"SIMMER_REPLAY_NOW is not a valid timestamp: {raw!r}"
+                ) from exc
+    return datetime.now(timezone.utc)
 
 
 # =============================================================================
@@ -164,8 +206,9 @@ def resolve_effective_dry_run(dry_run: bool, client_venue) -> bool:
 
 def should_run_balance_preflight(dry_run: bool) -> bool:
     """USDC/pUSD balance preflight applies to live runs on real venues only —
-    the sim venue trades $SIM and has no collateral preflight."""
-    return not dry_run and resolve_venue() != "sim"
+    the sim venue trades $SIM and has no collateral preflight. Replay has
+    no wallet — WALLET_UNVERIFIED would block SimState fills."""
+    return not dry_run and resolve_venue() != "sim" and not _is_replay()
 
 
 # =============================================================================
@@ -177,9 +220,9 @@ def _get_spend_path():
 
 
 def _load_daily_spend():
-    """Load today's spend. Resets if date != today (UTC)."""
+    """Load today's spend. Resets if date != today (UTC, or replay tick)."""
     spend_path = _get_spend_path()
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    today = _clock().strftime("%Y-%m-%d")
     if spend_path.exists():
         try:
             with open(spend_path) as f:
@@ -213,11 +256,27 @@ def _extract_tag_slugs(tags) -> set:
     return slugs
 
 
-def _is_sports(tags, category: str = "") -> bool:
-    """Return True if tags or category indicate a sports market/event."""
-    if category.lower() in SPORTS_CATEGORIES:
+def _sports_in_text(*parts: str) -> bool:
+    """Word-boundary sports tokens in question/slug. Replay tags are empty."""
+    blob = " ".join(p or "" for p in parts).lower().replace("-", " ").replace("_", " ")
+    if not blob.strip():
+        return False
+    for token in SPORTS_CATEGORIES:
+        if token in _AMBIGUOUS_SPORTS_TEXT:
+            continue
+        needle = token.replace("-", " ")
+        if re.search(rf"\b{re.escape(needle)}\b", blob):
+            return True
+    return False
+
+
+def _is_sports(tags, category: str = "", question: str = "", slug: str = "") -> bool:
+    """Return True if tags, category, or question/slug indicate sports."""
+    if (category or "").lower() in SPORTS_CATEGORIES:
         return True
-    return bool(_extract_tag_slugs(tags) & SPORTS_CATEGORIES)
+    if _extract_tag_slugs(tags) & SPORTS_CATEGORIES:
+        return True
+    return _sports_in_text(question, slug)
 
 
 def _is_binary_yes_no(market: dict) -> bool:
@@ -229,13 +288,73 @@ def _is_binary_yes_no(market: dict) -> bool:
     return normalized == {"yes", "no"}
 
 
+def _neh_markets_params():
+    """Replay listing params. Live Gamma is a different HTTP surface.
+
+    Replay rejects tags/status (sdk 0.25.3/0.25.4, 422). NEH is a general
+    scanner — no topic `q`. One volume-sorted page; client-side filters
+    (sports / cheap NO / liquidity) do the rest.
+    """
+    return {"limit": 100}
+
+
+def _market_yes_price(market: dict):
+    """Replay listings expose `yes_price` / `current_probability`."""
+    if not market:
+        return None
+    for key in ("yes_price", "current_probability"):
+        val = market.get(key)
+        if val is None:
+            continue
+        try:
+            return float(val)
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def _market_no_price(market: dict):
+    """Tape `no_price`, or 1 - yes. Missing price is None (skip)."""
+    if not market:
+        return None
+    raw = market.get("no_price")
+    if raw is not None:
+        try:
+            return float(raw)
+        except (TypeError, ValueError):
+            pass
+    yes = _market_yes_price(market)
+    if yes is None:
+        return None
+    return 1.0 - yes
+
+
+def _passes_price_and_depth(no_price, liquidity, volume_24h) -> bool:
+    if no_price is None or no_price > PRICE_CAP or no_price < 0.02:
+        return False
+    if (liquidity or 0) < MIN_LIQUIDITY:
+        return False
+    if (volume_24h or 0) < MIN_VOLUME_24H:
+        return False
+    return True
+
+
 def fetch_candidate_markets(pages: int = 3) -> list:
     """
     Fetch standalone non-sports yes/no markets with NO price <= price cap.
 
-    Standalone = events with exactly one market (not a grouped multi-outcome event).
-    Sorted by NO price ascending (cheapest NO first = highest conviction from thesis).
+    Live: Gamma events (standalone = exactly one market).
+    Replay (`SIMMER_REPLAY=1`): Simmer tape via `/api/sdk/markets` — no live
+    Gamma, no tags/status (those 422 on replay). Each tape row is one market.
+
+    Sorted by NO price ascending (cheapest NO first).
     """
+    if _is_replay():
+        return _fetch_candidate_markets_replay()
+    return _fetch_candidate_markets_live(pages)
+
+
+def _fetch_candidate_markets_live(pages: int) -> list:
     try:
         from gamma_api import GammaClient
     except ImportError:
@@ -269,56 +388,116 @@ def fetch_candidate_markets(pages: int = 3) -> list:
             break
 
         for event in events:
-            markets = event.get("markets") or []
-
-            # Standalone = single-market event
-            if len(markets) != 1:
-                continue
-
-            market = markets[0]
-
-            # Must be yes/no binary
-            if not _is_binary_yes_no(market):
-                continue
-
-            # Skip sports — check both event-level tags and market-level category
-            # (tags are on the event; category may be on the market)
-            if _is_sports(event.get("tags"), event.get("category", "")):
-                continue
-            if _is_sports(market.get("tags"), market.get("category", "")):
-                continue
-
-            # Check NO price against cap and floor
-            # Floor at 2% — markets below this are nearly resolved (YES ~98%+)
-            # and Simmer's import guard will reject them as "price too extreme"
-            no_price = market.get("no_price", 1.0)
-            if no_price > PRICE_CAP or no_price < 0.02:
-                continue
-
-            # Liquidity / volume filters
-            if (event.get("liquidity") or 0) < MIN_LIQUIDITY:
-                continue
-            if (event.get("volume_24h") or 0) < MIN_VOLUME_24H:
-                continue
-
-            candidates.append({
-                "slug": event.get("slug", ""),
-                "question": market.get("question", ""),
-                "condition_id": market.get("condition_id", ""),
-                "no_price": no_price,
-                "yes_price": market.get("yes_price", 0.0),
-                "liquidity": event.get("liquidity") or 0,
-                "volume_24h": event.get("volume_24h") or 0,
-                "end_date": market.get("end_date", ""),
-                "category": market.get("category", ""),
-            })
+            candidate = _candidate_from_gamma_event(event)
+            if candidate:
+                candidates.append(candidate)
 
         if not after_cursor:
             break
 
-    # Sort by cheapest NO first
     candidates.sort(key=lambda m: m["no_price"])
     return candidates
+
+
+def _candidate_from_gamma_event(event: dict):
+    """Live Gamma event → candidate, or None if filtered."""
+    markets = event.get("markets") or []
+    if len(markets) != 1:
+        return None
+    market = markets[0]
+    if not _is_binary_yes_no(market):
+        return None
+    question = market.get("question", "")
+    slug = event.get("slug", "") or market.get("slug", "")
+    if _is_sports(event.get("tags"), event.get("category", ""), question, slug):
+        return None
+    if _is_sports(market.get("tags"), market.get("category", ""), question, slug):
+        return None
+    no_price = market.get("no_price", 1.0)
+    liquidity = event.get("liquidity") or 0
+    volume_24h = event.get("volume_24h") or 0
+    if not _passes_price_and_depth(no_price, liquidity, volume_24h):
+        return None
+    return {
+        "slug": slug,
+        "question": question,
+        "condition_id": market.get("condition_id", ""),
+        "no_price": no_price,
+        "yes_price": market.get("yes_price", 0.0),
+        "liquidity": liquidity,
+        "volume_24h": volume_24h,
+        "end_date": market.get("end_date", ""),
+        "category": market.get("category", ""),
+    }
+
+
+def _fetch_candidate_markets_replay() -> list:
+    """Tape listing. A failed request raises; empty 200 is an honest empty tape."""
+    try:
+        result = get_client()._request(
+            "GET", "/api/sdk/markets", params=_neh_markets_params()
+        )
+    except MarketFetchError:
+        raise
+    except Exception as exc:
+        print("  Failed to fetch markets from Simmer API")
+        raise MarketFetchError("Failed to fetch markets from Simmer API") from exc
+    if not isinstance(result, dict):
+        print("  Failed to fetch markets from Simmer API")
+        raise MarketFetchError("Failed to fetch markets from Simmer API")
+    rows = result.get("markets", [])
+    if not isinstance(rows, list):
+        print("  Failed to fetch markets from Simmer API")
+        raise MarketFetchError("Failed to fetch markets from Simmer API")
+    candidates = []
+    for market in rows:
+        candidate = _candidate_from_tape(market)
+        if candidate:
+            candidates.append(candidate)
+    candidates.sort(key=lambda m: m["no_price"])
+    return candidates
+
+
+def _candidate_from_tape(market: dict):
+    """Replay /api/sdk/markets row → candidate, or None if filtered.
+
+    Tape rows have no Gamma tags. Sports is question/slug text. Volume
+    stands in for liquidity when the listing omits it.
+    """
+    if market.get("outcomes") and not _is_binary_yes_no(market):
+        return None
+    question = market.get("question") or ""
+    slug = market.get("slug") or ""
+    if _is_sports(market.get("tags"), market.get("category", ""), question, slug):
+        return None
+    no_price = _market_no_price(market)
+    volume = market.get("volume") if market.get("volume") is not None else market.get("volume_24h")
+    try:
+        volume_24h = float(volume or 0)
+    except (TypeError, ValueError):
+        volume_24h = 0.0
+    liquidity = market.get("liquidity")
+    try:
+        liquidity = float(liquidity) if liquidity is not None else volume_24h
+    except (TypeError, ValueError):
+        liquidity = volume_24h
+    if not _passes_price_and_depth(no_price, liquidity, volume_24h):
+        return None
+    yes_price = _market_yes_price(market)
+    if yes_price is None and no_price is not None:
+        yes_price = 1.0 - no_price
+    return {
+        "slug": slug,
+        "question": question,
+        "condition_id": market.get("polymarket_condition_id") or market.get("condition_id") or "",
+        "market_id": market.get("id"),
+        "no_price": no_price,
+        "yes_price": yes_price or 0.0,
+        "liquidity": liquidity,
+        "volume_24h": volume_24h,
+        "end_date": market.get("resolves_at") or market.get("end_date") or "",
+        "category": market.get("category") or "",
+    }
 
 
 # =============================================================================
@@ -345,7 +524,12 @@ def import_market(slug: str) -> tuple:
     if status == "resolved":
         return None, "Market already resolved"
 
-    if status in ("imported", "already_exists"):
+    # Replay returns status=active + already_imported (tape already holds
+    # the market). Live uses imported / already_exists.
+    if market_id and (
+        status in ("imported", "already_exists", "active")
+        or result.get("already_imported")
+    ):
         return market_id, None
 
     return None, f"Unexpected import status: {status}"
@@ -385,6 +569,7 @@ def execute_trade(market_id: str, amount: float, signal_data: dict | None = None
             skill_slug=SKILL_SLUG,
             reasoning="nothing-ever-happens: buying NO on standalone market below price cap",
             signal_data=signal_data,
+            skip_preflight=_is_replay(),
         )
         return {
             "success": result.success,
@@ -609,7 +794,12 @@ def main():
     # submits REAL Polymarket redemption transactions regardless of the
     # client's venue, so paper mode (TRADING_VENUE=sim), dry-run, and --scan
     # must never reach it (codex pass-2 P1; same class as wc-copytrader fix).
-    if args.live and not args.scan and resolve_venue() == "polymarket":
+    if (
+        args.live
+        and not args.scan
+        and resolve_venue() == "polymarket"
+        and not _is_replay()
+    ):
         try:
             redeemed = get_client().auto_redeem()
             for r in redeemed:
