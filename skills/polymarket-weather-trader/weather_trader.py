@@ -1406,8 +1406,9 @@ def _market_yes_price(market: dict) -> float:
 
 
 # Tests / a local harness / SIMMER_REPLAY_FORECASTS may inject
-# `{station_id: {YYYY-MM-DD: {"high": t, "low": t}}}`. Live NOAA / Open-Meteo
-# never run under replay — that would be look-ahead vs the frozen tick.
+# `{station_id: {YYYY-MM-DD: {"high": t, "low": t, "leads"?}}}`.
+# Live NOAA / Open-Meteo never run under replay — that would be look-ahead
+# vs the frozen tick. `leads` is optional (hand-built / sample omit it).
 REPLAY_FORECASTS_ENV = "SIMMER_REPLAY_FORECASTS"
 _SKILL_DIR = os.path.dirname(os.path.abspath(__file__))
 # User-supplied archive. Not committed (see .gitignore). Auto-load only this.
@@ -1475,10 +1476,31 @@ def _resolve_replay_forecasts_path(path: str | None = None) -> str | None:
 REPLAY_FORECAST_META_KEY = "_meta"
 
 
+def _parse_replay_day_temps(temps: dict) -> dict:
+    """Keep top-level high/low and optional ``leads`` {\"1\": {high, low}, …}."""
+    parsed = {
+        "high": temps.get("high"),
+        "low": temps.get("low"),
+    }
+    leads = temps.get("leads")
+    if isinstance(leads, dict) and leads:
+        parsed_leads = {}
+        for key, val in leads.items():
+            if isinstance(val, dict):
+                parsed_leads[str(key)] = {
+                    "high": val.get("high"),
+                    "low": val.get("low"),
+                }
+        if parsed_leads:
+            parsed["leads"] = parsed_leads
+    return parsed
+
+
 def _parse_replay_forecast_archive(raw) -> dict:
     """Validate the inject shape. Root is station → date → {high, low}.
 
     ``_meta`` (source / fetched_at / lead) is ignored. It is not a station.
+    Optional ``leads`` on a day is kept so replay can pick lead 1–3.
     """
     if not isinstance(raw, dict):
         raise ReplayForecastArchiveError(
@@ -1498,10 +1520,7 @@ def _parse_replay_forecast_archive(raw) -> dict:
                 raise ReplayForecastArchiveError(
                     f"{station}/{date_str}: expected {{high, low}} object"
                 )
-            parsed_days[str(date_str)] = {
-                "high": temps.get("high"),
-                "low": temps.get("low"),
-            }
+            parsed_days[str(date_str)] = _parse_replay_day_temps(temps)
         out[station] = parsed_days
     return out
 
@@ -1548,6 +1567,16 @@ def _ensure_replay_forecasts_loaded() -> None:
     load_replay_forecasts()
 
 
+def _replay_archive_has_leads() -> bool:
+    for days in _REPLAY_FORECASTS.values():
+        if not isinstance(days, dict):
+            continue
+        for temps in days.values():
+            if isinstance(temps, dict) and temps.get("leads"):
+                return True
+    return False
+
+
 def _replay_forecast_provenance_line() -> str:
     """One forced line: path + stations + date span, or empty-plane FIX."""
     dates = []
@@ -1558,10 +1587,13 @@ def _replay_forecast_provenance_line() -> str:
         # dates ({"KLGA": {}}): min()/max() on [] would abort the tick.
         return "Replay: no archive: NOAA dark, 0 entries is FIX"
     source = _REPLAY_FORECASTS_SOURCE or "inject"
-    return (
+    line = (
         f"Replay: archive {source} stations={len(_REPLAY_FORECASTS)} "
         f"{min(dates)}–{max(dates)}"
     )
+    if _replay_archive_has_leads():
+        line += " leads=1-3"
+    return line
 
 
 def _city_fallback_station(location: str):
@@ -1581,12 +1613,74 @@ def _city_fallback_station(location: str):
     return None, False
 
 
-def _station_forecast(station_id: str, is_international: bool) -> dict:
-    """Forecast map `{date: {high, low}}`. Live vendors never run under replay."""
+def _as_event_date(event_date):
+    """YYYY-MM-DD string or date/datetime → date. None stays None."""
+    if event_date is None:
+        return None
+    if isinstance(event_date, datetime):
+        return event_date.date()
+    if isinstance(event_date, str):
+        return datetime.strptime(event_date[:10], "%Y-%m-%d").date()
+    return event_date
+
+
+def _replay_lead_for_event(event_date) -> int | None:
+    """Lead N = days from tick date to event + 1. Outside 1–3 → None."""
+    ev = _as_event_date(event_date)
+    if ev is None:
+        return None
+    lead = (ev - _clock().date()).days + 1
+    if lead < 1 or lead > 3:
+        return None
+    return lead
+
+
+def _replay_day_forecast(temps: dict, *, event_date=None) -> dict:
+    """Pick {high, low} for one archive day.
+
+    With ``leads`` and an event date, use lead
+    ``(event_date - tick.date).days + 1``. Outside 1–3 → empty (skip).
+    Without ``leads`` (hand-built / sample) use top-level high/low.
+    """
+    if not isinstance(temps, dict):
+        return {}
+    leads = temps.get("leads")
+    if not isinstance(leads, dict) or not leads or event_date is None:
+        return {"high": temps.get("high"), "low": temps.get("low")}
+    lead = _replay_lead_for_event(event_date)
+    if lead is None:
+        return {}
+    picked = leads.get(str(lead))
+    if not isinstance(picked, dict):
+        return {}
+    return {"high": picked.get("high"), "low": picked.get("low")}
+
+
+def _station_forecast(
+    station_id: str, is_international: bool, *, event_date=None
+) -> dict:
+    """Forecast map `{date: {high, low}}`. Live vendors never run under replay.
+
+    Under replay, ``event_date`` selects lead 1–3 when the archive has
+    ``leads``. Events further out than lead 3 return no forecast.
+    """
     if _is_replay():
         _ensure_replay_forecasts_loaded()
         raw = _REPLAY_FORECASTS.get(station_id) or {}
-        return {d: dict(v) for d, v in raw.items()} if raw else {}
+        if not raw:
+            return {}
+        if event_date is not None:
+            key = _as_event_date(event_date).isoformat()
+            temps = raw.get(key)
+            if not isinstance(temps, dict):
+                return {}
+            selected = _replay_day_forecast(temps, event_date=event_date)
+            return {key: selected} if selected else {}
+        return {
+            d: {"high": v.get("high"), "low": v.get("low")}
+            for d, v in raw.items()
+            if isinstance(v, dict)
+        }
     if is_international:
         fetched = get_openmeteo_forecast_for_station(station_id)
         return {
@@ -2106,17 +2200,21 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
             skip_reasons.append(f"unknown station {station_id or station_name}")
             continue
 
-        cache_key = station_id  # station-keyed so per-airport forecasts don't collide
+        # Live: station-keyed so per-airport forecasts don't collide.
+        # Replay: also key by event date — lead 1–3 depends on that date.
+        cache_key = (station_id, date_str) if _is_replay() else station_id
         temp_unit = event_info.get("unit", "F")
 
         if cache_key not in forecast_cache:
             if _is_replay():
-                log(f"  Replay forecast for {cache_key} (no live NOAA/Open-Meteo)...")
+                log(f"  Replay forecast for {station_id} (no live NOAA/Open-Meteo)...")
             elif is_international:
-                log(f"  Fetching Open-Meteo forecast for {cache_key}...")
+                log(f"  Fetching Open-Meteo forecast for {station_id}...")
             else:
-                log(f"  Fetching NOAA forecast for {cache_key}...")
-            forecast_cache[cache_key] = _station_forecast(cache_key, is_international)
+                log(f"  Fetching NOAA forecast for {station_id}...")
+            forecast_cache[cache_key] = _station_forecast(
+                station_id, is_international, event_date=date_str
+            )
 
         forecasts = forecast_cache[cache_key]
         day_forecast = forecasts.get(date_str, {})

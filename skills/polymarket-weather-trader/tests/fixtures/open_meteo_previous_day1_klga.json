@@ -4,7 +4,9 @@
   "timezone": "America/New_York",
   "hourly_units": {
     "time": "iso8601",
-    "temperature_2m_previous_day1": "°F"
+    "temperature_2m_previous_day1": "°F",
+    "temperature_2m_previous_day2": "°F",
+    "temperature_2m_previous_day3": "°F"
   },
   "hourly": {
     "time": [
@@ -58,6 +60,58 @@
       50.4,
       49.0,
       50.3
+    ],
+    "temperature_2m_previous_day2": [
+      58.7,
+      57.8,
+      58.6,
+      58.6,
+      58.8,
+      59.1,
+      59.1,
+      59.1,
+      58.7,
+      59.1,
+      59.2,
+      59.6,
+      60.7,
+      61.7,
+      62.3,
+      63.5,
+      63.8,
+      64.9,
+      66.3,
+      64.9,
+      62.3,
+      60.4,
+      59.0,
+      60.3
+    ],
+    "temperature_2m_previous_day3": [
+      40.7,
+      39.8,
+      40.6,
+      40.6,
+      40.8,
+      41.1,
+      41.1,
+      41.1,
+      40.7,
+      41.1,
+      41.2,
+      41.6,
+      42.7,
+      43.7,
+      44.3,
+      45.5,
+      45.8,
+      46.9,
+      48.3,
+      46.9,
+      44.3,
+      42.4,
+      41.0,
+      42.3
     ]
   }
 }

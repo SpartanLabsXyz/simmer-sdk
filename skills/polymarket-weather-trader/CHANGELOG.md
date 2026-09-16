@@ -1,5 +1,11 @@
 # Changelog — polymarket-weather-trader
 
+## [1.23.16] - 2026-09-16
+
+### Fixed
+- **Look-ahead via `previous_day1` (SIM-5434).** Hourly `temperature_2m_previous_day1` at valid hour H is the run ~24h before H, not one D-1 issuance. Horizon (D+2) and same-day-ahead evening hours could see a run issued after the replay tick. The builder now fetches leads 1–3 in one request and writes `{high, low, leads}`. The loader picks `lead = (event_date − tick.date).days + 1` in 1–3; further-out events skip. Top-level high/low stays lead 1. Archives without `leads` (sample / hand-built) keep the old path. Provenance appends `leads=1-3` when present.
+- **Incomplete hourly responses fail closed.** Missing or short arrays, a null hour, or a missing requested date raise `ArchiveBuildError` naming station/date/lead. One valid hour is not a daily high/low.
+
 ## [1.23.15] - 2026-09-16
 
 ### Added

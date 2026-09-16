@@ -13,6 +13,8 @@ preflight skipped so WALLET_UNVERIFIED cannot block SimState fills).
 SIM-5429 adds the archive loader (`SIMMER_REPLAY_FORECASTS` / user-supplied
 fixtures/replay_forecasts.json). The committed .sample.json is never auto-loaded.
 SIM-5434 adds the builder; the loader ignores a `_meta` provenance block.
+When a day has ``leads``, replay picks lead = (event_date − tick.date).days + 1
+in 1–3. Archives without ``leads`` keep top-level high/low.
 
 Pure-unit: no network, no live Polymarket, no SIMMER_API_KEY.
 """
@@ -504,6 +506,7 @@ class TestReplayForecastLoader(_PatchDefaultArchiveMixin, unittest.TestCase):
 
     def tearDown(self):
         os.environ.pop("SIMMER_REPLAY", None)
+        os.environ.pop("SIMMER_REPLAY_NOW", None)
         os.environ.pop("SIMMER_REPLAY_FORECASTS", None)
         wt.reset_replay_forecasts()
 
@@ -622,6 +625,72 @@ class TestReplayForecastLoader(_PatchDefaultArchiveMixin, unittest.TestCase):
              patch.object(wt, "get_openmeteo_forecast_for_station", noaa):
             self.assertEqual(wt._station_forecast("KLGA", False), {})
         noaa.assert_not_called()
+
+    def test_lead_from_event_date_vs_tick(self):
+        """P1 (a): Apr 29 12:00Z → Apr 30 lead 2, May 1 lead 3, May 2 skip."""
+        os.environ["SIMMER_REPLAY"] = "1"
+        os.environ["SIMMER_REPLAY_NOW"] = "2026-04-29T12:00:00+00:00"
+        day = {
+            "high": 11,
+            "low": 10,
+            "leads": {
+                "1": {"high": 11, "low": 10},
+                "2": {"high": 22, "low": 20},
+                "3": {"high": 33, "low": 30},
+            },
+        }
+        wt._REPLAY_FORECASTS["KLGA"] = {
+            "2026-04-30": day,
+            "2026-05-01": day,
+            "2026-05-02": day,
+        }
+        self.assertEqual(
+            wt._station_forecast("KLGA", False, event_date="2026-04-30")
+            ["2026-04-30"]["high"],
+            22,
+        )
+        self.assertEqual(
+            wt._station_forecast("KLGA", False, event_date="2026-05-01")
+            ["2026-05-01"]["high"],
+            33,
+        )
+        self.assertEqual(
+            wt._station_forecast("KLGA", False, event_date="2026-05-02"),
+            {},
+        )
+
+    def test_leads_less_archive_uses_top_level(self):
+        """P1 (c): hand-built / sample without leads keep today's shape."""
+        os.environ["SIMMER_REPLAY"] = "1"
+        os.environ["SIMMER_REPLAY_NOW"] = "2026-04-29T12:00:00+00:00"
+        wt._REPLAY_FORECASTS["KLGA"] = {"2026-04-30": {"high": 72, "low": 50}}
+        self.assertEqual(
+            wt._station_forecast("KLGA", False, event_date="2026-04-30")
+            ["2026-04-30"]["high"],
+            72,
+        )
+        self.assertEqual(
+            wt._station_forecast("KLGA", False)["2026-04-30"]["high"], 72
+        )
+
+    def test_loader_preserves_leads_and_provenance(self):
+        os.environ["SIMMER_REPLAY"] = "1"
+        path = _write_archive({
+            "KLGA": {
+                "2026-04-30": {
+                    "high": 11,
+                    "low": 10,
+                    "leads": {
+                        "1": {"high": 11, "low": 10},
+                        "2": {"high": 22, "low": 20},
+                        "3": {"high": 33, "low": 30},
+                    },
+                }
+            }
+        })
+        loaded = wt.load_replay_forecasts(path)
+        self.assertEqual(loaded["KLGA"]["2026-04-30"]["leads"]["2"]["high"], 22)
+        self.assertIn("leads=1-3", wt._replay_forecast_provenance_line())
 
 
 if __name__ == "__main__":

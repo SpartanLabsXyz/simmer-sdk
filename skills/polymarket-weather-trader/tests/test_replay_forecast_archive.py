@@ -60,21 +60,31 @@ def _recorded():
         return json.load(fh)
 
 
-class TestDailyFromHourly(unittest.TestCase):
-    def test_recorded_klga_previous_day1_folds_to_high_low(self):
-        days = builder.daily_high_low_from_hourly(_recorded())
-        self.assertEqual(days["2026-04-30"], {"high": 56, "low": 48})
+def _fold(payload, start="2026-04-30", end="2026-04-30", station="KLGA"):
+    return builder.daily_from_previous_runs(
+        payload, station=station, start=start, end=end
+    )
 
-    def test_skips_null_hours(self):
-        days = builder.daily_high_low_from_hourly(
-            {
-                "hourly": {
-                    "time": ["2026-04-30T00:00", "2026-04-30T01:00"],
-                    "temperature_2m_previous_day1": [None, 51.2],
-                }
-            }
-        )
-        self.assertEqual(days["2026-04-30"], {"high": 51, "low": 51})
+
+class TestDailyFromPreviousRuns(unittest.TestCase):
+    def test_recorded_leads_fold_independently(self):
+        """P1 (b): recorded payload with three leads folds each independently."""
+        days = _fold(_recorded())
+        day = days["2026-04-30"]
+        self.assertEqual(day["high"], 56)
+        self.assertEqual(day["low"], 48)
+        self.assertEqual(day["leads"]["1"], {"high": 56, "low": 48})
+        self.assertEqual(day["leads"]["2"], {"high": 66, "low": 58})
+        self.assertEqual(day["leads"]["3"], {"high": 48, "low": 40})
+
+    def test_null_hour_aborts_build(self):
+        """P2: a null hour is not a daily high/low — fail closed."""
+        recorded = _recorded()
+        recorded["hourly"]["temperature_2m_previous_day1"][0] = None
+        with self.assertRaises(builder.ArchiveBuildError) as ctx:
+            _fold(recorded)
+        self.assertIn("KLGA/2026-04-30/lead 1", str(ctx.exception))
+        self.assertIn("null hourly", str(ctx.exception))
 
 
 class TestBuildArchiveRecorded(unittest.TestCase):
@@ -85,7 +95,9 @@ class TestBuildArchiveRecorded(unittest.TestCase):
         def fetch(url):
             calls.append(url)
             self.assertIn("previous-runs-api.open-meteo.com/v1/forecast", url)
-            self.assertIn("hourly=temperature_2m_previous_day1", url)
+            self.assertIn("temperature_2m_previous_day1", url)
+            self.assertIn("temperature_2m_previous_day2", url)
+            self.assertIn("temperature_2m_previous_day3", url)
             return recorded
 
         spec = builder.StationSpec(
@@ -106,31 +118,26 @@ class TestBuildArchiveRecorded(unittest.TestCase):
                 "lead": "previous_day1",
             },
         )
-        self.assertEqual(archive["KLGA"]["2026-04-30"], {"high": 56, "low": 48})
+        day = archive["KLGA"]["2026-04-30"]
+        self.assertEqual(day["high"], 56)
+        self.assertEqual(day["low"], 48)
+        self.assertEqual(day["leads"]["1"], {"high": 56, "low": 48})
         self.assertEqual(len(calls), 1)
 
     def test_us_fahrenheit_intl_celsius_urls(self):
-        seen = []
-
-        def fetch(url):
-            seen.append(url)
-            return {"hourly": {"time": [], "temperature_2m_previous_day1": []}}
-
         us = builder.StationSpec("KLGA", 40.7769, -73.874, "auto", "fahrenheit")
         intl = builder.StationSpec(
             "LLBG", 32.0114, 34.8867, "Asia/Jerusalem", "celsius"
         )
-        builder.build_archive(
-            "2026-04-30",
-            "2026-04-30",
-            [us, intl],
-            fetch=fetch,
-            fetched_at="t",
-        )
-        self.assertIn("temperature_unit=fahrenheit", seen[0])
-        self.assertIn("timezone=auto", seen[0])
-        self.assertIn("temperature_unit=celsius", seen[1])
-        self.assertIn("timezone=Asia%2FJerusalem", seen[1])
+        us_url = builder.previous_runs_url(us, "2026-04-30", "2026-04-30")
+        intl_url = builder.previous_runs_url(intl, "2026-04-30", "2026-04-30")
+        self.assertIn("temperature_unit=fahrenheit", us_url)
+        self.assertIn("timezone=auto", us_url)
+        self.assertIn("temperature_2m_previous_day1", us_url)
+        self.assertIn("temperature_2m_previous_day2", us_url)
+        self.assertIn("temperature_2m_previous_day3", us_url)
+        self.assertIn("temperature_unit=celsius", intl_url)
+        self.assertIn("timezone=Asia%2FJerusalem", intl_url)
 
     def test_fetch_is_injected_urlopen_never_called(self):
         def boom(_url):

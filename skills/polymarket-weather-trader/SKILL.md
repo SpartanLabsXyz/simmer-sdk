@@ -3,7 +3,7 @@ name: polymarket-weather-trader
 description: Trade Polymarket weather markets using NOAA (US) and Open-Meteo (international) forecasts via Simmer API. Inspired by gopfan2's weather trading approach. Use when user wants to trade temperature markets, automate weather bets, check forecasts, or run weather-based strategies.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.23.15"
+  version: "1.23.16"
   displayName: Polymarket Weather Trader
   difficulty: beginner
   attribution: Strategy inspired by gopfan2 (public Polymarket trader — approach referenced, not endorsed).
@@ -49,6 +49,10 @@ Use this skill when the user wants to:
 - Buy low on weather predictions
 - Check their weather trading positions
 - Configure trading thresholds or locations
+
+## What's New in v1.23.16
+
+- **Lead-aware archive (SIM-5434).** Builder fetches `temperature_2m_previous_day{1,2,3}` in one request per station. Each date is `{high, low, leads}` with top-level high/low = lead 1. Under replay, `_station_forecast(..., event_date=)` picks `lead = (event_date − tick.date).days + 1` in 1–3; further-out events skip. Incomplete hourly arrays abort the build. Provenance appends `leads=1-3` when present. Hand-built / sample files without `leads` keep the old shape.
 
 ## What's New in v1.23.15
 
@@ -312,7 +316,7 @@ All trades are tagged with `source: "sdk:weather"`. This means:
 
 **`simmer backtest` / "Failed to fetch markets from Simmer API"** — replay does not implement `tags` or `status` (422 since sdk 0.25.3/0.25.4). v1.23.9+ uses `q=temperature` under replay. A fetch failure now fails the tick (`failed_ticks`, not a clean 0-eval). If the fetch succeeds and you still see 0 weather markets, the HF volume slice likely has none — default `--min-volume` / top-volume selection is a tape follow-up, not a skill bug. Replay listings omit `resolution_criteria`; v1.23.11+ falls back to the city station table only when criteria is **missing** (Dallas excluded; present-but-unreadable still skips). Live NOAA is never called under replay.
 
-**A full-tape run with 0 entries and NOAA dark is FIX** until a real archive covers the tape dates. Build one with `scripts/build_replay_forecast_archive.py`, then copy it to `fixtures/replay_forecasts.json` before `simmer backtest` (harness strips host env; that user file is copied with the bundle). Shape: `{ "_meta": {…}, "KLGA": { "2026-04-30": { "high": 72, "low": 50 } } }` — `_meta` is ignored. `fixtures/replay_forecasts.sample.json` is that shape only — invented test temps, never auto-loaded. A set-but-missing path fails the tick. Do not treat a 0-entry tape as no-edge. See **Backtest gate** above.
+**A full-tape run with 0 entries and NOAA dark is FIX** until a real archive covers the tape dates. Build one with `scripts/build_replay_forecast_archive.py`, then copy it to `fixtures/replay_forecasts.json` before `simmer backtest` (harness strips host env; that user file is copied with the bundle). Shape: `{ "_meta": {…}, "KLGA": { "2026-04-30": { "high": 72, "low": 50, "leads": { "1": {…}, "2": {…}, "3": {…} } } } }` — top-level high/low is lead 1; `_meta` is ignored. Hand-built files may omit `leads`. `fixtures/replay_forecasts.sample.json` is that shape only — invented test temps, never auto-loaded. A set-but-missing path fails the tick. Do not treat a 0-entry tape as no-edge. See **Backtest gate** above.
 
 **"External wallet requires a pre-signed order"** — `WALLET_PRIVATE_KEY` is not set. Fix: `export WALLET_PRIVATE_KEY=0x<your-polymarket-wallet-private-key>`. The SDK signs orders automatically when this env var is present — do not attempt to sign orders manually.
 
