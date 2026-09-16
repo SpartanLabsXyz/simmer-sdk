@@ -21,24 +21,27 @@ from unittest.mock import MagicMock, patch
 _SKILL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, _SKILL_DIR)
 
-_mock_cfg = {
-    "price_cap": 0.10,
-    "max_bet_usd": 5.0,
-    "max_trades_per_run": 3,
-    "daily_budget": 15.0,
-    "min_liquidity": 500.0,
-    "min_volume_24h": 100.0,
-    "candidate_pages": 20,
-}
-
-_sdk_stub = types.ModuleType("simmer_sdk")
-_sdk_stub.SimmerClient = MagicMock(name="SimmerClient")
-_skill_stub = types.ModuleType("simmer_sdk.skill")
-_skill_stub.load_config = lambda schema, file, slug=None: _mock_cfg.copy()
-_skill_stub.update_config = lambda updates, file, slug=None: None
-_skill_stub.get_config_path = lambda file: "/tmp/config.json"
-sys.modules["simmer_sdk"] = _sdk_stub
-sys.modules["simmer_sdk.skill"] = _skill_stub
+# test_paper_mode_venue.py already stubs simmer_sdk and imports the skill
+# when CI runs the whole tests/ dir. Replacing that stub here makes
+# get_client() bind a different MagicMock and the paper suite dies.
+if "nothing_ever_happens" not in sys.modules:
+    _mock_cfg = {
+        "price_cap": 0.10,
+        "max_bet_usd": 5.0,
+        "max_trades_per_run": 3,
+        "daily_budget": 15.0,
+        "min_liquidity": 500.0,
+        "min_volume_24h": 100.0,
+        "candidate_pages": 20,
+    }
+    _sdk_stub = types.ModuleType("simmer_sdk")
+    _sdk_stub.SimmerClient = MagicMock(name="SimmerClient")
+    _skill_stub = types.ModuleType("simmer_sdk.skill")
+    _skill_stub.load_config = lambda schema, file, slug=None: _mock_cfg.copy()
+    _skill_stub.update_config = lambda updates, file, slug=None: None
+    _skill_stub.get_config_path = lambda file: "/tmp/config.json"
+    sys.modules["simmer_sdk"] = _sdk_stub
+    sys.modules["simmer_sdk.skill"] = _skill_stub
 
 import nothing_ever_happens as neh  # noqa: E402
 
