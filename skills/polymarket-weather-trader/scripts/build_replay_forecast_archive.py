@@ -7,9 +7,10 @@ station coord and reads hourly ``temperature_2m_previous_day{1,2,3}``. Each
 local day folds into {high, low, leads}. Top-level high/low is lead 1 so the
 loader shape stays ``{high, low}``.
 
-Lead N is the forecast issued N days before the event date. The loader picks
-the lead from ``(event_date - tick.date).days + 1`` so a horizon event cannot
-see a run issued after the replay tick.
+Lead N is the forecast issued N days before each valid hour. The loader picks
+the smallest N in 1–3 such that every hourly issuance for the event day
+precedes the tick (station-local 23:59:59 → UTC, using
+``_meta["utc_offset_seconds"]``).
 
 US stations (LOCATIONS / STATION_ID_TO_NOAA) are °F. International stations
 (INTERNATIONAL_STATION_COORDS) are °C. Same units as ``_station_forecast``.
@@ -38,7 +39,7 @@ HOURLY_BY_LEAD = {
     2: "temperature_2m_previous_day2",
     3: "temperature_2m_previous_day3",
 }
-VALID_HOURS_PER_DAY = frozenset({23, 24, 25})  # 23/25 on DST
+REQUIRED_HOUR_LABELS = tuple(f"{h:02d}:00" for h in range(24))
 LEAD = "previous_day1"
 SOURCE = "open-meteo-previous-runs"
 META_KEY = "_meta"
@@ -97,6 +98,22 @@ def requested_dates(start: str, end: str) -> list[str]:
     return out
 
 
+def _hour_label(stamp, *, station: str, lead: int) -> tuple[str, str]:
+    text = str(stamp)
+    if "T" not in text or len(text) < 16:
+        raise ArchiveBuildError(
+            f"{station}/lead {lead}: bad hourly timestamp {stamp!r}"
+        )
+    return text[:10], text.split("T", 1)[1][:5]
+
+
+def utc_offset_from_payload(payload: dict, *, station: str) -> int:
+    val = payload.get("utc_offset_seconds") if isinstance(payload, dict) else None
+    if not isinstance(val, (int, float)):
+        raise ArchiveBuildError(f"{station}: missing utc_offset_seconds")
+    return int(val)
+
+
 def _hours_by_day(times, temps, *, station: str, dates: list[str], lead: int) -> dict:
     """Fold one lead's hourly series. Incomplete days abort the build."""
     if not isinstance(times, list) or not isinstance(temps, list):
@@ -108,26 +125,34 @@ def _hours_by_day(times, temps, *, station: str, dates: list[str], lead: int) ->
             f"{station}/lead {lead}: hourly array length mismatch "
             f"time={len(times)} temps={len(temps)}"
         )
-    by_day: dict[str, list[float]] = {d: [] for d in dates}
+    by_day: dict[str, dict[str, float]] = {d: {} for d in dates}
     for stamp, value in zip(times, temps):
         if not stamp:
             raise ArchiveBuildError(f"{station}/lead {lead}: missing hourly timestamp")
-        day = str(stamp)[:10]
+        day, hour = _hour_label(stamp, station=station, lead=lead)
         if day not in by_day:
             continue
         if value is None:
             raise ArchiveBuildError(
                 f"{station}/{day}/lead {lead}: null hourly value"
             )
-        by_day[day].append(float(value))
+        if hour in by_day[day]:
+            raise ArchiveBuildError(
+                f"{station}/{day}/lead {lead}: duplicate hour {hour}"
+            )
+        by_day[day][hour] = float(value)
     out = {}
     for day in dates:
-        vals = by_day[day]
-        if len(vals) not in VALID_HOURS_PER_DAY:
+        labels = by_day[day]
+        missing = [h for h in REQUIRED_HOUR_LABELS if h not in labels]
+        extra = [h for h in labels if h not in REQUIRED_HOUR_LABELS]
+        if missing or extra:
+            detail = f"missing {missing[0]}" if missing else f"extra {extra[0]}"
             raise ArchiveBuildError(
-                f"{station}/{day}/lead {lead}: expected 23–25 non-null hours, "
-                f"got {len(vals)}"
+                f"{station}/{day}/lead {lead}: expected hours 00:00–23:00 "
+                f"each once ({detail})"
             )
+        vals = [labels[h] for h in REQUIRED_HOUR_LABELS]
         out[day] = {"high": round(max(vals)), "low": round(min(vals))}
     return out
 
@@ -195,11 +220,16 @@ def build_archive(
             "source": SOURCE,
             "fetched_at": fetched_at,
             "lead": LEAD,
+            "utc_offset_seconds": {},
         }
     }
     for spec in stations:
+        payload = fetch(previous_runs_url(spec, start, end))
+        archive[META_KEY]["utc_offset_seconds"][spec.station_id] = (
+            utc_offset_from_payload(payload, station=spec.station_id)
+        )
         archive[spec.station_id] = daily_from_previous_runs(
-            fetch(previous_runs_url(spec, start, end)),
+            payload,
             station=spec.station_id,
             start=start,
             end=end,

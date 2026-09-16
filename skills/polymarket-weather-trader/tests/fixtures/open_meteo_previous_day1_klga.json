@@ -2,6 +2,7 @@
   "latitude": 40.76809,
   "longitude": -73.862785,
   "timezone": "America/New_York",
+  "utc_offset_seconds": -14400,
   "hourly_units": {
     "time": "iso8601",
     "temperature_2m_previous_day1": "°F",

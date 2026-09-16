@@ -3,7 +3,7 @@ name: polymarket-weather-trader
 description: Trade Polymarket weather markets using NOAA (US) and Open-Meteo (international) forecasts via Simmer API. Inspired by gopfan2's weather trading approach. Use when user wants to trade temperature markets, automate weather bets, check forecasts, or run weather-based strategies.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.23.16"
+  version: "1.23.17"
   displayName: Polymarket Weather Trader
   difficulty: beginner
   attribution: Strategy inspired by gopfan2 (public Polymarket trader — approach referenced, not endorsed).
@@ -49,6 +49,10 @@ Use this skill when the user wants to:
 - Buy low on weather predictions
 - Check their weather trading positions
 - Configure trading thresholds or locations
+
+## What's New in v1.23.17
+
+- **Timezone-correct leads (SIM-5434).** Lead N is the smallest 1–3 such that every hourly issuance for the event day precedes the tick: `N = ceil((E_end_utc − tick) / 24h)`, where `E_end_utc` is the event date's 23:59:59 in the station offset. Builder records Open-Meteo `utc_offset_seconds` per station in `_meta`. Missing offset assumes UTC−12 (`tz=assumed`). Each date must carry hours `00:00`–`23:00` exactly once.
 
 ## What's New in v1.23.16
 

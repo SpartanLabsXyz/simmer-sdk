@@ -86,6 +86,23 @@ class TestDailyFromPreviousRuns(unittest.TestCase):
         self.assertIn("KLGA/2026-04-30/lead 1", str(ctx.exception))
         self.assertIn("null hourly", str(ctx.exception))
 
+    def test_missing_18_00_aborts_build(self):
+        """P2: 00:00–23:00 each once. Dropping 18:00 is not a valid day."""
+        recorded = _recorded()
+        times = recorded["hourly"]["time"]
+        idx = next(i for i, t in enumerate(times) if "T18:00" in str(t))
+        recorded["hourly"]["time"].pop(idx)
+        for key in (
+            "temperature_2m_previous_day1",
+            "temperature_2m_previous_day2",
+            "temperature_2m_previous_day3",
+        ):
+            recorded["hourly"][key].pop(idx)
+        with self.assertRaises(builder.ArchiveBuildError) as ctx:
+            _fold(recorded)
+        self.assertIn("KLGA/2026-04-30/lead 1", str(ctx.exception))
+        self.assertIn("18:00", str(ctx.exception))
+
 
 class TestBuildArchiveRecorded(unittest.TestCase):
     def test_shape_meta_and_no_network(self):
@@ -116,6 +133,7 @@ class TestBuildArchiveRecorded(unittest.TestCase):
                 "source": "open-meteo-previous-runs",
                 "fetched_at": "2026-09-16T06:00:00Z",
                 "lead": "previous_day1",
+                "utc_offset_seconds": {"KLGA": -14400},
             },
         )
         day = archive["KLGA"]["2026-04-30"]

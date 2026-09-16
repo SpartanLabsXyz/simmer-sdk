@@ -1422,6 +1422,8 @@ _SAMPLE_REPLAY_FORECASTS_PATH = os.path.join(
 _REPLAY_FORECASTS: dict = {}
 _replay_forecasts_load_attempted = False
 _REPLAY_FORECASTS_SOURCE = None  # resolved archive path, or None
+_REPLAY_STATION_UTC_OFFSET: dict[str, int] = {}
+ASSUMED_UTC_OFFSET_SECONDS = -12 * 3600  # UTC−12 when _meta has no offset
 
 
 class ReplayForecastArchiveError(RuntimeError):
@@ -1435,6 +1437,7 @@ def reset_replay_forecasts() -> None:
     """Clear the replay forecast plane. Tests only."""
     global _replay_forecasts_load_attempted, _REPLAY_FORECASTS_SOURCE
     _REPLAY_FORECASTS.clear()
+    _REPLAY_STATION_UTC_OFFSET.clear()
     _replay_forecasts_load_attempted = False
     _REPLAY_FORECASTS_SOURCE = None
 
@@ -1496,16 +1499,33 @@ def _parse_replay_day_temps(temps: dict) -> dict:
     return parsed
 
 
+def _parse_utc_offset_map(raw) -> None:
+    """Fill ``_REPLAY_STATION_UTC_OFFSET`` from ``_meta.utc_offset_seconds``."""
+    _REPLAY_STATION_UTC_OFFSET.clear()
+    if not isinstance(raw, dict):
+        return
+    meta = raw.get(REPLAY_FORECAST_META_KEY)
+    if not isinstance(meta, dict):
+        return
+    offsets = meta.get("utc_offset_seconds")
+    if not isinstance(offsets, dict):
+        return
+    for station, val in offsets.items():
+        if isinstance(station, str) and station.strip() and isinstance(val, (int, float)):
+            _REPLAY_STATION_UTC_OFFSET[station] = int(val)
+
+
 def _parse_replay_forecast_archive(raw) -> dict:
     """Validate the inject shape. Root is station → date → {high, low}.
 
-    ``_meta`` (source / fetched_at / lead) is ignored. It is not a station.
-    Optional ``leads`` on a day is kept so replay can pick lead 1–3.
+    ``_meta`` is not a station. ``utc_offset_seconds`` is read into
+    ``_REPLAY_STATION_UTC_OFFSET``. Optional ``leads`` on a day is kept.
     """
     if not isinstance(raw, dict):
         raise ReplayForecastArchiveError(
             "archive root must be an object keyed by station id"
         )
+    _parse_utc_offset_map(raw)
     out = {}
     for station, days in raw.items():
         if station == REPLAY_FORECAST_META_KEY:
@@ -1577,6 +1597,16 @@ def _replay_archive_has_leads() -> bool:
     return False
 
 
+def _replay_tz_assumed() -> bool:
+    """True when a leads archive is missing a recorded station offset."""
+    if not _replay_archive_has_leads():
+        return False
+    for station in _REPLAY_FORECASTS:
+        if station not in _REPLAY_STATION_UTC_OFFSET:
+            return True
+    return False
+
+
 def _replay_forecast_provenance_line() -> str:
     """One forced line: path + stations + date span, or empty-plane FIX."""
     dates = []
@@ -1593,6 +1623,8 @@ def _replay_forecast_provenance_line() -> str:
     )
     if _replay_archive_has_leads():
         line += " leads=1-3"
+        if _replay_tz_assumed():
+            line += " tz=assumed"
     return line
 
 
@@ -1624,22 +1656,46 @@ def _as_event_date(event_date):
     return event_date
 
 
-def _replay_lead_for_event(event_date) -> int | None:
-    """Lead N = days from tick date to event + 1. Outside 1–3 → None."""
+def _event_end_utc(event_date, offset_seconds: int) -> datetime:
+    """Event date 23:59:59 station-local, converted to UTC."""
+    ev = _as_event_date(event_date)
+    local_end = datetime(ev.year, ev.month, ev.day, 23, 59, 59)
+    return (local_end - timedelta(seconds=offset_seconds)).replace(tzinfo=timezone.utc)
+
+
+def _replay_lead_for_event(event_date, station_id: str) -> int | None:
+    """Smallest lead N in 1–3 whose every hourly issuance precedes the tick.
+
+    ``N = ceil((E_end_utc − tick) / 24h)``, min 1. ``E_end_utc`` is the
+    event date's 23:59:59 in the station offset. Unknown offset → UTC−12.
+    N > 3 → no forecast.
+    """
     ev = _as_event_date(event_date)
     if ev is None:
         return None
-    lead = (ev - _clock().date()).days + 1
-    if lead < 1 or lead > 3:
+    offset = _REPLAY_STATION_UTC_OFFSET.get(station_id, ASSUMED_UTC_OFFSET_SECONDS)
+    tick = _clock()
+    if tick.tzinfo is None:
+        tick = tick.replace(tzinfo=timezone.utc)
+    else:
+        tick = tick.astimezone(timezone.utc)
+    seconds = int((_event_end_utc(ev, offset) - tick).total_seconds())
+    if seconds <= 0:
+        n = 1
+    else:
+        day = 24 * 3600
+        n = (seconds + day - 1) // day
+        n = max(n, 1)
+    if n > 3:
         return None
-    return lead
+    return n
 
 
-def _replay_day_forecast(temps: dict, *, event_date=None) -> dict:
+def _replay_day_forecast(temps: dict, *, event_date=None, station_id: str = "") -> dict:
     """Pick {high, low} for one archive day.
 
-    With ``leads`` and an event date, use lead
-    ``(event_date - tick.date).days + 1``. Outside 1–3 → empty (skip).
+    With ``leads`` and an event date, use the smallest lead whose issuances
+    all precede the tick. Outside 1–3 → empty (skip).
     Without ``leads`` (hand-built / sample) use top-level high/low.
     """
     if not isinstance(temps, dict):
@@ -1647,7 +1703,7 @@ def _replay_day_forecast(temps: dict, *, event_date=None) -> dict:
     leads = temps.get("leads")
     if not isinstance(leads, dict) or not leads or event_date is None:
         return {"high": temps.get("high"), "low": temps.get("low")}
-    lead = _replay_lead_for_event(event_date)
+    lead = _replay_lead_for_event(event_date, station_id)
     if lead is None:
         return {}
     picked = leads.get(str(lead))
@@ -1674,7 +1730,9 @@ def _station_forecast(
             temps = raw.get(key)
             if not isinstance(temps, dict):
                 return {}
-            selected = _replay_day_forecast(temps, event_date=event_date)
+            selected = _replay_day_forecast(
+                temps, event_date=event_date, station_id=station_id
+            )
             return {key: selected} if selected else {}
         return {
             d: {"high": v.get("high"), "low": v.get("low")}
