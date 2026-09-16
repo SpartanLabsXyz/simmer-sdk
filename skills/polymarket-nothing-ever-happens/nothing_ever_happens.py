@@ -211,6 +211,20 @@ def should_run_balance_preflight(dry_run: bool) -> bool:
     return not dry_run and resolve_venue() != "sim" and not _is_replay()
 
 
+def _preflight_max_safe_size(preflight):
+    """Numeric cap from ensure_can_trade, or None if missing/unusable.
+
+    A MagicMock or a dict without max_safe_size must not raise on `<`.
+    """
+    if not isinstance(preflight, dict):
+        return None
+    raw = preflight.get("max_safe_size")
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return None
+
+
 # =============================================================================
 # Daily spend tracking
 # =============================================================================
@@ -828,10 +842,11 @@ def main():
                 }}))
                 _automaton_reported = True
             return
-        if _preflight["max_safe_size"] < MAX_BET_USD:
-            print(f"  💰 Capping max bet ${MAX_BET_USD:.2f} → ${_preflight['max_safe_size']:.2f} "
-                  f"(balance ${_preflight['balance']:.2f} {_preflight['collateral']})")
-            MAX_BET_USD = _preflight["max_safe_size"]
+        max_safe = _preflight_max_safe_size(_preflight)
+        if max_safe is not None and max_safe < MAX_BET_USD:
+            print(f"  💰 Capping max bet ${MAX_BET_USD:.2f} → ${max_safe:.2f} "
+                  f"(balance ${_preflight.get('balance', 0):.2f} {_preflight.get('collateral', '')})")
+            MAX_BET_USD = max_safe
 
     if not args.quiet:
         print(f"Scanning Polymarket for NO opportunities (cap: {PRICE_CAP:.0%})...")
