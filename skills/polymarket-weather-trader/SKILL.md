@@ -3,7 +3,7 @@ name: polymarket-weather-trader
 description: Trade Polymarket weather markets using NOAA (US) and Open-Meteo (international) forecasts via Simmer API. Inspired by gopfan2's weather trading approach. Use when user wants to trade temperature markets, automate weather bets, check forecasts, or run weather-based strategies.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.23.10"
+  version: "1.23.11"
   displayName: Polymarket Weather Trader
   difficulty: beginner
   attribution: Strategy inspired by gopfan2 (public Polymarket trader — approach referenced, not endorsed).
@@ -49,6 +49,12 @@ Use this skill when the user wants to:
 - Buy low on weather predictions
 - Check their weather trading positions
 - Configure trading thresholds or locations
+
+## What's New in v1.23.11
+
+- **Backtest-as-gate (SIM-5428).** Replay discovery already used `q=temperature`. The entry path now works under the same harness: frozen tick (`SIMMER_REPLAY_NOW`) for horizon/date parse, replay `yes_price` (not a silent 0.50), city-station fallback when the tape omits `resolution_criteria` (Dallas still excluded), no live NOAA/Open-Meteo (look-ahead), and preflight skipped so `WALLET_UNVERIFIED` cannot block SimState fills. Import is skipped under replay so it does not burn the eval budget.
+- **Keep / kill / fix** for the real-capital path is below. 90-day Simmer P&L is still the lock. Dogfood `MIN_HOURS=12` is a separate canary — this release does not change it.
+- **Agent glue:** `python scripts/run_backtest_gate.py` runs the pinned replay tests and prints the verdict table.
 
 ## What's New in v1.23.10
 
@@ -186,6 +192,33 @@ python weather_trader.py --live --smart-sizing --vol-targeting
 python weather_trader.py --live --quiet
 ```
 
+## Backtest gate (keep / kill / fix)
+
+90-day **real-capital P&L on Simmer** is the lock. This gate is the fast filter before more real capital. Dogfood's `MIN_HOURS=12` canary is a separate seat — do not change it here.
+
+Reuse the existing replay harness. Do not invent a second one.
+
+```bash
+# Pinned gate (no tape, no network, no API key)
+python skills/polymarket-weather-trader/scripts/run_backtest_gate.py
+
+# Same tests, direct
+python -m pytest skills/polymarket-weather-trader/tests/test_replay_discovery.py -q
+
+# Optional full-tape read (needs simmer-sdk[backtest] + a weather-capable slice)
+simmer backtest skills/polymarket-weather-trader \
+  --entrypoint weather_trader.py --window 30d --q temperature \
+  --min-volume 0 --out /tmp/wx-bt.json
+```
+
+| Verdict | What the backtest / replay outcome means for the money path |
+|---------|--------------------------------------------------------------|
+| **FIX** | Path is broken or the tape cannot evaluate the skill. Do not add capital. Repair: discovery 422 / fail-open empty listing; wall-clock horizon under replay; `yes_price` ignored (silent 0.50); every event skipped for missing `resolution_criteria`; live NOAA/Open-Meteo under replay (look-ahead); preflight `WALLET_UNVERIFIED` blocking SimState fills; 0 temperature markets on a high-volume slice (`--q temperature`, lower `--min-volume`); 0 entries because no archived/injected forecast (missing forecast plane, not "no edge"). |
+| **KILL** | Pinned pytest gate fails, **or** the path is green on a weather-capable tape, evals > 0, and the skill still cannot reach `execute_trade` when a forecast is injected, **or** after the path works, P&L after costs is clearly ≤ 0 on an honest (not live-NOAA) forecast. Do not add more real capital. |
+| **KEEP** | `run_backtest_gate.py` exits 0: `q=temperature` under replay, fetch failures raise, injected forecast + replay-shaped listing reaches `execute_trade`, live NOAA is not called. Provisional only. The 90-day Simmer P&L lock still decides scale-up. |
+
+A green full-tape run that places **0** trades because NOAA is correctly dark is **FIX** (forecast plane), not **KILL**.
+
 ## How It Works
 
 Each cycle the script:
@@ -250,7 +283,7 @@ All trades are tagged with `source: "sdk:weather"`. This means:
 
 **"No weather markets found"** — weather markets may not be active (seasonal).
 
-**`simmer backtest` / "Failed to fetch markets from Simmer API"** — replay does not implement `tags` or `status` (422 since sdk 0.25.3/0.25.4). v1.23.9+ uses `q=temperature` under replay. A fetch failure now fails the tick (`failed_ticks`, not a clean 0-eval). If the fetch succeeds and you still see 0 weather markets, the HF volume slice likely has none — default `--min-volume` / top-volume selection is a tape follow-up, not a skill bug. Replay listings also omit `resolution_criteria`, so even a weather-capable tape may skip every event at the station-parse gate.
+**`simmer backtest` / "Failed to fetch markets from Simmer API"** — replay does not implement `tags` or `status` (422 since sdk 0.25.3/0.25.4). v1.23.9+ uses `q=temperature` under replay. A fetch failure now fails the tick (`failed_ticks`, not a clean 0-eval). If the fetch succeeds and you still see 0 weather markets, the HF volume slice likely has none — default `--min-volume` / top-volume selection is a tape follow-up, not a skill bug. Replay listings omit `resolution_criteria`; v1.23.11 falls back to the city station table (Dallas excluded) so the entry path can still run. Live NOAA is never called under replay — inject `_REPLAY_FORECASTS` or treat a 0-entry tape as a missing forecast plane (FIX), not as no-edge (KILL). See **Backtest gate** below.
 
 **"External wallet requires a pre-signed order"** — `WALLET_PRIVATE_KEY` is not set. Fix: `export WALLET_PRIVATE_KEY=0x<your-polymarket-wallet-private-key>`. The SDK signs orders automatically when this env var is present — do not attempt to sign orders manually.
 

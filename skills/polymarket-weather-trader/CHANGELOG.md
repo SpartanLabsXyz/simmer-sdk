@@ -1,5 +1,13 @@
 # Changelog — polymarket-weather-trader
 
+## [1.23.11] - 2026-09-16
+
+### Added
+- **Backtest-as-gate (SIM-5428).** Extends the #368 replay discovery tests into an explicit keep/kill gate for the real-capital path. `scripts/run_backtest_gate.py` runs those pinned tests and prints the verdict table. 90-day Simmer P&L remains the lock. Dogfood `MIN_HOURS=12` is unchanged.
+
+### Fixed
+- Replay entry path used wall-clock `datetime.now()` (horizon/date parse dropped historical tape rows), ignored replay `yes_price` (silent 0.50), skipped every event when the tape omitted `resolution_criteria`, called live NOAA (look-ahead), and hit `WALLET_UNVERIFIED` on `agents/me` so SimState never filled. Under `SIMMER_REPLAY=1` the skill now uses `SIMMER_REPLAY_NOW`, replay price fields, the existing city-station fallback (Dallas still excluded), injected `_REPLAY_FORECASTS` only, skips live import (eval budget), and passes `skip_preflight=True`.
+
 ## [1.23.10] - 2026-09-14
 
 ### Fixed

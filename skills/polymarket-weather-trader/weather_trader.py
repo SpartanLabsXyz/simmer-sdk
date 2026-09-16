@@ -807,7 +807,7 @@ def parse_weather_event(event_name: str, now=None) -> dict:
     if not month:
         return None
 
-    now = datetime.now(timezone.utc) if now is None else now
+    now = _clock() if now is None else now
     if now.tzinfo is None:
         now = now.replace(tzinfo=timezone.utc)
     year = now.year
@@ -841,7 +841,7 @@ def discovery_horizon_hours(min_hours=None):
 
 def discovery_event_dates(now=None, min_hours=None):
     """UTC calendar dates from today through the discovery horizon (inclusive)."""
-    now = datetime.now(timezone.utc) if now is None else now
+    now = _clock() if now is None else now
     if now.tzinfo is None:
         now = now.replace(tzinfo=timezone.utc)
     start = now.date()
@@ -1104,8 +1104,10 @@ def check_context_safeguards(context: dict, use_edge: bool = True, min_hours: fl
     elif warning_level == "mild":
         reasons.append("Mild flip-flop warning (proceed with caution)")
 
-    # Check time to resolution
+    # Check time to resolution. Live context uses "10h" / "1d 3h".
+    # Replay listings expose seconds_to_resolution and omit the string.
     time_str = market.get("time_to_resolution", "")
+    hours = None
     if time_str:
         try:
             hours = 0
@@ -1117,12 +1119,17 @@ def check_context_safeguards(context: dict, use_edge: bool = True, min_hours: fl
                 if "d" in h_part:
                     h_part = h_part.split("d")[-1].strip()
                 hours += int(h_part)
-
-            floor = TIME_TO_RESOLUTION_MIN_HOURS if min_hours is None else min_hours
-            if hours < floor:
-                return False, [f"Resolves in {hours}h - too soon"]
         except (ValueError, IndexError):
-            pass
+            hours = None
+    elif market.get("seconds_to_resolution") is not None:
+        try:
+            hours = float(market["seconds_to_resolution"]) / 3600.0
+        except (TypeError, ValueError):
+            hours = None
+    if hours is not None:
+        floor = TIME_TO_RESOLUTION_MIN_HOURS if min_hours is None else min_hours
+        if hours < floor:
+            return False, [f"Resolves in {hours:g}h - too soon"]
 
     # Check liquidity (pre-filter before slippage, avoids wasting a context call)
     if MIN_LIQUIDITY_USD > 0:
@@ -1356,6 +1363,79 @@ def _is_replay() -> bool:
     return os.environ.get("SIMMER_REPLAY") == "1"
 
 
+def _clock() -> datetime:
+    """Wall clock, or the replay frozen tick (`SIMMER_REPLAY_NOW`).
+
+    `parse_weather_event` and the discovery horizon date events from
+    `datetime.now()`. Under replay that is the real present, so a 2026-04
+    tape is dated 2027 and `select_events_in_horizon` drops every row.
+    The harness already sets `SIMMER_REPLAY_NOW` per tick.
+    """
+    if _is_replay():
+        raw = os.environ.get("SIMMER_REPLAY_NOW")
+        if raw:
+            try:
+                dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                return dt.astimezone(timezone.utc)
+            except ValueError:
+                pass
+    return datetime.now(timezone.utc)
+
+
+def _market_yes_price(market: dict) -> float:
+    """Live listings use `external_price_yes`; replay payload uses `yes_price`."""
+    if not market:
+        return 0.5
+    for key in ("external_price_yes", "yes_price", "current_probability"):
+        val = market.get(key)
+        if val is None:
+            continue
+        try:
+            return float(val)
+        except (TypeError, ValueError):
+            continue
+    return 0.5
+
+
+# Tests / a local harness may inject
+# `{station_id: {YYYY-MM-DD: {"high": t, "low": t}}}`. Live NOAA / Open-Meteo
+# never run under replay — that would be look-ahead vs the frozen tick.
+_REPLAY_FORECASTS: dict = {}
+
+
+def _city_fallback_station(location: str):
+    """Replay-only station when the tape omits `resolution_criteria`.
+
+    Uses the existing city table (Dallas excluded — same KDFW/KDAL rule).
+    International cities map to the first airport we already hold coords for.
+    Returns `(station_id, is_international)` or `(None, False)`.
+    """
+    info = LOCATIONS.get(location) or {}
+    station = info.get("station")
+    if station:
+        return station, False
+    for icao, meta in INTERNATIONAL_STATION_COORDS.items():
+        if meta.get("city") == location:
+            return icao, True
+    return None, False
+
+
+def _station_forecast(station_id: str, is_international: bool) -> dict:
+    """Forecast map `{date: {high, low}}`. Live vendors never run under replay."""
+    if _is_replay():
+        raw = _REPLAY_FORECASTS.get(station_id) or {}
+        return {d: dict(v) for d, v in raw.items()} if raw else {}
+    if is_international:
+        fetched = get_openmeteo_forecast_for_station(station_id)
+        return {
+            d: {"high": v.get("high_c"), "low": v.get("low_c")}
+            for d, v in fetched.items()
+        }
+    return get_noaa_forecast_for_station(station_id)
+
+
 def _weather_markets_params() -> dict:
     """Live uses tags=weather; replay uses the existing q= filter.
 
@@ -1420,7 +1500,8 @@ def execute_trade(market_id: str, side: str, amount: float, reasoning: str = Non
     """Execute a buy trade via Simmer SDK with source tagging."""
     try:
         client = get_client()
-        if client.live:
+        replay = _is_replay()
+        if client.live and not replay:
             pf = client.preflight(planned_amount=amount, exposure_cap_usd=0, venue=client.venue)
             if not pf.ok_to_trade:
                 blockers = ", ".join(pf.blockers)
@@ -1429,6 +1510,7 @@ def execute_trade(market_id: str, side: str, amount: float, reasoning: str = Non
         result = client.trade(
             market_id=market_id, side=side, amount=amount, source=TRADE_SOURCE, skill_slug=SKILL_SLUG,
             reasoning=reasoning, signal_data=signal_data, order_type=ORDER_TYPE,
+            skip_preflight=replay,
         )
         out = {
             "success": result.success, "trade_id": result.trade_id,
@@ -1447,7 +1529,8 @@ def execute_sell(market_id: str, shares: float) -> dict:
     """Execute a sell trade via Simmer SDK with source tagging."""
     try:
         client = get_client()
-        if client.live:
+        replay = _is_replay()
+        if client.live and not replay:
             pf = client.preflight(planned_amount=0, exposure_cap_usd=0, venue=client.venue)
             if not pf.ok_to_trade:
                 blockers = ", ".join(pf.blockers)
@@ -1457,6 +1540,7 @@ def execute_sell(market_id: str, shares: float) -> dict:
             market_id=market_id, side="yes", action="sell",
             shares=shares, source=TRADE_SOURCE, skill_slug=SKILL_SLUG,
             order_type=ORDER_TYPE,
+            skip_preflight=replay,
         )
         out = {
             "success": result.success, "trade_id": result.trade_id,
@@ -1713,7 +1797,14 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
         return
 
     log("\n🔍 Discovering new weather markets on Polymarket...")
-    newly_imported = discover_and_import_weather_markets(log=log)
+    if _is_replay():
+        # Tape already holds the slice. Importable listings still increment
+        # the replay eval budget, so a live-style import pass can exhaust
+        # max_evaluations before fetch_weather_markets runs.
+        log("  Replay: tape already holds markets — skip live import")
+        newly_imported = 0
+    else:
+        newly_imported = discover_and_import_weather_markets(log=log)
     if newly_imported:
         log(f"  Auto-imported {newly_imported} new market(s)")
     else:
@@ -1771,7 +1862,7 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
         date_str = event_info["date"]
         metric = event_info["metric"]
 
-        if not select_events_in_horizon([event_info]):
+        if not select_events_in_horizon([event_info], now=_clock()):
             continue
 
         if location.upper() not in ACTIVE_LOCATIONS:
@@ -1795,16 +1886,26 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
         parse_result = parse_resolution_station_result(sample_criteria)
         parsed = parse_result["station"]
         if not parsed:
-            if parse_result["reason"] == SKIP_MISSING_CRITERIA:
+            fallback_id = (
+                _city_fallback_station(location)[0] if _is_replay() else None
+            )
+            if fallback_id:
+                # Replay tape omits resolution_criteria. City fallback is
+                # the existing last-resort table (Dallas excluded).
+                log(f"  Replay: no resolution_criteria — city fallback {location} → {fallback_id}")
+                parsed = {"station_id": fallback_id, "station_name": location}
+            elif parse_result["reason"] == SKIP_MISSING_CRITERIA:
                 log("  ⏭️  Skipping — market carries no resolution_criteria")
                 skip_reasons.append("missing resolution_criteria")
+                continue
             else:
                 station_parse_unreadable += 1
                 log("  ⏭️  Skipping — resolution_criteria present but no station "
                     "could be read from it (parser may be behind Polymarket's wording)")
                 skip_reasons.append("unparseable resolution_criteria")
-            continue
-        station_parse_ok += 1
+                continue
+        if parsed:
+            station_parse_ok += 1
 
         station_id = parsed.get("station_id")
         station_name = parsed.get("station_name") or station_id or "?"
@@ -1825,6 +1926,7 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
         # original Dallas bug hid).
         is_international = False
         if station_id and station_id in STATION_ID_TO_NOAA:
+            is_international = False
             log(f"  Oracle: {station_name} ({station_id}) → NOAA")
         elif station_id and station_id in INTERNATIONAL_STATION_COORDS:
             is_international = True
@@ -1839,17 +1941,13 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
         temp_unit = event_info.get("unit", "F")
 
         if cache_key not in forecast_cache:
-            if is_international:
+            if _is_replay():
+                log(f"  Replay forecast for {cache_key} (no live NOAA/Open-Meteo)...")
+            elif is_international:
                 log(f"  Fetching Open-Meteo forecast for {cache_key}...")
-                raw = get_openmeteo_forecast_for_station(cache_key)
-                # Normalise to {"high": temp, "low": temp} using Celsius keys
-                forecast_cache[cache_key] = {
-                    d: {"high": v.get("high_c"), "low": v.get("low_c")}
-                    for d, v in raw.items()
-                }
             else:
                 log(f"  Fetching NOAA forecast for {cache_key}...")
-                forecast_cache[cache_key] = get_noaa_forecast_for_station(cache_key)
+            forecast_cache[cache_key] = _station_forecast(cache_key, is_international)
 
         forecasts = forecast_cache[cache_key]
         day_forecast = forecasts.get(date_str, {})
@@ -1880,7 +1978,7 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
         # matcher loop above. `.get("outcome_name", "")` would return None when
         # the key exists with None value — same class-of-bug as SIM-2371.
         outcome_name = matching_market.get("outcome_name") or matching_market.get("question", "")
-        price = matching_market.get("external_price_yes") or 0.5
+        price = _market_yes_price(matching_market)
         market_id = matching_market.get("id")
 
         log(f"  Matching bucket: {outcome_name} @ ${price:.2f}")
@@ -1899,7 +1997,7 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
         # dogfood receipts need visibility into would-have-been tier classification.
         # Cost stays bounded — secondary_cache dedupes per station within a scan.
         secondary_temp = None
-        if not is_international:
+        if not is_international and not _is_replay():
             if cache_key not in secondary_cache:
                 log(f"  Fetching Open-Meteo cross-check for {cache_key}...")
                 secondary_cache[cache_key] = get_openmeteo_forecast_for_us_station(cache_key)
