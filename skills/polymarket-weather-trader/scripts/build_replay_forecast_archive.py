@@ -28,6 +28,7 @@ import sys
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
@@ -157,6 +158,30 @@ def _hours_by_day(times, temps, *, station: str, dates: list[str], lead: int) ->
     return out
 
 
+def reject_dst_crossing(payload: dict, *, station: str, start: str, end: str) -> None:
+    """Open-Meteo labels every hour with the REQUEST-time UTC offset.
+
+    A window that crosses a DST transition therefore carries hour labels
+    shifted by one hour for part of the window, so a "00:00–23:00" day can
+    fold the previous day's last hour and drop the event's own. Refuse such
+    windows; the caller splits them at the transition date.
+    """
+    tz_name = payload.get("timezone") if isinstance(payload, dict) else None
+    if not isinstance(tz_name, str) or not tz_name:
+        raise ArchiveBuildError(f"{station}: missing timezone in payload")
+    try:
+        tz = ZoneInfo(tz_name)
+    except (ZoneInfoNotFoundError, ValueError) as exc:
+        raise ArchiveBuildError(f"{station}: unknown timezone {tz_name!r}") from exc
+    first = datetime.strptime(start, "%Y-%m-%d").replace(hour=0, tzinfo=tz)
+    last = datetime.strptime(end, "%Y-%m-%d").replace(hour=23, tzinfo=tz)
+    if first.utcoffset() != last.utcoffset():
+        raise ArchiveBuildError(
+            f"{station}: window {start}–{end} crosses a DST transition in "
+            f"{tz_name}; split the window at the transition date"
+        )
+
+
 def daily_from_previous_runs(payload: dict, *, station: str, start: str, end: str) -> dict:
     """Fold leads 1–3 independently. Top-level high/low is lead 1."""
     dates = requested_dates(start, end)
@@ -234,6 +259,7 @@ def build_archive(
     }
     for spec in stations:
         payload = fetch(previous_runs_url(spec, start, end))
+        reject_dst_crossing(payload, station=spec.station_id, start=start, end=end)
         archive[META_KEY]["utc_offset_seconds"][spec.station_id] = (
             utc_offset_from_payload(payload, station=spec.station_id)
         )

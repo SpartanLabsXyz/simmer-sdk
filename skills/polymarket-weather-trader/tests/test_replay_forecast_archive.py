@@ -171,6 +171,36 @@ class TestBuildArchiveRecorded(unittest.TestCase):
             )
 
 
+class TestDstWindowGuard(unittest.TestCase):
+    """Codex pass-3 P2: labels use the request-time offset, so a window that
+    crosses a DST transition folds the wrong local hours. Refuse it."""
+
+    def test_window_crossing_us_dst_aborts(self):
+        recorded = _recorded()  # timezone America/New_York
+        with self.assertRaises(builder.ArchiveBuildError) as ctx:
+            builder.reject_dst_crossing(
+                recorded, station="KLGA", start="2026-03-07", end="2026-03-08"
+            )
+        self.assertIn("DST", str(ctx.exception))
+
+    def test_window_inside_one_offset_passes(self):
+        recorded = _recorded()
+        builder.reject_dst_crossing(
+            recorded, station="KLGA", start="2026-04-28", end="2026-05-05"
+        )
+
+    def test_build_archive_runs_guard(self):
+        recorded = _recorded()
+        spec = builder.StationSpec(
+            "KLGA", 40.7769, -73.874, "America/New_York", "fahrenheit"
+        )
+        with self.assertRaises(builder.ArchiveBuildError):
+            builder.build_archive(
+                "2026-11-01", "2026-11-01", [spec],
+                fetch=lambda _url: recorded, fetched_at="t",
+            )
+
+
 class TestSkillStationCoverage(unittest.TestCase):
     def test_covers_noaa_and_international_tables(self):
         rows = builder.stations_from_skill_tables(
