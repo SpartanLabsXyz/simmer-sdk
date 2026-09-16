@@ -3,7 +3,7 @@ name: polymarket-weather-trader
 description: Trade Polymarket weather markets using NOAA (US) and Open-Meteo (international) forecasts via Simmer API. Inspired by gopfan2's weather trading approach. Use when user wants to trade temperature markets, automate weather bets, check forecasts, or run weather-based strategies.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.23.14"
+  version: "1.23.17"
   displayName: Polymarket Weather Trader
   difficulty: beginner
   attribution: Strategy inspired by gopfan2 (public Polymarket trader — approach referenced, not endorsed).
@@ -49,6 +49,18 @@ Use this skill when the user wants to:
 - Buy low on weather predictions
 - Check their weather trading positions
 - Configure trading thresholds or locations
+
+## What's New in v1.23.17
+
+- **Timezone-correct leads (SIM-5434).** Lead N is the smallest 1–3 such that every hourly issuance for the event day precedes the tick: `N = ceil((E_end_utc − tick) / 24h)`, where `E_end_utc` is the event date's 23:59:59 in the station offset. Builder records Open-Meteo `utc_offset_seconds` per station in `_meta`. Missing offset assumes UTC−12 (`tz=assumed`). Each date must carry hours `00:00`–`23:00` exactly once.
+
+## What's New in v1.23.16
+
+- **Lead-aware archive (SIM-5434).** Builder fetches `temperature_2m_previous_day{1,2,3}` in one request per station. Each date is `{high, low, leads}` with top-level high/low = lead 1. Under replay, `_station_forecast(..., event_date=)` picks `lead = (event_date − tick.date).days + 1` in 1–3; further-out events skip. Incomplete hourly arrays abort the build. Provenance appends `leads=1-3` when present. Hand-built / sample files without `leads` keep the old shape.
+
+## What's New in v1.23.15
+
+- **Historical forecast archive builder (SIM-5434).** `scripts/build_replay_forecast_archive.py` fills the SIM-5429 loader plane from Open-Meteo Previous Runs. Tick D sees the D-1 forecast (`temperature_2m_previous_day1` hourly → daily high/low). US stations are °F; international stations are °C. The file may include `_meta` (source, fetched_at, lead=previous_day1); the loader ignores it. Auto-load is still only `fixtures/replay_forecasts.json` (uncommitted). `.sample.json` stays shape-only and is never loaded.
 
 ## What's New in v1.23.14
 
@@ -220,15 +232,18 @@ python skills/polymarket-weather-trader/scripts/run_backtest_gate.py
 # Same tests, direct
 python -m pytest skills/polymarket-weather-trader/tests/test_replay_discovery.py -q
 
-# Full-tape KEEP/KILL — this skill ships a loader, not an archive.
-# Copy your archive to fixtures/replay_forecasts.json (uncommitted);
-# the .sample.json is shape reference only and is never loaded.
-cp /path/to/window-archive.json \
+# Full-tape KEEP/KILL — build a window archive, copy it (uncommitted), then replay.
+# Auto-load is fixtures/replay_forecasts.json only. .sample.json is shape-only
+# and is never loaded.
+python skills/polymarket-weather-trader/scripts/build_replay_forecast_archive.py \
+  --start YYYY-MM-DD --end YYYY-MM-DD --out /tmp/replay_forecasts.json
+cp /tmp/replay_forecasts.json \
   skills/polymarket-weather-trader/fixtures/replay_forecasts.json
-# Optional in-process / pytest: export SIMMER_REPLAY_FORECASTS=/path/to/window-archive.json
 simmer backtest skills/polymarket-weather-trader \
-  --entrypoint weather_trader.py --window 30d --q temperature \
-  --min-volume 0 --out /tmp/wx-bt.json
+  --entrypoint weather_trader.py --t0 YYYY-MM-DD --t1 YYYY-MM-DD \
+  --cadence 12h --q temperature --min-volume 0
+# Then read the KEEP/KILL table below. Optional in-process / pytest:
+# export SIMMER_REPLAY_FORECASTS=/tmp/replay_forecasts.json
 ```
 
 | Verdict | What the backtest / replay outcome means for the money path |
@@ -305,7 +320,7 @@ All trades are tagged with `source: "sdk:weather"`. This means:
 
 **`simmer backtest` / "Failed to fetch markets from Simmer API"** — replay does not implement `tags` or `status` (422 since sdk 0.25.3/0.25.4). v1.23.9+ uses `q=temperature` under replay. A fetch failure now fails the tick (`failed_ticks`, not a clean 0-eval). If the fetch succeeds and you still see 0 weather markets, the HF volume slice likely has none — default `--min-volume` / top-volume selection is a tape follow-up, not a skill bug. Replay listings omit `resolution_criteria`; v1.23.11+ falls back to the city station table only when criteria is **missing** (Dallas excluded; present-but-unreadable still skips). Live NOAA is never called under replay.
 
-**A full-tape run with 0 entries and NOAA dark is FIX** until a real archive covers the tape dates. Set `SIMMER_REPLAY_FORECASTS=/path.json` (pytest / in-process) or copy a window file to `fixtures/replay_forecasts.json` before `simmer backtest` (harness strips host env; that user file is copied with the bundle). Shape: `{ "KLGA": { "2026-04-30": { "high": 72, "low": 50 } } }`. `fixtures/replay_forecasts.sample.json` is that shape only — invented test temps, never auto-loaded. A set-but-missing path fails the tick. Do not treat a 0-entry tape as no-edge. See **Backtest gate** above.
+**A full-tape run with 0 entries and NOAA dark is FIX** until a real archive covers the tape dates. Build one with `scripts/build_replay_forecast_archive.py`, then copy it to `fixtures/replay_forecasts.json` before `simmer backtest` (harness strips host env; that user file is copied with the bundle). Shape: `{ "_meta": {…}, "KLGA": { "2026-04-30": { "high": 72, "low": 50, "leads": { "1": {…}, "2": {…}, "3": {…} } } } }` — top-level high/low is lead 1; `_meta` is ignored. Hand-built files may omit `leads`. `fixtures/replay_forecasts.sample.json` is that shape only — invented test temps, never auto-loaded. A set-but-missing path fails the tick. Do not treat a 0-entry tape as no-edge. See **Backtest gate** above.
 
 **"External wallet requires a pre-signed order"** — `WALLET_PRIVATE_KEY` is not set. Fix: `export WALLET_PRIVATE_KEY=0x<your-polymarket-wallet-private-key>`. The SDK signs orders automatically when this env var is present — do not attempt to sign orders manually.
 

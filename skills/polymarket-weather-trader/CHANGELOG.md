@@ -1,5 +1,30 @@
 # Changelog — polymarket-weather-trader
 
+## [1.23.17] - 2026-09-16
+
+### Fixed
+- **Lead selection uses station-local event end, not UTC date (SIM-5434).** `_replay_lead_for_event(event_date, station_id)` picks the smallest N in 1–3 such that `E_end_utc − N·24h ≤ tick`. `E_end_utc` is the event date's 23:59:59 in `_meta["utc_offset_seconds"][station]`. Unknown offset assumes UTC−12; provenance then includes `tz=assumed`. A 00:30Z tick no longer assigns Seattle May 1 to lead 2.
+- **Hourly fold requires 00:00–23:00 each once.** No 23–25 DST blanket. A missing 18:00 aborts the build.
+- Builder fetch retries URL errors twice (60s timeout) so a transient SSL timeout does not abort a 64-station build.
+- **Windows that cross a DST transition are refused.** Open-Meteo labels every hour with the request-time offset, so a cross-transition window folds the wrong local hours. `reject_dst_crossing` (zoneinfo on the payload `timezone`) aborts with "split the window at the transition date".
+
+## [1.23.16] - 2026-09-16
+
+### Fixed
+- **Look-ahead via `previous_day1` (SIM-5434).** Hourly `temperature_2m_previous_day1` at valid hour H is the run ~24h before H, not one D-1 issuance. Horizon (D+2) and same-day-ahead evening hours could see a run issued after the replay tick. The builder now fetches leads 1–3 in one request and writes `{high, low, leads}`. The loader picks `lead = (event_date − tick.date).days + 1` in 1–3; further-out events skip. Top-level high/low stays lead 1. Archives without `leads` (sample / hand-built) keep the old path. Provenance appends `leads=1-3` when present.
+- **Incomplete hourly responses fail closed.** Missing or short arrays, a null hour, or a missing requested date raise `ArchiveBuildError` naming station/date/lead. One valid hour is not a daily high/low.
+
+## [1.23.15] - 2026-09-16
+
+### Added
+- **Historical forecast archive builder (SIM-5434).** `scripts/build_replay_forecast_archive.py --start YYYY-MM-DD --end YYYY-MM-DD --out …` fetches Open-Meteo Previous Runs (`temperature_2m_previous_day1` hourly on the forecast endpoint, per station coord) and writes `{_meta, station: {date: {high, low}}}`. Tick D sees the D-1 forecast. US stations (LOCATIONS / STATION_ID_TO_NOAA) are °F; international stations are °C — same as `_station_forecast`. `_meta` is source / fetched_at / lead=previous_day1.
+
+### Fixed
+- Loader ignores `_meta` so a builder file does not look like a station.
+
+### Docs
+- KEEP/KILL sequence is now build → copy to `fixtures/replay_forecasts.json` (uncommitted; `.sample.json` is shape-only) → `simmer backtest` → read the table. Auto-load is still only the user file, never the sample.
+
 ## [1.23.14] - 2026-09-16
 
 ### Fixed

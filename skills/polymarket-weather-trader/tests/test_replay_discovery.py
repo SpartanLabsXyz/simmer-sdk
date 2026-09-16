@@ -12,6 +12,10 @@ preflight skipped so WALLET_UNVERIFIED cannot block SimState fills).
 
 SIM-5429 adds the archive loader (`SIMMER_REPLAY_FORECASTS` / user-supplied
 fixtures/replay_forecasts.json). The committed .sample.json is never auto-loaded.
+SIM-5434 adds the builder; the loader ignores a `_meta` provenance block.
+When a day has ``leads``, replay picks the smallest N in 1–3 such that
+every hourly issuance precedes the tick (station-local 23:59:59 → UTC).
+Archives without ``leads`` keep top-level high/low.
 
 Pure-unit: no network, no live Polymarket, no SIMMER_API_KEY.
 """
@@ -503,8 +507,26 @@ class TestReplayForecastLoader(_PatchDefaultArchiveMixin, unittest.TestCase):
 
     def tearDown(self):
         os.environ.pop("SIMMER_REPLAY", None)
+        os.environ.pop("SIMMER_REPLAY_NOW", None)
         os.environ.pop("SIMMER_REPLAY_FORECASTS", None)
         wt.reset_replay_forecasts()
+
+    def test_loader_ignores_meta_block(self):
+        """Builder writes `_meta`; it is provenance, not a station."""
+        os.environ["SIMMER_REPLAY"] = "1"
+        path = _write_archive({
+            "_meta": {
+                "source": "open-meteo-previous-runs",
+                "fetched_at": "2026-09-16T00:00:00Z",
+                "lead": "previous_day1",
+            },
+            "KLGA": {"2026-04-30": {"high": 72, "low": 50}},
+        })
+        loaded = wt.load_replay_forecasts(path)
+        self.assertNotIn("_meta", loaded)
+        self.assertNotIn("_meta", wt._REPLAY_FORECASTS)
+        self.assertEqual(loaded["KLGA"]["2026-04-30"]["high"], 72)
+        self.assertIn("stations=1", wt._replay_forecast_provenance_line())
 
     def test_loader_fills_dict_from_env_path(self):
         os.environ["SIMMER_REPLAY"] = "1"
@@ -512,6 +534,7 @@ class TestReplayForecastLoader(_PatchDefaultArchiveMixin, unittest.TestCase):
         loaded = wt.load_replay_forecasts()
         self.assertEqual(loaded["KLGA"]["2026-04-30"]["high"], 72)
         self.assertEqual(wt._REPLAY_FORECASTS["KLGA"]["2026-04-30"]["low"], 50)
+        self.assertNotIn("_meta", loaded)
 
     def test_loader_fills_dict_from_explicit_path(self):
         os.environ["SIMMER_REPLAY"] = "1"
@@ -603,6 +626,154 @@ class TestReplayForecastLoader(_PatchDefaultArchiveMixin, unittest.TestCase):
              patch.object(wt, "get_openmeteo_forecast_for_station", noaa):
             self.assertEqual(wt._station_forecast("KLGA", False), {})
         noaa.assert_not_called()
+
+    def test_ksea_lead_at_0030z(self):
+        """P1: tick 2026-04-30T00:30Z, KSEA −25200 → Apr 30/2, May 1/3, May 2/none."""
+        os.environ["SIMMER_REPLAY"] = "1"
+        os.environ["SIMMER_REPLAY_NOW"] = "2026-04-30T00:30:00+00:00"
+        wt._REPLAY_STATION_UTC_OFFSET["KSEA"] = -25200
+        day = {
+            "high": 11,
+            "low": 10,
+            "leads": {
+                "1": {"high": 11, "low": 10},
+                "2": {"high": 22, "low": 20},
+                "3": {"high": 33, "low": 30},
+            },
+        }
+        wt._REPLAY_FORECASTS["KSEA"] = {
+            "2026-04-30": day,
+            "2026-05-01": day,
+            "2026-05-02": day,
+        }
+        self.assertEqual(wt._replay_lead_for_event("2026-04-30", "KSEA"), 2)
+        self.assertEqual(wt._replay_lead_for_event("2026-05-01", "KSEA"), 3)
+        self.assertIsNone(wt._replay_lead_for_event("2026-05-02", "KSEA"))
+        self.assertEqual(
+            wt._station_forecast("KSEA", False, event_date="2026-04-30")
+            ["2026-04-30"]["high"],
+            22,
+        )
+        self.assertEqual(
+            wt._station_forecast("KSEA", False, event_date="2026-05-01")
+            ["2026-05-01"]["high"],
+            33,
+        )
+        self.assertEqual(
+            wt._station_forecast("KSEA", False, event_date="2026-05-02"),
+            {},
+        )
+
+    def test_llbg_lead_at_0030z(self):
+        """P1: same tick, LLBG +10800 → Apr 30 lead 1, May 1 lead 2."""
+        os.environ["SIMMER_REPLAY"] = "1"
+        os.environ["SIMMER_REPLAY_NOW"] = "2026-04-30T00:30:00+00:00"
+        wt._REPLAY_STATION_UTC_OFFSET["LLBG"] = 10800
+        day = {
+            "high": 11,
+            "low": 10,
+            "leads": {
+                "1": {"high": 11, "low": 10},
+                "2": {"high": 22, "low": 20},
+                "3": {"high": 33, "low": 30},
+            },
+        }
+        wt._REPLAY_FORECASTS["LLBG"] = {"2026-04-30": day, "2026-05-01": day}
+        self.assertEqual(wt._replay_lead_for_event("2026-04-30", "LLBG"), 1)
+        self.assertEqual(wt._replay_lead_for_event("2026-05-01", "LLBG"), 2)
+        self.assertEqual(
+            wt._station_forecast("LLBG", True, event_date="2026-04-30")
+            ["2026-04-30"]["high"],
+            11,
+        )
+        self.assertEqual(
+            wt._station_forecast("LLBG", True, event_date="2026-05-01")
+            ["2026-05-01"]["high"],
+            22,
+        )
+
+    def test_leads_archive_no_offsets_assumes_utc_minus_12(self):
+        """P1: leads without _meta offsets → UTC−12, provenance tz=assumed."""
+        os.environ["SIMMER_REPLAY"] = "1"
+        os.environ["SIMMER_REPLAY_NOW"] = "2026-04-30T00:30:00+00:00"
+        path = _write_archive({
+            "KLGA": {
+                "2026-04-30": {
+                    "high": 11,
+                    "low": 10,
+                    "leads": {
+                        "1": {"high": 11, "low": 10},
+                        "2": {"high": 22, "low": 20},
+                        "3": {"high": 33, "low": 30},
+                    },
+                },
+                "2026-05-01": {
+                    "high": 11,
+                    "low": 10,
+                    "leads": {
+                        "1": {"high": 11, "low": 10},
+                        "2": {"high": 22, "low": 20},
+                        "3": {"high": 33, "low": 30},
+                    },
+                },
+                "2026-05-02": {
+                    "high": 11,
+                    "low": 10,
+                    "leads": {
+                        "1": {"high": 11, "low": 10},
+                        "2": {"high": 22, "low": 20},
+                        "3": {"high": 33, "low": 30},
+                    },
+                },
+            }
+        })
+        wt.load_replay_forecasts(path)
+        self.assertEqual(wt._REPLAY_STATION_UTC_OFFSET, {})
+        self.assertEqual(wt._replay_lead_for_event("2026-04-30", "KLGA"), 2)
+        self.assertEqual(wt._replay_lead_for_event("2026-05-01", "KLGA"), 3)
+        self.assertIsNone(wt._replay_lead_for_event("2026-05-02", "KLGA"))
+        self.assertIn("tz=assumed", wt._replay_forecast_provenance_line())
+
+    def test_leads_less_archive_uses_top_level(self):
+        """P1 (c): hand-built / sample without leads keep today's shape."""
+        os.environ["SIMMER_REPLAY"] = "1"
+        os.environ["SIMMER_REPLAY_NOW"] = "2026-04-29T12:00:00+00:00"
+        wt._REPLAY_FORECASTS["KLGA"] = {"2026-04-30": {"high": 72, "low": 50}}
+        self.assertEqual(
+            wt._station_forecast("KLGA", False, event_date="2026-04-30")
+            ["2026-04-30"]["high"],
+            72,
+        )
+        self.assertEqual(
+            wt._station_forecast("KLGA", False)["2026-04-30"]["high"], 72
+        )
+
+    def test_loader_preserves_leads_and_provenance(self):
+        os.environ["SIMMER_REPLAY"] = "1"
+        path = _write_archive({
+            "_meta": {
+                "source": "open-meteo-previous-runs",
+                "utc_offset_seconds": {"KLGA": -14400},
+            },
+            "KLGA": {
+                "2026-04-30": {
+                    "high": 11,
+                    "low": 10,
+                    "leads": {
+                        "1": {"high": 11, "low": 10},
+                        "2": {"high": 22, "low": 20},
+                        "3": {"high": 33, "low": 30},
+                    },
+                }
+            }
+        })
+        loaded = wt.load_replay_forecasts(path)
+        self.assertEqual(loaded["KLGA"]["2026-04-30"]["leads"]["2"]["high"], 22)
+        self.assertEqual(wt._REPLAY_STATION_UTC_OFFSET["KLGA"], -14400)
+        self.assertNotIn("_meta", loaded)
+        line = wt._replay_forecast_provenance_line()
+        self.assertIn("leads=1-3", line)
+        self.assertNotIn("tz=assumed", line)
 
 
 if __name__ == "__main__":
