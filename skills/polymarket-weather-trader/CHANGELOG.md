@@ -159,30 +159,6 @@
 ### Fixed
 - Event grouping now keys on `event_ref` (the canonical parent-event id, present on every market) instead of the legacy `event_id`, which SDK-imported markets historically lacked. Fixes temperature buckets silently dropping out of their event group when `event_id` came back null.
 
-## [1.21.0] - 2026-05-03
-
-### Added
-- Per-market resolution source routing. Each market is routed to the specific weather station Polymarket reads, parsed from `resolution_criteria`, instead of a hardcoded city-to-station map. Unknown stations are skipped with a log line.
-- Expanded NOAA coverage: KLGA, KJFK, KEWR, KNYC, KORD, KMDW, KSEA, KATL, KDAL, KDFW, KMIA, KBOS, KDCA, KIAD, KPHX, KLAS, KSFO, KLAX, KDEN, KMSP, KPHL.
-- Expanded international coverage: Madrid, Milan, Amsterdam, and Taipei.
-
-### Changed
-- Requires the `?include=resolution_criteria` flag on `/api/sdk/markets` (live on Simmer backend 2026-05-03).
-
-## [1.20.1] - 2026-04-24
-
-### Docs
-- Surfaced safety rails at the top: paper-default, `--live` requirement, configurable caps, server-side risk monitor, strategy-side safeguards, and reversibility.
-- Genericized risk-monitor framing around configurable user settings.
-- Pointed wallet setup to `docs.simmer.markets/wallets`.
-
-## [1.20.0] - 2026-04-20
-
-### Changed
-- Uses `SimmerClient.from_env()` from `simmer-sdk>=0.13.0`, auto-reading `SIMMER_API_KEY` and raising a dashboard-linked `RuntimeError` if unset.
-- Trimmed duplicated wallet-setup, changelog, and decorative content as part of the slim per-skill catalog reshape.
-- Removed retired `AUTOMATON_*` env reads.
-
 ## [1.22.2] - 2026-05-24
 
 ### Fixed
@@ -232,3 +208,26 @@ Polymarket weather markets have whole-degree buckets — a ~1°F source disagree
 
 ## [1.21.1] - prior
 - See git history.
+
+## [1.21.0] - 2026-05-03
+
+### Added
+- Per-market resolution source routing. Each market is routed to the specific weather station Polymarket reads, parsed from `resolution_criteria`, instead of a hardcoded city-to-station map. Unknown stations are skipped with a log line.
+- Expanded NOAA coverage: KLGA, KJFK, KEWR, KNYC, KORD, KMDW, KSEA, KATL, KDAL, KDFW, KMIA, KBOS, KDCA, KIAD, KPHX, KLAS, KSFO, KLAX, KDEN, KMSP, KPHL.
+- Expanded international coverage: Madrid, Milan, Amsterdam, and Taipei.
+
+### Changed
+- Requires the `?include=resolution_criteria` flag on `/api/sdk/markets` (live on Simmer backend 2026-05-03).
+
+## [1.20.1] - 2026-04-24
+
+### Docs
+- Surfaced safety rails at the top: paper-default, `--live` requirement, configurable caps, server-side risk monitor, strategy-side safeguards, and reversibility.
+- Genericized risk-monitor framing around configurable user settings.
+- Pointed wallet setup to `docs.simmer.markets/wallets`.
+
+## [1.20.0] - 2026-04-20
+
+### Changed
+- Uses `SimmerClient.from_env()` from `simmer-sdk>=0.13.0`, auto-reading `SIMMER_API_KEY` and raising a dashboard-linked `RuntimeError` if unset.
+- Trimmed duplicated wallet-setup, changelog, and decorative content as part of the slim per-skill catalog reshape.
