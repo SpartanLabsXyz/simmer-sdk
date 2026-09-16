@@ -219,7 +219,7 @@ class PreflightResult:
     resolved_venue: str
     execution_wallet: Optional[str]
     deposit_wallet: Optional[str]
-    signer_status: str  # "ows" | "external_key" | "managed"
+    signer_status: str  # "ows" | "external_key" | "managed" | "replay"
     spendable_balance: Optional[float]
     gas_balance: Optional[float]
     open_exposure_total: float
@@ -1168,6 +1168,27 @@ class SimmerClient:
         resolved_venue = venue or self.venue
         if resolved_venue in ("simmer", "sandbox"):
             resolved_venue = "sim"
+
+        if os.environ.get("SIMMER_REPLAY") == "1":
+            return PreflightResult(
+                client_preflight_id=client_preflight_id,
+                agent_id=None,
+                tier="replay",
+                resolved_venue=resolved_venue,
+                execution_wallet=self._wallet_address,
+                deposit_wallet=self._deposit_wallet_address,
+                signer_status="replay",
+                spendable_balance=None,
+                gas_balance=None,
+                open_exposure_total=0.0,
+                exposure_cap_usd=exposure_cap_usd,
+                planned_amount=planned_amount,
+                would_exceed_cap=False,
+                pending_alerts=[],
+                ok_to_trade=True,
+                blockers=[],
+                warnings=["replay_preflight_ok"],
+            )
 
         blockers: List[str] = []
         warnings_list: List[str] = []

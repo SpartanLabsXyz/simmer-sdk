@@ -202,6 +202,27 @@ class TestPreflightVenueResolution(unittest.TestCase):
         self.assertIn("VENUE_UNSUPPORTED", result.blockers)
         self.assertFalse(result.ok_to_trade)
 
+    def test_replay_env_returns_ok_for_real_venue_without_network(self):
+        client = _make_client(venue="polymarket")
+
+        def _unexpected_request(method, endpoint, **kwargs):
+            raise AssertionError(f"replay preflight should not call {endpoint}")
+
+        client._request = _unexpected_request
+
+        with patch.dict(os.environ, {"SIMMER_REPLAY": "1"}):
+            result = client.preflight(
+                venue="polymarket",
+                planned_amount=5.0,
+                exposure_cap_usd=100.0,
+            )
+
+        self.assertTrue(result.ok_to_trade)
+        self.assertEqual(result.blockers, [])
+        self.assertEqual(result.resolved_venue, "polymarket")
+        self.assertEqual(result.signer_status, "replay")
+        self.assertIn("replay_preflight_ok", result.warnings)
+
 
 class TestPreflightWalletIdentity(unittest.TestCase):
     """Wallet identity resolution — user-primary vs per-agent OWS."""

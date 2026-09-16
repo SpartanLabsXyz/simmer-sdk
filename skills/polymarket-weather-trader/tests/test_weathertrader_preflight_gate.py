@@ -15,6 +15,7 @@ import sys
 import os
 import types
 import unittest
+import warnings
 from unittest.mock import MagicMock, patch
 
 _SKILL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -26,6 +27,8 @@ _mock_cfg = {
     "binary_only": False, "slippage_max": 0.15, "min_liquidity": 0.0,
     "order_type": "GTC", "vol_targeting": False, "target_vol": 0.20,
     "vol_max_leverage": 2.0, "vol_min_allocation": 0.2, "vol_span": 10,
+    "require_source_agreement": False, "canary_on_adjacent": False,
+    "max_canary_usd": 1.0, "max_source_spread_f": 5.0,
 }
 
 _skill_stub = types.ModuleType("simmer_sdk.skill")
@@ -80,6 +83,28 @@ class TestPreflightGateWeatherBuy(unittest.TestCase):
             result = wt.execute_trade("mkt_abc", "yes", 2.0)
 
         mock_client.trade.assert_called_once()
+        self.assertTrue(result["success"])
+
+    def test_replay_buy_calls_trade_without_skip_preflight(self):
+        mock_client = MagicMock()
+        mock_client.live = True
+        mock_client.venue = "polymarket"
+        mock_client.preflight.return_value = _make_preflight(ok=True)
+        mock_client.trade.return_value = _make_trade_result(success=True)
+
+        with patch.dict(os.environ, {"SIMMER_REPLAY": "1"}), \
+             patch.object(wt, "get_client", return_value=mock_client), \
+             warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            result = wt.execute_trade("mkt_abc", "yes", 2.0)
+
+        mock_client.preflight.assert_called_once_with(
+            planned_amount=2.0, exposure_cap_usd=0, venue="polymarket"
+        )
+        mock_client.trade.assert_called_once()
+        trade_kwargs = mock_client.trade.call_args.kwargs
+        self.assertNotIn("skip_preflight", trade_kwargs)
+        self.assertFalse(any(item.category is DeprecationWarning for item in caught))
         self.assertTrue(result["success"])
 
     def test_buy_preflight_called_with_cap_zero(self):
@@ -149,6 +174,28 @@ class TestPreflightGateWeatherSell(unittest.TestCase):
             result = wt.execute_sell("mkt_abc", 10.0)
 
         mock_client.trade.assert_called_once()
+        self.assertTrue(result["success"])
+
+    def test_replay_sell_calls_trade_without_skip_preflight(self):
+        mock_client = MagicMock()
+        mock_client.live = True
+        mock_client.venue = "polymarket"
+        mock_client.preflight.return_value = _make_preflight(ok=True)
+        mock_client.trade.return_value = _make_trade_result(success=True)
+
+        with patch.dict(os.environ, {"SIMMER_REPLAY": "1"}), \
+             patch.object(wt, "get_client", return_value=mock_client), \
+             warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            result = wt.execute_sell("mkt_abc", 10.0)
+
+        mock_client.preflight.assert_called_once_with(
+            planned_amount=0, exposure_cap_usd=0, venue="polymarket"
+        )
+        mock_client.trade.assert_called_once()
+        trade_kwargs = mock_client.trade.call_args.kwargs
+        self.assertNotIn("skip_preflight", trade_kwargs)
+        self.assertFalse(any(item.category is DeprecationWarning for item in caught))
         self.assertTrue(result["success"])
 
     def test_sell_paper_mode_skips_preflight(self):
