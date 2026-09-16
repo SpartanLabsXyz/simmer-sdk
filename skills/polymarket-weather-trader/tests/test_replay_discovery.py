@@ -18,6 +18,7 @@ Pure-unit: no network, no live Polymarket, no SIMMER_API_KEY.
 import io
 import json
 import os
+import shutil
 import sys
 import tempfile
 import types
@@ -76,6 +77,28 @@ sys.modules["simmer_sdk"] = MagicMock()
 sys.modules["simmer_sdk.skill"] = _skill_mod
 
 import weather_trader as wt  # noqa: E402
+
+
+class _PatchDefaultArchiveMixin:
+    """Empty-archive tests must not read the real user archive path.
+
+    KEEP docs say ``cp <window> fixtures/replay_forecasts.json``. If the
+    pinned gate asserts that file is absent, following the docs turns
+    ``run_backtest_gate.py`` red (KILL). Point the default at a missing
+    temp path instead.
+    """
+
+    def setUp(self):
+        self._archive_tmpdir = tempfile.mkdtemp(prefix="wx-replay-default-")
+        self._missing_default = os.path.join(
+            self._archive_tmpdir, "replay_forecasts.json"
+        )
+        p = patch.object(wt, "_DEFAULT_REPLAY_FORECASTS_PATH", self._missing_default)
+        p.start()
+        self.addCleanup(p.stop)
+        self.addCleanup(
+            lambda: shutil.rmtree(self._archive_tmpdir, ignore_errors=True)
+        )
 
 
 class TestWeatherMarketsParams(unittest.TestCase):
@@ -289,7 +312,7 @@ class TestReplayClockAndPrice(unittest.TestCase):
             wt.TIME_TO_RESOLUTION_MIN_HOURS = 2
 
 
-class TestReplayStationAndForecast(unittest.TestCase):
+class TestReplayStationAndForecast(_PatchDefaultArchiveMixin, unittest.TestCase):
     def tearDown(self):
         os.environ.pop("SIMMER_REPLAY", None)
         os.environ.pop("SIMMER_REPLAY_FORECASTS", None)
@@ -354,7 +377,7 @@ class TestReplayPreflightSkip(unittest.TestCase):
         self.assertEqual(result, {"error": "preflight_blocked: WALLET_UNVERIFIED"})
 
 
-class TestReplayEntryPath(unittest.TestCase):
+class TestReplayEntryPath(_PatchDefaultArchiveMixin, unittest.TestCase):
     """Pinned: discovery+entry reaches trade() under replay-shaped listings."""
 
     def tearDown(self):
@@ -415,7 +438,6 @@ class TestReplayEntryPath(unittest.TestCase):
         os.environ["SIMMER_REPLAY"] = "1"
         os.environ["SIMMER_REPLAY_NOW"] = REPLAY_NOW
         os.environ.pop("SIMMER_REPLAY_FORECASTS", None)
-        self.assertFalse(os.path.isfile(_USER_ARCHIVE))
         execute = MagicMock()
         _import_fn, noaa = self._run([_replay_market()], execute)
         execute.assert_not_called()
@@ -476,7 +498,7 @@ class TestReplayEntryPath(unittest.TestCase):
         execute.assert_not_called()
 
 
-class TestReplayForecastLoader(unittest.TestCase):
+class TestReplayForecastLoader(_PatchDefaultArchiveMixin, unittest.TestCase):
     """SIM-5429: env / fixture archive fills `_REPLAY_FORECASTS`; never NOAA."""
 
     def tearDown(self):
@@ -535,24 +557,34 @@ class TestReplayForecastLoader(unittest.TestCase):
             wt.load_replay_forecasts(path)
 
     def test_sample_file_is_not_auto_loaded(self):
-        """Only the committed .sample.json exists → honest empty plane."""
+        """Committed .sample.json is not the default path → empty plane."""
         os.environ["SIMMER_REPLAY"] = "1"
         os.environ.pop("SIMMER_REPLAY_FORECASTS", None)
         self.assertTrue(os.path.isfile(_SAMPLE_ARCHIVE))
-        self.assertFalse(os.path.isfile(_USER_ARCHIVE))
+        self.assertFalse(os.path.isfile(wt._DEFAULT_REPLAY_FORECASTS_PATH))
         self.assertEqual(wt.load_replay_forecasts(), {})
         self.assertEqual(wt._REPLAY_FORECASTS, {})
 
     def test_user_archive_auto_loads_when_present(self):
         os.environ["SIMMER_REPLAY"] = "1"
         os.environ.pop("SIMMER_REPLAY_FORECASTS", None)
-        path = _write_archive({"KLGA": {"2026-04-30": {"high": 72, "low": 50}}})
-        try:
-            with patch.object(wt, "_DEFAULT_REPLAY_FORECASTS_PATH", path):
-                loaded = wt.load_replay_forecasts()
-            self.assertEqual(loaded["KLGA"]["2026-04-30"]["high"], 72)
-        finally:
-            os.unlink(path)
+        with open(self._missing_default, "w", encoding="utf-8") as fh:
+            json.dump({"KLGA": {"2026-04-30": {"high": 72, "low": 50}}}, fh)
+        loaded = wt.load_replay_forecasts()
+        self.assertEqual(loaded["KLGA"]["2026-04-30"]["high"], 72)
+
+    def test_empty_plane_does_not_depend_on_working_tree_user_file(self):
+        """Pinned gate stays green if KEEP docs put an archive in the skill dir."""
+        os.environ["SIMMER_REPLAY"] = "1"
+        os.environ.pop("SIMMER_REPLAY_FORECASTS", None)
+        self.assertNotEqual(wt._DEFAULT_REPLAY_FORECASTS_PATH, _USER_ARCHIVE)
+        self.assertFalse(os.path.isfile(wt._DEFAULT_REPLAY_FORECASTS_PATH))
+        self.assertEqual(wt.load_replay_forecasts(), {})
+        with open(self._missing_default, "w", encoding="utf-8") as fh:
+            json.dump({"KLGA": {"2026-04-30": {"high": 72, "low": 50}}}, fh)
+        wt.reset_replay_forecasts()
+        loaded = wt.load_replay_forecasts()
+        self.assertEqual(loaded["KLGA"]["2026-04-30"]["high"], 72)
 
     def test_station_forecast_stays_empty_without_user_archive(self):
         os.environ["SIMMER_REPLAY"] = "1"
