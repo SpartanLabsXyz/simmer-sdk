@@ -13,7 +13,8 @@ import os
 import sys
 import types
 import unittest
-from unittest.mock import MagicMock
+from datetime import datetime, timezone
+from unittest.mock import MagicMock, patch
 
 
 _SKILL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -177,6 +178,52 @@ class TestMinHoursToResolve(unittest.TestCase):
         wt.TIME_TO_RESOLUTION_MIN_HOURS = 24
         ok, _ = wt.check_context_safeguards(_context("1h"), min_hours=wt.EXIT_MIN_HOURS_TO_RESOLVE)
         self.assertFalse(ok)
+
+
+class TestDiscoveryHorizon(unittest.TestCase):
+    """A 24h entry floor needs tomorrow's markets, not just same-day results."""
+
+    def test_search_terms_include_next_two_calendar_days_first(self):
+        now = datetime(2026, 9, 9, 1, 0, tzinfo=timezone.utc)
+        terms = wt.build_weather_discovery_search_terms("NYC", now=now)
+
+        self.assertEqual(terms[0], "temperature new york September 10")
+        self.assertIn("temperature nyc Sep 11", terms)
+        self.assertEqual(terms[-2:], ["temperature new york", "temperature nyc"])
+
+    def test_discovery_imports_tomorrow_market_from_dated_query(self):
+        class FakeClient:
+            def __init__(self):
+                self.queries = []
+                self.imported = []
+
+            def list_importable_markets(self, q, venue, min_volume, limit):
+                self.queries.append(q)
+                if q == "temperature new york September 10":
+                    return [{
+                        "url": "https://polymarket.com/event/nyc-high-temp-sep-10",
+                        "question": "What will the highest temperature be in New York on September 10?",
+                    }]
+                return []
+
+            def import_market(self, url):
+                self.imported.append(url)
+                return {"status": "imported"}
+
+        fake = FakeClient()
+        original_locations = wt.ACTIVE_LOCATIONS
+        wt.ACTIVE_LOCATIONS = ["NYC"]
+        try:
+            with patch.object(wt, "get_client", return_value=fake), patch.object(
+                wt, "build_weather_discovery_search_terms",
+                return_value=["temperature new york September 10", "temperature new york"],
+            ):
+                self.assertEqual(wt.discover_and_import_weather_markets(log=lambda _: None), 1)
+        finally:
+            wt.ACTIVE_LOCATIONS = original_locations
+
+        self.assertEqual(fake.imported, ["https://polymarket.com/event/nyc-high-temp-sep-10"])
+        self.assertEqual(fake.queries[0], "temperature new york September 10")
 
 
 if __name__ == "__main__":

@@ -21,7 +21,9 @@ import sys
 import re
 import json
 import argparse
+import os
 from datetime import datetime, timezone, timedelta
+from pathlib import Path
 from urllib.request import urlopen, Request
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
@@ -122,6 +124,9 @@ _client = None
 # Module-level so the cache persists across multiple run_weather_strategy calls
 # within the same process (e.g., an agent that polls on a short interval).
 _STALE_ORDERBOOK_IDS: set = set()
+_REPLAY_FORECAST_ARCHIVE = None
+_REPLAY_FORECAST_ARCHIVE_PATH = None
+_REPLAY_FORECAST_ARCHIVE_LOGGED = False
 
 
 def _is_stale_orderbook_error(error_str: str) -> bool:
@@ -130,6 +135,57 @@ def _is_stale_orderbook_error(error_str: str) -> bool:
         return False
     lower = error_str.lower()
     return "orderbook" in lower and "does not exist" in lower
+
+
+def _default_replay_forecast_archive_path() -> Path:
+    return Path(__file__).resolve().parent / "fixtures" / "replay_forecasts.json"
+
+
+def load_replay_forecast_archive(path=None) -> dict:
+    """Load the bundled replay forecast archive, ignoring provenance metadata."""
+    archive_path = Path(path or os.environ.get("SIMMER_WEATHER_REPLAY_FORECASTS")
+                        or _default_replay_forecast_archive_path())
+    with archive_path.open() as fh:
+        raw = json.load(fh)
+    return {station_id: days for station_id, days in raw.items() if station_id != "_meta"}
+
+
+def _load_replay_forecast_archive_with_meta(path=None) -> tuple[dict, dict, Path]:
+    archive_path = Path(path or os.environ.get("SIMMER_WEATHER_REPLAY_FORECASTS")
+                        or _default_replay_forecast_archive_path())
+    with archive_path.open() as fh:
+        raw = json.load(fh)
+    meta = raw.get("_meta", {}) if isinstance(raw, dict) else {}
+    archive = {station_id: days for station_id, days in raw.items() if station_id != "_meta"}
+    return archive, meta, archive_path
+
+
+def get_replay_forecasts_for_station(station_id: str) -> dict | None:
+    """Forecasts for a station from the local replay archive, or None if absent."""
+    global _REPLAY_FORECAST_ARCHIVE, _REPLAY_FORECAST_ARCHIVE_PATH
+    if _REPLAY_FORECAST_ARCHIVE is None:
+        try:
+            archive, _meta, path = _load_replay_forecast_archive_with_meta()
+        except OSError:
+            return None
+        _REPLAY_FORECAST_ARCHIVE = archive
+        _REPLAY_FORECAST_ARCHIVE_PATH = path
+    return _REPLAY_FORECAST_ARCHIVE.get(station_id)
+
+
+def _replay_forecast_provenance_line() -> str | None:
+    global _REPLAY_FORECAST_ARCHIVE, _REPLAY_FORECAST_ARCHIVE_PATH
+    try:
+        archive, meta, path = _load_replay_forecast_archive_with_meta()
+    except OSError:
+        return None
+    _REPLAY_FORECAST_ARCHIVE = archive
+    _REPLAY_FORECAST_ARCHIVE_PATH = path
+    stations = meta.get("stations") or len(archive)
+    start = meta.get("start")
+    end = meta.get("end")
+    span = f"{start}..{end}" if start and end else "unknown span"
+    return f"Replay forecast archive: {path} ({stations} stations, {span})"
 
 def get_client(live=True):
     """Lazy-init SimmerClient singleton."""
@@ -800,7 +856,11 @@ def parse_weather_event(event_name: str) -> dict:
     if not month:
         return None
 
-    now = datetime.now(timezone.utc)
+    replay_now = os.environ.get("SIMMER_REPLAY_NOW") if os.environ.get("SIMMER_REPLAY") == "1" else None
+    if replay_now:
+        now = datetime.fromisoformat(replay_now.replace("Z", "+00:00")).astimezone(timezone.utc)
+    else:
+        now = datetime.now(timezone.utc)
     year = now.year
     try:
         target_date = datetime(year, month, day, tzinfo=timezone.utc)
@@ -1213,6 +1273,39 @@ LOCATION_SEARCH_TERMS = {
     "Dallas": ["temperature dallas"],
     "Miami": ["temperature miami"],
 }
+DISCOVERY_DAYS_AHEAD = 2
+
+
+def build_weather_discovery_search_terms(location: str, now=None) -> list:
+    """Return future-dated discovery queries before the legacy broad query.
+
+    The importable-market search tends to rank same-day weather events first.
+    A morning heartbeat with SIMMER_WEATHER_MIN_HOURS_TO_RESOLVE=24 needs at
+    least tomorrow's events in the candidate set, so search those dates
+    explicitly instead of relying on a broad "temperature city" query.
+    """
+    base_terms = LOCATION_SEARCH_TERMS.get(location, [f"temperature {location.lower()}"])
+    today = (now or datetime.now().astimezone()).date()
+    terms = []
+    seen = set()
+
+    for offset in range(1, DISCOVERY_DAYS_AHEAD + 1):
+        target = today + timedelta(days=offset)
+        month_full = target.strftime("%B")
+        month_short = target.strftime("%b")
+        for base in base_terms:
+            for suffix in (f"{month_full} {target.day}", f"{month_short} {target.day}"):
+                query = f"{base} {suffix}"
+                if query not in seen:
+                    seen.add(query)
+                    terms.append(query)
+
+    for base in base_terms:
+        if base not in seen:
+            seen.add(base)
+            terms.append(base)
+
+    return terms
 
 
 def discover_and_import_weather_markets(log=print):
@@ -1228,7 +1321,7 @@ def discover_and_import_weather_markets(log=print):
     seen_urls = set()
 
     for location in ACTIVE_LOCATIONS:
-        search_terms = LOCATION_SEARCH_TERMS.get(location, [f"temperature {location.lower()}"])
+        search_terms = build_weather_discovery_search_terms(location)
 
         for term in search_terms:
             try:
@@ -1283,6 +1376,12 @@ def fetch_weather_markets():
     LIMC vs LIML, etc.) instead of trusting a city → station hardcode.
     """
     try:
+        if os.environ.get("SIMMER_REPLAY") == "1":
+            result = get_client()._request(
+                "GET", "/api/sdk/markets",
+                params={"q": "temperature", "limit": 100},
+            )
+            return result.get("markets", [])
         result = get_client()._request(
             "GET", "/api/sdk/markets",
             params={
@@ -1357,6 +1456,9 @@ def get_positions(venue: str = None) -> list:
     """Get current positions as list of dicts, filtered by venue."""
     try:
         client = get_client()
+        if os.environ.get("SIMMER_REPLAY") == "1":
+            data = client._request("GET", "/api/sdk/positions")
+            return data.get("positions", [])
         # Default to the client's configured venue to avoid cross-venue positions
         effective_venue = venue or client.venue
         positions = client.get_positions(venue=effective_venue)
@@ -1608,6 +1710,13 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
         log("  No weather markets available")
         return
 
+    if os.environ.get("SIMMER_REPLAY") == "1":
+        provenance = _replay_forecast_provenance_line()
+        if provenance:
+            log(f"  {provenance}", force=True)
+        else:
+            log("  Replay forecast archive: unavailable", force=True)
+
     events = {}
     for market in markets:
         # Group by event_ref (canonical parent-event id, set on every import
@@ -1673,15 +1782,32 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
         parse_result = parse_resolution_station_result(sample_criteria)
         parsed = parse_result["station"]
         if not parsed:
-            if parse_result["reason"] == SKIP_MISSING_CRITERIA:
-                log("  ⏭️  Skipping — market carries no resolution_criteria")
-                skip_reasons.append("missing resolution_criteria")
+            if os.environ.get("SIMMER_REPLAY") == "1":
+                fallback_station = None
+                if location in LOCATIONS:
+                    fallback_station = LOCATIONS[location].get("station")
+                else:
+                    for candidate, coords in INTERNATIONAL_STATION_COORDS.items():
+                        if coords.get("city") == location:
+                            fallback_station = candidate
+                            break
+                if fallback_station:
+                    log(f"  Replay fallback station: {fallback_station} ({location})")
+                    parsed = {"station_id": fallback_station, "station_name": fallback_station}
+                else:
+                    log("  ⏭️  Skipping — replay market has no resolution_criteria and no city fallback")
+                    skip_reasons.append("missing replay station fallback")
+                    continue
             else:
-                station_parse_unreadable += 1
-                log("  ⏭️  Skipping — resolution_criteria present but no station "
-                    "could be read from it (parser may be behind Polymarket's wording)")
-                skip_reasons.append("unparseable resolution_criteria")
-            continue
+                if parse_result["reason"] == SKIP_MISSING_CRITERIA:
+                    log("  ⏭️  Skipping — market carries no resolution_criteria")
+                    skip_reasons.append("missing resolution_criteria")
+                else:
+                    station_parse_unreadable += 1
+                    log("  ⏭️  Skipping — resolution_criteria present but no station "
+                        "could be read from it (parser may be behind Polymarket's wording)")
+                    skip_reasons.append("unparseable resolution_criteria")
+                continue
         station_parse_ok += 1
 
         station_id = parsed.get("station_id")
@@ -1717,7 +1843,13 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
         temp_unit = event_info.get("unit", "F")
 
         if cache_key not in forecast_cache:
-            if is_international:
+            replay_forecasts = None
+            if os.environ.get("SIMMER_REPLAY") == "1":
+                replay_forecasts = get_replay_forecasts_for_station(cache_key)
+            if replay_forecasts is not None:
+                log(f"  Using replay forecast archive for {cache_key}")
+                forecast_cache[cache_key] = replay_forecasts
+            elif is_international:
                 log(f"  Fetching Open-Meteo forecast for {cache_key}...")
                 raw = get_openmeteo_forecast_for_station(cache_key)
                 # Normalise to {"high": temp, "low": temp} using Celsius keys
@@ -1758,7 +1890,12 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
         # matcher loop above. `.get("outcome_name", "")` would return None when
         # the key exists with None value — same class-of-bug as SIM-2371.
         outcome_name = matching_market.get("outcome_name") or matching_market.get("question", "")
-        price = matching_market.get("external_price_yes") or 0.5
+        price = (
+            matching_market.get("external_price_yes")
+            or matching_market.get("yes_price")
+            or matching_market.get("current_probability")
+            or 0.5
+        )
         market_id = matching_market.get("id")
 
         log(f"  Matching bucket: {outcome_name} @ ${price:.2f}")
