@@ -5,6 +5,7 @@
 ### Fixed
 - **Lead selection uses station-local event end, not UTC date (SIM-5434).** `_replay_lead_for_event(event_date, station_id)` picks the smallest N in 1–3 such that `E_end_utc − N·24h ≤ tick`. `E_end_utc` is the event date's 23:59:59 in `_meta["utc_offset_seconds"][station]`. Unknown offset assumes UTC−12; provenance then includes `tz=assumed`. A 00:30Z tick no longer assigns Seattle May 1 to lead 2.
 - **Hourly fold requires 00:00–23:00 each once.** No 23–25 DST blanket. A missing 18:00 aborts the build.
+- Builder fetch retries URL errors twice (60s timeout) so a transient SSL timeout does not abort a 64-station build.
 
 ## [1.23.16] - 2026-09-16
 

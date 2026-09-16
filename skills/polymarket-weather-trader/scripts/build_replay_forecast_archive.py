@@ -191,13 +191,22 @@ def daily_from_previous_runs(payload: dict, *, station: str, start: str, end: st
 
 def fetch_previous_runs(url: str, *, opener=urlopen) -> dict:
     req = Request(url, headers={"User-Agent": "SimmerWeatherSkill/replay-archive"})
-    try:
-        with opener(req, timeout=30) as resp:
-            raw = resp.read().decode()
-    except HTTPError as exc:
-        raise ArchiveBuildError(f"Open-Meteo HTTP {exc.code} for {url}") from exc
-    except URLError as exc:
-        raise ArchiveBuildError(f"Open-Meteo request failed: {exc.reason}") from exc
+    last_exc: Exception | None = None
+    for attempt in range(3):
+        try:
+            with opener(req, timeout=60) as resp:
+                raw = resp.read().decode()
+            break
+        except HTTPError as exc:
+            raise ArchiveBuildError(f"Open-Meteo HTTP {exc.code} for {url}") from exc
+        except URLError as exc:
+            last_exc = exc
+            if attempt == 2:
+                raise ArchiveBuildError(
+                    f"Open-Meteo request failed: {exc.reason}"
+                ) from exc
+    else:
+        raise ArchiveBuildError(f"Open-Meteo request failed: {last_exc}")
     try:
         data = json.loads(raw)
     except json.JSONDecodeError as exc:
