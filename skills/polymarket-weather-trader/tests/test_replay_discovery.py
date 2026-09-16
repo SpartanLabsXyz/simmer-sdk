@@ -12,6 +12,7 @@ preflight skipped so WALLET_UNVERIFIED cannot block SimState fills).
 
 SIM-5429 adds the archive loader (`SIMMER_REPLAY_FORECASTS` / user-supplied
 fixtures/replay_forecasts.json). The committed .sample.json is never auto-loaded.
+SIM-5434 adds the builder; the loader ignores a `_meta` provenance block.
 
 Pure-unit: no network, no live Polymarket, no SIMMER_API_KEY.
 """
@@ -506,12 +507,30 @@ class TestReplayForecastLoader(_PatchDefaultArchiveMixin, unittest.TestCase):
         os.environ.pop("SIMMER_REPLAY_FORECASTS", None)
         wt.reset_replay_forecasts()
 
+    def test_loader_ignores_meta_block(self):
+        """Builder writes `_meta`; it is provenance, not a station."""
+        os.environ["SIMMER_REPLAY"] = "1"
+        path = _write_archive({
+            "_meta": {
+                "source": "open-meteo-previous-runs",
+                "fetched_at": "2026-09-16T00:00:00Z",
+                "lead": "previous_day1",
+            },
+            "KLGA": {"2026-04-30": {"high": 72, "low": 50}},
+        })
+        loaded = wt.load_replay_forecasts(path)
+        self.assertNotIn("_meta", loaded)
+        self.assertNotIn("_meta", wt._REPLAY_FORECASTS)
+        self.assertEqual(loaded["KLGA"]["2026-04-30"]["high"], 72)
+        self.assertIn("stations=1", wt._replay_forecast_provenance_line())
+
     def test_loader_fills_dict_from_env_path(self):
         os.environ["SIMMER_REPLAY"] = "1"
         os.environ["SIMMER_REPLAY_FORECASTS"] = _SAMPLE_ARCHIVE
         loaded = wt.load_replay_forecasts()
         self.assertEqual(loaded["KLGA"]["2026-04-30"]["high"], 72)
         self.assertEqual(wt._REPLAY_FORECASTS["KLGA"]["2026-04-30"]["low"], 50)
+        self.assertNotIn("_meta", loaded)
 
     def test_loader_fills_dict_from_explicit_path(self):
         os.environ["SIMMER_REPLAY"] = "1"

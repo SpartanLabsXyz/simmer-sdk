@@ -1,4 +1,9 @@
 {
+  "_meta": {
+    "source": "open-meteo-previous-runs",
+    "fetched_at": "2026-09-16T00:00:00Z",
+    "lead": "previous_day1"
+  },
   "KLGA": {
     "2026-04-30": {"high": 72, "low": 50}
   }

@@ -1471,14 +1471,23 @@ def _resolve_replay_forecasts_path(path: str | None = None) -> str | None:
     return None
 
 
+# Builder provenance. Not a station — skip so `{_meta, KLGA: …}` loads.
+REPLAY_FORECAST_META_KEY = "_meta"
+
+
 def _parse_replay_forecast_archive(raw) -> dict:
-    """Validate the inject shape. Root is station → date → {high, low}."""
+    """Validate the inject shape. Root is station → date → {high, low}.
+
+    ``_meta`` (source / fetched_at / lead) is ignored. It is not a station.
+    """
     if not isinstance(raw, dict):
         raise ReplayForecastArchiveError(
             "archive root must be an object keyed by station id"
         )
     out = {}
     for station, days in raw.items():
+        if station == REPLAY_FORECAST_META_KEY:
+            continue
         if not isinstance(station, str) or not station.strip():
             raise ReplayForecastArchiveError("station keys must be non-empty strings")
         if not isinstance(days, dict):
@@ -1502,6 +1511,7 @@ def load_replay_forecasts(path: str | None = None) -> dict:
 
     Shape matches the test inject:
     ``{station_id: {YYYY-MM-DD: {"high": t, "low": t}}}``.
+    A builder ``_meta`` block is ignored.
 
     Path order: ``path`` argument, else ``SIMMER_REPLAY_FORECASTS``, else
     user file ``fixtures/replay_forecasts.json`` when it exists.

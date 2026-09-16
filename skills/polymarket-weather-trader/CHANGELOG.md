@@ -1,5 +1,16 @@
 # Changelog — polymarket-weather-trader
 
+## [1.23.15] - 2026-09-16
+
+### Added
+- **Historical forecast archive builder (SIM-5434).** `scripts/build_replay_forecast_archive.py --start YYYY-MM-DD --end YYYY-MM-DD --out …` fetches Open-Meteo Previous Runs (`temperature_2m_previous_day1` hourly on the forecast endpoint, per station coord) and writes `{_meta, station: {date: {high, low}}}`. Tick D sees the D-1 forecast. US stations (LOCATIONS / STATION_ID_TO_NOAA) are °F; international stations are °C — same as `_station_forecast`. `_meta` is source / fetched_at / lead=previous_day1.
+
+### Fixed
+- Loader ignores `_meta` so a builder file does not look like a station.
+
+### Docs
+- KEEP/KILL sequence is now build → copy to `fixtures/replay_forecasts.json` (uncommitted; `.sample.json` is shape-only) → `simmer backtest` → read the table. Auto-load is still only the user file, never the sample.
+
 ## [1.23.14] - 2026-09-16
 
 ### Fixed
