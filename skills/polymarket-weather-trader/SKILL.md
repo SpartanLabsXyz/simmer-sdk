@@ -3,7 +3,7 @@ name: polymarket-weather-trader
 description: Trade Polymarket weather markets using NOAA (US) and Open-Meteo (international) forecasts via Simmer API. Inspired by gopfan2's weather trading approach. Use when user wants to trade temperature markets, automate weather bets, check forecasts, or run weather-based strategies.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.23.18"
+  version: "1.23.19"
   displayName: Polymarket Weather Trader
   difficulty: beginner
   attribution: Strategy inspired by gopfan2 (public Polymarket trader — approach referenced, not endorsed).
@@ -49,6 +49,10 @@ Use this skill when the user wants to:
 - Buy low on weather predictions
 - Check their weather trading positions
 - Configure trading thresholds or locations
+
+## What's New in v1.23.19
+
+- **Replay archive builder hardening (SIM-5440).** Open-Meteo HTTP 5xx responses now retry up to 3 attempts with backoff while 4xx remains fail-closed. Long windows are fetched in 10-day chunks and merged only when `utc_offset_seconds` is identical across chunks. `--stations us|intl|all` lets US-only backtests avoid international DST guards and unnecessary requests.
 
 ## What's New in v1.23.17
 

@@ -25,6 +25,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -45,6 +46,8 @@ LEAD = "previous_day1"
 SOURCE = "open-meteo-previous-runs"
 META_KEY = "_meta"
 SAMPLE_NAME = "replay_forecasts.sample.json"
+CHUNK_DAYS = 10
+MAX_FETCH_ATTEMPTS = 3
 
 
 class ArchiveBuildError(RuntimeError):
@@ -60,17 +63,36 @@ class StationSpec:
     unit: str  # "fahrenheit" | "celsius" — Open-Meteo temperature_unit
 
 
-def stations_from_skill_tables(us_table: dict, intl_table: dict) -> list[StationSpec]:
+def stations_from_skill_tables(
+    us_table: dict,
+    intl_table: dict,
+    *,
+    stations: str = "all",
+    locations: dict | None = None,
+) -> list[StationSpec]:
     """One row per NOAA + international station. Reuses the live tables."""
+    if stations not in {"us", "intl", "all"}:
+        raise ArchiveBuildError("--stations must be one of: us, intl, all")
     rows = []
-    for icao, info in us_table.items():
-        rows.append(
-            StationSpec(icao, info["lat"], info["lon"], "auto", "fahrenheit")
-        )
-    for icao, info in intl_table.items():
-        rows.append(
-            StationSpec(icao, info["lat"], info["lon"], info["tz"], "celsius")
-        )
+    if stations in {"us", "all"}:
+        if locations is None:
+            selected_us = set(us_table)
+        else:
+            selected_us = {
+                info.get("station")
+                for info in locations.values()
+                if info.get("station") in us_table
+            }
+        for icao in sorted(selected_us):
+            info = us_table[icao]
+            rows.append(
+                StationSpec(icao, info["lat"], info["lon"], "auto", "fahrenheit")
+            )
+    if stations in {"intl", "all"}:
+        for icao, info in sorted(intl_table.items()):
+            rows.append(
+                StationSpec(icao, info["lat"], info["lon"], info["tz"], "celsius")
+            )
     return rows
 
 
@@ -96,6 +118,19 @@ def requested_dates(start: str, end: str) -> list[str]:
     while cur <= last:
         out.append(cur.isoformat())
         cur += timedelta(days=1)
+    return out
+
+
+def date_chunks(
+    start: str, end: str, *, chunk_days: int = CHUNK_DAYS
+) -> list[tuple[str, str]]:
+    cur = datetime.strptime(start, "%Y-%m-%d").date()
+    last = datetime.strptime(end, "%Y-%m-%d").date()
+    out = []
+    while cur <= last:
+        chunk_end = min(cur + timedelta(days=chunk_days - 1), last)
+        out.append((cur.isoformat(), chunk_end.isoformat()))
+        cur = chunk_end + timedelta(days=1)
     return out
 
 
@@ -214,22 +249,27 @@ def daily_from_previous_runs(payload: dict, *, station: str, start: str, end: st
     return out
 
 
-def fetch_previous_runs(url: str, *, opener=urlopen) -> dict:
+def fetch_previous_runs(url: str, *, opener=urlopen, sleep=time.sleep) -> dict:
     req = Request(url, headers={"User-Agent": "SimmerWeatherSkill/replay-archive"})
     last_exc: Exception | None = None
-    for attempt in range(3):
+    for attempt in range(MAX_FETCH_ATTEMPTS):
         try:
             with opener(req, timeout=60) as resp:
                 raw = resp.read().decode()
             break
         except HTTPError as exc:
+            if 500 <= exc.code < 600 and attempt < MAX_FETCH_ATTEMPTS - 1:
+                last_exc = exc
+                sleep(0.5 * (2**attempt))
+                continue
             raise ArchiveBuildError(f"Open-Meteo HTTP {exc.code} for {url}") from exc
         except URLError as exc:
             last_exc = exc
-            if attempt == 2:
+            if attempt == MAX_FETCH_ATTEMPTS - 1:
                 raise ArchiveBuildError(
                     f"Open-Meteo request failed: {exc.reason}"
                 ) from exc
+            sleep(0.5 * (2**attempt))
     else:
         raise ArchiveBuildError(f"Open-Meteo request failed: {last_exc}")
     try:
@@ -258,17 +298,31 @@ def build_archive(
         }
     }
     for spec in stations:
-        payload = fetch(previous_runs_url(spec, start, end))
-        reject_dst_crossing(payload, station=spec.station_id, start=start, end=end)
-        archive[META_KEY]["utc_offset_seconds"][spec.station_id] = (
-            utc_offset_from_payload(payload, station=spec.station_id)
-        )
-        archive[spec.station_id] = daily_from_previous_runs(
-            payload,
-            station=spec.station_id,
-            start=start,
-            end=end,
-        )
+        station_days = {}
+        station_offset = None
+        for chunk_start, chunk_end in date_chunks(start, end):
+            payload = fetch(previous_runs_url(spec, chunk_start, chunk_end))
+            reject_dst_crossing(
+                payload, station=spec.station_id, start=chunk_start, end=chunk_end
+            )
+            chunk_offset = utc_offset_from_payload(payload, station=spec.station_id)
+            if station_offset is None:
+                station_offset = chunk_offset
+            elif chunk_offset != station_offset:
+                raise ArchiveBuildError(
+                    f"{spec.station_id}: utc_offset_seconds changed across chunks "
+                    f"({station_offset} != {chunk_offset})"
+                )
+            station_days.update(
+                daily_from_previous_runs(
+                    payload,
+                    station=spec.station_id,
+                    start=chunk_start,
+                    end=chunk_end,
+                )
+            )
+        archive[META_KEY]["utc_offset_seconds"][spec.station_id] = station_offset
+        archive[spec.station_id] = station_days
     return archive
 
 
@@ -293,6 +347,7 @@ def main(argv=None) -> int:
     parser.add_argument("--start", required=True, help="inclusive YYYY-MM-DD")
     parser.add_argument("--end", required=True, help="inclusive YYYY-MM-DD")
     parser.add_argument("--out", required=True, help="JSON output path")
+    parser.add_argument("--stations", choices=("us", "intl", "all"), default="all")
     args = parser.parse_args(argv)
 
     start = parse_iso_date("start", args.start)
@@ -317,7 +372,10 @@ def main(argv=None) -> int:
             f"LOCATIONS stations missing from STATION_ID_TO_NOAA: {missing}"
         )
     stations = stations_from_skill_tables(
-        wt.STATION_ID_TO_NOAA, wt.INTERNATIONAL_STATION_COORDS
+        wt.STATION_ID_TO_NOAA,
+        wt.INTERNATIONAL_STATION_COORDS,
+        stations=args.stations,
+        locations=wt.LOCATIONS,
     )
     fetched_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     archive = build_archive(
