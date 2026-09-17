@@ -97,6 +97,8 @@ def _market_payload(session: ReplaySession, meta) -> dict[str, Any]:
         "id": meta.id,
         "question": meta.question,
         "slug": meta.slug,
+        "event_id": meta.event_id,
+        "event_title": meta.event_title,
         "status": "active",
         "venue": session.venue,
         "current_probability": price,
