@@ -1822,7 +1822,6 @@ def execute_trade(market_id: str, side: str, amount: float, reasoning: str = Non
         result = client.trade(
             market_id=market_id, side=side, amount=amount, source=TRADE_SOURCE, skill_slug=SKILL_SLUG,
             reasoning=reasoning, signal_data=signal_data, order_type=ORDER_TYPE,
-            skip_preflight=replay,
         )
         out = {
             "success": result.success, "trade_id": result.trade_id,
@@ -1852,7 +1851,6 @@ def execute_sell(market_id: str, shares: float) -> dict:
             market_id=market_id, side="yes", action="sell",
             shares=shares, source=TRADE_SOURCE, skill_slug=SKILL_SLUG,
             order_type=ORDER_TYPE,
-            skip_preflight=replay,
         )
         out = {
             "success": result.success, "trade_id": result.trade_id,

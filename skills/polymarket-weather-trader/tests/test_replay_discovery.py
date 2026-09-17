@@ -8,7 +8,7 @@ bundle.clean=true on a 0-eval tick.
 SIM-5428 extends that into an explicit keep/kill gate: the discovery+entry
 path must work under replay (frozen clock, replay price fields, city
 fallback when the tape omits resolution_criteria, no live NOAA look-ahead,
-preflight skipped so WALLET_UNVERIFIED cannot block SimState fills).
+replay-aware SDK preflight so WALLET_UNVERIFIED cannot block SimState fills).
 
 SIM-5429 adds the archive loader (`SIMMER_REPLAY_FORECASTS` / user-supplied
 fixtures/replay_forecasts.json). The committed .sample.json is never auto-loaded.
@@ -347,23 +347,39 @@ class TestReplayStationAndForecast(_PatchDefaultArchiveMixin, unittest.TestCase)
         )
 
 
-class TestReplayPreflightSkip(unittest.TestCase):
-    """Replay agents/me.real_trading_enabled is False → WALLET_UNVERIFIED."""
+class TestReplayPreflight(unittest.TestCase):
+    """Replay trades must not depend on the deprecated skip_preflight valve."""
 
     def tearDown(self):
         os.environ.pop("SIMMER_REPLAY", None)
         wt._client = None
 
-    def test_replay_skips_preflight_and_passes_skip_flag(self):
+    def test_replay_trade_omits_skip_preflight_and_emits_no_deprecation(self):
         os.environ["SIMMER_REPLAY"] = "1"
         client = MagicMock()
         client.live = True
         client.venue = "polymarket"
         client.trade.return_value = _trade_ok()
-        with patch.object(wt, "get_client", return_value=client):
+        with patch.object(wt, "get_client", return_value=client), \
+             patch("warnings.warn") as warn:
             result = wt.execute_trade("wx-nyc-72", "yes", 2.0)
         client.preflight.assert_not_called()
-        self.assertTrue(client.trade.call_args.kwargs["skip_preflight"])
+        self.assertNotIn("skip_preflight", client.trade.call_args.kwargs)
+        warn.assert_not_called()
+        self.assertTrue(result["success"])
+
+    def test_replay_sell_omits_skip_preflight_and_emits_no_deprecation(self):
+        os.environ["SIMMER_REPLAY"] = "1"
+        client = MagicMock()
+        client.live = True
+        client.venue = "polymarket"
+        client.trade.return_value = _trade_ok()
+        with patch.object(wt, "get_client", return_value=client), \
+             patch("warnings.warn") as warn:
+            result = wt.execute_sell("wx-nyc-72", 3.0)
+        client.preflight.assert_not_called()
+        self.assertNotIn("skip_preflight", client.trade.call_args.kwargs)
+        warn.assert_not_called()
         self.assertTrue(result["success"])
 
     def test_live_still_runs_preflight(self):

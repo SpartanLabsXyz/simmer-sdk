@@ -1,5 +1,9 @@
 # Changelog — polymarket-weather-trader
 
+## [1.23.20] - 2026-09-17
+
+### Changed
+- **Replay trades no longer pass the deprecated `skip_preflight` valve (SIM-5430).** `SimmerClient.preflight()` is replay-aware under `SIMMER_REPLAY=1` on a loopback base URL, so `execute_trade` / `execute_sell` drop `skip_preflight=replay`. Live behaviour unchanged: preflight still runs and still blocks on `WALLET_UNVERIFIED`. Version skips 1.23.18/1.23.19, reserved for #384 and SIM-5440 which are in flight.
 ## [1.23.19] - 2026-09-17
 
 ### Fixed

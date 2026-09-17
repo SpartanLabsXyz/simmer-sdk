@@ -5,7 +5,7 @@ Under SIMMER_REPLAY=1 the skill must:
   - never hit live Gamma or CLOB
   - honor SIMMER_REPLAY_NOW for horizon
   - use tape yes_price (not a live midpoint)
-  - skip_preflight so WALLET_UNVERIFIED cannot block SimState fills
+  - trade without the deprecated skip_preflight valve
   - not burn daily spend on a failed trade
 
 Pure-unit: no network, no live Polymarket, no SIMMER_API_KEY.
@@ -267,7 +267,7 @@ class TestReplayEntryAndSpend(_ReplayEnvMixin, unittest.TestCase):
         strat.MIN_HOURS_TO_RESOLUTION = 4.0
         strat.ENTRY_THRESHOLD = 0.05
 
-    def test_replay_entry_uses_tape_price_skips_preflight(self):
+    def test_replay_entry_uses_tape_price_without_skip_preflight(self):
         os.environ["SIMMER_REPLAY"] = "1"
         os.environ["SIMMER_REPLAY_NOW"] = REPLAY_NOW
         client = MagicMock()
@@ -290,7 +290,7 @@ class TestReplayEntryAndSpend(_ReplayEnvMixin, unittest.TestCase):
         self.assertEqual(entered, 1)
         live_vendor.assert_not_called()
         kwargs = client.trade.call_args.kwargs
-        self.assertTrue(kwargs["skip_preflight"])
+        self.assertNotIn("skip_preflight", kwargs)
         self.assertEqual(kwargs["market_id"], "btc-ud-2026-04-15")
         self.assertEqual(kwargs["side"], "yes")
         save.assert_called_once()

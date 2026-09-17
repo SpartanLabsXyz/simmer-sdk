@@ -1,5 +1,10 @@
 # Changelog — polymarket-btc-up-down-trader
 
+## [1.2.4] - 2026-09-17
+
+### Changed
+- **Replay trades no longer pass the deprecated `skip_preflight` valve (SIM-5430).** `_trade_kwargs` stops injecting `skip_preflight=True` under `SIMMER_REPLAY=1`; `SimmerClient.preflight()` is now replay-aware on a loopback base URL. Live behaviour unchanged.
+
 ## [1.2.3] - 2026-09-17
 
 ### Fixed
