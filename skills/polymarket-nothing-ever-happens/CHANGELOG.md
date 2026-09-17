@@ -1,5 +1,10 @@
 # Changelog — polymarket-nothing-ever-happens
 
+## [1.1.2] - 2026-09-17
+
+### Fixed
+- **Replay standalone check is tape-authoritative (CTO pass-2 P1).** Listing requested at `limit=1000` (whole tape slice, server has no smaller clamp) so `_standalone_tape_rows` counts every sibling on the tape, not one page; rows without `event_id` are dropped instead of admitted.
+
 ## [1.1.1] - 2026-09-17
 
 ### Fixed

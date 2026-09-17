@@ -317,7 +317,10 @@ def _neh_markets_params():
     scanner — no topic `q`. One volume-sorted page; client-side filters
     (sports / cheap NO / liquidity) do the rest.
     """
-    return {"limit": 100}
+    # 1000 = the whole tape slice (server clamps at 1000, tape slices are ≤1000
+    # markets), so sibling counting in _standalone_tape_rows is tape-authoritative
+    # rather than page-local (CTO pass-2 P1).
+    return {"limit": 1000}
 
 
 def _market_yes_price(market: dict):
@@ -485,9 +488,9 @@ def _standalone_tape_rows(rows: list) -> list:
     """Keep rows whose event has exactly one market on this listing page.
 
     Live standalone = Gamma event with ``len(markets) == 1``. Replay rows
-    are flat; group by ``event_id`` when the listing exposes it. Rows
-    with no ``event_id`` cannot be grouped and stay (FIX: a page may
-    omit sibling legs).
+    are flat; group by ``event_id``. The listing is requested at the full
+    tape size (limit=1000), so sibling counts are tape-authoritative. Rows
+    with no ``event_id`` cannot prove standalone and are dropped.
     """
     counts = {}
     for market in rows:
@@ -497,7 +500,12 @@ def _standalone_tape_rows(rows: list) -> list:
     kept = []
     for market in rows:
         event_id = market.get("event_id")
-        if event_id and counts.get(event_id, 0) > 1:
+        if not event_id:
+            # Unknown membership is not standalone. Live requires a Gamma
+            # event with exactly one market; a tape row with no event_id
+            # cannot prove that, so it is dropped (fail-closed).
+            continue
+        if counts.get(event_id, 0) > 1:
             continue
         kept.append(market)
     return kept

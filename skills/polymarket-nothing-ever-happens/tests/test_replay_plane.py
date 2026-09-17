@@ -111,7 +111,7 @@ class TestReplayDiscoveryParams(_ReplayEnvMixin, unittest.TestCase):
         self.assertNotIn("tags", params)
         self.assertNotIn("status", params)
         self.assertNotIn("q", params)
-        self.assertEqual(params["limit"], 100)
+        self.assertEqual(params["limit"], 1000)
 
 
 class TestFetchReplayMarkets(_ReplayEnvMixin, unittest.TestCase):
@@ -400,3 +400,16 @@ class TestReplayEntryAndPreflight(_ReplayEnvMixin, unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class TestStandaloneNoEventId(unittest.TestCase):
+    """Pass-2 P1: unknown event membership is not standalone."""
+
+    def test_rows_without_event_id_are_dropped(self):
+        rows = [
+            {"id": "a", "question": "Will X happen?", "slug": "x", "event_id": None},
+            {"id": "b", "question": "Will Y happen?", "slug": "y"},
+            {"id": "c", "question": "Will Z happen?", "slug": "z", "event_id": "evt-z"},
+        ]
+        kept = neh._standalone_tape_rows(rows)
+        self.assertEqual([r["id"] for r in kept], ["c"])
