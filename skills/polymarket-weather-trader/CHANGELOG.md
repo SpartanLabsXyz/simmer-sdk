@@ -4,6 +4,14 @@
 
 ### Changed
 - **Replay trades no longer pass the deprecated `skip_preflight` valve (SIM-5430).** `SimmerClient.preflight()` is replay-aware under `SIMMER_REPLAY=1` on a loopback base URL, so `execute_trade` / `execute_sell` drop `skip_preflight=replay`. Live behaviour unchanged: preflight still runs and still blocks on `WALLET_UNVERIFIED`. Version skips 1.23.18/1.23.19, reserved for #384 and SIM-5440 which are in flight.
+## [1.23.18] - 2026-09-17
+
+### Fixed
+- **Replay positions were always empty (SIM-5484).** `get_positions()` filtered by `venue="polymarket"` even under replay, but the replay server rejects any `venue` filter (422, SIM-5067). The 422 was swallowed to `[]`, so the skill never knew what it already held and re-bought the same bucket every tick (13-25x/market observed on a full-tape run). Replay now omits the venue filter; live is unchanged.
+
+### Docs
+- **`SIMMER_WEATHER_LOCATIONS` defaulting to `"NYC"` is not a bug.** A full-tape backtest with markets from many cities will show entries in NYC only unless this env var is widened to match the tape's city mix. Documented in the KEEP/KILL table and the reproduction recipe so a single-city result isn't misread as a station/forecast defect.
+- **The reproduction recipe's `export SIMMER_WEATHER_LOCATIONS=...` does not work under replay.** The bundle subprocess env is built from a strict allowlist (SIM-5067) that this var is not on, so the export was silently stripped and every re-run still measured NYC only. Recipe now uses `--set locations=...` on the entrypoint (writes `config.json`, which `load_config()` reads before env vars and which survives the bundle copy), and names the tape's actual cities instead of a generic US list. Hong Kong is called out separately: it has no station mapping anywhere in the skill (checked `LOCATIONS` and `INTERNATIONAL_STATION_COORDS`) and cannot enter regardless of this list — not a defect, just unmapped coverage.
 
 ## [1.23.17] - 2026-09-16
 

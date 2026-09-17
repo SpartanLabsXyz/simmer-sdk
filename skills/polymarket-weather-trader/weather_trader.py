@@ -1869,8 +1869,15 @@ def get_positions(venue: str = None) -> list:
     """Get current positions as list of dicts, filtered by venue."""
     try:
         client = get_client()
-        # Default to the client's configured venue to avoid cross-venue positions
-        effective_venue = venue or client.venue
+        # Replay's /api/sdk/positions rejects any venue filter (SIM-5067
+        # _reject_unsupported) since the replay tape is single-venue by
+        # construction — omit it so replay doesn't 422 into an empty []
+        # and re-buy the same bucket every tick.
+        if _is_replay():
+            effective_venue = None
+        else:
+            # Default to the client's configured venue to avoid cross-venue positions
+            effective_venue = venue or client.venue
         positions = client.get_positions(venue=effective_venue)
         from dataclasses import asdict
         return [asdict(p) for p in positions]

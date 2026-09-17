@@ -792,5 +792,60 @@ class TestReplayForecastLoader(_PatchDefaultArchiveMixin, unittest.TestCase):
         self.assertNotIn("tz=assumed", line)
 
 
+from dataclasses import dataclass as _dataclass
+
+
+@_dataclass
+class _FakePosition:
+    market_id: str
+    venue: str = "polymarket"
+
+
+class TestGetPositionsReplayVenue(unittest.TestCase):
+    """SIM-5484: replay's /api/sdk/positions 422s on any venue filter
+    (_reject_unsupported, SIM-5067). get_positions() must omit venue under
+    replay so the skill actually learns what it holds — the pre-fix
+    behavior called client.get_positions(venue=client.venue), which 422s,
+    gets swallowed to [], and re-buys the same bucket every tick."""
+
+    def tearDown(self):
+        os.environ.pop("SIMMER_REPLAY", None)
+        wt._client = None
+
+    def test_replay_omits_venue_filter(self):
+        os.environ["SIMMER_REPLAY"] = "1"
+        client = MagicMock()
+        client.venue = "polymarket"
+        client.get_positions.return_value = []
+        with patch.object(wt, "get_client", MagicMock(return_value=client)):
+            wt.get_positions()
+        client.get_positions.assert_called_once_with(venue=None)
+
+    def test_live_still_filters_by_configured_venue(self):
+        os.environ.pop("SIMMER_REPLAY", None)
+        client = MagicMock()
+        client.venue = "polymarket"
+        client.get_positions.return_value = []
+        with patch.object(wt, "get_client", MagicMock(return_value=client)):
+            wt.get_positions()
+        client.get_positions.assert_called_once_with(venue="polymarket")
+
+    def test_held_market_not_rebought_next_tick(self):
+        """A market already held must not appear as a fresh entry candidate
+        on the next tick — the actual failure mode #1 caused (13-25x
+        re-buys/market: every tick, get_positions()==[] under replay, so
+        the position-check that would skip an already-held market never
+        fires)."""
+        os.environ["SIMMER_REPLAY"] = "1"
+        client = MagicMock()
+        client.venue = "polymarket"
+        client.get_positions.return_value = [_FakePosition(market_id="wx-nyc-72")]
+        with patch.object(wt, "get_client", MagicMock(return_value=client)):
+            positions = wt.get_positions()
+        client.get_positions.assert_called_once_with(venue=None)
+        self.assertEqual(len(positions), 1)
+        self.assertEqual(positions[0]["market_id"], "wx-nyc-72")
+
+
 if __name__ == "__main__":
     unittest.main()

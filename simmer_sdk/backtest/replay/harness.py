@@ -1,4 +1,4 @@
-# vendored from simmer_v3/replay/harness.py @ ce89ed16b684
+# vendored from simmer_v3/replay/harness.py @ 00a4065abbd5
 # DO NOT EDIT HERE — regenerate via scripts/sync_replay_engine.py
 """Unmodified-bundle replay harness (SIM-3070).
 
@@ -103,7 +103,11 @@ class GammaClient:
 # on a Railway worker os.environ holds DATABASE_URL, wallet-encryption keys,
 # API secrets. Build the subprocess env from a strict allowlist instead.
 _ENV_ALLOWLIST = ("PATH", "HOME", "LANG", "LC_ALL", "TMPDIR", "TZ",
-                  "SSL_CERT_FILE", "REQUESTS_CA_BUNDLE")
+                  "SSL_CERT_FILE", "REQUESTS_CA_BUNDLE",
+                  # Path to a pre-built replay forecast archive (SIM-5484) —
+                  # not a secret, just a file path; skills fall back to
+                  # fixtures/replay_forecasts.json when unset.
+                  "SIMMER_REPLAY_FORECASTS")
 
 
 def _subprocess_env(base_url: str, sdk_path: str, now: datetime) -> dict:
