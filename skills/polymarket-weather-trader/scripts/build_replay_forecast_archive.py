@@ -334,9 +334,11 @@ def parse_iso_date(label: str, value: str):
 
 
 def _import_weather_trader():
-    skill_dir = str(Path(__file__).resolve().parents[1])
-    if skill_dir not in sys.path:
-        sys.path.insert(0, skill_dir)
+    script_path = Path(__file__).resolve()
+    for path in (script_path.parents[3], script_path.parents[1]):
+        text = str(path)
+        if text not in sys.path:
+            sys.path.insert(0, text)
     import weather_trader as wt  # noqa: E402
 
     return wt
