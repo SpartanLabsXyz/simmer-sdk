@@ -1,5 +1,10 @@
 # Changelog — polymarket-btc-up-down-trader
 
+## [1.2.3] - 2026-09-17
+
+### Fixed
+- **SKILL.md no longer claims an oracle-engineering halt gate.** The section said `simmer_sdk.risk.OracleEngineeringDetector` was built in and enabled by default. No code in this skill calls it, the skill skips the ≤5-minute markets the gate covers, and it has no market-maker or copytrade mode. ClawHub's scan flagged the claim. Docs only; `strategy.py` behaviour is unchanged.
+
 ## [1.2.2] - 2026-09-16
 
 ### Fixed
