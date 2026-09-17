@@ -4,6 +4,13 @@
 
 ### Changed
 - **Replay trades no longer pass the deprecated `skip_preflight` valve (SIM-5430).** `SimmerClient.preflight()` is replay-aware under `SIMMER_REPLAY=1` on a loopback base URL, so `execute_trade` / `execute_sell` drop `skip_preflight=replay`. Live behaviour unchanged: preflight still runs and still blocks on `WALLET_UNVERIFIED`. Version skips 1.23.18/1.23.19, reserved for #384 and SIM-5440 which are in flight.
+## [1.23.19] - 2026-09-17
+
+### Fixed
+- Replay archive builder hardening from the KEEP/KILL run (SIM-5440): Open-Meteo HTTP 5xx responses retry up to 3 attempts with backoff, while HTTP 4xx still aborts immediately.
+- Long or old Previous Runs windows are fetched in 10-day chunks and merged internally. The build aborts if `utc_offset_seconds` differs across chunks for a station.
+- Added `--stations us|intl|all` (default `all`). `us` limits the build to the 8 configured Polymarket US resolution stations, so US-only archives avoid international DST guards and 56 needless requests.
+
 ## [1.23.18] - 2026-09-17
 
 ### Fixed

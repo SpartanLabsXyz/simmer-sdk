@@ -50,6 +50,10 @@ Use this skill when the user wants to:
 - Check their weather trading positions
 - Configure trading thresholds or locations
 
+## What's New in v1.23.19
+
+- **Replay archive builder hardening (SIM-5440).** Open-Meteo HTTP 5xx responses now retry up to 3 attempts with backoff while 4xx remains fail-closed. Long windows are fetched in 10-day chunks and merged only when `utc_offset_seconds` is identical across chunks. `--stations us|intl|all` lets US-only backtests avoid international DST guards and unnecessary requests.
+
 ## What's New in v1.23.17
 
 - **Timezone-correct leads (SIM-5434).** Lead N is the smallest 1–3 such that every hourly issuance for the event day precedes the tick: `N = ceil((E_end_utc − tick) / 24h)`, where `E_end_utc` is the event date's 23:59:59 in the station offset. Builder records Open-Meteo `utc_offset_seconds` per station in `_meta`. Missing offset assumes UTC−12 (`tz=assumed`). Each date must carry hours `00:00`–`23:00` exactly once.
