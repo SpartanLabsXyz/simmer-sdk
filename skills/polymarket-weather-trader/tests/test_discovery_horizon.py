@@ -24,7 +24,7 @@ _mock_cfg = {
     "exit_threshold": 0.45,
     "max_position_usd": 2.00,
     "sizing_pct": 0.05,
-    "max_trades_per_run": 5,
+    "max_trades_per_run": 5, "max_buys_per_market": 1,
     "locations": "NYC",
     "binary_only": False,
     "slippage_max": 0.15,
