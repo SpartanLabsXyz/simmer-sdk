@@ -23,11 +23,18 @@ reference only and is never loaded:
         skills/polymarket-weather-trader/fixtures/replay_forecasts.json
     # SIMMER_WEATHER_LOCATIONS defaults to "NYC" (SIM-5484) — widen it to the
     # tape's city mix or the run only ever measures NYC regardless of tape
-    # content.
-    export SIMMER_WEATHER_LOCATIONS="NYC,Chicago,Seattle,Atlanta,Miami,Austin,Houston,Denver"
+    # content. `export SIMMER_WEATHER_LOCATIONS=...` does NOT survive the
+    # replay harness: the bundle subprocess env is built from a strict
+    # allowlist (SIM-5067) that this var is not on. Use --set on the
+    # entrypoint instead — it writes config.json next to weather_trader.py
+    # (highest config priority, survives the per-tick bundle copy). Name the
+    # tape's actual cities: e.g. Seoul, London, Paris, Shanghai are mapped
+    # (INTERNATIONAL_STATION_COORDS); Hong Kong is not mapped anywhere in
+    # the skill and cannot enter regardless of this list.
     simmer backtest skills/polymarket-weather-trader \\
         --entrypoint weather_trader.py --window 30d --q temperature \\
-        --min-volume 0 --out /tmp/wx-bt.json
+        --min-volume 0 --out /tmp/wx-bt.json \\
+        --args "--live --quiet --set locations=NYC,Chicago,Seattle,Atlanta,Miami,Austin,Houston,Denver,Seoul,London,Paris,Shanghai"
 
 Exit 0 if the pinned tests pass. Exit 1 if they fail. That is the gate.
 """
@@ -65,8 +72,13 @@ FIX  (do not add capital; repair the skill or the tape)
 
 NOT A DEFECT  (expected scoping, do not "fix" this)
   - Every entry lands in one city on a multi-city tape. SIMMER_WEATHER_LOCATIONS
-    defaults to "NYC" — set it to the tape's full city mix (SIM-5484) before
-    reading KEEP/KILL from entry count, or the run only ever measures NYC.
+    defaults to "NYC" — widen it via `--set locations=...` (SIM-5484) to the
+    tape's full city mix before reading KEEP/KILL from entry count, or the
+    run only ever measures NYC. A plain `export` is stripped by the replay
+    harness allowlist and silently no-ops.
+  - Hong Kong never enters on any tape. The skill has no station mapping for
+    it (checked LOCATIONS and INTERNATIONAL_STATION_COORDS) — not a defect,
+    just unmapped coverage.
 
 KILL  (do not add more real capital)
   - Pinned pytest gate fails.

@@ -1,4 +1,4 @@
-# vendored from simmer_v3/replay/candles_service.py @ 78a1b0484f40
+# vendored from simmer_v3/replay/candles_service.py @ 00a4065abbd5
 # DO NOT EDIT HERE — regenerate via scripts/sync_replay_engine.py
 """Candles data-plane service (SIM-3070 Phase 1.5C — spec §C).
 
