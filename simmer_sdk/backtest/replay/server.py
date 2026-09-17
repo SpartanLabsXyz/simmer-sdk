@@ -266,8 +266,9 @@ def create_app(session: ReplaySession) -> FastAPI:
 
     @app.get("/api/sdk/positions")
     def positions(venue: Optional[str] = None, status: Optional[str] = None):
-        _reject_unsupported(venue=venue)
         rows = _positions_rows(session)
+        if venue is not None:
+            rows = [r for r in rows if r.get("venue") == venue]
         if status == "resolved":
             rows = [r for r in rows if r["redeemable"]]
         return {"positions": rows, "sim_balance": session.sim.cash}

@@ -20,13 +20,15 @@ def test_backtest_requires_inputs_or_demo(capsys):
     assert "required" in capsys.readouterr().err
 
 
-def test_resolve_window_from_duration():
+def test_resolve_window_from_duration(monkeypatch):
     import argparse
+    from datetime import datetime, timezone
 
-    # --window anchors to the dataset end when --t1 is absent and walks back.
+    monkeypatch.setattr(cli, "_now_utc", lambda: datetime(2026, 9, 16, tzinfo=timezone.utc))
+    # --window anchors to today when --t1 is absent and walks back.
     a = argparse.Namespace(t0=None, t1=None, window="30d")
     t0, t1 = cli._resolve_window(a)
-    assert t1 == "2026-05-05" and t0 == "2026-04-05"
+    assert t1 == "2026-09-16" and t0 == "2026-08-17"
 
 
 def test_resolve_window_explicit_takes_precedence():
@@ -94,6 +96,32 @@ def test_backtest_q_flag_defaults_to_none(monkeypatch, tmp_path):
                    "--tape", str(tmp_path), "--t0", "2026-03-01", "--t1", "2026-03-08"])
     assert rc == 0
     assert captured["q"] is None
+
+
+def test_print_summary_includes_tape_markets(capsys):
+    cli._print_summary({
+        "summary": {
+            "pnl": 0.0,
+            "final_equity": 1000.0,
+            "hit_rate": None,
+            "settlements": 0,
+            "max_drawdown": 0.0,
+            "decisions": 0,
+            "trades": 0,
+            "markets_traded": 0,
+            "ticks": 1,
+            "markets_requested": 3000,
+            "markets_matching_filter": 1900,
+            "markets_served": 1900,
+            "markets_truncated": False,
+        },
+        "baselines": {},
+        "reproducibility": {"skill": "weather@1", "window": ["a", "b"], "cadence": "86400s"},
+        "bundle": {},
+    }, balance=1000.0)
+    out = capsys.readouterr().out
+    assert "tape markets 1900/3000 served" in out
+    assert "1900 matched" in out
 
 
 # -- demo end-to-end (gated on the [backtest] extra) --------------------------
