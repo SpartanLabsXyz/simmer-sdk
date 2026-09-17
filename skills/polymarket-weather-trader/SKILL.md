@@ -3,7 +3,7 @@ name: polymarket-weather-trader
 description: Trade Polymarket weather markets using NOAA (US) and Open-Meteo (international) forecasts via Simmer API. Inspired by gopfan2's weather trading approach. Use when user wants to trade temperature markets, automate weather bets, check forecasts, or run weather-based strategies.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.23.17"
+  version: "1.23.18"
   displayName: Polymarket Weather Trader
   difficulty: beginner
   attribution: Strategy inspired by gopfan2 (public Polymarket trader — approach referenced, not endorsed).
@@ -239,6 +239,11 @@ python skills/polymarket-weather-trader/scripts/build_replay_forecast_archive.py
   --start YYYY-MM-DD --end YYYY-MM-DD --out /tmp/replay_forecasts.json
 cp /tmp/replay_forecasts.json \
   skills/polymarket-weather-trader/fixtures/replay_forecasts.json
+# SIMMER_WEATHER_LOCATIONS defaults to "NYC" — a tape covering other cities
+# (Seoul, London, Chicago, ...) will show 0 entries for every one of them
+# unless you widen this list to match the tape's city mix (SIM-5484). That
+# is expected scoping, not a station/forecast bug — see the note below.
+export SIMMER_WEATHER_LOCATIONS="NYC,Chicago,Seattle,Atlanta,Miami,Austin,Houston,Denver"
 simmer backtest skills/polymarket-weather-trader \
   --entrypoint weather_trader.py --t0 YYYY-MM-DD --t1 YYYY-MM-DD \
   --cadence 12h --q temperature --min-volume 0
@@ -249,6 +254,7 @@ simmer backtest skills/polymarket-weather-trader \
 | Verdict | What the backtest / replay outcome means for the money path |
 |---------|--------------------------------------------------------------|
 | **FIX** | Path is broken or the tape cannot evaluate the skill. Do not add capital. Repair: discovery 422 / fail-open empty listing; wall-clock horizon under replay; `yes_price` ignored (silent 0.50); every event skipped for missing `resolution_criteria`; live NOAA/Open-Meteo under replay (look-ahead); preflight `WALLET_UNVERIFIED` blocking SimState fills; 0 temperature markets on a high-volume slice (`--q temperature`, lower `--min-volume`); 0 entries because the forecast archive is missing, empty, or does not cover the tape dates (`SIMMER_REPLAY_FORECASTS` / `fixtures/replay_forecasts.json` — missing forecast plane, not "no edge"). |
+| **not a defect** | Every entry lands in one city (default NYC) on a multi-city tape. `SIMMER_WEATHER_LOCATIONS` defaults to `"NYC"` — that is the skill honoring its configured scope, not a station/parsing bug. Set the env var to the tape's full city mix before judging KEEP/KILL from entry count (SIM-5484). |
 | **KILL** | Pinned pytest gate fails, **or** the path is green on a weather-capable tape, evals > 0, and the skill still cannot reach `execute_trade` when a forecast is injected or loaded from the archive, **or** after the path works, P&L after costs is clearly ≤ 0 on an honest (not live-NOAA) forecast. Do not add more real capital. |
 | **KEEP** | Full-tape `simmer backtest ... --q temperature` with evals > 0 **and** entries > 0 **and** an honest archive (not live NOAA). Pinned unit tests passing is a path check only — not KEEP. Provisional; the 90-day Simmer P&L lock still decides scale-up. |
 

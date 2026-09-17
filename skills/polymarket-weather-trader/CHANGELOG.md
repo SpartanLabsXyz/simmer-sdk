@@ -1,5 +1,13 @@
 # Changelog — polymarket-weather-trader
 
+## [1.23.18] - 2026-09-17
+
+### Fixed
+- **Replay positions were always empty (SIM-5484).** `get_positions()` filtered by `venue="polymarket"` even under replay, but the replay server rejects any `venue` filter (422, SIM-5067). The 422 was swallowed to `[]`, so the skill never knew what it already held and re-bought the same bucket every tick (13-25x/market observed on a full-tape run). Replay now omits the venue filter; live is unchanged.
+
+### Docs
+- **`SIMMER_WEATHER_LOCATIONS` defaulting to `"NYC"` is not a bug.** A full-tape backtest with markets from many cities will show entries in NYC only unless this env var is widened to match the tape's city mix. Documented in the KEEP/KILL table and the reproduction recipe so a single-city result isn't misread as a station/forecast defect.
+
 ## [1.23.17] - 2026-09-16
 
 ### Fixed

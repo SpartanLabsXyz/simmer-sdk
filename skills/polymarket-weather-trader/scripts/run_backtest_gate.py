@@ -21,6 +21,10 @@ reference only and is never loaded:
 
     cp /path/to/window-archive.json \\
         skills/polymarket-weather-trader/fixtures/replay_forecasts.json
+    # SIMMER_WEATHER_LOCATIONS defaults to "NYC" (SIM-5484) — widen it to the
+    # tape's city mix or the run only ever measures NYC regardless of tape
+    # content.
+    export SIMMER_WEATHER_LOCATIONS="NYC,Chicago,Seattle,Atlanta,Miami,Austin,Houston,Denver"
     simmer backtest skills/polymarket-weather-trader \\
         --entrypoint weather_trader.py --window 30d --q temperature \\
         --min-volume 0 --out /tmp/wx-bt.json
@@ -58,6 +62,11 @@ FIX  (do not add capital; repair the skill or the tape)
     a missing forecast plane, not "no edge".
   - HF volume slice with 0 temperature markets — use --q temperature and
     a lower --min-volume. Do not treat an empty high-volume slice as kill.
+
+NOT A DEFECT  (expected scoping, do not "fix" this)
+  - Every entry lands in one city on a multi-city tape. SIMMER_WEATHER_LOCATIONS
+    defaults to "NYC" — set it to the tape's full city mix (SIM-5484) before
+    reading KEEP/KILL from entry count, or the run only ever measures NYC.
 
 KILL  (do not add more real capital)
   - Pinned pytest gate fails.
