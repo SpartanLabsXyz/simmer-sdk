@@ -1,5 +1,10 @@
 # Changelog — polymarket-weather-trader
 
+## [1.23.21] - 2026-09-17
+
+### Changed
+- Requires `simmer-sdk>=0.25.8`, the first release whose `preflight()` is replay-aware. On an older SDK a backtest of this skill stops filling, because preflight blocks replay trades now that the skill no longer passes `skip_preflight`. Live trading is unaffected.
+
 ## [1.23.20] - 2026-09-17
 
 ### Changed
