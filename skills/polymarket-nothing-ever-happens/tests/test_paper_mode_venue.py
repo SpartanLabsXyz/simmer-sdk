@@ -256,7 +256,7 @@ class TestAutoRedeemGating(unittest.TestCase):
         mock = self._run_main(["--live", "--quiet"], {"TRADING_VENUE": "polymarket", "SIMMER_API_KEY": "sk"})
         mock.auto_redeem.assert_called_once()
 
-    def test_live_preflight_without_max_safe_size_does_not_crash(self):
+    def test_live_preflight_without_max_safe_size_refuses_to_trade(self):
         mock = self._run_main(
             ["--live", "--quiet"],
             {"TRADING_VENUE": "polymarket", "SIMMER_API_KEY": "sk"},
@@ -264,3 +264,4 @@ class TestAutoRedeemGating(unittest.TestCase):
         )
         mock.auto_redeem.assert_called_once()
         mock.ensure_can_trade.assert_called_once()
+        mock.trade.assert_not_called()

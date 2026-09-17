@@ -135,16 +135,17 @@ def _clock():
     """
     if _is_replay():
         raw = os.environ.get("SIMMER_REPLAY_NOW")
-        if raw:
-            try:
-                dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
-                if dt.tzinfo is None:
-                    dt = dt.replace(tzinfo=timezone.utc)
-                return dt.astimezone(timezone.utc)
-            except ValueError as exc:
-                raise ReplayClockError(
-                    f"SIMMER_REPLAY_NOW is not a valid timestamp: {raw!r}"
-                ) from exc
+        if not raw:
+            raise ReplayClockError("SIMMER_REPLAY_NOW is required under replay")
+        try:
+            dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt.astimezone(timezone.utc)
+        except ValueError as exc:
+            raise ReplayClockError(
+                f"SIMMER_REPLAY_NOW is not a valid timestamp: {raw!r}"
+            ) from exc
     return datetime.now(timezone.utc)
 
 
@@ -285,12 +286,19 @@ def _sports_in_text(*parts: str) -> bool:
 
 
 def _is_sports(tags, category: str = "", question: str = "", slug: str = "") -> bool:
-    """Return True if tags, category, or question/slug indicate sports."""
+    """Return True if tags, category, or (replay) question/slug indicate sports.
+
+    Question/slug tokens run only under replay — tape tags are empty. Live
+    stays tag/category only so "Will the president attend the NBA finals?"
+    is not dropped.
+    """
     if (category or "").lower() in SPORTS_CATEGORIES:
         return True
     if _extract_tag_slugs(tags) & SPORTS_CATEGORIES:
         return True
-    return _sports_in_text(question, slug)
+    if _is_replay():
+        return _sports_in_text(question, slug)
+    return False
 
 
 def _is_binary_yes_no(market: dict) -> bool:
@@ -463,6 +471,7 @@ def _fetch_candidate_markets_replay() -> list:
     if not isinstance(rows, list):
         print("  Failed to fetch markets from Simmer API")
         raise MarketFetchError("Failed to fetch markets from Simmer API")
+    rows = _standalone_tape_rows(rows)
     candidates = []
     for market in rows:
         candidate = _candidate_from_tape(market)
@@ -470,6 +479,28 @@ def _fetch_candidate_markets_replay() -> list:
             candidates.append(candidate)
     candidates.sort(key=lambda m: m["no_price"])
     return candidates
+
+
+def _standalone_tape_rows(rows: list) -> list:
+    """Keep rows whose event has exactly one market on this listing page.
+
+    Live standalone = Gamma event with ``len(markets) == 1``. Replay rows
+    are flat; group by ``event_id`` when the listing exposes it. Rows
+    with no ``event_id`` cannot be grouped and stay (FIX: a page may
+    omit sibling legs).
+    """
+    counts = {}
+    for market in rows:
+        event_id = market.get("event_id")
+        if event_id:
+            counts[event_id] = counts.get(event_id, 0) + 1
+    kept = []
+    for market in rows:
+        event_id = market.get("event_id")
+        if event_id and counts.get(event_id, 0) > 1:
+            continue
+        kept.append(market)
+    return kept
 
 
 def _candidate_from_tape(market: dict):
@@ -538,11 +569,13 @@ def import_market(slug: str) -> tuple:
     if status == "resolved":
         return None, "Market already resolved"
 
-    # Replay returns status=active + already_imported (tape already holds
-    # the market). Live uses imported / already_exists.
-    if market_id and (
-        status in ("imported", "already_exists", "active")
-        or result.get("already_imported")
+    if market_id and status in ("imported", "already_exists"):
+        return market_id, None
+
+    # Replay tape already holds the market (status=active / already_imported).
+    # Live must not accept that allowlist — only imported / already_exists.
+    if _is_replay() and market_id and (
+        status == "active" or result.get("already_imported")
     ):
         return market_id, None
 
@@ -843,7 +876,19 @@ def main():
                 _automaton_reported = True
             return
         max_safe = _preflight_max_safe_size(_preflight)
-        if max_safe is not None and max_safe < MAX_BET_USD:
+        if max_safe is None:
+            print(
+                "  ⏸️  preflight_cap_unusable: ensure_can_trade omitted a "
+                "numeric max_safe_size — refuse to trade"
+            )
+            if os.environ.get("AUTOMATON_MANAGED"):
+                print(json.dumps({"automaton": {
+                    "signals": 0, "trades_attempted": 0, "trades_executed": 0,
+                    "skip_reason": "preflight_cap_unusable",
+                }}))
+                _automaton_reported = True
+            return
+        if max_safe < MAX_BET_USD:
             print(f"  💰 Capping max bet ${MAX_BET_USD:.2f} → ${max_safe:.2f} "
                   f"(balance ${_preflight.get('balance', 0):.2f} {_preflight.get('collateral', '')})")
             MAX_BET_USD = max_safe

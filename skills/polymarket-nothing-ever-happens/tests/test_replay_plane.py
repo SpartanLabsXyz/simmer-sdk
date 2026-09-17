@@ -62,6 +62,7 @@ def _tape_market(**overrides):
         "volume": 2500.0,
         "resolves_at": "2026-12-31T00:00:00+00:00",
         "polymarket_condition_id": "0xcond",
+        "event_id": "evt-geo-2026",
         "status": "active",
         "tags": [],
         "category": "",
@@ -73,6 +74,7 @@ def _tape_market(**overrides):
 def _sports_tape(**overrides):
     row = _tape_market(
         id="nba-lakers",
+        event_id="evt-nba-finals",
         question="Lakers vs Celtics NBA finals game 1",
         slug="nba-lakers-celtics-game-1",
         no_price=0.05,
@@ -191,11 +193,53 @@ class TestFetchReplayMarkets(_ReplayEnvMixin, unittest.TestCase):
 
     def test_ambiguous_text_is_not_sports(self):
         """electoral college / sports betting / Trump golf must stay eligible."""
+        os.environ["SIMMER_REPLAY"] = "1"
         self.assertFalse(neh._sports_in_text("Will the electoral college flip?"))
         self.assertFalse(neh._sports_in_text("Sports betting legal in Texas?"))
         self.assertFalse(neh._sports_in_text("Will Trump play golf this week?"))
         self.assertTrue(neh._sports_in_text("Lakers vs Celtics NBA finals"))
         self.assertTrue(neh._is_sports([], "", "Chiefs vs Bills", "nfl-week-1"))
+
+    def test_live_sports_stays_tag_and_category_only(self):
+        os.environ.pop("SIMMER_REPLAY", None)
+        self.assertFalse(
+            neh._is_sports([], "", "Will the president attend the NBA finals?", "")
+        )
+        self.assertTrue(neh._is_sports([{"slug": "nba"}], "", "any", ""))
+
+    def test_grouped_event_legs_are_dropped(self):
+        os.environ["SIMMER_REPLAY"] = "1"
+        rows = [
+            _tape_market(
+                id="race-a",
+                event_id="who-wins-iowa",
+                question="Will Alice win Iowa?",
+                slug="alice-wins-iowa",
+                no_price=0.04,
+                yes_price=0.96,
+            ),
+            _tape_market(
+                id="race-b",
+                event_id="who-wins-iowa",
+                question="Will Bob win Iowa?",
+                slug="bob-wins-iowa",
+                no_price=0.05,
+                yes_price=0.95,
+            ),
+        ]
+        client = MagicMock()
+        client._request.return_value = {"markets": rows}
+        with patch.object(neh, "get_client", return_value=client):
+            markets = neh.fetch_candidate_markets()
+        self.assertEqual(markets, [])
+
+    def test_singleton_event_id_stays(self):
+        os.environ["SIMMER_REPLAY"] = "1"
+        client = MagicMock()
+        client._request.return_value = {"markets": [_tape_market()]}
+        with patch.object(neh, "get_client", return_value=client):
+            markets = neh.fetch_candidate_markets()
+        self.assertEqual(len(markets), 1)
 
 
 class TestReplayClockAndImport(_ReplayEnvMixin, unittest.TestCase):
@@ -207,6 +251,12 @@ class TestReplayClockAndImport(_ReplayEnvMixin, unittest.TestCase):
     def test_clock_unparseable_raises_not_wall_clock(self):
         os.environ["SIMMER_REPLAY"] = "1"
         os.environ["SIMMER_REPLAY_NOW"] = "not-a-date"
+        with self.assertRaises(neh.ReplayClockError):
+            neh._clock()
+
+    def test_clock_missing_now_raises_not_wall_clock(self):
+        os.environ["SIMMER_REPLAY"] = "1"
+        os.environ.pop("SIMMER_REPLAY_NOW", None)
         with self.assertRaises(neh.ReplayClockError):
             neh._clock()
 
@@ -240,6 +290,19 @@ class TestReplayClockAndImport(_ReplayEnvMixin, unittest.TestCase):
             market_id, err = neh.import_market("done")
         self.assertIsNone(market_id)
         self.assertEqual(err, "Market already resolved")
+
+    def test_import_active_rejected_when_not_replay(self):
+        os.environ.pop("SIMMER_REPLAY", None)
+        client = MagicMock()
+        client.import_market.return_value = {
+            "market_id": "live-id",
+            "status": "active",
+            "already_imported": True,
+        }
+        with patch.object(neh, "get_client", return_value=client):
+            market_id, err = neh.import_market("live-slug")
+        self.assertIsNone(market_id)
+        self.assertIn("Unexpected import status: active", err)
 
     def test_import_unknown_status_without_id_still_errors(self):
         client = MagicMock()

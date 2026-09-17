@@ -1,5 +1,14 @@
 # Changelog — polymarket-nothing-ever-happens
 
+## [1.1.1] - 2026-09-17
+
+### Fixed
+- **Live sizing cap is fail-closed (CTO P1).** A missing or non-numeric `max_safe_size` from `ensure_can_trade` now refuses the run. It no longer leaves `MAX_BET_USD` uncapped.
+- **Replay standalone filter (CTO P1).** Listing rows with the same `event_id` (more than one on the page) are dropped, matching live Gamma `len(markets)==1`. The replay payload now includes `event_id` / `event_title`. Mirror that field in simmer_v3 `_market_payload` on the next `sync_replay_engine.py`. A missing `event_id` or a page that shows only one grouped leg is still FIX.
+- Question/slug sports tokens run only under replay. Live stays tag/category.
+- Import `status=active` / `already_imported` is replay-only.
+- Empty `SIMMER_REPLAY_NOW` under replay raises `ReplayClockError` (no wall-clock fallback).
+
 ## [1.1.0] - 2026-09-16
 
 ### Added

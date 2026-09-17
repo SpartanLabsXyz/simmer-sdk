@@ -3,7 +3,7 @@ name: polymarket-nothing-ever-happens
 description: Buy NO on standalone non-sports yes/no Polymarket markets priced below a configurable cap. Based on the "nothing-ever-happens" thesis — binary markets often resolve NO, and cheap NO shares offer asymmetric value. Scans for candidates via Gamma API, filters out sports and grouped markets, checks fees, and executes.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.1.0"
+  version: "1.1.1"
   displayName: Polymarket Nothing-Ever-Happens
   difficulty: beginner
 ---
@@ -12,6 +12,11 @@ metadata:
 Buy NO on standalone yes/no Polymarket markets priced below a configurable cap.
 
 > 🚨 **Framework, not a production trading system.** Read [DISCLAIMER.md](./DISCLAIMER.md) before connecting to a wallet with real funds.
+
+## What's New in v1.1.1
+
+- **CTO review P1.** Live `ensure_can_trade` with a missing or non-numeric `max_safe_size` now refuses to trade (no uncapped `MAX_BET_USD`). Replay listings expose `event_id`; the skill drops events that have more than one row on the page (standalone = live Gamma `len(markets)==1`).
+- **FIX caveat.** If the tape omits `event_id`, or the listing page only shows one grouped leg, that row still enters. Tape `volume` stands in for both liquidity and 24h volume.
 
 ## What's New in v1.1.0
 
@@ -146,7 +151,7 @@ python -m pytest skills/polymarket-nothing-ever-happens/tests/test_replay_plane.
 
 | Verdict | What it means |
 |---------|----------------|
-| **FIX** | Path is broken or the tape cannot evaluate the skill. Do not add capital. Repair: live Gamma under replay (look-ahead); `Unexpected import status: active`; wall-clock daily-spend; sports leak from empty tape tags; listing 422 from `tags`/`status`. |
+| **FIX** | Path is broken or the tape cannot evaluate the skill. Do not add capital. Repair: live Gamma under replay (look-ahead); `Unexpected import status: active`; wall-clock daily-spend; sports leak from empty tape tags; listing 422 from `tags`/`status`. Replay standalone uses `event_id` on the listing page — a missing `event_id` or a page that shows only one grouped leg still admits that row. Tape `volume` stands in for liquidity and 24h volume. |
 | **KILL** | Pinned pytest fails, **or** a full-tape run has evals > 0 and the skill still cannot reach `trade()` on a tape cheap-NO, **or** P&L after costs is clearly ≤ 0 on honest (not live-Gamma) prices. No second-lane capital. |
 | **KEEP** | Full-tape `simmer backtest` with evals > 0 **and** trades > 0 on tape prices and `SIMMER_REPLAY_NOW`. Pinned unit tests are a path check only — not KEEP. |
 
