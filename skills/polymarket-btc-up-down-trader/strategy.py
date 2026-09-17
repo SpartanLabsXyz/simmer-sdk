@@ -375,8 +375,6 @@ def _yes_token_id(market):
 
 
 def _trade_kwargs(**kwargs):
-    if _is_replay():
-        kwargs["skip_preflight"] = True
     return kwargs
 
 

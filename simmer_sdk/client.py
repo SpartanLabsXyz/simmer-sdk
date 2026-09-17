@@ -5,6 +5,7 @@ Simple Python client for trading on Simmer prediction markets.
 """
 
 import hashlib
+import ipaddress
 import math
 import os
 import sys
@@ -220,7 +221,7 @@ class PreflightResult:
     resolved_venue: str
     execution_wallet: Optional[str]
     deposit_wallet: Optional[str]
-    signer_status: str  # "ows" | "external_key" | "managed"
+    signer_status: str  # "ows" | "external_key" | "managed" | "replay"
     spendable_balance: Optional[float]
     gas_balance: Optional[float]
     open_exposure_total: float
@@ -1176,6 +1177,29 @@ class SimmerClient:
         if resolved_venue in ("simmer", "sandbox"):
             resolved_venue = "sim"
 
+        if os.environ.get("SIMMER_REPLAY") == "1" and self._is_loopback_base_url(
+            getattr(self, "base_url", "")
+        ):
+            return PreflightResult(
+                client_preflight_id=client_preflight_id,
+                agent_id=None,
+                tier="replay",
+                resolved_venue=resolved_venue,
+                execution_wallet=self._wallet_address,
+                deposit_wallet=self._deposit_wallet_address,
+                signer_status="replay",
+                spendable_balance=None,
+                gas_balance=None,
+                open_exposure_total=0.0,
+                exposure_cap_usd=exposure_cap_usd,
+                planned_amount=planned_amount,
+                would_exceed_cap=False,
+                pending_alerts=[],
+                ok_to_trade=True,
+                blockers=[],
+                warnings=["replay_preflight_ok"],
+            )
+
         blockers: List[str] = []
         warnings_list: List[str] = []
 
@@ -1407,6 +1431,18 @@ class SimmerClient:
     # briefing, positions) plus the optional approvals check. Worst case is
     # 15 s plus one 5 s approvals call. No threads.
     _PREFLIGHT_READ_TIMEOUT_S = 5
+
+    @staticmethod
+    def _is_loopback_base_url(base_url: str) -> bool:
+        host = urlparse(base_url).hostname
+        if not host:
+            return False
+        if host == "localhost" or host.endswith(".localhost"):
+            return True
+        try:
+            return ipaddress.ip_address(host).is_loopback
+        except ValueError:
+            return False
 
     @staticmethod
     def _is_real_money_venue(venue: str) -> bool:
