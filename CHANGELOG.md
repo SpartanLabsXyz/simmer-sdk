@@ -3,6 +3,13 @@
 All notable changes to `simmer-sdk` are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## polymarket-signal-sniper 2.0.0 — 2026-09-18
+
+- **The skill no longer trades.** It emits article + market pairs that pass the safeguards, and the user's agent decides relevance, side and size. The old path guessed the side from keyword sentiment: two words like "rally" and "rise" gave 100% confidence, against every keyword-matched market whether or not the article was about it, and `--live` bought on that. An offline eval of 349 headline–market pairs found no directional edge in RSS headlines at all; the price move they describe mostly happens before they reach the feed.
+- Removed: `infer_side()`, trade execution, auto-redeem, the balance preflight, the risk-monitor helper, and the `confidence_threshold` / `max_usd` / `max_trades_per_run` settings and tunables. `WALLET_PRIVATE_KEY` is no longer listed.
+- Added: `--json` prints `{"signals": [...]}` on stdout with logs on stderr. Each signal carries the article, the market's question, resolution criteria, price and time to resolution, and its safeguard warnings.
+- `--live`, `--dry-run` and `--scan-only` are still accepted so existing cron lines keep running; they have no effect.
+
 ## 0.25.8 (2026-09-17)
 
 - **`SimmerClient.preflight()` is replay-aware.** Under `simmer backtest` (`SIMMER_REPLAY=1` with a loopback API URL) preflight returns `ok_to_trade=True` with `signer_status="replay"` and makes no network calls, so replayed skills fill in SimState without the deprecated `skip_preflight` valve. `SIMMER_REPLAY=1` against a non-loopback URL still runs the full live preflight.

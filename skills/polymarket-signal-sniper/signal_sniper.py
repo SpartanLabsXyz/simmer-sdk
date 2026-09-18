@@ -1,15 +1,19 @@
 #!/usr/bin/env python3
 """
-Signal Sniper - Trade on signals from user-configured sources.
+Signal Sniper - Surface news signals from user-configured sources.
 
 Pattern A skill with SDK infrastructure:
-- Skill handles: RSS polling, keyword matching, decision logic
-- SDK provides: context endpoint (safeguards), trade endpoint
+- Skill handles: RSS polling, keyword matching, market safeguards
+- SDK provides: context endpoint (safeguards)
+- Your agent decides: whether the article bears on the market, which side, how much
+
+The skill never places trades. It emits article + market pairs for your agent
+to judge. Keyword sentiment cannot tell whether a headline is about a market,
+and RSS news is usually priced in before it reaches the feed.
 
 Usage:
-    python signal_sniper.py                     # Dry run (show signals, no trades)
-    python signal_sniper.py --live              # Execute real trades
-    python signal_sniper.py --scan-only         # Just show matches
+    python signal_sniper.py                     # Scan and print signals
+    python signal_sniper.py --json              # Print signals as JSON for your agent
     python signal_sniper.py --config            # Show configuration
     python signal_sniper.py --history           # Show processed articles
     python signal_sniper.py --feed URL          # Override feed for one run
@@ -22,8 +26,8 @@ import sys
 import json
 import hashlib
 import argparse
+import contextlib
 import fcntl
-import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, List, Dict, Any, Tuple
@@ -42,21 +46,7 @@ try:
 except ImportError:
     _USE_DEFUSEDXML = False
 
-# Optional: Trade Journal integration for tracking
-try:
-    from tradejournal import log_trade
-    JOURNAL_AVAILABLE = True
-except ImportError:
-    try:
-        # Try relative import within skills package
-        from skills.tradejournal import log_trade
-        JOURNAL_AVAILABLE = True
-    except ImportError:
-        JOURNAL_AVAILABLE = False
-        def log_trade(*args, **kwargs):
-            pass  # No-op if tradejournal not installed
-
-# Source tag for tracking
+# Source tag your agent should pass to client.trade() if it acts on a signal
 TRADE_SOURCE = "sdk:signalsniper"
 SKILL_SLUG = "polymarket-signal-sniper"
 _automaton_reported = False
@@ -68,9 +58,6 @@ CONFIG_SCHEMA = {
     "feeds": {"env": "SIMMER_SNIPER_FEEDS", "default": "", "type": str},
     "markets": {"env": "SIMMER_SNIPER_MARKETS", "default": "", "type": str},
     "keywords": {"env": "SIMMER_SNIPER_KEYWORDS", "default": "", "type": str},
-    "confidence_threshold": {"env": "SIMMER_SNIPER_CONFIDENCE_THRESHOLD", "default": 0.7, "type": float},
-    "max_usd": {"env": "SIMMER_SNIPER_MAX_USD", "default": 25.0, "type": float},
-    "max_trades_per_run": {"env": "SIMMER_SNIPER_MAX_TRADES_PER_RUN", "default": 5, "type": int},
 }
 
 # Load configuration
@@ -79,7 +66,7 @@ _config = load_config(CONFIG_SCHEMA, __file__, slug="polymarket-signal-sniper")
 # SimmerClient singleton
 _client = None
 
-def get_client(live=True):
+def get_client():
     """Lazy-init SimmerClient singleton."""
     global _client
     if _client is None:
@@ -94,23 +81,13 @@ def get_client(live=True):
             print("Get your API key from: simmer.markets/dashboard -> SDK tab")
             sys.exit(1)
         venue = os.environ.get("TRADING_VENUE", "polymarket")
-        _client = SimmerClient(api_key=api_key, venue=venue, live=live)
+        _client = SimmerClient(api_key=api_key, venue=venue)
     return _client
 
 # Sniper configuration - from config
 FEEDS = _config["feeds"]
 MARKETS = _config["markets"]
 KEYWORDS = _config["keywords"]
-CONFIDENCE_THRESHOLD = _config["confidence_threshold"]
-MAX_USD = _config["max_usd"]
-_automaton_max = os.environ.get("AUTOMATON_MAX_BET")
-if _automaton_max:
-    MAX_USD = min(MAX_USD, float(_automaton_max))
-MAX_TRADES_PER_RUN = _config["max_trades_per_run"]
-
-# Polymarket constraints
-MIN_SHARES_PER_ORDER = 5.0  # Polymarket requires minimum 5 shares
-MIN_TICK_SIZE = 0.01        # Minimum price increment
 
 # State file for deduplication
 STATE_DIR = Path(__file__).parent / "state"
@@ -133,8 +110,6 @@ def get_config() -> Dict[str, Any]:
         "feeds": [f.strip() for f in FEEDS.split(",") if f.strip()],
         "markets": [m.strip() for m in MARKETS.split(",") if m.strip()],
         "keywords": [k.strip().lower() for k in KEYWORDS.split(",") if k.strip()],
-        "confidence_threshold": CONFIDENCE_THRESHOLD,
-        "max_usd": MAX_USD,
     }
 
 
@@ -166,16 +141,11 @@ def show_config():
     else:
         print("  (none - all articles will match)")
     print()
-    print(f"Confidence Threshold: {config['confidence_threshold']:.0%}")
-    print(f"Max Trade Size: ${config['max_usd']:.2f}")
-    print(f"Max Trades/Run: {MAX_TRADES_PER_RUN}")
-    print()
     print(f"Config file: {config_path}")
     print(f"Config exists: {'Yes' if config_path.exists() else 'No'}")
     print("\nTo change settings:")
     print("  --set feeds=https://rss.example.com/feed1,https://rss.example.com/feed2")
     print("  --set keywords=bitcoin,ethereum,crypto")
-    print("  --set confidence_threshold=0.8")
 
 
 def load_processed() -> Dict[str, Dict]:
@@ -377,86 +347,6 @@ def discover_markets(keywords: List[str], log=print) -> List[str]:
     return matched_ids
 
 
-# Bearish keywords — if article contains these, lean toward selling YES / buying NO
-# Uses word boundary matching via _count_keyword_hits() to avoid substring false positives
-BEARISH_KEYWORDS = [
-    "fail", "decline", "drop", "fall", "crash", "reject", "unlikely",
-    "delay", "cancel", "oppose", "block", "veto", "lose", "defeat",
-    "miss", "below", "under", "down", "negative", "bearish",
-    "denied", "collapses", "plunges", "slumps",
-]
-
-# Bullish keywords — lean toward buying YES
-BULLISH_KEYWORDS = [
-    "pass", "approve", "rise", "gain", "surge", "confirm", "likely",
-    "agree", "support", "win", "above", "over", "positive",
-    "bullish", "succeed", "advance", "rally", "soars", "jumps",
-    "launches", "announces", "breakthrough",
-]
-
-
-def _count_keyword_hits(text: str, keywords: List[str]) -> int:
-    """Count keyword matches using word boundaries to avoid substring false positives."""
-    count = 0
-    for kw in keywords:
-        # \b word boundary ensures "down" doesn't match "download"
-        if re.search(r'\b' + re.escape(kw) + r'\b', text):
-            count += 1
-    return count
-
-
-NEGATIVE_QUESTION_PATTERNS = [
-    r'\bwill\b.*\b(fail|lose|drop|fall|crash|decline|collapse|miss|default|reject)\b',
-    r'\bwill there be\b.*\b(recession|downturn|shutdown|crisis|war|conflict)\b',
-    r'\bwill\b.*\b(below|under|less than|fewer than|lower than)\b',
-    r'\bwill\b.*\bnot\b',
-    r'\bwill\b.*\b(ban|block|veto|oppose|cancel|delay|deny)\b',
-]
-
-
-def _is_negative_question(question: str) -> bool:
-    """Detect if a market question is negatively-phrased (YES = bad thing happens).
-
-    For these markets, bearish article sentiment should map to YES (not NO),
-    because the bad outcome the question asks about becomes more likely.
-    """
-    q = question.lower()
-    return any(re.search(pat, q) for pat in NEGATIVE_QUESTION_PATTERNS)
-
-
-def infer_side(article: Dict[str, str], market_question: str = "") -> Tuple[Optional[str], float]:
-    """Infer trade side from article sentiment, aware of market question phrasing.
-
-    Returns (side, confidence) where side is 'yes', 'no', or None.
-    Confidence is 0-1 based on keyword hit strength.
-    """
-    text = f"{article['title']} {article['summary']}".lower()
-
-    bull_score = _count_keyword_hits(text, BULLISH_KEYWORDS)
-    bear_score = _count_keyword_hits(text, BEARISH_KEYWORDS)
-
-    total = bull_score + bear_score
-    if total == 0:
-        return None, 0.0
-
-    # Determine raw sentiment
-    if bull_score > bear_score and bull_score >= 2:
-        raw_side = "yes"
-    elif bear_score > bull_score and bear_score >= 2:
-        raw_side = "no"
-    else:
-        return None, 0.0
-
-    # Confidence: how decisive the keyword balance is (0.5 = barely, 1.0 = all one way)
-    confidence = abs(bull_score - bear_score) / total
-
-    # Flip direction for negatively-phrased markets
-    if market_question and _is_negative_question(market_question):
-        raw_side = "no" if raw_side == "yes" else "yes"
-
-    return raw_side, confidence
-
-
 def get_market_context(market_id: str, my_probability: float = None) -> Optional[Dict]:
     """
     Get SDK context for a market (safeguards + optional edge analysis).
@@ -473,77 +363,6 @@ def get_market_context(market_id: str, my_probability: float = None) -> Optional
         return get_client().get_market_context(market_id)
     except Exception:
         return None
-
-
-def set_risk_monitor(market_id: str, side: str,
-                     stop_loss_pct: float = 0.20, take_profit_pct: float = 0.50) -> Dict:
-    """
-    Set stop-loss and take-profit for a position.
-    The backend monitors every 15 min and auto-exits when thresholds hit.
-    """
-    try:
-        return get_client().set_monitor(market_id, side,
-                                        stop_loss_pct=stop_loss_pct,
-                                        take_profit_pct=take_profit_pct)
-    except Exception as e:
-        return {"error": str(e)}
-
-
-def execute_trade(
-    market_id: str,
-    side: str,
-    amount: float,
-    price: float = None,
-    source: str = None,
-    skill_slug: str = None,
-    thesis: str = None,
-    confidence: float = None,
-    signal_data: dict = None,
-) -> Dict:
-    """Execute trade via SDK with 5-share minimum check and journal logging."""
-    source = source or TRADE_SOURCE
-
-    # Check Polymarket minimum shares requirement
-    if price and price > 0:
-        shares = amount / price
-        if shares < MIN_SHARES_PER_ORDER:
-            return {
-                "success": False,
-                "error": f"Position size ${amount:.2f} too small for {MIN_SHARES_PER_ORDER} shares at ${price:.2f} (would be {shares:.1f} shares)"
-            }
-
-    try:
-        result = get_client().trade(
-            market_id=market_id,
-            side=side,
-            amount=amount,
-            source=source,
-            skill_slug=skill_slug or SKILL_SLUG,
-            signal_data=signal_data,
-        )
-        trade_result = {
-            "success": result.success,
-            "trade_id": result.trade_id,
-            "shares_bought": result.shares_bought,
-            "shares": result.shares_bought,
-            "error": result.error,
-            "retryable": result.retryable,
-        }
-    except Exception as e:
-        return {"error": str(e)}
-
-    # Log to journal if successful
-    if trade_result.get("success") and JOURNAL_AVAILABLE:
-        trade_id = trade_result.get("trade_id")
-        if trade_id:
-            log_trade(
-                trade_id=trade_id,
-                source=source,
-                thesis=thesis,
-                confidence=confidence,
-            )
-
-    return trade_result
 
 
 def check_safeguards(context: Dict) -> Tuple[bool, List[str]]:
@@ -664,60 +483,27 @@ def run_scan(
     feeds: List[str],
     markets: List[str],
     keywords: List[str],
-    dry_run: bool = True,
-    scan_only: bool = False,
 ) -> Dict[str, Any]:
     """
     Run signal scan across feeds and markets.
 
+    Emits every new article + market pair that passes the safeguards. It does
+    not judge relevance or direction and never trades: that is the agent's call.
+
     Returns summary of results.
     """
-    # Globals declared up-front: balance pre-flight (below) may cap MAX_USD,
-    # and automaton skip reports flip _automaton_reported.
-    global MAX_USD, _automaton_reported
-    if dry_run:
-        print("\n  [PAPER MODE] Trades will be simulated with real prices. Use --live for real trades.\n")
+    global _automaton_reported
 
     # Validate API key via client init
     try:
-        client = get_client(live=not dry_run)
+        get_client()
     except SystemExit:
         return {"error": "No API key"}
-
-    # Redeem any winning positions before starting the cycle
-    try:
-        redeemed = client.auto_redeem()
-        for r in redeemed:
-            if r.get("success"):
-                print(f"  💰 Redeemed {r['market_id'][:8]}... ({r.get('side', '?')})")
-    except Exception:
-        pass  # Non-critical — don't block trading
-
-    # Balance pre-flight: skip cleanly when wallet is underfunded instead of
-    # looping on rejected trades. Helper is collateral-agnostic — checks pUSD
-    # on V2, USDC.e on V1 per server's exchange_version.
-    if not dry_run:
-        _preflight = client.ensure_can_trade(min_usd=1.0)
-        if not _preflight["ok"]:
-            print(f"  ⏸️  insufficient_balance: ${_preflight['balance']:.2f} {_preflight['collateral']} "
-                  f"(need ≥ $1.00) — skip")
-            if os.environ.get("AUTOMATON_MANAGED"):
-                print(json.dumps({"automaton": {
-                    "signals": 0, "trades_attempted": 0, "trades_executed": 0,
-                    "skip_reason": _preflight["reason"],
-                    "balance_usd": round(_preflight["balance"], 2),
-                }}))
-                _automaton_reported = True
-            return {"skipped": _preflight["reason"], "balance_usd": _preflight["balance"]}
-        if _preflight["max_safe_size"] < MAX_USD:
-            print(f"  💰 Capping max bet ${MAX_USD:.2f} → ${_preflight['max_safe_size']:.2f} "
-                  f"(balance ${_preflight['balance']:.2f} {_preflight['collateral']})")
-            MAX_USD = _preflight["max_safe_size"]
 
     if not feeds:
         print("❌ No RSS feeds configured")
         print("")
-        print("   This skill trades on signals from YOUR RSS feeds — you bring the edge.")
+        print("   This skill surfaces signals from YOUR RSS feeds — you bring the edge.")
         print("")
         print("   To configure, set the SIMMER_SNIPER_FEEDS env var to a comma-separated list of RSS URLs:")
         print("")
@@ -748,15 +534,12 @@ def run_scan(
             return {"error": "No markets"}
 
     skip_reasons = []
-    execution_errors = []
     results = {
         "feeds_scanned": len(feeds),
         "articles_found": 0,
         "articles_matched": 0,
         "articles_new": 0,
-        "trades_executed": 0,
-        "trades_skipped": 0,
-        "total_usd_spent": 0.0,
+        "pairs_skipped": 0,
         "signals": [],
     }
 
@@ -795,147 +578,55 @@ def run_scan(
         print("\n✅ No new signals to process")
         return results
 
-    # 4. For each new article, check each market
-    print(f"\n🔍 Analyzing {len(new_articles)} new articles against {len(markets)} markets...")
+    # 4. Pair each new article with each market that passes the safeguards.
+    # Context is per market, not per article, so fetch it once.
+    print(f"\n🔍 Checking {len(markets)} markets against {len(new_articles)} new articles...")
+    tradeable = []
+    for market_id in markets:
+        print(f"\n   → Checking market: {market_id[:20]}...")
+        context = get_market_context(market_id)
+        if not context:
+            print(f"     ⚠️ Could not fetch context")
+            continue
 
+        print(format_context_summary(context))
+        passes, reasons = check_safeguards(context)
+        if reasons:
+            print(f"     ⚠️ Warnings: {'; '.join(reasons)}")
+        if not passes:
+            print(f"     ⏭️ Skipping: safeguards failed")
+            results["pairs_skipped"] += len(new_articles)
+            skip_reasons.append(f"safeguard: {reasons[0]}" if reasons else "safeguard")
+            continue
+        tradeable.append((market_id, context.get("market") or {}, reasons))
+
+    now = datetime.now(timezone.utc).isoformat()
     for article in new_articles:
         h = article_hash(article["url"], article["title"])
-        print(f"\n📰 {article['title'][:60]}...")
-
-        for market_id in markets:
-            print(f"\n   → Checking market: {market_id[:20]}...")
-
-            # Get context with safeguards (no probability estimate — we don't
-            # have a calibrated signal yet, so edge calculation would be misleading)
-            context = get_market_context(market_id)
-            if not context:
-                print(f"     ⚠️ Could not fetch context")
-                continue
-
-            print(format_context_summary(context))
-
-            # Check safeguards
-            should_trade, reasons = check_safeguards(context)
-
-            if reasons:
-                print(f"     ⚠️ Warnings: {'; '.join(reasons)}")
-
-            if not should_trade:
-                print(f"     ⏭️ Skipping: safeguards failed")
-                results["trades_skipped"] += 1
-                skip_reasons.append(f"safeguard: {reasons[0]}" if reasons else "safeguard")
-                processed[h] = {
-                    "title": article["title"],
-                    "url": article["url"],
-                    "market_id": market_id,
-                    "action": "skipped",
-                    "reason": "; ".join(reasons),
-                    "processed_at": datetime.now(timezone.utc).isoformat(),
-                }
-                continue
-
-            if scan_only:
-                print(f"     👀 [SCAN ONLY] Would analyze for trading")
-                results["signals"].append({
-                    "article": article["title"],
-                    "market_id": market_id,
-                    "context": context.get("market", {}),
-                })
-                continue
-
-            # Safeguards passed — infer trade direction from article sentiment
-            market_question = context.get("market", {}).get("question", "")
-            side, signal_confidence = infer_side(article, market_question)
-            market_price = context.get("market", {}).get("current_price", 0.5)
-
-            if not side:
-                print(f"     🤷 Signal unclear — can't determine direction, skipping")
-                skip_reasons.append("unclear signal")
-                processed[h] = {
-                    "title": article["title"],
-                    "url": article["url"],
-                    "market_id": market_id,
-                    "action": "unclear_signal",
-                    "processed_at": datetime.now(timezone.utc).isoformat(),
-                }
-                continue
-
-            # Gate on confidence threshold
-            if signal_confidence < CONFIDENCE_THRESHOLD:
-                print(f"     📉 Signal confidence {signal_confidence:.0%} below threshold {CONFIDENCE_THRESHOLD:.0%}, skipping")
-                skip_reasons.append(f"low confidence ({signal_confidence:.0%})")
-                processed[h] = {
-                    "title": article["title"],
-                    "url": article["url"],
-                    "market_id": market_id,
-                    "action": "low_confidence",
-                    "confidence": signal_confidence,
-                    "processed_at": datetime.now(timezone.utc).isoformat(),
-                }
-                continue
-
-            print(f"\n     🧠 SIGNAL: {side.upper()} on {market_id[:20]} (confidence: {signal_confidence:.0%})")
-            print(f"     Article: {article['title'][:60]}")
-            print(f"     Market price: {market_price:.1%}")
-
-            if dry_run:
-                print(f"     🏜️ [DRY RUN] Would buy {side.upper()} for ${MAX_USD:.2f}")
-                action = "dry_run"
-            elif results["trades_executed"] >= MAX_TRADES_PER_RUN:
-                print(f"     ⏭️ Max trades per run ({MAX_TRADES_PER_RUN}) reached")
-                skip_reasons.append("max trades reached")
-                action = "max_trades_reached"
-            else:
-                print(f"     💰 Executing: BUY {side.upper()} for ${MAX_USD:.2f}")
-                _edge = signal_confidence - market_price if side == "yes" else signal_confidence - (1 - market_price)
-                _signal_data = {
-                    "edge": round(max(_edge, 0), 4),
-                    "confidence": round(signal_confidence, 2),
-                    "signal_source": "rss_sentiment",
-                    "headline": article["title"][:100],
-                    "sentiment_score": round(signal_confidence, 2),
-                }
-                trade_result = execute_trade(
-                    market_id=market_id,
-                    side=side,
-                    amount=MAX_USD,
-                    price=market_price,
-                    source=TRADE_SOURCE, skill_slug=SKILL_SLUG,
-                    thesis=f"Signal: {article['title'][:100]}",
-                    confidence=signal_confidence,
-                    signal_data=_signal_data,
-                )
-                if trade_result.get("success"):
-                    shares = trade_result.get("shares", 0)
-                    print(f"     ✅ Bought {shares:.1f} shares")
-                    results["trades_executed"] += 1
-                    results["total_usd_spent"] += MAX_USD
-                    action = "traded"
-                else:
-                    error = trade_result.get("error", "Unknown error")
-                    if not trade_result.get("retryable", True):
-                        print(f"     ⛔ Trade aborted (position cleared on-chain — no retry): {error}")
-                    else:
-                        print(f"     ❌ Trade failed: {error}")
-                    execution_errors.append(error[:120])
-                    action = "trade_failed"
-
+        for market_id, market, reasons in tradeable:
             results["signals"].append({
-                "article": article["title"],
-                "url": article["url"],
-                "market_id": market_id,
-                "side": side,
-                "action": action,
+                "article": {
+                    "title": article["title"],
+                    "url": article["url"],
+                    "summary": article["summary"],
+                    "published": article["published"],
+                },
+                "market": {
+                    "id": market_id,
+                    "question": market.get("question"),
+                    "resolution_criteria": market.get("resolution_criteria"),
+                    "current_price": market.get("current_price"),
+                    "time_to_resolution": market.get("time_to_resolution"),
+                },
+                "warnings": reasons,
             })
-
-            processed[h] = {
-                "title": article["title"],
-                "url": article["url"],
-                "market_id": market_id,
-                "side": side,
-                "action": action,
-                "processed_at": datetime.now(timezone.utc).isoformat(),
-            }
+        processed[h] = {
+            "title": article["title"],
+            "url": article["url"],
+            "market_ids": [m for m, _, _ in tradeable],
+            "action": "signal" if tradeable else "skipped",
+            "processed_at": now,
+        }
 
     # Save processed state
     save_processed(processed)
@@ -946,23 +637,23 @@ def run_scan(
     print(f"   Articles found: {results['articles_found']}")
     print(f"   Matched keywords: {results['articles_matched']}")
     print(f"   New to process: {results['articles_new']}")
-    print(f"   Signals detected: {len(results['signals'])}")
-    print(f"   Skipped (safeguards): {results['trades_skipped']}")
+    print(f"   Signals for your agent: {len(results['signals'])}")
+    print(f"   Skipped (safeguards): {results['pairs_skipped']}")
 
     if results["signals"]:
-        print("\n📡 Signals for Analysis:")
+        print("\n📡 Signals for Analysis (no trades placed; your agent decides):")
         for signal in results["signals"]:
-            print(f"   • {signal['article'][:50]}...")
-            print(f"     Market: {signal['market_id']}")
+            print(f"   • {signal['article']['title'][:50]}...")
+            print(f"     Market: {signal['market']['id']} — {(signal['market']['question'] or '')[:60]}")
 
     # Structured report for automaton
     if os.environ.get("AUTOMATON_MANAGED"):
         signals_count = len(results['signals'])
-        report = {"signals": signals_count, "trades_attempted": results['trades_executed'] + results['trades_skipped'], "trades_executed": results['trades_executed'], "amount_usd": round(results['total_usd_spent'], 2)}
-        if signals_count > 0 and results['trades_executed'] == 0 and skip_reasons:
+        report = {"signals": signals_count, "trades_attempted": 0, "trades_executed": 0, "amount_usd": 0.0}
+        if signals_count > 0:
+            report["skip_reason"] = "signals_only"
+        elif skip_reasons:
             report["skip_reason"] = ", ".join(dict.fromkeys(skip_reasons))
-        if execution_errors:
-            report["execution_errors"] = execution_errors
         print(json.dumps({"automaton": report}))
         _automaton_reported = True
 
@@ -970,10 +661,11 @@ def run_scan(
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Signal Sniper - Trade on user-configured signals")
-    parser.add_argument("--live", action="store_true", help="Execute real trades (default is dry-run)")
-    parser.add_argument("--dry-run", action="store_true", help="(Default) Don't execute trades")
-    parser.add_argument("--scan-only", action="store_true", help="Only scan, don't analyze")
+    parser = argparse.ArgumentParser(description="Signal Sniper - Surface news signals for your agent to judge")
+    parser.add_argument("--json", action="store_true", help="Print signals as JSON on stdout (logs go to stderr)")
+    parser.add_argument("--live", action="store_true", help=argparse.SUPPRESS)  # accepted for old cron lines; no effect
+    parser.add_argument("--dry-run", action="store_true", help=argparse.SUPPRESS)  # accepted for old cron lines; no effect
+    parser.add_argument("--scan-only", action="store_true", help=argparse.SUPPRESS)  # accepted for old cron lines; no effect
     parser.add_argument("--config", action="store_true", help="Show configuration")
     parser.add_argument("--history", action="store_true", help="Show processed articles")
     parser.add_argument("--feed", type=str, help="Override RSS feed URL")
@@ -981,7 +673,7 @@ def main():
     parser.add_argument("--keywords", type=str, help="Override keywords (comma-separated)")
     parser.add_argument("--set", action="append", metavar="KEY=VALUE",
                         help="Set config value (e.g., --set feeds=url1,url2 --set keywords=a,b)")
-    parser.add_argument("--quiet", "-q", action="store_true", help="Only output on trades/errors")
+    parser.add_argument("--quiet", "-q", action="store_true", help="Only output on signals/errors")
 
     args = parser.parse_args()
 
@@ -1003,14 +695,11 @@ def main():
             print(f"✅ Config updated: {updates}")
             print(f"   Saved to: {get_config_path(__file__)}")
             # Reload globals
-            global FEEDS, MARKETS, KEYWORDS, CONFIDENCE_THRESHOLD, MAX_USD, MAX_TRADES_PER_RUN
+            global FEEDS, MARKETS, KEYWORDS
             _config = load_config(CONFIG_SCHEMA, __file__, slug="polymarket-signal-sniper")
             FEEDS = _config["feeds"]
             MARKETS = _config["markets"]
             KEYWORDS = _config["keywords"]
-            CONFIDENCE_THRESHOLD = _config["confidence_threshold"]
-            MAX_USD = _config["max_usd"]
-            MAX_TRADES_PER_RUN = _config["max_trades_per_run"]
 
     if args.config:
         show_config()
@@ -1020,22 +709,23 @@ def main():
         show_history()
         return
 
+    if args.live:
+        print("ℹ️  --live has no effect: since 2.0.0 this skill never trades. "
+              "Your agent reads the signals and places any trade itself.", file=sys.stderr)
+
     # Build config with overrides
     config = get_config()
     feeds = [args.feed] if args.feed else config["feeds"]
     markets = [args.market] if args.market else config["markets"]
     keywords = [k.strip().lower() for k in args.keywords.split(",")] if args.keywords else config["keywords"]
 
-    # Default to dry-run unless --live is explicitly passed
-    dry_run = not args.live
-
-    run_scan(
-        feeds=feeds,
-        markets=markets,
-        keywords=keywords,
-        dry_run=dry_run,
-        scan_only=args.scan_only,
-    )
+    if args.json:
+        # Keep stdout clean for the agent: human-readable logs go to stderr.
+        with contextlib.redirect_stdout(sys.stderr):
+            results = run_scan(feeds=feeds, markets=markets, keywords=keywords)
+        print(json.dumps({"signals": results.get("signals", []), "error": results.get("error")}))
+    else:
+        run_scan(feeds=feeds, markets=markets, keywords=keywords)
 
     # Fallback report for automaton if the strategy returned early (no signal)
     if os.environ.get("AUTOMATON_MANAGED") and not _automaton_reported:
