@@ -28,7 +28,15 @@ class _MemStore:
         self._markets = markets
 
     def markets(self, at, *, limit=500, order_by="volume", **filters):
-        return self._markets[:limit]
+        if order_by == "created_at":
+            rows = sorted(self._markets, key=lambda m: m.created_at, reverse=True)
+        else:
+            rows = sorted(
+                self._markets,
+                key=lambda m: (m.volume is not None, m.volume or 0.0, m.created_at),
+                reverse=True,
+            )
+        return rows[:limit]
 
     def price(self, market_id, at):
         return None
@@ -43,7 +51,7 @@ class _MemStore:
         return None
 
 
-def _meta(market_id, question, slug, volume=1000.0):
+def _meta(market_id, question, slug, volume=1000.0, created_at=None):
     return MarketMeta(
         id=market_id,
         question=question,
@@ -51,7 +59,7 @@ def _meta(market_id, question, slug, volume=1000.0):
         condition_id=f"cond-{market_id}",
         answer1="Yes",
         answer2="No",
-        created_at=datetime(2026, 4, 1, tzinfo=timezone.utc),
+        created_at=created_at or datetime(2026, 4, 1, tzinfo=timezone.utc),
         end_date=datetime(2026, 5, 10, tzinfo=timezone.utc),
         volume=volume,
     )
@@ -84,6 +92,34 @@ def test_replay_q_temperature_uses_existing_question_slug_filter():
     assert r.status_code == 200
     ids = [m["id"] for m in r.json()["markets"]]
     assert ids == ["wx1"]
+
+
+def test_replay_markets_default_sort_is_newest_first():
+    older_high_volume = _meta(
+        "old-high-volume",
+        "Older high volume market",
+        "older-high-volume-market",
+        volume=9e6,
+        created_at=datetime(2026, 4, 1, tzinfo=timezone.utc),
+    )
+    newer_low_volume = _meta(
+        "new-low-volume",
+        "Newer low volume market",
+        "newer-low-volume-market",
+        volume=100.0,
+        created_at=datetime(2026, 4, 20, tzinfo=timezone.utc),
+    )
+
+    r = _client([older_high_volume, newer_low_volume]).get(
+        "/api/sdk/markets",
+        params={"limit": 10},
+    )
+
+    assert r.status_code == 200
+    assert [m["id"] for m in r.json()["markets"]] == [
+        "new-low-volume",
+        "old-high-volume",
+    ]
 
 
 def test_replay_listing_exposes_event_id():
