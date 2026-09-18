@@ -10,6 +10,7 @@
 #     to opt OUT (mirrors npm's `private: true` convention).
 #   - Refuses if clawhub.json has `"publish": false`
 #   - Slug comes from `name:` field (no folder name guessing)
+#   - Always passes --owner and --slug so publishes cannot fork to a personal handle
 #   - Version comes from `version:` field (matches --version flag)
 #   - Copies full directory (no missing files)
 #   - Checks if version already exists before publishing
@@ -148,7 +149,7 @@ echo "   Publishing..."
 # error report below prints (a bare `clawhub` binary missing from PATH died
 # silently at exactly this line on 2026-06-12).
 EXIT_CODE=0
-OUTPUT=$(npx clawhub@latest publish "$TMP_DIR" --version "$VERSION" --owner simmer 2>&1) || EXIT_CODE=$?
+OUTPUT=$(npx clawhub@latest publish "$TMP_DIR" --version "$VERSION" --owner simmer --slug "$NAME" 2>&1) || EXIT_CODE=$?
 
 if [ $EXIT_CODE -eq 0 ]; then
   echo "✅ Published $NAME@$VERSION"
