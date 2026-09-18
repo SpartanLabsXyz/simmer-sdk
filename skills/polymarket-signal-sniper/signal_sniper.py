@@ -599,6 +599,7 @@ def run_scan(
     # Context is per market, not per article, so fetch it once.
     print(f"\n🔍 Checking {len(markets)} markets against {len(new_articles)} new articles...")
     tradeable = []
+    blocked = set()
     evaluated = set()
     for market_id in markets:
         print(f"\n   → Checking market: {market_id[:20]}...")
@@ -614,7 +615,7 @@ def run_scan(
             print(f"     ⚠️ Warnings: {'; '.join(reasons)}")
         if not passes:
             print(f"     ⏭️ Skipping: safeguards failed")
-            results["pairs_skipped"] += len(new_articles)
+            blocked.add(market_id)
             skip_reasons.append(f"safeguard: {reasons[0]}" if reasons else "safeguard")
             continue
         tradeable.append((market_id, context.get("market") or {}, reasons))
@@ -623,6 +624,7 @@ def run_scan(
     for article in new_articles:
         h = article_hash(article["url"], article["title"])
         done = _done_markets(h)
+        results["pairs_skipped"] += len(blocked - done)
         emitted = list((processed.get(h) or {}).get("market_ids") or [])
         for market_id, market, reasons in tradeable:
             if market_id in done:
