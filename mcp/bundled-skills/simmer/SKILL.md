@@ -96,8 +96,6 @@ Done when `result.success` is `True` and the trade shows at simmer.markets/dashb
 `dry_run=True` previews the share count your `amount` buys. It is a sizing tool; for
 permission and price truth see [trading-guide#dry-run](https://docs.simmer.markets/trading-guide#dry-run).
 
-Trade when your edge clears ~5% net of spread and fees.
-
 ## Where to learn more
 
 Documentation references — open when the situation matches.
