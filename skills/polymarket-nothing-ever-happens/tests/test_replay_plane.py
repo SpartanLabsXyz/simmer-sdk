@@ -6,6 +6,8 @@ Under SIMMER_REPLAY=1 the skill must:
   - honor SIMMER_REPLAY_NOW for daily-spend
   - accept import status=active (replay tape already holds the market)
   - keep sports off the book when tape tags are empty
+  - drop club/league-only matchups (Celta/Bayern class)
+  - omit positions venue under replay so already-holding stays at max_bet
   - skip_preflight so WALLET_UNVERIFIED cannot block SimState fills
 
 Pure-unit: no network, no live Polymarket, no SIMMER_API_KEY.
@@ -200,12 +202,52 @@ class TestFetchReplayMarkets(_ReplayEnvMixin, unittest.TestCase):
         self.assertTrue(neh._sports_in_text("Lakers vs Celtics NBA finals"))
         self.assertTrue(neh._is_sports([], "", "Chiefs vs Bills", "nfl-week-1"))
 
+    def test_club_league_tokens_drop_celta_bayern_class(self):
+        """KEEP caveat: 'Celta vs Bayern' leaked — no nba/soccer word."""
+        os.environ["SIMMER_REPLAY"] = "1"
+        self.assertTrue(neh._sports_in_text("Celta vs Bayern"))
+        self.assertTrue(neh._sports_in_text("Celta Vigo vs Bayern Munich"))
+        self.assertTrue(neh._is_sports(
+            [], "", "Celta vs Bayern", "celta-vigo-vs-bayern-munich",
+        ))
+        self.assertTrue(neh._sports_in_text("Will Bayern win the Bundesliga?"))
+        self.assertTrue(neh._is_sports(
+            [], "", "Premier League winner 2026", "premier-league-winner-2026",
+        ))
+        # Political matchups stay eligible — vs alone is not sports.
+        self.assertFalse(neh._sports_in_text("Trump vs Biden 2028"))
+        self.assertFalse(neh._is_sports(
+            [], "", "Will Trump beat Harris?", "trump-vs-harris",
+        ))
+
+    def test_club_matchup_dropped_from_empty_tag_tape(self):
+        os.environ["SIMMER_REPLAY"] = "1"
+        rows = [
+            _tape_market(),
+            _tape_market(
+                id="celta-bayern",
+                event_id="evt-ucl-celta-bayern",
+                question="Celta vs Bayern",
+                slug="celta-vigo-vs-bayern-munich",
+                no_price=0.04,
+                yes_price=0.96,
+            ),
+        ]
+        client = MagicMock()
+        client._request.return_value = {"markets": rows}
+        with patch.object(neh, "get_client", return_value=client):
+            markets = neh.fetch_candidate_markets()
+        self.assertEqual(len(markets), 1)
+        self.assertEqual(markets[0]["slug"], "us-recognize-pacific-island-2026")
+
     def test_live_sports_stays_tag_and_category_only(self):
         os.environ.pop("SIMMER_REPLAY", None)
         self.assertFalse(
             neh._is_sports([], "", "Will the president attend the NBA finals?", "")
         )
+        self.assertFalse(neh._is_sports([], "", "Celta vs Bayern", "celta-vs-bayern"))
         self.assertTrue(neh._is_sports([{"slug": "nba"}], "", "any", ""))
+        self.assertTrue(neh._is_sports([], "bundesliga", "any", ""))
 
     def test_grouped_event_legs_are_dropped(self):
         os.environ["SIMMER_REPLAY"] = "1"
@@ -396,6 +438,78 @@ class TestReplayEntryAndPreflight(_ReplayEnvMixin, unittest.TestCase):
         self.assertEqual(errors, [])
         live_gamma.assert_not_called()
         self.assertTrue(client.trade.call_args.kwargs["skip_preflight"])
+
+
+class TestReplayPositionsVenue(_ReplayEnvMixin, unittest.TestCase):
+    """SIM-5518: same class as weather SIM-5484. Replay 422s on venue."""
+
+    def test_replay_omits_venue_filter(self):
+        os.environ["SIMMER_REPLAY"] = "1"
+        client = MagicMock()
+        client.get_positions.return_value = []
+        with patch.object(neh, "get_client", return_value=client):
+            neh.get_positions()
+        client.get_positions.assert_called_once_with(venue=None)
+
+    def test_live_still_filters_by_effective_venue(self):
+        os.environ.pop("SIMMER_REPLAY", None)
+        client = MagicMock()
+        client.get_positions.return_value = []
+        with patch.object(neh, "get_client", return_value=client), \
+             patch.dict(os.environ, {"TRADING_VENUE": "polymarket"}, clear=False):
+            neh.get_positions()
+        client.get_positions.assert_called_once_with(venue="polymarket")
+
+    def test_already_holding_keeps_size_at_max_bet(self):
+        """Same market_id must not re-buy across ticks — size stays max_bet."""
+        os.environ["SIMMER_REPLAY"] = "1"
+        os.environ["SIMMER_REPLAY_NOW"] = REPLAY_NOW
+        candidate = {
+            "slug": "us-recognize-pacific-island-2026",
+            "question": "Will the US recognize a new Pacific island state in 2026?",
+            "market_id": "neh-geo-2026-04",
+            "no_price": 0.06,
+            "yes_price": 0.94,
+            "liquidity": 2500.0,
+            "volume_24h": 2500.0,
+        }
+        client = MagicMock()
+        client.import_market.return_value = {
+            "market_id": "neh-geo-2026-04",
+            "status": "active",
+            "already_imported": True,
+        }
+        client.get_market_context.return_value = {
+            "market": {"fee_rate_bps": 0},
+            "discipline": {},
+        }
+        result = MagicMock()
+        result.success = True
+        result.trade_id = "t1"
+        result.shares_bought = 80.0
+        result.error = None
+        result.simulated = False
+        client.trade.return_value = result
+        held = [{
+            "market_id": "neh-geo-2026-04",
+            "shares_no": 50.0,
+            "shares_yes": 0.0,
+        }]
+        with patch.object(neh, "get_client", return_value=client), \
+             patch.object(neh, "get_positions", return_value=held), \
+             patch.object(neh, "_load_daily_spend", return_value={
+                 "date": "2026-04-14", "spent": 0.0, "trades": 0,
+             }):
+            signals, attempted, executed, skips, total_usd, errors = neh.run_trades(
+                [candidate], dry_run=False, quiet=True
+            )
+        self.assertEqual(signals, 1)
+        self.assertEqual(attempted, 0)
+        self.assertEqual(executed, 0)
+        self.assertEqual(total_usd, 0.0)
+        self.assertIn("already holding", skips)
+        self.assertEqual(errors, [])
+        client.trade.assert_not_called()
 
 
 if __name__ == "__main__":

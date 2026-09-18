@@ -104,6 +104,24 @@ SPORTS_CATEGORIES = {
     "soccer", "football", "basketball", "baseball", "hockey", "tennis",
     "golf", "formula-1", "f1", "boxing", "wrestling", "esports",
     "olympics", "fifa", "epl", "college", "ncaa", "rugby", "cricket",
+    # Leagues that leak as the only sports signal when tape tags are empty.
+    "bundesliga", "la-liga", "laliga", "serie-a", "ligue-1",
+    "premier-league", "champions-league", "europa-league",
+    "conference-league", "eredivisie", "liga-mx", "copa-del-rey",
+    "dfb-pokal", "fa-cup", "world-cup", "copa-america", "nations-league",
+    "ucl",
+}
+# Distinctive club names for replay text. Live stays tag/category.
+# Skip city/common words (madrid, united, city, inter, milan, roma).
+# "Celta vs Bayern" has no league word — these tokens are the signal.
+_SPORTS_CLUB_TEXT = {
+    "bayern", "celta", "dortmund", "leverkusen", "hoffenheim",
+    "liverpool", "arsenal", "chelsea", "tottenham",
+    "juventus", "napoli", "atalanta", "fiorentina",
+    "psg", "ajax", "feyenoord", "benfica",
+    "barca", "atletico", "villarreal",
+    "galatasaray", "fenerbahce", "olympiacos",
+    "inter-miami", "lafc",
 }
 # Fine as Gamma tags/categories; too loose in question/slug text. Replay
 # listings have empty tags, so text is the only sports signal — do not
@@ -276,7 +294,7 @@ def _sports_in_text(*parts: str) -> bool:
     blob = " ".join(p or "" for p in parts).lower().replace("-", " ").replace("_", " ")
     if not blob.strip():
         return False
-    for token in SPORTS_CATEGORIES:
+    for token in SPORTS_CATEGORIES | _SPORTS_CLUB_TEXT:
         if token in _AMBIGUOUS_SPORTS_TEXT:
             continue
         needle = token.replace("-", " ")
@@ -290,7 +308,8 @@ def _is_sports(tags, category: str = "", question: str = "", slug: str = "") -> 
 
     Question/slug tokens run only under replay — tape tags are empty. Live
     stays tag/category only so "Will the president attend the NBA finals?"
-    is not dropped.
+    is not dropped. Replay also matches club/league tokens (Celta/Bayern
+    class) so a matchup with no "soccer"/"nba" word still drops.
     """
     if (category or "").lower() in SPORTS_CATEGORIES:
         return True
@@ -599,10 +618,17 @@ def get_market_context(market_id: str) -> dict | None:
 
 
 def get_positions() -> list:
-    """Get current positions, filtered to the effective trading venue."""
+    """Get current positions, filtered to the effective trading venue.
+
+    Replay's /api/sdk/positions 422s on any venue filter (SIM-5067
+    `_reject_unsupported`). Same class as weather SIM-5484: the 422 is
+    swallowed to [] and the same market_id is re-bought every tick, so
+    size stacks past max_bet. Omit venue under replay; live is unchanged.
+    """
     try:
         client = get_client()
-        positions = client.get_positions(venue=resolve_venue())
+        venue = None if _is_replay() else resolve_venue()
+        positions = client.get_positions(venue=venue)
         from dataclasses import asdict
         return [asdict(p) for p in positions]
     except Exception:

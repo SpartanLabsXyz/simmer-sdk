@@ -3,7 +3,7 @@ name: polymarket-nothing-ever-happens
 description: Buy NO on standalone non-sports yes/no Polymarket markets priced below a configurable cap. Based on the "nothing-ever-happens" thesis — binary markets often resolve NO, and cheap NO shares offer asymmetric value. Scans for candidates via Gamma API, filters out sports and grouped markets, checks fees, and executes.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.1.2"
+  version: "1.1.3"
   displayName: Polymarket Nothing-Ever-Happens
   difficulty: beginner
 ---
@@ -12,6 +12,12 @@ metadata:
 Buy NO on standalone yes/no Polymarket markets priced below a configurable cap.
 
 > 🚨 **Framework, not a production trading system.** Read [DISCLAIMER.md](./DISCLAIMER.md) before connecting to a wallet with real funds.
+
+## What's New in v1.1.3
+
+- **Club/league sports tokens (SIM-5518).** Replay text now drops Celta/Bayern-class matchups and league-only titles (`bundesliga`, `premier league`, …). Political `X vs Y` stays eligible. Live is still tag/category.
+- **Replay already-holding stays at `max_bet`.** `get_positions()` omits the venue filter under replay (replay 422s on `venue`, same class as weather SIM-5484). A held `market_id` is not re-bought on later ticks.
+- **`price_cap` docs match code.** Default is `0.10`. `CONFIG_SCHEMA` is the source of truth.
 
 ## What's New in v1.1.2
 
@@ -26,7 +32,7 @@ Buy NO on standalone yes/no Polymarket markets priced below a configurable cap.
 
 - **Replay plane (SIM-5443).** Under `simmer backtest` (`SIMMER_REPLAY=1`) discovery, import, and the clock come from the existing replay harness — same `SIMMER_REPLAY` / `SIMMER_REPLAY_NOW` pattern as BTC up-down and weather. Live Gamma stays dark. Import accepts replay `status=active`. Sports still drop when tape tags are empty (question/slug tokens). Daily-spend uses the frozen tick, not wall clock.
 
-> **This is a template.** The default logic buys NO on any non-sports standalone market where NO costs ≤5¢. Remix it with custom filters (minimum volume thresholds, specific categories, date ranges) or pair it with a signal to skip markets where YES might actually happen. The skill handles plumbing (discovery, import, fee checks, execution). You define which markets to trade.
+> **This is a template.** The default logic buys NO on any non-sports standalone market where NO costs ≤10¢. Remix it with custom filters (minimum volume thresholds, specific categories, date ranges) or pair it with a signal to skip markets where YES might actually happen. The skill handles plumbing (discovery, import, fee checks, execution). You define which markets to trade.
 
 > **Based on:** [sterlingcrispin/nothing-ever-happens](https://github.com/sterlingcrispin/nothing-ever-happens)
 
@@ -40,7 +46,7 @@ On most standalone binary prediction markets, the event resolves NO — nothing 
 
 1. **Scans** Polymarket events via Gamma API for standalone yes/no markets
 2. **Filters** out sports, grouped events, low-liquidity markets
-3. **Selects** markets where NO ask ≤ price cap (default 5¢)
+3. **Selects** markets where NO ask ≤ price cap (default 10¢)
 4. **Imports** each candidate into Simmer
 5. **Checks** fees (only trades zero-fee markets) and safeguards
 6. **Buys NO** via Simmer SDK, sized by `max_bet_usd`
@@ -91,7 +97,7 @@ python nothing_ever_happens.py --set price_cap=0.03
 | Key | Env Var | Default | Description |
 |-----|---------|---------|-------------|
 | — | `TRADING_VENUE` | polymarket | Venue to trade on. Set `sim` for $SIM paper trading on the Simmer venue (no wallet, no USDC). |
-| `price_cap` | `SIMMER_NEH_PRICE_CAP` | 0.05 | Max NO price to buy (0.05 = 5¢) |
+| `price_cap` | `SIMMER_NEH_PRICE_CAP` | 0.10 | Max NO price to buy (0.10 = 10¢). Code (`CONFIG_SCHEMA`) is source of truth. |
 | `max_bet_usd` | `SIMMER_NEH_MAX_BET_USD` | 5.0 | USDC per trade |
 | `max_trades_per_run` | `SIMMER_NEH_MAX_TRADES_PER_RUN` | 3 | Max trades per execution |
 | `daily_budget` | `SIMMER_NEH_DAILY_BUDGET_USD` | 15.0 | Daily spend limit |
@@ -113,8 +119,8 @@ The skill fetches active Polymarket events via the Gamma API, sorted by 24h volu
 
 1. **Standalone** — event has exactly 1 market
 2. **Binary yes/no** — outcomes are exactly `["Yes", "No"]`
-3. **Non-sports** — category and tags must not be sports-related
-4. **Price cap** — NO price ≤ configured cap (default 5¢)
+3. **Non-sports** — category and tags must not be sports-related. Replay also drops club/league tokens in question/slug (Celta/Bayern class) because tape tags are empty.
+4. **Price cap** — NO price ≤ configured cap (default 10¢)
 5. **Liquidity** — event liquidity ≥ 500 USDC
 6. **Volume** — event 24h volume ≥ 100 USDC
 
@@ -129,7 +135,7 @@ For each candidate, the skill:
 
 ### Risk Profile
 
-- You pay the ask price for NO shares (default ≤5¢ each)
+- You pay the ask price for NO shares (default ≤10¢ each)
 - If YES resolves: you lose your bet. If NO resolves: you collect $1/share
 - Expected value depends on how often YES actually resolves in these markets
 - The thesis: base rate of NO is much higher than 5%, so 20x payout is favorable
@@ -155,7 +161,7 @@ python -m pytest skills/polymarket-nothing-ever-happens/tests/test_replay_plane.
 
 | Verdict | What it means |
 |---------|----------------|
-| **FIX** | Path is broken or the tape cannot evaluate the skill. Do not add capital. Repair: live Gamma under replay (look-ahead); `Unexpected import status: active`; wall-clock daily-spend; sports leak from empty tape tags; listing 422 from `tags`/`status`. Replay standalone uses `event_id` over the whole tape slice (`limit=1000`); rows with no `event_id` are dropped. Only a tape that omits a sibling can still admit a grouped leg. Tape `volume` stands in for liquidity and 24h volume. |
+| **FIX** | Path is broken or the tape cannot evaluate the skill. Do not add capital. Repair: live Gamma under replay (look-ahead); `Unexpected import status: active`; wall-clock daily-spend; sports leak from empty tape tags (league/club tokens now drop; unnamed clubs with no listed token can still leak); listing 422 from `tags`/`status`; positions 422 from `venue` (already-holding must omit venue under replay). Replay standalone uses `event_id` over the whole tape slice (`limit=1000`); rows with no `event_id` are dropped. Only a tape that omits a sibling can still admit a grouped leg. Tape `volume` stands in for liquidity and 24h volume. |
 | **KILL** | Pinned pytest fails, **or** a full-tape run has evals > 0 and the skill still cannot reach `trade()` on a tape cheap-NO, **or** P&L after costs is clearly ≤ 0 on honest (not live-Gamma) prices. No second-lane capital. |
 | **KEEP** | Full-tape `simmer backtest` with evals > 0 **and** trades > 0 on tape prices and `SIMMER_REPLAY_NOW`. Pinned unit tests are a path check only — not KEEP. |
 
