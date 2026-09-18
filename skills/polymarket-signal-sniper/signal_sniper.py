@@ -81,7 +81,10 @@ def get_client():
             print("Get your API key from: simmer.markets/dashboard -> SDK tab")
             sys.exit(1)
         venue = os.environ.get("TRADING_VENUE", "polymarket")
-        _client = SimmerClient(api_key=api_key, venue=venue)
+        # readonly(): the default constructor processes pending risk alerts for
+        # self-custody wallets, which can cancel orders and sell. A scan must
+        # never do that, and readonly() also makes trade()/redeem() raise.
+        _client = SimmerClient.readonly(api_key=api_key, venue=venue)
     return _client
 
 # Sniper configuration - from config
@@ -222,6 +225,9 @@ def show_history():
         action = data.get("action", "unknown")
         processed_at = data.get("processed_at", "?")
         print(f"  [{action:10}] {title}...")
+        market_ids = data.get("market_ids") or ([data["market_id"]] if data.get("market_id") else [])
+        if market_ids:
+            print(f"              markets: {', '.join(market_ids)}")
         print(f"              at {processed_at}")
         print()
 
@@ -582,6 +588,7 @@ def run_scan(
     # Context is per market, not per article, so fetch it once.
     print(f"\n🔍 Checking {len(markets)} markets against {len(new_articles)} new articles...")
     tradeable = []
+    evaluated = 0
     for market_id in markets:
         print(f"\n   → Checking market: {market_id[:20]}...")
         context = get_market_context(market_id)
@@ -589,6 +596,7 @@ def run_scan(
             print(f"     ⚠️ Could not fetch context")
             continue
 
+        evaluated += 1
         print(format_context_summary(context))
         passes, reasons = check_safeguards(context)
         if reasons:
@@ -599,6 +607,12 @@ def run_scan(
             skip_reasons.append(f"safeguard: {reasons[0]}" if reasons else "safeguard")
             continue
         tradeable.append((market_id, context.get("market") or {}, reasons))
+
+    if not evaluated:
+        # Every context fetch failed (API outage?). Leave the articles
+        # unprocessed so the next scan retries them.
+        print("\n⚠️ No market context could be fetched — articles kept for the next scan")
+        new_articles = []
 
     now = datetime.now(timezone.utc).isoformat()
     for article in new_articles:
@@ -677,6 +691,21 @@ def main():
 
     args = parser.parse_args()
 
+    if args.json:
+        # stdout carries exactly one JSON document; everything else, including
+        # --set messages and the automaton report, goes to stderr.
+        real_stdout = sys.stdout
+        with contextlib.redirect_stdout(sys.stderr):
+            results = _run(args)
+        if results is not None:
+            print(json.dumps({"signals": results.get("signals", []), "error": results.get("error")}),
+                  file=real_stdout)
+    else:
+        _run(args)
+
+
+def _run(args) -> Optional[Dict[str, Any]]:
+    """Execute the parsed CLI. Returns scan results, or None for --config/--history."""
     # Handle --set config updates
     if args.set:
         updates = {}
@@ -703,11 +732,11 @@ def main():
 
     if args.config:
         show_config()
-        return
+        return None
 
     if args.history:
         show_history()
-        return
+        return None
 
     if args.live:
         print("ℹ️  --live has no effect: since 2.0.0 this skill never trades. "
@@ -719,17 +748,13 @@ def main():
     markets = [args.market] if args.market else config["markets"]
     keywords = [k.strip().lower() for k in args.keywords.split(",")] if args.keywords else config["keywords"]
 
-    if args.json:
-        # Keep stdout clean for the agent: human-readable logs go to stderr.
-        with contextlib.redirect_stdout(sys.stderr):
-            results = run_scan(feeds=feeds, markets=markets, keywords=keywords)
-        print(json.dumps({"signals": results.get("signals", []), "error": results.get("error")}))
-    else:
-        run_scan(feeds=feeds, markets=markets, keywords=keywords)
+    results = run_scan(feeds=feeds, markets=markets, keywords=keywords)
 
     # Fallback report for automaton if the strategy returned early (no signal)
     if os.environ.get("AUTOMATON_MANAGED") and not _automaton_reported:
         print(json.dumps({"automaton": {"signals": 0, "trades_attempted": 0, "trades_executed": 0, "skip_reason": "no_signal"}}))
+
+    return results
 
 
 if __name__ == "__main__":

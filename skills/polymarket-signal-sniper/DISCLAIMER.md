@@ -10,12 +10,11 @@ advice. The default strategy implemented here is a starting point, not a
 tested edge. Suitability for any account size or risk tolerance is your
 responsibility to assess.
 
-## Default parameters are not validated
+## Default feeds and keywords are not validated
 
-Default parameters are calibrated for testing the plumbing, not for live
-profit. They have not been validated to produce positive returns under
-current market conditions. Run paper mode for an extended period before
-scaling beyond default position sizes.
+The skill ships with no default feeds, and nothing here has been validated
+to find news that moves markets before the price does. If your agent trades
+on these signals, run it in paper mode for an extended period first.
 
 ## This skill does not trade; your agent does
 

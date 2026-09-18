@@ -6,6 +6,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## polymarket-signal-sniper 2.0.0 — 2026-09-18
 
 - **The skill no longer trades.** It emits article + market pairs that pass the safeguards, and the user's agent decides relevance, side and size. The old path guessed the side from keyword sentiment: two words like "rally" and "rise" gave 100% confidence, against every keyword-matched market whether or not the article was about it, and `--live` bought on that. An offline eval of 349 headline–market pairs found no directional edge in RSS headlines at all; the price move they describe mostly happens before they reach the feed.
+- The client is built with `SimmerClient.readonly()`, so a scan cannot run the constructor's risk-exit sells for self-custody wallets, and `trade()` / `redeem()` raise. Requires `simmer-sdk>=0.24.0`.
+- If every market-context fetch fails, articles are kept for the next scan instead of being marked processed.
 - Removed: `infer_side()`, trade execution, auto-redeem, the balance preflight, the risk-monitor helper, and the `confidence_threshold` / `max_usd` / `max_trades_per_run` settings and tunables. `WALLET_PRIVATE_KEY` is no longer listed.
 - Added: `--json` prints `{"signals": [...]}` on stdout with logs on stderr. Each signal carries the article, the market's question, resolution criteria, price and time to resolution, and its safeguard warnings.
 - `--live`, `--dry-run` and `--scan-only` are still accepted so existing cron lines keep running; they have no effect.

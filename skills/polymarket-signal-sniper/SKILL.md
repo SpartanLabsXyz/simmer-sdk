@@ -116,7 +116,7 @@ python signal_sniper.py --history
 }
 ```
 
-A pair means the article matched a keyword and the market passed the safeguards. It does not mean the article is about the market.
+A pair means the article matched a keyword (every article matches when no keywords are set) and the market passed the safeguards. It does not mean the article is about the market.
 
 ## Interpreting Context Warnings
 
