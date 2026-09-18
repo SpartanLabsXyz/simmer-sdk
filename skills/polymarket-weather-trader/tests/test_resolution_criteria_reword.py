@@ -25,7 +25,7 @@ sys.path.insert(0, _SKILL_DIR)
 
 _mock_cfg = {
     "entry_threshold": 0.15, "exit_threshold": 0.45, "max_position_usd": 2.0,
-    "sizing_pct": 0.05, "max_trades_per_run": 5, "locations": "NYC",
+    "sizing_pct": 0.05, "max_trades_per_run": 5, "max_buys_per_market": 1, "locations": "NYC",
     "binary_only": False, "slippage_max": 0.15, "min_liquidity": 0.0,
     "order_type": "GTC", "vol_targeting": False, "target_vol": 0.20,
     "vol_max_leverage": 2.0, "vol_min_allocation": 0.2, "vol_span": 10,

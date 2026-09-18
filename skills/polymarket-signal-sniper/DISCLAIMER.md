@@ -10,26 +10,26 @@ advice. The default strategy implemented here is a starting point, not a
 tested edge. Suitability for any account size or risk tolerance is your
 responsibility to assess.
 
-## Default parameters are not validated
+## Default feeds and keywords are not validated
 
-Default parameters are calibrated for testing the plumbing, not for live
-profit. They have not been validated to produce positive returns under
-current market conditions. Run paper mode for an extended period before
-scaling beyond default position sizes.
+The skill ships with no default feeds, and nothing here has been validated
+to find news that moves markets before the price does. If your agent trades
+on these signals, run it in paper mode for an extended period first.
 
-## Automated trading carries irreversible risk
+## This skill does not trade; your agent does
 
-When this skill runs with `--live`, it places real on-chain orders.
-On-chain trades cannot be recalled. Strategy errors, signal lag, market
-regime shifts, and operator misconfiguration can produce losses
+Since 2.0.0 the skill only surfaces article and market pairs. It places no
+orders, and `--live` has no effect. Any trade comes from your agent acting
+on a signal. On-chain trades cannot be recalled. Strategy errors, signal
+lag, market regime shifts, and operator misconfiguration can produce losses
 exceeding any specific position size.
 
-## Risk monitoring may not apply to all market types
+## A signal is not an edge
 
-Stop-loss and take-profit monitors run on a fixed schedule. Markets that
-resolve faster than the monitor cycle cannot be exited automatically.
-Position sizing is the only risk control on these markets — set it
-conservatively.
+Keyword matching says an article mentions a topic. It does not say the
+article bears on the market's resolution criteria, and news that reaches an
+RSS feed is often priced in already. Have your agent check both before it
+trades.
 
 ## Use of this skill is at your own risk
 

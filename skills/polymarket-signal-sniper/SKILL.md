@@ -1,27 +1,21 @@
 ---
 name: polymarket-signal-sniper
-description: Snipe Polymarket opportunities from your own signal sources. Monitors RSS feeds with Trading Agent-grade safeguards.
+description: Monitor RSS feeds for news that may move Polymarket markets, configure custom signal sources and keywords, and get article + market pairs with safeguard warnings. Never trades; your agent decides whether and how to trade.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.5.4"
+  version: "2.0.0"
   displayName: Polymarket Signal Sniper
   difficulty: intermediate
 ---
 # Polymarket Signal Sniper
 
-Your signals, Simmer's trading intelligence.
+Your signals, Simmer's market safeguards, your agent's judgment.
 
-> 🚨 **Framework, not a production trading system.** Read [DISCLAIMER.md](./DISCLAIMER.md) before connecting to a wallet with real funds.
+> 🚨 **The skill never trades.** It hands your agent article + market pairs. Your agent decides whether the article bears on the market, which side, and how much. Read [DISCLAIMER.md](./DISCLAIMER.md) before your agent trades with real funds.
 
-> **This is a template.** The default signal source is RSS feeds — remix it with any data source (APIs, webhooks, social media, custom scrapers). The skill handles all the plumbing (market matching, safeguards, trade execution). Your agent provides the alpha.
+> **This is a template.** The default signal source is RSS feeds. Remix it with any data source (APIs, webhooks, social media, custom scrapers). The skill handles the plumbing (feed polling, market matching, safeguards, dedup). Your agent provides the judgment.
 
-## When to Use This Skill
-
-Use this skill when the user wants to:
-- Monitor RSS feeds for trading opportunities
-- Trade on breaking news before markets react
-- Configure their own signal sources and keywords
-- Get Trading Agent-grade safeguards on their trades
+**Changed in 2.0.0:** earlier versions guessed the trade side from keyword sentiment and could place orders with `--live`. Keyword sentiment cannot tell whether a headline is about a market, so that path is gone. `--live`, `--dry-run` and `--scan-only` are still accepted so old cron lines keep working, but they have no effect.
 
 ## Setup Flow
 
@@ -36,89 +30,59 @@ When user asks to install or configure this skill:
    - They can get it from simmer.markets/dashboard → SDK tab
    - Store in environment as `SIMMER_API_KEY`
 
-3. **Ask for wallet private key** (required for live trading)
-   - This is the private key for their Polymarket wallet (the wallet that holds USDC)
-   - Store in environment as `WALLET_PRIVATE_KEY`
-   - The SDK uses this to sign orders client-side automatically — no manual signing needed
-   - Not needed for $SIM paper trading on the Simmer venue
-
-## Quick Commands
-
-```bash
-# Check account balance and positions
-python scripts/status.py
-
-# Detailed position list
-python scripts/status.py --positions
-```
-
-**API Reference:**
-- Base URL: `https://api.simmer.markets`
-- Auth: `Authorization: Bearer $SIMMER_API_KEY`
-- Portfolio: `GET /api/sdk/portfolio`
-- Positions: `GET /api/sdk/positions`
+The skill needs no wallet key, because it never trades. If your agent will act on signals, set up trading separately with the `simmer-wallet-setup` skill.
 
 ## Quick Start (Ad-Hoc Usage)
 
 **User provides RSS feed and market directly:**
 ```
 User: "Watch this RSS feed for greenland news: https://news.google.com/rss/search?q=greenland"
-User: "Snipe any news about trump from this feed"
+User: "Tell me about any trump news from this feed that could move my markets"
 ```
 
-→ Run with `--feed` and `--market` flags:
+→ Run with `--feed`, `--market` and `--json`:
 ```bash
-python signal_sniper.py --feed "https://news.google.com/rss/search?q=greenland" --market "greenland-acquisition" --dry-run
+python signal_sniper.py --feed "https://news.google.com/rss/search?q=greenland" --market "greenland-acquisition" --json
 ```
 
 ## Persistent Setup (Optional)
 
-For automated recurring scans, configure via environment:
+For recurring scans, configure via environment:
 
 | Setting | Environment Variable | Default | Description |
 |---------|---------------------|---------|-------------|
 | RSS Feeds | `SIMMER_SNIPER_FEEDS` | (none) | Comma-separated RSS URLs |
 | Markets | `SIMMER_SNIPER_MARKETS` | (auto) | Comma-separated market IDs (auto-discovers from keywords if empty) |
 | Keywords | `SIMMER_SNIPER_KEYWORDS` | (none) | Comma-separated keywords to match |
-| Confidence | `SIMMER_SNIPER_CONFIDENCE_THRESHOLD` | 0.7 | Min confidence to trade (0.0-1.0) |
-| Max USD | `SIMMER_SNIPER_MAX_USD` | 25 | Max per trade |
-| Max trades/run | `SIMMER_SNIPER_MAX_TRADES_PER_RUN` | 5 | Maximum trades per scan cycle |
-
-**Polymarket Constraints:**
-- Minimum 5 shares per order
-- Trades below this threshold are rejected with an error message
 
 ## How It Works
 
 Each cycle the script:
 1. Polls configured RSS feeds
 2. Filters articles by keywords (if configured)
-3. Matches articles to target markets (auto-discovers from keywords if no markets configured)
-4. For each match, calls SDK context endpoint for safeguards:
+3. Picks target markets (auto-discovers from keywords if no markets configured)
+4. Calls the SDK context endpoint for each market's safeguards:
    - Position awareness (already holding?)
    - Flip-flop detection (recently changed direction?)
    - Slippage estimates (is market liquid?)
    - Time decay (resolving soon?)
    - Resolution criteria (what actually resolves this market?)
-5. If safeguards pass, infers trade direction from article sentiment
-6. Executes trade via SDK (with max trades per run cap)
-7. Tracks processed articles to avoid duplicates
+5. Pairs each new article with each market that passes the safeguards
+6. Prints the pairs, or emits them as JSON with `--json`
+7. Tracks processed articles to avoid duplicates. A market whose context fetch failed is retried on the next scan.
+
+It places no trades and changes nothing on your wallet or account. (If `OWS_WALLET` is set, the SDK still looks the wallet up at startup, so a stale wallet name stops the scan.)
 
 ## Running the Skill
 
-**Run a scan (dry run by default — no trades):**
+**Run a scan:**
 ```bash
 python signal_sniper.py
 ```
 
-**Execute real trades:**
+**Get signals as JSON for your agent** (logs go to stderr, JSON to stdout):
 ```bash
-python signal_sniper.py --live
-```
-
-**Check for signals without trading:**
-```bash
-python signal_sniper.py --scan-only
+python signal_sniper.py --json
 ```
 
 **View current config:**
@@ -136,72 +100,84 @@ python signal_sniper.py --feed "https://..." --keywords "trump,greenland" --mark
 python signal_sniper.py --history
 ```
 
+### JSON output
+
+```json
+{
+  "signals": [
+    {
+      "article": {"title": "...", "url": "...", "summary": "...", "published": "..."},
+      "market": {"id": "...", "question": "...", "resolution_criteria": "...",
+                 "current_price": 0.42, "time_to_resolution": "5d 3h"},
+      "warnings": ["Moderate slippage (11.0%)"]
+    }
+  ],
+  "error": null
+}
+```
+
+A pair means the article matched a keyword (every article matches when no keywords are set) and the market passed the safeguards. It does not mean the article is about the market.
+
 ## Interpreting Context Warnings
 
-Before trading, ALWAYS check the context warnings. The skill will show you:
+The `warnings` list on each signal comes from the market's context:
 
 | Warning | Action |
 |---------|--------|
-| `MARKET RESOLVED` | Do NOT trade |
-| `HIGH URGENCY: Resolves in Xh` | Consider if signal is timely enough |
-| `flip_flop_warning: SEVERE` | Skip - you've been reversing too much |
-| `flip_flop_warning: CAUTION` | Proceed carefully, need strong signal |
-| `Wide spread (X%)` | Reduce position size or skip |
-| `Simmer AI signal: X% more bullish/bearish` | Consider Simmer's oracle opinion |
+| `Market resolves in Xh - elevated risk` | Consider if signal is timely enough |
+| `Mild flip-flop warning` | Proceed carefully, need strong signal |
+| `High slippage` / `Moderate slippage` | Reduce position size or skip |
+| `Edge ... below threshold` | The market may already reflect this |
+
+Markets that are resolved, resolve within 2 hours, have a severe flip-flop warning or a spread above 10% are dropped before pairing.
 
 ## Analyzing Signals
 
-When you find a matching article, analyze it carefully:
+For each signal, your agent should:
 
-1. **Read the headline and summary** - What is the actual news?
+1. **Read the headline and summary.** What is the actual news?
 
-2. **Check resolution_criteria** - What ACTUALLY resolves this market?
-   - Example: "greenland" in headline doesn't mean "acquisition complete"
+2. **Check resolution_criteria.** What ACTUALLY resolves this market?
+   - Example: "greenland" in a headline doesn't mean "acquisition complete"
    - The resolution might be "US formally acquires Greenland by 2027"
-   - Does this signal move the needle on THAT specific criteria?
+   - Does this article move the needle on THAT specific criterion? Most pairs will not.
 
-3. **Assess confidence** (0.0-1.0):
-   - How directly does this signal relate to resolution criteria?
-   - Is the source credible?
-   - Is this news likely already priced in?
+3. **Ask whether it is priced in.** Compare `published` with recent price movement. News on a public RSS feed has often moved the price already.
 
-4. **Only trade if**:
-   - Confidence > threshold (default 0.7)
-   - No severe warnings
-   - Signal validates against resolution criteria
+4. **Only trade if** the article bears on the resolution criteria, it is not priced in, and no warning argues against it. If it trades, pass `source="sdk:signalsniper"` so the trade is attributed to this skill:
+   ```python
+   client.trade(market_id=..., side="yes", amount=10.0, source="sdk:signalsniper",
+                skill_slug="polymarket-signal-sniper")
+   ```
 
 ## Example Conversations
 
 **User: "Set up news sniping for the Greenland market"**
 → Ask for RSS feeds they want to monitor
 → Configure with market ID and keywords
-→ Enable cron for recurring scans
+→ Enable cron for recurring scans, and read the JSON each run
 
 **User: "Check this feed for trading signals"**
-→ Run: `python signal_sniper.py --feed "URL" --scan-only`
-→ Show found articles and potential matches
+→ Run: `python signal_sniper.py --feed "URL" --json`
+→ Assess each pair and report the ones that bear on resolution
 
 **User: "Snipe any bitcoin news from CoinDesk"**
 → Run with CoinDesk RSS and bitcoin-related markets
-→ Show matches and ask if they want to trade
+→ Show relevant pairs and ask if they want to trade
 
 **User: "What signals have we processed?"**
 → Run: `python signal_sniper.py --history`
-→ Show recent articles and actions taken
+→ Show recent articles and the markets they were paired with
 
-## Example Trade Flow
+## Example Flow
 
 ```
 1. RSS poll finds: "Trump and Denmark reach preliminary Greenland agreement"
 2. Keywords match: "greenland", "trump"
-3. Call context endpoint for market "greenland-acquisition-2027"
-4. Check warnings: none severe ✓
-5. Resolution criteria: "Resolves YES if US formally acquires Greenland by 2027"
-6. You analyze: "preliminary agreement" ≠ "formally acquires" but bullish signal
-7. Confidence: 0.75 (positive indicator, not definitive)
-8. Check slippage: 2.5% on $25 ✓
-9. Execute: BUY YES $25
-10. Report: "🎯 Sniped: Trump/Greenland agreement → BUY YES $25"
+3. Market "greenland-acquisition-2027" passes safeguards → signal emitted
+4. Agent reads resolution criteria: "Resolves YES if US formally acquires Greenland by 2027"
+5. Agent's view: "preliminary agreement" ≠ "formally acquires"; price already up 4% today
+6. Agent decides: no trade, report to user
 ```
 
 ## Troubleshooting
@@ -213,30 +189,17 @@ When you find a matching article, analyze it carefully:
 **"No matching articles found"**
 - Check keywords are correct
 - RSS feed might not have recent articles
-- Try `--scan-only` to see what's in the feed
 
-**"Skipped due to flip-flop warning"**
-- You've been changing direction too much on this market
-- Wait before trading again, or find new information
-
-**"Slippage too high"**
-- Market is illiquid
-- Reduce trade size or skip
+**"Skipping: safeguards failed"**
+- The market is resolved, resolving within 2 hours, illiquid, or you have been reversing on it
+- Working as intended
 
 **"Already processed"**
 - This article was already seen
 - Working as intended (dedup)
 
-**"External wallet requires a pre-signed order"**
-- `WALLET_PRIVATE_KEY` is not set in the environment
-- The SDK signs orders automatically when this env var is present — no manual signing code needed
-- Fix: `export WALLET_PRIVATE_KEY=0x<your-polymarket-wallet-private-key>`
-- Do NOT attempt to sign orders manually or modify the skill code — the SDK handles it
-
-**"Balance shows $0 but I have funds on Polygon"**
-- Polymarket V2 (live 2026-04-28) uses **pUSD** (PolyUSD, 1:1 backed by USDC.e). If your wallet holds USDC.e, migrate at [simmer.markets/dashboard](https://simmer.markets/dashboard?ref=sdk-skill&utm_campaign=sdk-skill) with one click (~30s)
-- If you bridged native USDC (Circle), swap to USDC.e first, then migrate to pUSD
-- Full migration guide: [docs.simmer.markets/v2-migration](https://docs.simmer.markets/v2-migration)
+**"--live has no effect"**
+- Since 2.0.0 the skill never trades. Your agent places any trade itself.
 
 ## Finding Good RSS Feeds
 
