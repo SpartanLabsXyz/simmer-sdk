@@ -1,4 +1,4 @@
-# vendored from simmer_v3/replay/engine.py @ 00a4065abbd5
+# vendored from simmer_v3/replay/engine.py @ ee5eefcbf3a2
 # DO NOT EDIT HERE — regenerate via scripts/sync_replay_engine.py
 """Replay engine — the tick loop + report builder (SIM-3070 chunk 3).
 
@@ -32,7 +32,7 @@ from .store import HistoricalStore
 # Canonical engine version — bump on any change that can alter results (fill
 # model, look-ahead semantics, fee handling). The catalog's stale_engine badge
 # compares stored reports' reproducibility.engine against this.
-ENGINE_VERSION = "0.2.0"  # 0.2.0: Polymarket fee shape + nonzero default base rate
+ENGINE_VERSION = "0.2.1"  # 0.2.1: replay markets default newest-first
 
 REALISM_GAPS = [
     "no slippage",
