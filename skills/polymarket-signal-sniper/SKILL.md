@@ -1,6 +1,6 @@
 ---
 name: polymarket-signal-sniper
-description: Surface Polymarket signals from your own news sources. Monitors RSS feeds, matches articles to markets, and checks safeguards. Your agent decides whether and how to trade.
+description: Monitor RSS feeds for news that may move Polymarket markets, configure custom signal sources and keywords, and get article + market pairs with safeguard warnings. Never trades; your agent decides whether and how to trade.
 metadata:
   author: Simmer (@simmer_markets)
   version: "2.0.0"
@@ -16,13 +16,6 @@ Your signals, Simmer's market safeguards, your agent's judgment.
 > **This is a template.** The default signal source is RSS feeds. Remix it with any data source (APIs, webhooks, social media, custom scrapers). The skill handles the plumbing (feed polling, market matching, safeguards, dedup). Your agent provides the judgment.
 
 **Changed in 2.0.0:** earlier versions guessed the trade side from keyword sentiment and could place orders with `--live`. Keyword sentiment cannot tell whether a headline is about a market, so that path is gone. `--live`, `--dry-run` and `--scan-only` are still accepted so old cron lines keep working, but they have no effect.
-
-## When to Use This Skill
-
-Use this skill when the user wants to:
-- Monitor RSS feeds for news that may move their markets
-- Get article + market pairs with safeguard warnings, ready for analysis
-- Configure their own signal sources and keywords
 
 ## Setup Flow
 
