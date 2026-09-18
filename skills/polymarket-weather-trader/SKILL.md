@@ -3,7 +3,7 @@ name: polymarket-weather-trader
 description: Trade Polymarket weather markets using NOAA (US) and Open-Meteo (international) forecasts via Simmer API. Inspired by gopfan2's weather trading approach. Use when user wants to trade temperature markets, automate weather bets, check forecasts, or run weather-based strategies.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.23.21"
+  version: "1.23.22"
   displayName: Polymarket Weather Trader
   difficulty: beginner
   attribution: Strategy inspired by gopfan2 (public Polymarket trader — approach referenced, not endorsed).
@@ -49,6 +49,10 @@ Use this skill when the user wants to:
 - Buy low on weather predictions
 - Check their weather trading positions
 - Configure trading thresholds or locations
+
+## What's New in v1.23.21
+
+- **Per-market position cap (SIM-5499).** `SIMMER_WEATHER_MAX_BUYS_PER_MARKET` (default `1`) checks held positions before entry so a replay backtest and live trading measure the same strategy — replay previously DCA'd into every underpriced bucket every tick (mean 34 buys/market on a full-tape run) while live is naturally throttled by balance/backoffs. Run summaries now also print a per-location skip-reason breakdown so a location entering zero markets is diagnosable from the run's own output.
 
 ## What's New in v1.23.19
 
@@ -145,6 +149,7 @@ Then `pip install --upgrade simmer-sdk` (>=0.13.0) and configure tunables below.
 | Exit threshold | `SIMMER_WEATHER_EXIT_THRESHOLD` | 0.45 | Sell when price above this. Raise this if you raise entry above `0.45`, or the skill will self-exit. |
 | Max position | `SIMMER_WEATHER_MAX_POSITION_USD` | 2.00 | Maximum USD per trade |
 | Max trades/run | `SIMMER_WEATHER_MAX_TRADES_PER_RUN` | 5 | Maximum trades per scan cycle |
+| Max buys/market | `SIMMER_WEATHER_MAX_BUYS_PER_MARKET` | 1 | Cap on buy-fills into the same market (bucket), checked against held positions before entry. `1` = one entry then hold; raise to keep DCA-ing into an underpriced bucket; `0` disables the cap (unbounded DCA). |
 | Locations | `SIMMER_WEATHER_LOCATIONS` | NYC | Comma-separated cities (NYC, Chicago, Seattle, Atlanta, Dallas, Miami, Austin, Houston, Denver, Beijing, Shanghai, Guangzhou, Shenzhen, Chengdu, Chongqing, Wuhan, Qingdao, Zhengzhou, Singapore, Kuala Lumpur, Manila, Busan, Toronto, Buenos Aires, Sao Paulo, Mexico City, Cape Town, Helsinki, Jeddah, Warsaw, Paris, Panama City) |
 | Binary only | `SIMMER_WEATHER_BINARY_ONLY` | false | Skip range-bucket events (e.g., "34-35°F"), only trade binary yes/no markets |
 | Smart sizing % | `SIMMER_WEATHER_SIZING_PCT` | 0.05 | % of balance per trade |

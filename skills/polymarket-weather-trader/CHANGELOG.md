@@ -1,9 +1,15 @@
-# Changelog — polymarket-weather-trader
+# Changelog
 
-## [1.23.21] - 2026-09-17
+## [1.23.22] - 2026-09-18
+
+### Added
+- **Per-market position cap (SIM-5499).** `max_buys_per_market` (`SIMMER_WEATHER_MAX_BUYS_PER_MARKET`, default `1`) checks held positions via `get_positions()` before entry and skips a market that's already at cap. The 2026-09-17 gate run's replay DCA'd into every underpriced bucket every tick (mean 34 buys/market, max 137, 94.8% max DD) while live lands 1-2 because balance/backoffs throttle it — the two were measuring different strategies. Default `1` makes replay one-buy-per-market like live; raise it to keep DCA, or set `0` for the old unbounded behavior.
 
 ### Changed
 - Requires `simmer-sdk>=0.25.8`, the first release whose `preflight()` is replay-aware. On an older SDK a backtest of this skill stops filling, because preflight blocks replay trades now that the skill no longer passes `skip_preflight`. Live trading is unaffected.
+
+### Fixed
+- **Skip reasons were collected but never surfaced.** `run_weather_strategy` built a `skip_reasons` list all run and never printed it, so diagnosing "location X entered zero markets" (the London 0/36 half of SIM-5499) meant re-reading per-tick logs. The summary now prints a per-location skip-reason breakdown (forces past `--quiet`, same as the station-parse coverage guard), and the two skip paths that carried no reason at all ("no forecast available", "no bucket found") now record one. Events whose text never parses into a location are tracked separately by a snippet of the event name.
 
 ## [1.23.20] - 2026-09-17
 
