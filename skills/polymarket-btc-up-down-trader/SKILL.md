@@ -17,6 +17,10 @@ Trade Polymarket's BTC daily and weekly UP/DOWN markets with built-in exit disci
 
 > **Not for fast (5m/15m) markets.** Use `polymarket-fast-loop` for those. This skill targets daily and weekly BTC direction markets with hours-to-days of duration.
 
+## What's New in v1.2.4
+
+- **Documentation-only trigger cleanup.** Folded the duplicate "When to Use" guidance into the frontmatter description so ClawHub shows one canonical usage cue.
+
 ## What's New in v1.2.3
 
 - **Removed the "Oracle-Engineering Halt Gate" section.** This skill never called that detector, and it does not trade the ≤5-minute markets the gate targets. No code change.
@@ -35,14 +39,6 @@ Trade Polymarket's BTC daily and weekly UP/DOWN markets with built-in exit disci
 - **Keep / kill / fix** for this path is in Troubleshooting. Do not add a second capital lane until a full-tape run can produce an honest KEEP or KILL.
 
 > ⚠️ **BTC UP/DOWN markets carry Polymarket's crypto taker fee.** Effective rate is 3.5% at 50¢, up to ~6.6% on cheap shares. Makers pay 0% and earn a 20% rebate from collected taker fees. Factor this into your minimum edge threshold.
-
-## When to Use This Skill
-
-Use this skill when the user wants to:
-- Trade BTC daily or weekly UP/DOWN prediction markets on Polymarket
-- Apply systematic exit discipline (don't hold to settlement)
-- Use CEX price momentum as the entry signal
-- Monitor open positions and auto-exit when targets are hit
 
 ## Setup Flow
 
