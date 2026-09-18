@@ -69,9 +69,9 @@ Each cycle the script:
    - Resolution criteria (what actually resolves this market?)
 5. Pairs each new article with each market that passes the safeguards
 6. Prints the pairs, or emits them as JSON with `--json`
-7. Tracks processed articles to avoid duplicates
+7. Tracks processed articles to avoid duplicates. A market whose context fetch failed is retried on the next scan.
 
-It places no trades and makes no wallet calls.
+It places no trades and changes nothing on your wallet or account. (If `OWS_WALLET` is set, the SDK still looks the wallet up at startup, so a stale wallet name stops the scan.)
 
 ## Running the Skill
 

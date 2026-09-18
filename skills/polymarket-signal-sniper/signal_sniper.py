@@ -570,11 +570,22 @@ def run_scan(
     results["articles_matched"] = len(matched_articles)
     print(f"\n📋 Matched {len(matched_articles)}/{len(all_articles)} articles by keywords")
 
-    # 3. Filter already processed
+    # 3. Filter already processed. An article stays "new" until it has been
+    # evaluated against every target market, so a market whose context fetch
+    # failed gets retried next scan without re-emitting pairs already sent.
+    # Entries written by 1.x have no "evaluated_markets" and count as done.
+    def _done_markets(h: str) -> set:
+        entry = processed.get(h)
+        if entry is None:
+            return set()
+        if "evaluated_markets" not in entry:
+            return set(markets)
+        return set(entry["evaluated_markets"])
+
     new_articles = []
     for article in matched_articles:
         h = article_hash(article["url"], article["title"])
-        if h not in processed:
+        if not set(markets) <= _done_markets(h):
             new_articles.append(article)
 
     results["articles_new"] = len(new_articles)
@@ -588,15 +599,15 @@ def run_scan(
     # Context is per market, not per article, so fetch it once.
     print(f"\n🔍 Checking {len(markets)} markets against {len(new_articles)} new articles...")
     tradeable = []
-    evaluated = 0
+    evaluated = set()
     for market_id in markets:
         print(f"\n   → Checking market: {market_id[:20]}...")
         context = get_market_context(market_id)
         if not context:
-            print(f"     ⚠️ Could not fetch context")
+            print(f"     ⚠️ Could not fetch context — will retry next scan")
             continue
 
-        evaluated += 1
+        evaluated.add(market_id)
         print(format_context_summary(context))
         passes, reasons = check_safeguards(context)
         if reasons:
@@ -608,16 +619,15 @@ def run_scan(
             continue
         tradeable.append((market_id, context.get("market") or {}, reasons))
 
-    if not evaluated:
-        # Every context fetch failed (API outage?). Leave the articles
-        # unprocessed so the next scan retries them.
-        print("\n⚠️ No market context could be fetched — articles kept for the next scan")
-        new_articles = []
-
     now = datetime.now(timezone.utc).isoformat()
     for article in new_articles:
         h = article_hash(article["url"], article["title"])
+        done = _done_markets(h)
+        emitted = list((processed.get(h) or {}).get("market_ids") or [])
         for market_id, market, reasons in tradeable:
+            if market_id in done:
+                continue
+            emitted.append(market_id)
             results["signals"].append({
                 "article": {
                     "title": article["title"],
@@ -634,11 +644,15 @@ def run_scan(
                 },
                 "warnings": reasons,
             })
+        all_done = done | evaluated
+        if not all_done:
+            continue  # nothing evaluated yet (context outage): leave unrecorded
         processed[h] = {
             "title": article["title"],
             "url": article["url"],
-            "market_ids": [m for m, _, _ in tradeable],
-            "action": "signal" if tradeable else "skipped",
+            "market_ids": emitted,
+            "evaluated_markets": sorted(all_done),
+            "action": "signal" if emitted else "skipped",
             "processed_at": now,
         }
 
