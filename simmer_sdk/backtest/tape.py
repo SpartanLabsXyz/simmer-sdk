@@ -109,7 +109,7 @@ def fetch_tape(
         "min_volume": float(min_volume),
     }
     if q:
-        payload["q"] = q
+        payload["q"] = str(q)
     log(f"requesting tape slice {payload['t0']}..{payload['t1']} "
         f"(max {max_markets} markets, min volume {min_volume:,.0f}"
         f"{f', q={q!r}' if q else ''}) from {base}...")
@@ -151,7 +151,10 @@ def fetch_tape(
     slice_dir.mkdir(parents=True, exist_ok=True)
     n_markets = body.get("markets")
     n_quant = body.get("quant_rows")
-    log(f"downloading slice ({n_markets} markets, "
+    served = body.get("markets_served", n_markets)
+    requested = body.get("markets_requested")
+    served_text = f"{served}/{requested} markets served" if requested else f"{n_markets} markets"
+    log(f"downloading slice ({served_text}, "
         f"{f'{n_quant:,}' if isinstance(n_quant, int) else '?'} prints)"
         f"{' [server cache hit]' if body.get('cached') else ''}...")
     try:
