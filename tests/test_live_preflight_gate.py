@@ -48,10 +48,13 @@ def _live_client(venue: str = "polymarket") -> SimmerClient:
     client = SimmerClient.__new__(SimmerClient)
     client.live = True
     client.venue = venue
+    client.base_url = "https://api.simmer.markets"
     client._readonly = False
     client._private_key = None
     client._ows_wallet = None
     client._wallet_address = None
+    client._deposit_wallet_address = None
+    client._uses_deposit_wallet = False
     client._solana_key_available = False
     client._held_markets_cache = None
     client._approvals_warned = False
@@ -316,6 +319,61 @@ def test_preflight_rejects_non_finite_exposure_cap_arg():
         client.preflight(venue="polymarket", exposure_cap_usd=float("nan"))
     with pytest.raises(ValueError, match="finite number"):
         client.preflight(venue="polymarket", exposure_cap_usd=float("inf"))
+
+
+def test_replay_env_returns_ok_for_real_venue_without_network(monkeypatch):
+    client = _live_client()
+    client.base_url = "http://127.0.0.1:43117"
+    client._wallet_address = "0xabc"
+    client._request = MagicMock(
+        side_effect=AssertionError("replay preflight should not call network")
+    )
+
+    monkeypatch.setenv("SIMMER_REPLAY", "1")
+
+    result = client.preflight(
+        venue="polymarket", planned_amount=5.0, exposure_cap_usd=100.0,
+    )
+
+    assert result.ok_to_trade is True
+    assert result.blockers == []
+    assert result.resolved_venue == "polymarket"
+    assert result.signer_status == "replay"
+    assert "replay_preflight_ok" in result.warnings
+    client._request.assert_not_called()
+
+
+def test_replay_env_does_not_bypass_preflight_for_non_loopback(monkeypatch):
+    client = _live_client()
+    client.base_url = "https://api.simmer.markets"
+    client._wallet_address = "0xabc"
+
+    def _request(method, endpoint, **kwargs):
+        if "/agents/me" in endpoint:
+            return {
+                "agent_id": "a1",
+                "rate_limits": {"tier": "pro"},
+                "real_trading_enabled": False,
+                "wallet_address": "0xabc",
+            }
+        if "/briefing" in endpoint:
+            return {"risk_alerts": [], "venues": {"polymarket": {"balance": 50}}}
+        if "/positions" in endpoint:
+            return {"positions": []}
+        raise AssertionError(f"unexpected {endpoint}")
+
+    client._request = MagicMock(side_effect=_request)
+    monkeypatch.setenv("SIMMER_REPLAY", "1")
+
+    result = client.preflight(
+        venue="polymarket", planned_amount=5.0, exposure_cap_usd=100.0,
+    )
+
+    assert result.ok_to_trade is False
+    assert "WALLET_UNVERIFIED" in result.blockers
+    assert result.signer_status == "managed"
+    assert "replay_preflight_ok" not in result.warnings
+    assert client._request.call_count == 3
 
 
 def test_preflight_null_venue_position_counts_as_sim():

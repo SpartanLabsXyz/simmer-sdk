@@ -7,7 +7,10 @@ import os
 import sys
 import types
 import unittest
+from io import BytesIO
 from unittest.mock import MagicMock
+from urllib.error import HTTPError
+from urllib.parse import parse_qs, urlparse
 
 
 _SKILL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -27,7 +30,7 @@ _mock_cfg = {
     "exit_threshold": 0.45,
     "max_position_usd": 2.00,
     "sizing_pct": 0.05,
-    "max_trades_per_run": 5,
+    "max_trades_per_run": 5, "max_buys_per_market": 1,
     "locations": "NYC",
     "binary_only": False,
     "slippage_max": 0.15,
@@ -58,6 +61,42 @@ import weather_trader as wt  # noqa: E402
 def _recorded():
     with open(_RECORDED, encoding="utf-8") as fh:
         return json.load(fh)
+
+
+class JsonResponse:
+    def __init__(self, payload):
+        self.payload = payload
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_exc):
+        return False
+
+    def read(self):
+        return json.dumps(self.payload).encode()
+
+
+def _payload_for_dates(start, end, *, offset=-18000, timezone="America/New_York"):
+    dates = builder.requested_dates(start, end)
+    times = []
+    lead_values = {1: [], 2: [], 3: []}
+    for day_index, day in enumerate(dates):
+        for hour in range(24):
+            times.append(f"{day}T{hour:02d}:00")
+            lead_values[1].append(50 + day_index + hour / 100)
+            lead_values[2].append(60 + day_index + hour / 100)
+            lead_values[3].append(40 + day_index + hour / 100)
+    return {
+        "utc_offset_seconds": offset,
+        "timezone": timezone,
+        "hourly": {
+            "time": times,
+            "temperature_2m_previous_day1": lead_values[1],
+            "temperature_2m_previous_day2": lead_values[2],
+            "temperature_2m_previous_day3": lead_values[3],
+        },
+    }
 
 
 def _fold(payload, start="2026-04-30", end="2026-04-30", station="KLGA"):
@@ -142,6 +181,113 @@ class TestBuildArchiveRecorded(unittest.TestCase):
         self.assertEqual(day["leads"]["1"], {"high": 56, "low": 48})
         self.assertEqual(len(calls), 1)
 
+    def test_build_archive_chunks_and_merges_matching_offsets(self):
+        seen_ranges = []
+
+        def fetch(url):
+            query = parse_qs(urlparse(url).query)
+            start = query["start_date"][0]
+            end = query["end_date"][0]
+            seen_ranges.append((start, end))
+            return _payload_for_dates(start, end, offset=-18000)
+
+        spec = builder.StationSpec(
+            "KLGA", 40.7769, -73.874, "America/New_York", "fahrenheit"
+        )
+        archive = builder.build_archive(
+            "2026-02-05",
+            "2026-02-25",
+            [spec],
+            fetch=fetch,
+            fetched_at="2026-09-16T06:00:00Z",
+        )
+
+        self.assertEqual(
+            seen_ranges,
+            [
+                ("2026-02-05", "2026-02-14"),
+                ("2026-02-15", "2026-02-24"),
+                ("2026-02-25", "2026-02-25"),
+            ],
+        )
+        self.assertEqual(len(archive["KLGA"]), 21)
+        self.assertEqual(archive["KLGA"]["2026-02-25"]["high"], 50)
+        self.assertEqual(archive["_meta"]["utc_offset_seconds"], {"KLGA": -18000})
+
+    def test_build_archive_aborts_when_chunk_offsets_differ(self):
+        offsets = iter([-18000, -14400])
+
+        def fetch(url):
+            query = parse_qs(urlparse(url).query)
+            return _payload_for_dates(
+                query["start_date"][0],
+                query["end_date"][0],
+                offset=next(offsets),
+            )
+
+        spec = builder.StationSpec(
+            "KLGA", 40.7769, -73.874, "America/New_York", "fahrenheit"
+        )
+        with self.assertRaises(builder.ArchiveBuildError) as ctx:
+            builder.build_archive(
+                "2026-02-05",
+                "2026-02-15",
+                [spec],
+                fetch=fetch,
+                fetched_at="2026-09-16T06:00:00Z",
+            )
+        self.assertIn("utc_offset_seconds changed", str(ctx.exception))
+
+    def test_build_archive_retries_502_then_succeeds(self):
+        calls = 0
+
+        def fake_urlopen(req, timeout):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise HTTPError(req.full_url, 502, "Bad Gateway", hdrs=None, fp=BytesIO())
+            return JsonResponse(_payload_for_dates("2026-02-05", "2026-02-05"))
+
+        spec = builder.StationSpec(
+            "KLGA", 40.7769, -73.874, "America/New_York", "fahrenheit"
+        )
+        archive = builder.build_archive(
+            "2026-02-05",
+            "2026-02-05",
+            [spec],
+            fetch=lambda url: builder.fetch_previous_runs(
+                url, opener=fake_urlopen, sleep=lambda _seconds: None
+            ),
+            fetched_at="2026-09-16T06:00:00Z",
+        )
+
+        self.assertEqual(calls, 2)
+        self.assertEqual(archive["KLGA"]["2026-02-05"]["high"], 50)
+
+    def test_build_archive_400_aborts_without_retry(self):
+        calls = 0
+
+        def fake_urlopen(req, timeout):
+            nonlocal calls
+            calls += 1
+            raise HTTPError(req.full_url, 400, "Bad Request", hdrs=None, fp=BytesIO())
+
+        spec = builder.StationSpec(
+            "KLGA", 40.7769, -73.874, "America/New_York", "fahrenheit"
+        )
+        with self.assertRaises(builder.ArchiveBuildError) as ctx:
+            builder.build_archive(
+                "2026-02-05",
+                "2026-02-05",
+                [spec],
+                fetch=lambda url: builder.fetch_previous_runs(
+                    url, opener=fake_urlopen, sleep=lambda _seconds: None
+                ),
+                fetched_at="2026-09-16T06:00:00Z",
+            )
+        self.assertIn("HTTP 400", str(ctx.exception))
+        self.assertEqual(calls, 1)
+
     def test_us_fahrenheit_intl_celsius_urls(self):
         us = builder.StationSpec("KLGA", 40.7769, -73.874, "auto", "fahrenheit")
         intl = builder.StationSpec(
@@ -217,6 +363,35 @@ class TestSkillStationCoverage(unittest.TestCase):
                 self.assertEqual(row.unit, "fahrenheit")
             else:
                 self.assertEqual(row.unit, "celsius")
+
+    def test_station_filter_limits_us_to_configured_resolution_stations(self):
+        us_rows = builder.stations_from_skill_tables(
+            wt.STATION_ID_TO_NOAA,
+            wt.INTERNATIONAL_STATION_COORDS,
+            stations="us",
+            locations=wt.LOCATIONS,
+        )
+        intl_rows = builder.stations_from_skill_tables(
+            wt.STATION_ID_TO_NOAA,
+            wt.INTERNATIONAL_STATION_COORDS,
+            stations="intl",
+            locations=wt.LOCATIONS,
+        )
+        all_rows = builder.stations_from_skill_tables(
+            wt.STATION_ID_TO_NOAA,
+            wt.INTERNATIONAL_STATION_COORDS,
+            stations="all",
+            locations=wt.LOCATIONS,
+        )
+        us_ids = {row.station_id for row in us_rows}
+        intl_ids = {row.station_id for row in intl_rows}
+
+        self.assertEqual(len(us_ids), 8)
+        self.assertEqual(
+            us_ids, {"KATL", "KAUS", "KBKF", "KHOU", "KLGA", "KMIA", "KORD", "KSEA"}
+        )
+        self.assertFalse(us_ids & intl_ids)
+        self.assertEqual({row.station_id for row in all_rows}, us_ids | intl_ids)
 
 
 class TestRefuseSampleOverwrite(unittest.TestCase):

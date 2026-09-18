@@ -8,7 +8,7 @@ bundle.clean=true on a 0-eval tick.
 SIM-5428 extends that into an explicit keep/kill gate: the discovery+entry
 path must work under replay (frozen clock, replay price fields, city
 fallback when the tape omits resolution_criteria, no live NOAA look-ahead,
-preflight skipped so WALLET_UNVERIFIED cannot block SimState fills).
+replay-aware SDK preflight so WALLET_UNVERIFIED cannot block SimState fills).
 
 SIM-5429 adds the archive loader (`SIMMER_REPLAY_FORECASTS` / user-supplied
 fixtures/replay_forecasts.json). The committed .sample.json is never auto-loaded.
@@ -56,7 +56,7 @@ _mock_cfg = {
     "exit_threshold": 0.45,
     "max_position_usd": 2.00,
     "sizing_pct": 0.05,
-    "max_trades_per_run": 5,
+    "max_trades_per_run": 5, "max_buys_per_market": 1,
     "locations": "NYC",
     "binary_only": False,
     "slippage_max": 0.15,
@@ -347,23 +347,39 @@ class TestReplayStationAndForecast(_PatchDefaultArchiveMixin, unittest.TestCase)
         )
 
 
-class TestReplayPreflightSkip(unittest.TestCase):
-    """Replay agents/me.real_trading_enabled is False → WALLET_UNVERIFIED."""
+class TestReplayPreflight(unittest.TestCase):
+    """Replay trades must not depend on the deprecated skip_preflight valve."""
 
     def tearDown(self):
         os.environ.pop("SIMMER_REPLAY", None)
         wt._client = None
 
-    def test_replay_skips_preflight_and_passes_skip_flag(self):
+    def test_replay_trade_omits_skip_preflight_and_emits_no_deprecation(self):
         os.environ["SIMMER_REPLAY"] = "1"
         client = MagicMock()
         client.live = True
         client.venue = "polymarket"
         client.trade.return_value = _trade_ok()
-        with patch.object(wt, "get_client", return_value=client):
+        with patch.object(wt, "get_client", return_value=client), \
+             patch("warnings.warn") as warn:
             result = wt.execute_trade("wx-nyc-72", "yes", 2.0)
         client.preflight.assert_not_called()
-        self.assertTrue(client.trade.call_args.kwargs["skip_preflight"])
+        self.assertNotIn("skip_preflight", client.trade.call_args.kwargs)
+        warn.assert_not_called()
+        self.assertTrue(result["success"])
+
+    def test_replay_sell_omits_skip_preflight_and_emits_no_deprecation(self):
+        os.environ["SIMMER_REPLAY"] = "1"
+        client = MagicMock()
+        client.live = True
+        client.venue = "polymarket"
+        client.trade.return_value = _trade_ok()
+        with patch.object(wt, "get_client", return_value=client), \
+             patch("warnings.warn") as warn:
+            result = wt.execute_sell("wx-nyc-72", 3.0)
+        client.preflight.assert_not_called()
+        self.assertNotIn("skip_preflight", client.trade.call_args.kwargs)
+        warn.assert_not_called()
         self.assertTrue(result["success"])
 
     def test_live_still_runs_preflight(self):
@@ -774,6 +790,61 @@ class TestReplayForecastLoader(_PatchDefaultArchiveMixin, unittest.TestCase):
         line = wt._replay_forecast_provenance_line()
         self.assertIn("leads=1-3", line)
         self.assertNotIn("tz=assumed", line)
+
+
+from dataclasses import dataclass as _dataclass
+
+
+@_dataclass
+class _FakePosition:
+    market_id: str
+    venue: str = "polymarket"
+
+
+class TestGetPositionsReplayVenue(unittest.TestCase):
+    """SIM-5484: replay's /api/sdk/positions 422s on any venue filter
+    (_reject_unsupported, SIM-5067). get_positions() must omit venue under
+    replay so the skill actually learns what it holds — the pre-fix
+    behavior called client.get_positions(venue=client.venue), which 422s,
+    gets swallowed to [], and re-buys the same bucket every tick."""
+
+    def tearDown(self):
+        os.environ.pop("SIMMER_REPLAY", None)
+        wt._client = None
+
+    def test_replay_omits_venue_filter(self):
+        os.environ["SIMMER_REPLAY"] = "1"
+        client = MagicMock()
+        client.venue = "polymarket"
+        client.get_positions.return_value = []
+        with patch.object(wt, "get_client", MagicMock(return_value=client)):
+            wt.get_positions()
+        client.get_positions.assert_called_once_with(venue=None)
+
+    def test_live_still_filters_by_configured_venue(self):
+        os.environ.pop("SIMMER_REPLAY", None)
+        client = MagicMock()
+        client.venue = "polymarket"
+        client.get_positions.return_value = []
+        with patch.object(wt, "get_client", MagicMock(return_value=client)):
+            wt.get_positions()
+        client.get_positions.assert_called_once_with(venue="polymarket")
+
+    def test_held_market_not_rebought_next_tick(self):
+        """A market already held must not appear as a fresh entry candidate
+        on the next tick — the actual failure mode #1 caused (13-25x
+        re-buys/market: every tick, get_positions()==[] under replay, so
+        the position-check that would skip an already-held market never
+        fires)."""
+        os.environ["SIMMER_REPLAY"] = "1"
+        client = MagicMock()
+        client.venue = "polymarket"
+        client.get_positions.return_value = [_FakePosition(market_id="wx-nyc-72")]
+        with patch.object(wt, "get_client", MagicMock(return_value=client)):
+            positions = wt.get_positions()
+        client.get_positions.assert_called_once_with(venue=None)
+        self.assertEqual(len(positions), 1)
+        self.assertEqual(positions[0]["market_id"], "wx-nyc-72")
 
 
 if __name__ == "__main__":

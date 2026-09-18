@@ -22,6 +22,7 @@ import sys
 import re
 import json
 import argparse
+from collections import Counter, defaultdict
 from datetime import datetime, timezone, timedelta
 from urllib.request import urlopen, Request
 from urllib.error import HTTPError, URLError
@@ -64,6 +65,12 @@ CONFIG_SCHEMA = {
     "max_position_usd":  {"env": "SIMMER_WEATHER_MAX_POSITION_USD",  "default": 2.00,  "type": float},
     "sizing_pct":        {"env": "SIMMER_WEATHER_SIZING_PCT",        "default": 0.05,  "type": float},
     "max_trades_per_run":{"env": "SIMMER_WEATHER_MAX_TRADES_PER_RUN","default": 5,     "type": int},
+    "max_buys_per_market":{"env": "SIMMER_WEATHER_MAX_BUYS_PER_MARKET","default": 1,   "type": int,
+                          "help": "Cap on buy-fills into the same market (bucket), checked against get_positions() "
+                                  "before entry. Replay fills every attempt (no balance/backoff throttle) while live "
+                                  "is naturally throttled, so an unbounded entry loop makes the two disagree (SIM-5499). "
+                                  "1 = one entry then hold (default). Raise to keep DCA; 0 disables the cap entirely "
+                                  "(unbounded, pre-SIM-5499 behavior)."},
     "locations":         {"env": "SIMMER_WEATHER_LOCATIONS",         "default": "NYC", "type": str},
     "binary_only":       {"env": "SIMMER_WEATHER_BINARY_ONLY",       "default": False, "type": bool},
     "slippage_max":      {"env": "SIMMER_WEATHER_SLIPPAGE_MAX",      "default": 0.15,  "type": float},
@@ -164,6 +171,7 @@ SMART_SIZING_PCT = _config["sizing_pct"]
 
 # Rate limiting
 MAX_TRADES_PER_RUN = _config["max_trades_per_run"]
+MAX_BUYS_PER_MARKET = _config["max_buys_per_market"]
 
 # Market type filter
 BINARY_ONLY = _config["binary_only"]
@@ -1822,7 +1830,6 @@ def execute_trade(market_id: str, side: str, amount: float, reasoning: str = Non
         result = client.trade(
             market_id=market_id, side=side, amount=amount, source=TRADE_SOURCE, skill_slug=SKILL_SLUG,
             reasoning=reasoning, signal_data=signal_data, order_type=ORDER_TYPE,
-            skip_preflight=replay,
         )
         out = {
             "success": result.success, "trade_id": result.trade_id,
@@ -1852,7 +1859,6 @@ def execute_sell(market_id: str, shares: float) -> dict:
             market_id=market_id, side="yes", action="sell",
             shares=shares, source=TRADE_SOURCE, skill_slug=SKILL_SLUG,
             order_type=ORDER_TYPE,
-            skip_preflight=replay,
         )
         out = {
             "success": result.success, "trade_id": result.trade_id,
@@ -1871,14 +1877,40 @@ def get_positions(venue: str = None) -> list:
     """Get current positions as list of dicts, filtered by venue."""
     try:
         client = get_client()
-        # Default to the client's configured venue to avoid cross-venue positions
-        effective_venue = venue or client.venue
+        # Replay's /api/sdk/positions rejects any venue filter (SIM-5067
+        # _reject_unsupported) since the replay tape is single-venue by
+        # construction — omit it so replay doesn't 422 into an empty []
+        # and re-buy the same bucket every tick.
+        if _is_replay():
+            effective_venue = None
+        else:
+            # Default to the client's configured venue to avoid cross-venue positions
+            effective_venue = venue or client.venue
         positions = client.get_positions(venue=effective_venue)
         from dataclasses import asdict
         return [asdict(p) for p in positions]
     except Exception as e:
         print(f"  Error fetching positions: {e}")
         return []
+
+
+def _buys_so_far(position: dict) -> int:
+    """Estimate prior buy-fills into a held market from `get_positions()`.
+
+    Positions aggregate every fill into one row — there is no per-fill
+    history here — so this is an estimate, not an exact count. `cost_basis`
+    (Polymarket: total USDC spent) divided by the configured per-buy ceiling
+    approximates fill count under the common case (smart_sizing / vol_targeting
+    off, so every buy targets MAX_POSITION_USD). Falls back to "any shares
+    held counts as one buy" when cost_basis is unavailable (sim venue, or a
+    position predating cost tracking) — conservative for the default
+    MAX_BUYS_PER_MARKET=1, where any existing position already caps entry.
+    """
+    cost_basis = position.get("cost_basis")
+    if cost_basis and MAX_POSITION_USD > 0:
+        return max(1, round(cost_basis / MAX_POSITION_USD))
+    shares = position.get("shares_yes") or 0
+    return 1 if shares > 0 else 0
 
 
 def calculate_position_size(default_size: float, smart_sizing: bool) -> float:
@@ -2034,6 +2066,7 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
     log(f"  Exit threshold:  {EXIT_THRESHOLD:.0%} (sell above this)")
     log(f"  Max position:    ${MAX_POSITION_USD:.2f}")
     log(f"  Max trades/run:  {MAX_TRADES_PER_RUN}")
+    log(f"  Max buys/market: {MAX_BUYS_PER_MARKET if MAX_BUYS_PER_MARKET > 0 else 'unlimited (DCA)'}")
     log(f"  Locations:       {', '.join(ACTIVE_LOCATIONS)}")
     log(f"  Smart sizing:    {'✓ Enabled' if smart_sizing else '✗ Disabled'}")
     log(f"  Safeguards:      {'✓ Enabled' if use_safeguards else '✗ Disabled'}")
@@ -2148,12 +2181,32 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
 
     log(f"  Grouped into {len(events)} events")
 
+    # SIM-5499: per-market position cap. Fetched once per run (not per market)
+    # so replay's DCA-into-an-underpriced-bucket-every-run behavior and live's
+    # natural balance/backoff throttling measure the same strategy.
+    positions_by_market = {}
+    if MAX_BUYS_PER_MARKET > 0:
+        for _pos in get_positions():
+            _mid = _pos.get("market_id")
+            if _mid:
+                positions_by_market[_mid] = _pos
+
     forecast_cache = {}
     secondary_cache = {}  # SIM-2420: lazy Open-Meteo cross-check per station
     trades_executed = 0
     total_usd_spent = 0.0
     opportunities_found = 0
     skip_reasons = []
+    # Per-location breakdown of why a location entered nothing (SIM-5499:
+    # the flat skip_reasons list above was collected but never surfaced, so
+    # diagnosing "location X entered 0" meant re-reading per-tick logs).
+    # `location` is read, not assigned, inside skip() — safe as a plain
+    # closure over the loop variable below.
+    skip_reasons_by_location = defaultdict(Counter)
+
+    def skip(reason: str) -> None:
+        skip_reasons.append(reason)
+        skip_reasons_by_location[location][reason] += 1
     # Coverage guard: count how many events carried readable criteria vs how
     # many carried criteria our parser could not read. A parser that has
     # fallen behind Polymarket's wording fails silently — it throws nothing,
@@ -2171,6 +2224,12 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
         event_info = parse_weather_event(event_name)
 
         if not event_info:
+            # Unparseable event text (no known location alias, or no "on
+            # <month> <day>" match) never reaches `location`, so it can't
+            # go through skip() — bucket it separately by a snippet of the
+            # text itself so a location that silently stops matching (e.g.
+            # a question-format change) is still visible in the summary.
+            skip_reasons_by_location["(unparsed event name)"][event_name[:60]] += 1
             continue
 
         location = event_info["location"]
@@ -2214,17 +2273,17 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
                     station_parse_fallback += 1
                 else:
                     log("  ⏭️  Skipping — market carries no resolution_criteria")
-                    skip_reasons.append("missing resolution_criteria")
+                    skip("missing resolution_criteria")
                     continue
             elif parse_result["reason"] == SKIP_MISSING_CRITERIA:
                 log("  ⏭️  Skipping — market carries no resolution_criteria")
-                skip_reasons.append("missing resolution_criteria")
+                skip("missing resolution_criteria")
                 continue
             else:
                 station_parse_unreadable += 1
                 log("  ⏭️  Skipping — resolution_criteria present but no station "
                     "could be read from it (parser may be behind Polymarket's wording)")
-                skip_reasons.append("unparseable resolution_criteria")
+                skip("unparseable resolution_criteria")
                 continue
         else:
             station_parse_ok += 1
@@ -2255,7 +2314,7 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
             log(f"  Oracle: {station_name} ({station_id}) → Open-Meteo @ airport coords ({_intl_city})")
         else:
             log(f"  ⏭️  Skipping — station {station_id or 'unknown'} ({station_name}) not in NOAA/Open-Meteo maps")
-            skip_reasons.append(f"unknown station {station_id or station_name}")
+            skip(f"unknown station {station_id or station_name}")
             continue
 
         # Live: station-keyed so per-airport forecasts don't collide.
@@ -2280,6 +2339,7 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
 
         if forecast_temp is None:
             log(f"  ⚠️  No forecast available for {date_str}")
+            skip(f"no forecast ({station_id})")
             continue
 
         unit_label = "°C" if is_international else "°F"
@@ -2297,6 +2357,7 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
 
         if not matching_market:
             log(f"  ⚠️  No bucket found for {forecast_temp}{unit_label}")
+            skip("no bucket match")
             continue
 
         # SIM-2427: prefer outcome_name, fall back to question. Mirrors the
@@ -2308,13 +2369,25 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
 
         log(f"  Matching bucket: {outcome_name} @ ${price:.2f}")
 
+        # SIM-5499: per-market cap, checked against held positions before any
+        # further work. Cheapest check in the loop — skip before spending a
+        # context-safeguard or price-history call on a market we won't buy.
+        if MAX_BUYS_PER_MARKET > 0:
+            existing_pos = positions_by_market.get(market_id)
+            if existing_pos:
+                buys_so_far = _buys_so_far(existing_pos)
+                if buys_so_far >= MAX_BUYS_PER_MARKET:
+                    log(f"  ⏸️  Per-market cap reached ({buys_so_far}/{MAX_BUYS_PER_MARKET} buys) - skip (DCA capped)")
+                    skip("per-market cap reached")
+                    continue
+
         if price < MIN_TICK_SIZE:
             log(f"  ⏸️  Price ${price:.4f} below min tick ${MIN_TICK_SIZE} - skip (market at extreme)")
-            skip_reasons.append("price at extreme")
+            skip("price at extreme")
             continue
         if price > (1 - MIN_TICK_SIZE):
             log(f"  ⏸️  Price ${price:.4f} above max tradeable - skip (market at extreme)")
-            skip_reasons.append("price at extreme")
+            skip("price at extreme")
             continue
 
         # SIM-2427: compute source-tier early so it logs for EVERY bucket-matched
@@ -2348,7 +2421,7 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
             should_trade, reasons = check_context_safeguards(context)
             if not should_trade:
                 log(f"  ⏭️  Safeguard blocked: {'; '.join(reasons)}")
-                skip_reasons.append(f"safeguard: {reasons[0]}")
+                skip(f"safeguard: {reasons[0]}")
                 continue
             if reasons:
                 log(f"  ⚠️  Warnings: {'; '.join(reasons)}")
@@ -2390,7 +2463,7 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
             tier_size, tier_reason = apply_source_tier_to_sizing(agreement_tier, position_size)
             if tier_size is None:
                 log(f"  ⏭️  Source-tier {agreement_tier}: {tier_reason}")
-                skip_reasons.append(f"source-agreement: {agreement_tier}")
+                skip(f"source-agreement: {agreement_tier}")
                 continue
             if tier_size < position_size:
                 log(f"  🟡 Source-tier {agreement_tier}: capping ${position_size:.2f} → ${tier_size:.2f} ({tier_reason})")
@@ -2399,7 +2472,7 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
             min_cost_for_shares = MIN_SHARES_PER_ORDER * price
             if min_cost_for_shares > position_size:
                 log(f"  ⚠️  Position size ${position_size:.2f} too small for {MIN_SHARES_PER_ORDER} shares at ${price:.2f}")
-                skip_reasons.append("position too small")
+                skip("position too small")
                 continue
 
             opportunities_found += 1
@@ -2408,13 +2481,13 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
             # Skip markets whose CLOB orderbook is confirmed nonexistent this run
             if market_id in _STALE_ORDERBOOK_IDS:
                 log(f"  ⏭️  Skipping — CLOB orderbook confirmed nonexistent (cached)")
-                skip_reasons.append("stale orderbook (cached)")
+                skip("stale orderbook (cached)")
                 continue
 
             # Check rate limit
             if trades_executed >= MAX_TRADES_PER_RUN:
                 log(f"  ⏸️  Max trades per run ({MAX_TRADES_PER_RUN}) reached - skipping")
-                skip_reasons.append("max trades reached")
+                skip("max trades reached")
                 continue
 
             tag = "SIMULATED" if dry_run else "LIVE"
@@ -2484,13 +2557,14 @@ def run_weather_strategy(dry_run: bool = True, positions_only: bool = False,
         else:
             if "below min entry" in entry_reason:
                 log(f"  ⏭️  {entry_reason} - skip")
-                skip_reasons.append("below min entry")
+                skip("below min entry")
             else:
                 log(f"  ⏸️  {entry_reason} - skip")
 
     _report_parse_coverage(station_parse_ok, station_parse_unreadable, log)
     if station_parse_fallback:
         log(f"  Replay: {station_parse_fallback} event(s) used city-station fallback (no resolution_criteria)")
+    _report_skip_breakdown(skip_reasons_by_location, log)
 
     exits_found, exits_executed = check_exit_opportunities(dry_run, use_safeguards)
 
@@ -2532,6 +2606,29 @@ def _report_parse_coverage(parsed_ok: int, unreadable: int, log) -> None:
         f"it is not finding no opportunities, it is failing to look.",
         force=True,
     )
+
+
+def _report_skip_breakdown(skip_reasons_by_location: dict, log) -> None:
+    """Per-location skip-reason breakdown (SIM-5499).
+
+    `skip_reasons` was being collected all along but never surfaced, so a
+    location that quietly entered zero markets (London 0/36 on the
+    2026-09-17 gate run) could only be diagnosed by re-reading per-tick logs.
+    This prints the top reasons per location so the next run answers it
+    directly. Forces output past --quiet — same rationale as
+    `_report_parse_coverage`.
+    """
+    if not skip_reasons_by_location:
+        return
+    log("\n📋 Skip reasons by location:", force=True)
+    ranked = sorted(
+        skip_reasons_by_location.items(),
+        key=lambda item: -sum(item[1].values()),
+    )
+    for location, counter in ranked:
+        total = sum(counter.values())
+        top = ", ".join(f"{reason} x{count}" for reason, count in counter.most_common(3))
+        log(f"  {location}: {total} skipped — {top}", force=True)
 
 
 # =============================================================================
@@ -2581,6 +2678,7 @@ if __name__ == "__main__":
             globals()["MAX_POSITION_USD"] = _config["max_position_usd"]
             globals()["SMART_SIZING_PCT"] = _config["sizing_pct"]
             globals()["MAX_TRADES_PER_RUN"] = _config["max_trades_per_run"]
+            globals()["MAX_BUYS_PER_MARKET"] = _config["max_buys_per_market"]
             globals()["BINARY_ONLY"] = _config["binary_only"]
             globals()["VOL_TARGETING"] = _config["vol_targeting"]
             globals()["TARGET_VOL"] = _config["target_vol"]

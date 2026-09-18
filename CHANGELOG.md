@@ -3,6 +3,15 @@
 All notable changes to `simmer-sdk` are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.25.8 (2026-09-17)
+
+- **`SimmerClient.preflight()` is replay-aware.** Under `simmer backtest` (`SIMMER_REPLAY=1` with a loopback API URL) preflight returns `ok_to_trade=True` with `signer_status="replay"` and makes no network calls, so replayed skills fill in SimState without the deprecated `skip_preflight` valve. `SIMMER_REPLAY=1` against a non-loopback URL still runs the full live preflight.
+- **Replay `/api/sdk/markets` rows include `event_id` and `event_title`**, so a skill can tell a standalone market from one leg of a multi-outcome event while replaying.
+
+## 0.25.7 (2026-09-17)
+
+- **`simmer backtest` now forwards `SIMMER_REPLAY_FORECASTS` to the bundle subprocess.** The replay harness builds the skill's environment from a strict allowlist, and this variable was missing from it — a caller who set it saw the skill silently fall back to its own fixture file instead of the archive they asked for, with no error. Now passed through when set (a file path, not a secret).
+
 ## simmer-mcp v3.5.8 — 2026-09-15
 
 - **Bundled `simmer` skill copy refreshed to 1.25.3.** No behavior change — regenerates `mcp/bundled-skills/simmer/SKILL.md` to match the skill quick-start rewrite below. SIM-5391.

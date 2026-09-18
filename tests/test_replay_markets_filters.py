@@ -86,6 +86,30 @@ def test_replay_q_temperature_uses_existing_question_slug_filter():
     assert ids == ["wx1"]
 
 
+def test_replay_listing_exposes_event_id():
+    """SIM-5443: NEH standalone filter groups tape rows by event_id."""
+    markets = [
+        MarketMeta(
+            id="leg-a",
+            question="Will Alice win Iowa?",
+            slug="alice-wins-iowa",
+            condition_id="cond-a",
+            answer1="Yes",
+            answer2="No",
+            created_at=datetime(2026, 4, 1, tzinfo=timezone.utc),
+            end_date=datetime(2026, 5, 10, tzinfo=timezone.utc),
+            event_id="who-wins-iowa",
+            event_title="Who wins Iowa?",
+            volume=1000.0,
+        ),
+    ]
+    r = _client(markets).get("/api/sdk/markets", params={"limit": 10})
+    assert r.status_code == 200
+    row = r.json()["markets"][0]
+    assert row["event_id"] == "who-wins-iowa"
+    assert row["event_title"] == "Who wins Iowa?"
+
+
 def test_replay_q_miss_is_empty_200_not_422():
     """HF volume slices with 0 weather markets are an empty tape, not a 422."""
     only_btc = [_meta("btc1", "Will Bitcoin hit 100k?", "will-bitcoin-hit-100k")]

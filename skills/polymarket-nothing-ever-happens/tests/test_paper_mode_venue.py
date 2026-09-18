@@ -54,12 +54,17 @@ sys.modules["simmer_sdk.skill"] = _skill_stub
 import nothing_ever_happens as neh  # noqa: E402
 
 
+def _simmer_client_ctor():
+    """Live sys.modules stub. Replay tests may replace the module object."""
+    return sys.modules["simmer_sdk"].SimmerClient
+
+
 class VenueThreadingTests(unittest.TestCase):
     """TRADING_VENUE must reach the SimmerClient constructor."""
 
     def setUp(self):
         neh._client = None
-        _sdk_stub.SimmerClient.reset_mock()
+        _simmer_client_ctor().reset_mock()
 
     def tearDown(self):
         neh._client = None
@@ -68,7 +73,7 @@ class VenueThreadingTests(unittest.TestCase):
         env = {"SIMMER_API_KEY": "test-key", "TRADING_VENUE": "sim"}
         with patch.dict(os.environ, env, clear=False):
             neh.get_client(live=True)
-        _, kwargs = _sdk_stub.SimmerClient.call_args
+        _, kwargs = _simmer_client_ctor().call_args
         self.assertEqual(kwargs.get("venue"), "sim")
 
     def test_unset_venue_defaults_to_polymarket(self):
@@ -76,14 +81,14 @@ class VenueThreadingTests(unittest.TestCase):
         with patch.dict(os.environ, env, clear=False):
             os.environ.pop("TRADING_VENUE", None)
             neh.get_client(live=True)
-        _, kwargs = _sdk_stub.SimmerClient.call_args
+        _, kwargs = _simmer_client_ctor().call_args
         self.assertEqual(kwargs.get("venue"), "polymarket")
 
     def test_explicit_polymarket_venue(self):
         env = {"SIMMER_API_KEY": "test-key", "TRADING_VENUE": "polymarket"}
         with patch.dict(os.environ, env, clear=False):
             neh.get_client(live=True)
-        _, kwargs = _sdk_stub.SimmerClient.call_args
+        _, kwargs = _simmer_client_ctor().call_args
         self.assertEqual(kwargs.get("venue"), "polymarket")
 
 
@@ -130,6 +135,20 @@ class EffectiveDryRunTests(unittest.TestCase):
             self.assertFalse(
                 neh.resolve_effective_dry_run(dry_run=False, client_venue="polymarket")
             )
+
+
+class PreflightMaxSafeSizeTests(unittest.TestCase):
+    """Missing / non-numeric max_safe_size must not raise on `<`."""
+
+    def test_none_when_missing(self):
+        self.assertIsNone(neh._preflight_max_safe_size({"ok": True}))
+
+    def test_none_when_not_a_dict(self):
+        self.assertIsNone(neh._preflight_max_safe_size(MagicMock()))
+        self.assertIsNone(neh._preflight_max_safe_size(None))
+
+    def test_float_when_present(self):
+        self.assertEqual(neh._preflight_max_safe_size({"max_safe_size": 2.5}), 2.5)
 
 
 class PreflightGateTests(unittest.TestCase):
@@ -197,16 +216,23 @@ class TestAutoRedeemGating(unittest.TestCase):
     venue — only live polymarket runs (not sim/paper, dry-run, or --scan)
     may reach it (codex pass-2 P1)."""
 
-    def _run_main(self, argv, env):
+    def _run_main(self, argv, env, preflight=None):
+        if preflight is None:
+            preflight = {
+                "ok": True,
+                "max_safe_size": 999.0,
+                "balance": 100.0,
+                "collateral": "USDC",
+            }
         with patch.dict(os.environ, env):
             with patch.object(sys, "argv", ["nothing_ever_happens.py"] + argv):
                 neh._client = None
                 with patch.object(neh, "fetch_candidate_markets", return_value=[]):
-                    with patch.object(_sdk_stub, "SimmerClient") as MockClient:
+                    sdk = sys.modules["simmer_sdk"]
+                    with patch.object(sdk, "SimmerClient") as MockClient:
                         mock = MockClient.return_value
                         mock.venue = env.get("TRADING_VENUE", "polymarket")
-                        mock.ensure_can_trade.return_value = {
-                            "ok": True, "max_safe_size": 999.0, "balance": 100.0}
+                        mock.ensure_can_trade.return_value = preflight
                         mock.auto_redeem.return_value = []
                         try:
                             neh.main()
@@ -229,3 +255,13 @@ class TestAutoRedeemGating(unittest.TestCase):
     def test_live_polymarket_calls_auto_redeem(self):
         mock = self._run_main(["--live", "--quiet"], {"TRADING_VENUE": "polymarket", "SIMMER_API_KEY": "sk"})
         mock.auto_redeem.assert_called_once()
+
+    def test_live_preflight_without_max_safe_size_refuses_to_trade(self):
+        mock = self._run_main(
+            ["--live", "--quiet"],
+            {"TRADING_VENUE": "polymarket", "SIMMER_API_KEY": "sk"},
+            preflight={"ok": True, "balance": 100.0, "collateral": "USDC"},
+        )
+        mock.auto_redeem.assert_called_once()
+        mock.ensure_can_trade.assert_called_once()
+        mock.trade.assert_not_called()

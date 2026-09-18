@@ -1,4 +1,4 @@
-# vendored from simmer_v3/replay/feeds/binance.py @ ce89ed16b684
+# vendored from simmer_v3/replay/feeds/binance.py @ 00a4065abbd5
 # DO NOT EDIT HERE — regenerate via scripts/sync_replay_engine.py
 """Binance historical klines feed for replay (SIM-3079).
 

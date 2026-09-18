@@ -3,7 +3,7 @@ name: polymarket-weather-trader
 description: Trade Polymarket weather markets using NOAA (US) and Open-Meteo (international) forecasts via Simmer API. Inspired by gopfan2's weather trading approach. Use when user wants to trade temperature markets, automate weather bets, check forecasts, or run weather-based strategies.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.23.17"
+  version: "1.23.22"
   displayName: Polymarket Weather Trader
   difficulty: beginner
   attribution: Strategy inspired by gopfan2 (public Polymarket trader — approach referenced, not endorsed).
@@ -49,6 +49,14 @@ Use this skill when the user wants to:
 - Buy low on weather predictions
 - Check their weather trading positions
 - Configure trading thresholds or locations
+
+## What's New in v1.23.21
+
+- **Per-market position cap (SIM-5499).** `SIMMER_WEATHER_MAX_BUYS_PER_MARKET` (default `1`) checks held positions before entry so a replay backtest and live trading measure the same strategy — replay previously DCA'd into every underpriced bucket every tick (mean 34 buys/market on a full-tape run) while live is naturally throttled by balance/backoffs. Run summaries now also print a per-location skip-reason breakdown so a location entering zero markets is diagnosable from the run's own output.
+
+## What's New in v1.23.19
+
+- **Replay archive builder hardening (SIM-5440).** Open-Meteo HTTP 5xx responses now retry up to 3 attempts with backoff while 4xx remains fail-closed. Long windows are fetched in 10-day chunks and merged only when `utc_offset_seconds` is identical across chunks. `--stations us|intl|all` lets US-only backtests avoid international DST guards and unnecessary requests.
 
 ## What's New in v1.23.17
 
@@ -141,6 +149,7 @@ Then `pip install --upgrade simmer-sdk` (>=0.13.0) and configure tunables below.
 | Exit threshold | `SIMMER_WEATHER_EXIT_THRESHOLD` | 0.45 | Sell when price above this. Raise this if you raise entry above `0.45`, or the skill will self-exit. |
 | Max position | `SIMMER_WEATHER_MAX_POSITION_USD` | 2.00 | Maximum USD per trade |
 | Max trades/run | `SIMMER_WEATHER_MAX_TRADES_PER_RUN` | 5 | Maximum trades per scan cycle |
+| Max buys/market | `SIMMER_WEATHER_MAX_BUYS_PER_MARKET` | 1 | Cap on buy-fills into the same market (bucket), checked against held positions before entry. `1` = one entry then hold; raise to keep DCA-ing into an underpriced bucket; `0` disables the cap (unbounded DCA). |
 | Locations | `SIMMER_WEATHER_LOCATIONS` | NYC | Comma-separated cities (NYC, Chicago, Seattle, Atlanta, Dallas, Miami, Austin, Houston, Denver, Beijing, Shanghai, Guangzhou, Shenzhen, Chengdu, Chongqing, Wuhan, Qingdao, Zhengzhou, Singapore, Kuala Lumpur, Manila, Busan, Toronto, Buenos Aires, Sao Paulo, Mexico City, Cape Town, Helsinki, Jeddah, Warsaw, Paris, Panama City) |
 | Binary only | `SIMMER_WEATHER_BINARY_ONLY` | false | Skip range-bucket events (e.g., "34-35°F"), only trade binary yes/no markets |
 | Smart sizing % | `SIMMER_WEATHER_SIZING_PCT` | 0.05 | % of balance per trade |
@@ -239,16 +248,37 @@ python skills/polymarket-weather-trader/scripts/build_replay_forecast_archive.py
   --start YYYY-MM-DD --end YYYY-MM-DD --out /tmp/replay_forecasts.json
 cp /tmp/replay_forecasts.json \
   skills/polymarket-weather-trader/fixtures/replay_forecasts.json
+# SIMMER_WEATHER_LOCATIONS defaults to "NYC" — a tape covering other cities
+# (Seoul, London, Chicago, ...) will show 0 entries for every one of them
+# unless you widen this list to match the tape's city mix (SIM-5484). That
+# is expected scoping, not a station/forecast bug — see the note below.
+#
+# A plain `export SIMMER_WEATHER_LOCATIONS=...` does NOT reach the skill:
+# the replay harness builds the bundle subprocess env from a strict
+# allowlist (SIM-5067) that this var is not on, so it is silently stripped
+# and the run measures NYC regardless. Use --set on the entrypoint instead
+# — it writes config.json next to weather_trader.py, which load_config()
+# reads before env vars and which survives the per-tick bundle copy.
+#
+# Name the tape's actual cities, not a generic US list. E.g. for an
+# April tape weighted Seoul/Hong Kong/London/Shanghai/NYC/Paris: Seoul,
+# London, Paris and Shanghai are mapped (INTERNATIONAL_STATION_COORDS) and
+# will enter; Hong Kong has no station mapping anywhere in the skill and
+# cannot enter no matter what's in this list.
 simmer backtest skills/polymarket-weather-trader \
   --entrypoint weather_trader.py --t0 YYYY-MM-DD --t1 YYYY-MM-DD \
-  --cadence 12h --q temperature --min-volume 0
-# Then read the KEEP/KILL table below. Optional in-process / pytest:
+  --cadence 12h --q temperature --min-volume 0 \
+  --args "--live --quiet --set locations=NYC,Chicago,Seattle,Atlanta,Miami,Austin,Houston,Denver,Seoul,London,Paris,Shanghai"
+# Then read the KEEP/KILL table below, plus the per-city entry count the
+# report prints — a KEEP/PIVOT read needs coverage across the mapped
+# international cities, not just NYC. Optional in-process / pytest:
 # export SIMMER_REPLAY_FORECASTS=/tmp/replay_forecasts.json
 ```
 
 | Verdict | What the backtest / replay outcome means for the money path |
 |---------|--------------------------------------------------------------|
 | **FIX** | Path is broken or the tape cannot evaluate the skill. Do not add capital. Repair: discovery 422 / fail-open empty listing; wall-clock horizon under replay; `yes_price` ignored (silent 0.50); every event skipped for missing `resolution_criteria`; live NOAA/Open-Meteo under replay (look-ahead); preflight `WALLET_UNVERIFIED` blocking SimState fills; 0 temperature markets on a high-volume slice (`--q temperature`, lower `--min-volume`); 0 entries because the forecast archive is missing, empty, or does not cover the tape dates (`SIMMER_REPLAY_FORECASTS` / `fixtures/replay_forecasts.json` — missing forecast plane, not "no edge"). |
+| **not a defect** | Every entry lands in one city (default NYC) on a multi-city tape. `SIMMER_WEATHER_LOCATIONS` defaults to `"NYC"` — that is the skill honoring its configured scope, not a station/parsing bug. Widen it via `--set locations=...` (a plain `export` is stripped by the replay harness allowlist) to the tape's full city mix before judging KEEP/KILL from entry count (SIM-5484). Hong Kong specifically never enters on any tape — the skill has no station mapping for it, not a defect. |
 | **KILL** | Pinned pytest gate fails, **or** the path is green on a weather-capable tape, evals > 0, and the skill still cannot reach `execute_trade` when a forecast is injected or loaded from the archive, **or** after the path works, P&L after costs is clearly ≤ 0 on an honest (not live-NOAA) forecast. Do not add more real capital. |
 | **KEEP** | Full-tape `simmer backtest ... --q temperature` with evals > 0 **and** entries > 0 **and** an honest archive (not live NOAA). Pinned unit tests passing is a path check only — not KEEP. Provisional; the 90-day Simmer P&L lock still decides scale-up. |
 

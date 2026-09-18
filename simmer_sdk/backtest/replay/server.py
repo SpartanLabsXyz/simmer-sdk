@@ -1,4 +1,4 @@
-# vendored from simmer_v3/replay/server.py @ ce89ed16b684
+# vendored from simmer_v3/replay/server.py @ 00a4065abbd5
 # DO NOT EDIT HERE — regenerate via scripts/sync_replay_engine.py
 """Replay API server — the minimal /api/sdk surface skills consume (SIM-3070).
 
@@ -97,6 +97,8 @@ def _market_payload(session: ReplaySession, meta) -> dict[str, Any]:
         "id": meta.id,
         "question": meta.question,
         "slug": meta.slug,
+        "event_id": meta.event_id,
+        "event_title": meta.event_title,
         "status": "active",
         "venue": session.venue,
         "current_probability": price,
