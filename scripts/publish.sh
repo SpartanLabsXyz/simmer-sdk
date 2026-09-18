@@ -106,20 +106,24 @@ echo "   Source: $SKILL_DIR"
 
 # Check if version already exists
 echo "   Checking ClawHub for existing version..."
-if npx clawhub@latest inspect "$NAME" 2>&1 | grep -q "Latest: $VERSION"; then
+if npx clawhub@latest inspect "$NAME" --owner simmer 2>&1 | grep -q "Latest: $VERSION"; then
   echo "❌ Version $VERSION already exists on ClawHub"
   echo "   Bump the version in $SKILL_MD and try again"
   exit 1
 fi
 
 # Copy full directory to temp (using slug as folder name)
-TMP_DIR="/tmp/$NAME"
+TMP_BASE="${PAPERCLIP_RUN_SCRATCH_DIR:-${TMPDIR:-/tmp}}"
+TMP_DIR="$TMP_BASE/$NAME"
+mkdir -p "$TMP_BASE"
 rm -rf "$TMP_DIR"
 cp -r "$SKILL_DIR" "$TMP_DIR"
 
 # Clean up unwanted files. The old top-level-only rm missed NESTED caches
 # (e.g. tests/__pycache__), so a stale 90KB .pyc shipped in the copytrader
-# 0.1.1 bundle. Prune every __pycache__ dir + loose .pyc/.pyo recursively.
+# 0.1.1 bundle. Prune test loaders, every __pycache__ dir + loose .pyc/.pyo
+# recursively before handing the bundle to ClawHub.
+find "$TMP_DIR" -type d -name tests -prune -exec rm -rf {} + 2>/dev/null || true
 find "$TMP_DIR" -type d -name __pycache__ -prune -exec rm -rf {} + 2>/dev/null || true
 find "$TMP_DIR" -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete 2>/dev/null || true
 rm -rf "$TMP_DIR"/.* 2>/dev/null || true
