@@ -58,6 +58,7 @@ def make_args(**kwargs):
 def test_main_outputs_package_and_clawhub_publish_plan(
     tmp_path: Path, monkeypatch, capsys
 ) -> None:
+    monkeypatch.delenv("GITHUB_OUTPUT", raising=False)
     write_package_files(tmp_path, npm_version="3.5.2", pypi_version="0.25.9")
     write_skill(tmp_path, "preflight", "simmer-preflight", "0.3.3")
     monkeypatch.setattr(plan_package_publish, "fetch_clawhub_latest", lambda slug: "0.3.2")
@@ -86,6 +87,7 @@ def test_main_outputs_package_and_clawhub_publish_plan(
 
 
 def test_main_skips_clawhub_hold_flag(tmp_path: Path, monkeypatch, capsys) -> None:
+    monkeypatch.delenv("GITHUB_OUTPUT", raising=False)
     write_package_files(tmp_path, npm_version="3.5.2", pypi_version="0.25.9")
     write_skill(
         tmp_path,
