@@ -3,6 +3,15 @@
 All notable changes to `simmer-sdk` are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## polymarket-signal-sniper 2.0.0 — 2026-09-18
+
+- **The skill no longer trades.** It emits article + market pairs that pass the safeguards, and the user's agent decides relevance, side and size. The old path guessed the side from keyword sentiment: two words like "rally" and "rise" gave 100% confidence, against every keyword-matched market whether or not the article was about it, and `--live` bought on that. An offline eval of 349 headline–market pairs found no directional edge in RSS headlines at all; the price move they describe mostly happens before they reach the feed.
+- The client is built with `SimmerClient.readonly()`, so a scan cannot run the constructor's risk-exit sells for self-custody wallets, and `trade()` / `redeem()` raise. Requires `simmer-sdk>=0.24.0`.
+- Dedup now records which markets each article was evaluated against. A market whose context fetch failed is retried on the next scan, and pairs already emitted are not emitted again.
+- Removed: `infer_side()`, trade execution, auto-redeem, the balance preflight, the risk-monitor helper, and the `confidence_threshold` / `max_usd` / `max_trades_per_run` settings and tunables. `WALLET_PRIVATE_KEY` is no longer listed.
+- Added: `--json` prints `{"signals": [...]}` on stdout with logs on stderr. Each signal carries the article, the market's question, resolution criteria, price and time to resolution, and its safeguard warnings.
+- `--live`, `--dry-run` and `--scan-only` are still accepted so existing cron lines keep running; they have no effect.
+
 ## 0.25.8 (2026-09-17)
 
 - **`SimmerClient.preflight()` is replay-aware.** Under `simmer backtest` (`SIMMER_REPLAY=1` with a loopback API URL) preflight returns `ok_to_trade=True` with `signer_status="replay"` and makes no network calls, so replayed skills fill in SimState without the deprecated `skip_preflight` valve. `SIMMER_REPLAY=1` against a non-loopback URL still runs the full live preflight.
@@ -11,6 +20,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## 0.25.7 (2026-09-17)
 
 - **`simmer backtest` now forwards `SIMMER_REPLAY_FORECASTS` to the bundle subprocess.** The replay harness builds the skill's environment from a strict allowlist, and this variable was missing from it — a caller who set it saw the skill silently fall back to its own fixture file instead of the archive they asked for, with no error. Now passed through when set (a file path, not a secret).
+
+## simmer-mcp v3.5.8 — 2026-09-15
+
+- **Bundled `simmer` skill copy refreshed to 1.25.3.** No behavior change — regenerates `mcp/bundled-skills/simmer/SKILL.md` to match the skill quick-start rewrite below. SIM-5391.
+
+## Skill 1.25.3 — 2026-09-15
+
+- **`simmer` skill quick start is leaner and every step tells you when you're done.** The `dry_run` and Kalshi caveats now point at the [Trading Guide](https://docs.simmer.markets/trading-guide#dry-run) instead of living inline, each quick-start step ends on a concrete "done when" check, and the Grok Bot setup note links out to the [Runtimes](https://docs.simmer.markets/runtimes#grok-bot) page.
 
 ## simmer-mcp v3.5.7 — 2026-09-15
 

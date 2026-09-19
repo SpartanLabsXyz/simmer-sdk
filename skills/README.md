@@ -8,10 +8,10 @@ Official trading skills for OpenClaw, powered by the Simmer SDK.
 |-------|-------------|---------|
 | [polymarket-weather-trader](./polymarket-weather-trader/) | Trade Polymarket weather markets using NOAA forecasts | Dry run, cron off |
 | [polymarket-copytrading](./polymarket-copytrading/) | Mirror positions from top Polymarket traders | Dry run, cron off |
-| [polymarket-signal-sniper](./polymarket-signal-sniper/) | Trade on breaking news from RSS feeds | Dry run, cron off |
+| [polymarket-signal-sniper](./polymarket-signal-sniper/) | Surface news signals from RSS feeds for your agent to judge (never trades) | Signals only, cron off |
 | [polymarket-dca-eval-trader](./polymarket-dca-eval-trader/) | Build a three-tranche DCA plan with eval-envelope sizing checks | Dry run, cron off |
 
-All skills run in **dry-run mode by default** (no trades). Pass `--live` to enable real trading. Cron scheduling is disabled by default — enable it after verifying the skill works as expected.
+All trading skills run in **dry-run mode by default** (no trades). Pass `--live` to enable real trading. `polymarket-signal-sniper` never trades, and ignores `--live`. Cron scheduling is disabled by default — enable it after verifying the skill works as expected.
 
 ## Governance fields
 
