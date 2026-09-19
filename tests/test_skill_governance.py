@@ -63,6 +63,25 @@ def test_skill_file_change_requires_metadata_version_bump(tmp_path, monkeypatch)
     ]
 
 
+def test_held_skill_clawhub_json_only_change_does_not_require_bump(
+    tmp_path, monkeypatch
+) -> None:
+    write_skill(tmp_path, "1.2.3")
+    (tmp_path / "skills" / "weather" / "clawhub.json").write_text(
+        '{"publish": false, "publish_reason": "backtest hold"}',
+        encoding="utf-8",
+    )
+    patch_repo(monkeypatch, tmp_path, previous_version="1.2.3")
+
+    assert (
+        check_skill_governance.validate_skill_version_bumps(
+            ["skills/weather/clawhub.json"],
+            "base-ref",
+        )
+        == []
+    )
+
+
 def test_skill_file_change_allows_metadata_version_bump(tmp_path, monkeypatch) -> None:
     write_skill(tmp_path, "1.2.4")
     patch_repo(monkeypatch, tmp_path, previous_version="1.2.3")
