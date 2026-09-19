@@ -219,6 +219,14 @@ class TestFetchReplayMarkets(_ReplayEnvMixin, unittest.TestCase):
         self.assertFalse(neh._is_sports(
             [], "", "Will Trump beat Harris?", "trump-vs-harris",
         ))
+        # Club names that read as non-sports are not tokens.
+        for q in (
+            "Will Iran expand its nuclear arsenal in 2026?",
+            "Will Chelsea Clinton run for office?",
+            "Will Liverpool city council declare bankruptcy?",
+            "Will Ajax Systems IPO in 2026?",
+        ):
+            self.assertFalse(neh._sports_in_text(q), q)
 
     def test_club_matchup_dropped_from_empty_tag_tape(self):
         os.environ["SIMMER_REPLAY"] = "1"
@@ -490,13 +498,22 @@ class TestReplayPositionsVenue(_ReplayEnvMixin, unittest.TestCase):
         result.error = None
         result.simulated = False
         client.trade.return_value = result
-        held = [{
-            "market_id": "neh-geo-2026-04",
-            "shares_no": 50.0,
-            "shares_yes": 0.0,
-        }]
+        from dataclasses import dataclass
+
+        @dataclass
+        class _Pos:
+            market_id: str
+            shares_no: float
+            shares_yes: float
+
+        # Behave like the replay server: any venue filter is a 422.
+        def _replay_positions(venue=None):
+            if venue is not None:
+                raise RuntimeError("422: unsupported filter venue")
+            return [_Pos("neh-geo-2026-04", 50.0, 0.0)]
+
+        client.get_positions.side_effect = _replay_positions
         with patch.object(neh, "get_client", return_value=client), \
-             patch.object(neh, "get_positions", return_value=held), \
              patch.object(neh, "_load_daily_spend", return_value={
                  "date": "2026-04-14", "spent": 0.0, "trades": 0,
              }):

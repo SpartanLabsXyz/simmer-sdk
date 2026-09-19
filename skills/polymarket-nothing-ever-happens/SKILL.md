@@ -138,7 +138,7 @@ For each candidate, the skill:
 - You pay the ask price for NO shares (default ≤10¢ each)
 - If YES resolves: you lose your bet. If NO resolves: you collect $1/share
 - Expected value depends on how often YES actually resolves in these markets
-- The thesis: base rate of NO is much higher than 5%, so 20x payout is favorable
+- The thesis: base rate of NO is much higher than 10%, so a 10x payout at the default cap is favorable
 - **This is not guaranteed profit.** The edge depends on market selection quality.
 
 ## API Endpoints Used

@@ -112,13 +112,15 @@ SPORTS_CATEGORIES = {
     "ucl",
 }
 # Distinctive club names for replay text. Live stays tag/category.
-# Skip city/common words (madrid, united, city, inter, milan, roma).
+# Skip city/common words (madrid, united, city, inter, milan, roma) and
+# names that read as non-sports: "nuclear arsenal", "Chelsea Clinton",
+# "Liverpool city council", "Ajax Systems".
 # "Celta vs Bayern" has no league word — these tokens are the signal.
 _SPORTS_CLUB_TEXT = {
     "bayern", "celta", "dortmund", "leverkusen", "hoffenheim",
-    "liverpool", "arsenal", "chelsea", "tottenham",
+    "tottenham",
     "juventus", "napoli", "atalanta", "fiorentina",
-    "psg", "ajax", "feyenoord", "benfica",
+    "psg", "feyenoord", "benfica",
     "barca", "atletico", "villarreal",
     "galatasaray", "fenerbahce", "olympiacos",
     "inter-miami", "lafc",
@@ -631,7 +633,9 @@ def get_positions() -> list:
         positions = client.get_positions(venue=venue)
         from dataclasses import asdict
         return [asdict(p) for p in positions]
-    except Exception:
+    except Exception as e:
+        # Not silent: an empty list here disables already-holding.
+        print(f"[warn] positions fetch failed, already-holding check is off: {e}")
         return []
 
 
