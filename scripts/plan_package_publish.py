@@ -15,6 +15,7 @@ import os
 import re
 import urllib.error
 import urllib.request
+from json import JSONDecodeError
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -29,6 +30,7 @@ class Skill:
     path: str
     version: str
     published: bool
+    first_publish: bool
     publish_reason: str | None
 
 
@@ -103,6 +105,7 @@ def discover_skills(root: Path) -> list[Skill]:
                     and config.get("published", True) is not False
                     and config.get("publish", True) is not False
                 ),
+                first_publish=config.get("first_publish", False) is True,
                 publish_reason=config.get("publish_reason"),
             )
         )
@@ -131,6 +134,12 @@ def plan_skill(skill: Skill, published_version: str | None) -> dict[str, str] | 
         return None
 
     if published_version is None:
+        if not skill.first_publish:
+            print(
+                f"{skill.path}: publish skipped; not found on ClawHub "
+                "and first_publish is not true"
+            )
+            return None
         print(f"{skill.path}: publish needed ({skill.version}; not found on ClawHub)")
         return {
             "slug": skill.slug,
@@ -173,6 +182,10 @@ def plan_skills(root: Path) -> list[dict[str, str]]:
     return publish_list
 
 
+def warn_clawhub_plan_failed(exc: Exception) -> None:
+    print(f"::warning::ClawHub publish planning failed; skipping skill publishes: {exc}")
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=check_publish_lag.ROOT)
@@ -200,7 +213,11 @@ def main() -> int:
     pypi_publish_needed = plan_package(
         check_publish_lag.PYPI_PACKAGE, pypi_repo_version, pypi_published_version
     )
-    clawhub_publish_list = plan_skills(root)
+    try:
+        clawhub_publish_list = plan_skills(root)
+    except (urllib.error.URLError, TimeoutError, KeyError, JSONDecodeError) as exc:
+        warn_clawhub_plan_failed(exc)
+        clawhub_publish_list = []
     clawhub_publish_matrix = {"include": clawhub_publish_list}
 
     emit("npm_repo_version", npm_repo_version)
