@@ -1,5 +1,15 @@
 # Changelog — polymarket-nothing-ever-happens
 
+## [1.1.3] - 2026-09-18
+
+### Fixed
+- **Replay sports filter drops club/league tokens (SIM-5518).** Tape tags are empty, so "Celta vs Bayern" / "Premier League winner" leaked — no `nba`/`soccer` word. League names join `SPORTS_CATEGORIES`; distinctive club names (`bayern`, `celta`, …) match in question/slug text only. Political `X vs Y` stays eligible. Live is still tag/category.
+- **Replay already-holding no longer re-buys the same `market_id` (SIM-5518).** Same class as weather SIM-5484: `get_positions(venue=…)` 422s under replay (`_reject_unsupported`), was swallowed to `[]`, and size stacked past `max_bet`. Replay now omits the venue filter. Live still filters by `TRADING_VENUE`.
+- **Positions fetch failure now prints a `[warn]`.** It still returns `[]`, but no longer hides that already-holding is off.
+
+### Docs
+- **`price_cap` default is `0.10`.** `CONFIG_SCHEMA` / `clawhub.json` are the source of truth. SKILL.md had drifted to `0.05`.
+
 ## [1.1.2] - 2026-09-17
 
 ### Fixed
