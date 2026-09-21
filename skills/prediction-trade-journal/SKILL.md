@@ -3,14 +3,13 @@ name: prediction-trade-journal
 description: Auto-log trades with context, inspect trade history, track win rate and P&L, generate reports, and analyze which strategies work best.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.1.9"
+  version: "1.1.14"
   displayName: Prediction Trade Journal
   difficulty: beginner
 ---
 # Prediction Trade Journal
 
 Track every trade, learn from outcomes, improve your edge.
-
 
 ## Setup Flow
 

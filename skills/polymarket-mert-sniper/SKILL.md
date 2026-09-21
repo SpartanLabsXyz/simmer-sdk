@@ -3,7 +3,7 @@ name: polymarket-mert-sniper
 description: Trade near-expiry Polymarket markets, filter by topic, cap bet size, or require strongly skewed odds before entry. Scans final-minute markets and places bounded trades against the under-priced side. Defaults: $10 max per trade, 5 trades/run, 8-minute expiry window, dry-run unless `--live`.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.3.7"
+  version: "1.3.8"
   displayName: Mert Sniper
   difficulty: advanced
   attribution: Strategy inspired by @mert — https://x.com/mert/status/2020216613279060433
@@ -19,7 +19,6 @@ Near-expiry conviction trading on Polymarket. The skill scans markets in their f
 > Strategy attribution: [@mert](https://x.com/mert/status/2020216613279060433) — see source thread for the original methodology (topic filter, near-expiry timing, strong-split entry).
 
 > **News-recency veto.** Optional guard that checks Simmer's macro-news schedule before order placement and skips matching news-resolution markets inside the first 30 seconds after CPI, BLS jobs/unemployment, FOMC, nonfarm payrolls, or quarterly earnings events. Continuous-feed crypto Up/Down markets are not blocked by this veto. Default is off until internal positive backfill coverage exists; set `enable_news_veto=true` to enable it.
-
 
 ## Setup Flow
 

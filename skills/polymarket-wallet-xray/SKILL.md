@@ -1,9 +1,9 @@
 ---
 name: polymarket-wallet-xray
-description: X-ray any Polymarket wallet for skill level, entry quality, bot detection, arbitrage research, trader-profile comparison, and edge analysis. Queries Polymarket's public APIs with no authentication; use for research, not blind copytrading.
+description: X-ray any Polymarket wallet for skill level, entry quality, bot detection, arbitrage research, trader-profile comparison, and edge analysis. Queries Polymarket's public APIs with no authentication; use for research, not blind copytrading, and never assume past returns predict future results.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.1.6"
+  version: "1.1.7"
   displayName: Polymarket Wallet X-Ray
   difficulty: beginner
   attribution: Inspired by @thejayden's "Autopsy of a Polymarket Whale" analysis.
@@ -46,7 +46,6 @@ Analyze **any** Polymarket wallet's trading patterns, skill level, and edge dete
 - ❌ Expect to replicate their returns
 - ❌ Trade on these metrics without understanding why
 - ❌ Risk significant capital on patterns you don't understand
-
 
 ## Setup Flow
 

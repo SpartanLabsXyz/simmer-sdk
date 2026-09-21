@@ -3,7 +3,7 @@ name: polymarket-fast-scaler
 description: Trade BTC 5-minute fast markets on Polymarket with a magnitude-gated conviction ladder. Use for BTC 5-minute only; not for ETH/SOL/XRP, 15m windows, raw momentum, or signals below the 0.10% magnitude gate. Reference template; the original performance claim was retracted.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.2.4"
+  version: "1.2.5"
   displayName: Polymarket FastScaler
   difficulty: advanced
 ---
@@ -41,7 +41,6 @@ Trade Polymarket BTC 5-minute fast markets with a conviction-ladder strategy. On
 **Strategy thesis (unvalidated)**: the idea is that strong BTC momentum at window-open correlates with the resolution direction before the market re-prices, and that the 0.10% gate filters the noise zone. Replay testing did **not** confirm this for the signal available at the decision point (the prior complete 1m candle). Treat the thesis as untested.
 
 **Backtest status (2026-06-12)**: the original +5.04% / 89.4% backtest was **retracted**. A look-ahead-enforced replay found it used in-window price action (the first minute *inside* the window) that is not available when the entry decision is made. The live-actionable signal showed no measured edge. See the retraction note at the top and DISCLAIMER.md.
-
 
 ## Setup Flow
 
