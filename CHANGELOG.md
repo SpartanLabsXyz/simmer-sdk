@@ -3,6 +3,10 @@
 All notable changes to `simmer-sdk` are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+- **`get_markets()` now documents the ordering the server actually uses.** The `sort` docstring said the default was newest-first and "scheduled to become liquidity-first in an upcoming release", and told callers to pass `sort="recent"` to pin current behaviour. The server changed to liquidity-first in SIM-3126 and the docstring never followed, so `sort="recent"` silently *changed* the market universe for anyone who took that advice. The default is liquidity-first — the same ordering as `sort="volume"`. Also documents that `q=` overrides `sort` entirely. Same correction in `skills/simmer-skill-builder/references/simmer-api.md` (1.3.10 → 1.3.11). Docs only; no behaviour change.
+
 ## polymarket-signal-sniper 2.0.0 — 2026-09-18
 
 - **The skill no longer trades.** It emits article + market pairs that pass the safeguards, and the user's agent decides relevance, side and size. The old path guessed the side from keyword sentiment: two words like "rally" and "rise" gave 100% confidence, against every keyword-matched market whether or not the article was about it, and `--live` bought on that. An offline eval of 349 headline–market pairs found no directional edge in RSS headlines at all; the price move they describe mostly happens before they reach the feed.
