@@ -386,8 +386,6 @@ def execute_copytrading(wallets: list, top_n: int = None, max_usd: float = 50.0,
             t["trade_id"] = trade_result.trade_id
             if trade_result.success:
                 executed += 1
-            elif action == "sell" and not trade_result.retryable:
-                print(f"  ⛔ Sell aborted — position cleared on-chain, skipping retry: {trade_result.error}")
             elif not trade_result.retryable and _is_account_blocker_error(trade_result.error):
                 # SIM-5274: every remaining signal this run would fail the
                 # same way (missing approvals / wrong collateral / pUSD
@@ -397,6 +395,8 @@ def execute_copytrading(wallets: list, top_n: int = None, max_usd: float = 50.0,
                 # expires or the wallet activates.
                 print(f"  ⛔ Trading blocked account-wide — stopping this run: {trade_result.error}")
                 break
+            elif action == "sell" and not trade_result.retryable:
+                print(f"  ⛔ Sell aborted — position cleared on-chain, skipping retry: {trade_result.error}")
         except Exception as e:
             t["success"] = False
             t["error"] = str(e)

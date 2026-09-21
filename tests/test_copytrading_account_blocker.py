@@ -89,6 +89,32 @@ def test_execute_copytrading_stops_after_account_blocker():
     assert "success" not in trades_plan[2]
 
 
+def test_execute_copytrading_stops_after_sell_account_blocker():
+    mod = _load_trader_module()
+
+    trades_plan = [
+        {"market_id": "m1", "action": "sell", "side": "yes", "shares": 5, "estimated_cost": 0},
+        {"market_id": "m2", "action": "sell", "side": "yes", "shares": 7, "estimated_cost": 0},
+    ]
+
+    fake_client = MagicMock()
+    fake_client._request.return_value = {"trades": trades_plan}
+    fake_client.trade.side_effect = [
+        _fake_trade_result(False, error=ACCOUNT_BLOCKER_ERROR, retryable=False),
+        _fake_trade_result(True),
+    ]
+
+    with patch.object(mod, "get_client", return_value=fake_client):
+        result = mod.execute_copytrading(
+            wallets=["0xabc"], dry_run=False, max_usd=50.0, venue="polymarket",
+        )
+
+    assert fake_client.trade.call_count == 1
+    assert result["trades_executed"] == 0
+    assert trades_plan[0]["success"] is False
+    assert "success" not in trades_plan[1]
+
+
 def test_execute_copytrading_continues_past_market_specific_failure():
     mod = _load_trader_module()
 
