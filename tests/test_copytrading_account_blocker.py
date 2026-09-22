@@ -48,6 +48,7 @@ def _fake_trade_result(success, error=None, retryable=True):
     [
         (ACCOUNT_BLOCKER_ERROR, True),
         ("Polymarket V2 trading approvals required. Activate V2 Trading: https://simmer.markets/dashboard", True),
+        ("market circuit breaker open for this event", False),
         ("insufficient balance for this order", False),
         (None, False),
         ("", False),
@@ -139,3 +140,29 @@ def test_execute_copytrading_continues_past_market_specific_failure():
     # abort the whole run — the next signal is unrelated and should proceed.
     assert fake_client.trade.call_count == 2
     assert result["trades_executed"] == 1
+
+
+def test_execute_copytrading_continues_past_market_circuit_breaker_failure():
+    mod = _load_trader_module()
+
+    trades_plan = [
+        {"market_id": "m1", "action": "buy", "side": "yes", "shares": 0, "estimated_cost": 10},
+        {"market_id": "m2", "action": "buy", "side": "yes", "shares": 0, "estimated_cost": 10},
+    ]
+
+    fake_client = MagicMock()
+    fake_client._request.return_value = {"trades": trades_plan}
+    fake_client.trade.side_effect = [
+        _fake_trade_result(False, error="market circuit breaker open for this event", retryable=False),
+        _fake_trade_result(True),
+    ]
+
+    with patch.object(mod, "get_client", return_value=fake_client):
+        result = mod.execute_copytrading(
+            wallets=["0xabc"], dry_run=False, max_usd=50.0, venue="polymarket",
+        )
+
+    assert fake_client.trade.call_count == 2
+    assert result["trades_executed"] == 1
+    assert trades_plan[0]["success"] is False
+    assert trades_plan[1]["success"] is True

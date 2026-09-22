@@ -285,13 +285,12 @@ def get_context(market_id: str) -> dict:
 # Copytrading Logic
 # =============================================================================
 
-# SIM-5274: substrings of the account-wide structural-blocker error text the
-# server returns when simmer_v3.funding_state_circuit_breaker has tripped for
-# this agent (missing approvals, wrong collateral type, pUSD migration
-# pending). Unlike a per-market rejection, this applies to every remaining
-# signal in the run — matched case-insensitively against trade_result.error.
+# SIM-5274: funding-state structural-blocker error text the server returns for
+# this agent (missing approvals, wrong collateral type, pUSD migration pending).
+# Unlike a per-market rejection, this applies to every remaining signal in the
+# run. Keep these markers specific to the account-wide funding blocker; generic
+# "circuit breaker" text can also appear in per-market/per-venue errors.
 _ACCOUNT_BLOCKER_ERROR_MARKERS = (
-    "circuit breaker",
     "structural funding issue",
     "trading approvals required",
 )
