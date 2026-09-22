@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    - cron: "17 11 * * *"
+  workflow_dispatch:
 
 jobs:
   publish-lag:
@@ -22,7 +25,12 @@ jobs:
           python-version: "3.12"
 
       - name: Check repo versions are published
+        if: github.event_name != 'schedule' && github.event_name != 'workflow_dispatch'
         run: python3 scripts/check_publish_lag.py
+
+      - name: Check repo versions and ClawHub skill drift
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        run: python3 scripts/check_publish_lag.py --check-clawhub
 
   nansen-no-cli-guard:
     name: Nansen Overlay (no-CLI guard)

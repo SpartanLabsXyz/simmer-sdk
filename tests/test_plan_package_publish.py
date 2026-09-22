@@ -1,6 +1,5 @@
 import importlib.util
 import sys
-import urllib.error
 from pathlib import Path
 
 
@@ -36,16 +35,6 @@ def write_package_files(root: Path, npm_version: str, pypi_version: str) -> None
     )
 
 
-def write_skill(root: Path, folder: str, name: str, version: str, clawhub_json: str = "{}") -> None:
-    skill_dir = root / "skills" / folder
-    skill_dir.mkdir(parents=True)
-    (skill_dir / "SKILL.md").write_text(
-        f"---\nname: {name}\nmetadata:\n  version: {version}\n---\n\n# {name}\n",
-        encoding="utf-8",
-    )
-    (skill_dir / "clawhub.json").write_text(clawhub_json, encoding="utf-8")
-
-
 def make_args(**kwargs):
     defaults = {
         "root": None,
@@ -56,13 +45,9 @@ def make_args(**kwargs):
     return type("Args", (), defaults)()
 
 
-def test_main_outputs_package_and_clawhub_publish_plan(
-    tmp_path: Path, monkeypatch, capsys
-) -> None:
+def test_main_outputs_package_publish_plan(tmp_path: Path, monkeypatch, capsys) -> None:
     monkeypatch.delenv("GITHUB_OUTPUT", raising=False)
     write_package_files(tmp_path, npm_version="3.5.2", pypi_version="0.25.9")
-    write_skill(tmp_path, "preflight", "simmer-preflight", "0.3.3")
-    monkeypatch.setattr(plan_package_publish, "fetch_clawhub_latest", lambda slug: "0.3.2")
     monkeypatch.setattr(
         plan_package_publish,
         "parse_args",
@@ -78,135 +63,4 @@ def test_main_outputs_package_and_clawhub_publish_plan(
     output = capsys.readouterr().out
     assert "npm_publish_needed=true" in output
     assert "pypi_publish_needed=false" in output
-    assert "clawhub_publish_needed=true" in output
-    assert '"slug":"simmer-preflight"' in output
-    assert '"path":"skills/preflight"' in output
-    assert (
-        "npx -y clawhub skill publish <tmp> --owner simmer "
-        "--slug simmer-preflight --version 0.3.3"
-    ) in output
-
-
-def test_main_skips_clawhub_hold_flag(tmp_path: Path, monkeypatch, capsys) -> None:
-    monkeypatch.delenv("GITHUB_OUTPUT", raising=False)
-    write_package_files(tmp_path, npm_version="3.5.2", pypi_version="0.25.9")
-    write_skill(
-        tmp_path,
-        "polymarket-nothing-ever-happens",
-        "polymarket-nothing-ever-happens",
-        "1.1.2",
-        '{"publish": false, "publish_reason": "SIM-5443 backtest hold"}',
-    )
-
-    def fail_fetch(slug):
-        raise AssertionError("held skill should not query ClawHub")
-
-    monkeypatch.setattr(plan_package_publish, "fetch_clawhub_latest", fail_fetch)
-    monkeypatch.setattr(
-        plan_package_publish,
-        "parse_args",
-        lambda: make_args(
-            root=tmp_path,
-            npm_published_version="3.5.2",
-            pypi_published_version="0.25.9",
-        ),
-    )
-
-    assert plan_package_publish.main() == 0
-
-    output = capsys.readouterr().out
-    assert "publish skipped; hold flag set (SIM-5443 backtest hold)" in output
-    assert "clawhub_publish_needed=false" in output
-    assert 'clawhub_publish_matrix={"include":[]}' in output
-
-
-def test_main_skips_missing_clawhub_skill_without_first_publish(
-    tmp_path: Path, monkeypatch, capsys
-) -> None:
-    monkeypatch.delenv("GITHUB_OUTPUT", raising=False)
-    write_package_files(tmp_path, npm_version="3.5.2", pypi_version="0.25.9")
-    write_skill(tmp_path, "soccer-shock-ladder", "polymarket-soccer-shock-ladder", "0.1.5")
-    monkeypatch.setattr(plan_package_publish, "fetch_clawhub_latest", lambda slug: None)
-    monkeypatch.setattr(
-        plan_package_publish,
-        "parse_args",
-        lambda: make_args(
-            root=tmp_path,
-            npm_published_version="3.5.2",
-            pypi_published_version="0.25.9",
-        ),
-    )
-
-    assert plan_package_publish.main() == 0
-
-    output = capsys.readouterr().out
-    assert "not found on ClawHub and first_publish is not true" in output
-    assert "clawhub_publish_needed=false" in output
-    assert 'clawhub_publish_matrix={"include":[]}' in output
-
-
-def test_main_allows_missing_clawhub_skill_with_first_publish(
-    tmp_path: Path, monkeypatch, capsys
-) -> None:
-    monkeypatch.delenv("GITHUB_OUTPUT", raising=False)
-    write_package_files(tmp_path, npm_version="3.5.2", pypi_version="0.25.9")
-    write_skill(
-        tmp_path,
-        "new-skill",
-        "simmer-new-skill",
-        "0.1.0",
-        '{"first_publish": true}',
-    )
-    monkeypatch.setattr(plan_package_publish, "fetch_clawhub_latest", lambda slug: None)
-    monkeypatch.setattr(
-        plan_package_publish,
-        "parse_args",
-        lambda: make_args(
-            root=tmp_path,
-            npm_published_version="3.5.2",
-            pypi_published_version="0.25.9",
-        ),
-    )
-
-    assert plan_package_publish.main() == 0
-
-    output = capsys.readouterr().out
-    assert "clawhub_publish_needed=true" in output
-    assert '"slug":"simmer-new-skill"' in output
-
-
-def test_main_skips_clawhub_when_api_fails_but_keeps_package_plan(
-    tmp_path: Path, monkeypatch, capsys
-) -> None:
-    monkeypatch.delenv("GITHUB_OUTPUT", raising=False)
-    write_package_files(tmp_path, npm_version="3.5.2", pypi_version="0.25.9")
-    write_skill(tmp_path, "preflight", "simmer-preflight", "0.3.3")
-
-    def fail_fetch(slug):
-        raise urllib.error.HTTPError(
-            url="https://clawhub.ai/api/v1/skills/simmer-preflight",
-            code=500,
-            msg="server error",
-            hdrs=None,
-            fp=None,
-        )
-
-    monkeypatch.setattr(plan_package_publish, "fetch_clawhub_latest", fail_fetch)
-    monkeypatch.setattr(
-        plan_package_publish,
-        "parse_args",
-        lambda: make_args(
-            root=tmp_path,
-            npm_published_version="3.5.1",
-            pypi_published_version="0.25.8",
-        ),
-    )
-
-    assert plan_package_publish.main() == 0
-
-    output = capsys.readouterr().out
-    assert "::warning::ClawHub publish planning failed" in output
-    assert "npm_publish_needed=true" in output
-    assert "pypi_publish_needed=true" in output
-    assert "clawhub_publish_needed=false" in output
-    assert 'clawhub_publish_matrix={"include":[]}' in output
+    assert "clawhub_publish_needed" not in output

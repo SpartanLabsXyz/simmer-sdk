@@ -2,6 +2,7 @@ import importlib.util
 import sys
 import time
 import types
+import urllib.error
 from pathlib import Path
 
 import pytest
@@ -35,6 +36,16 @@ def write_package_files(root: Path, npm_version: str, pypi_version: str) -> None
         f'[project]\nname = "simmer-sdk"\nversion = "{pypi_version}"\n',
         encoding="utf-8",
     )
+
+
+def write_skill(root: Path, folder: str, name: str, version: str, clawhub_json: str = "{}") -> None:
+    skill_dir = root / "skills" / folder
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        f"---\nname: {name}\nmetadata:\n  version: {version}\n---\n\n# {name}\n",
+        encoding="utf-8",
+    )
+    (skill_dir / "clawhub.json").write_text(clawhub_json, encoding="utf-8")
 
 
 def patch_git_for_mcp_bump_check(
@@ -90,6 +101,7 @@ def make_args(**kwargs):
         "pypi_published_version": None,
         "retry_npm": False,
         "retry_pypi": False,
+        "check_clawhub": False,
     }
     defaults.update(kwargs)
     return type("Args", (), defaults)()
@@ -316,3 +328,142 @@ def test_non_mcp_package_input_does_not_require_npm_version_bump(
     )
 
     assert check_publish_lag.main() == 0
+
+
+def test_clawhub_repo_ahead_fails_with_publish_instruction(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    write_package_files(tmp_path, npm_version="3.5.1", pypi_version="0.20.0")
+    write_skill(tmp_path, "preflight", "simmer-preflight", "0.3.6")
+    monkeypatch.setattr(check_publish_lag, "fetch_clawhub_latest", lambda slug: "0.3.2")
+    monkeypatch.setattr(
+        check_publish_lag,
+        "parse_args",
+        lambda: make_args(
+            root=tmp_path,
+            npm_published_version="3.5.1",
+            pypi_published_version="0.20.0",
+            check_clawhub=True,
+        ),
+    )
+
+    assert check_publish_lag.main() == 1
+    output = capsys.readouterr().out
+    assert "simmer-preflight is 0.3.6 in the repo and 0.3.2 on ClawHub" in output
+    assert "Run `scripts/publish.sh skills/preflight`" in output
+
+
+def test_clawhub_held_skill_ahead_does_not_fail(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    write_package_files(tmp_path, npm_version="3.5.1", pypi_version="0.20.0")
+    write_skill(
+        tmp_path,
+        "polymarket-nothing-ever-happens",
+        "polymarket-nothing-ever-happens",
+        "1.1.2",
+        '{"publish": false, "publish_reason": "SIM-5443 backtest hold"}',
+    )
+
+    def fail_fetch(slug):
+        raise AssertionError("held skill should not query ClawHub")
+
+    monkeypatch.setattr(check_publish_lag, "fetch_clawhub_latest", fail_fetch)
+    monkeypatch.setattr(
+        check_publish_lag,
+        "parse_args",
+        lambda: make_args(
+            root=tmp_path,
+            npm_published_version="3.5.1",
+            pypi_published_version="0.20.0",
+            check_clawhub=True,
+        ),
+    )
+
+    assert check_publish_lag.main() == 0
+    assert "hold flag set (SIM-5443 backtest hold)" in capsys.readouterr().out
+
+
+def test_malformed_skill_does_not_silence_other_clawhub_checks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    write_package_files(tmp_path, npm_version="3.5.1", pypi_version="0.20.0")
+    write_skill(tmp_path, "preflight", "simmer-preflight", "0.3.6")
+    malformed_dir = tmp_path / "skills" / "broken"
+    malformed_dir.mkdir(parents=True)
+    (malformed_dir / "SKILL.md").write_text(
+        "---\nname: broken-skill\n---\n\n# broken\n",
+        encoding="utf-8",
+    )
+    (malformed_dir / "clawhub.json").write_text("{}", encoding="utf-8")
+    checked_slugs: list[str] = []
+
+    def fake_fetch(slug):
+        checked_slugs.append(slug)
+        return "0.3.2"
+
+    monkeypatch.setattr(check_publish_lag, "fetch_clawhub_latest", fake_fetch)
+    monkeypatch.setattr(
+        check_publish_lag,
+        "parse_args",
+        lambda: make_args(
+            root=tmp_path,
+            npm_published_version="3.5.1",
+            pypi_published_version="0.20.0",
+            check_clawhub=True,
+        ),
+    )
+
+    assert check_publish_lag.main() == 1
+    output = capsys.readouterr().out
+    assert "Malformed skill metadata" in output
+    assert "simmer-preflight is 0.3.6 in the repo and 0.3.2 on ClawHub" in output
+    assert checked_slugs == ["simmer-preflight"]
+
+
+def test_clawhub_newer_than_repo_warns_without_failing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    write_package_files(tmp_path, npm_version="3.5.1", pypi_version="0.20.0")
+    write_skill(tmp_path, "prediction-trade-journal", "prediction-trade-journal", "1.0.0")
+    monkeypatch.setattr(check_publish_lag, "fetch_clawhub_latest", lambda slug: "1.0.1")
+    monkeypatch.setattr(
+        check_publish_lag,
+        "parse_args",
+        lambda: make_args(
+            root=tmp_path,
+            npm_published_version="3.5.1",
+            pypi_published_version="0.20.0",
+            check_clawhub=True,
+        ),
+    )
+
+    assert check_publish_lag.main() == 0
+    assert "::warning::prediction-trade-journal is 1.0.0 in the repo and 1.0.1 on ClawHub" in (
+        capsys.readouterr().out
+    )
+
+
+def test_clawhub_outage_warns_without_failing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    write_package_files(tmp_path, npm_version="3.5.1", pypi_version="0.20.0")
+    write_skill(tmp_path, "preflight", "simmer-preflight", "0.3.6")
+
+    def fail_fetch(slug):
+        raise urllib.error.URLError("temporary outage")
+
+    monkeypatch.setattr(check_publish_lag, "fetch_clawhub_latest", fail_fetch)
+    monkeypatch.setattr(
+        check_publish_lag,
+        "parse_args",
+        lambda: make_args(
+            root=tmp_path,
+            npm_published_version="3.5.1",
+            pypi_published_version="0.20.0",
+            check_clawhub=True,
+        ),
+    )
+
+    assert check_publish_lag.main() == 0
+    assert "::warning::Could not fetch ClawHub version for simmer-preflight" in capsys.readouterr().out

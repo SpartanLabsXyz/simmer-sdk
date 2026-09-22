@@ -7,7 +7,6 @@ on:
       - "pyproject.toml"
       - "simmer_sdk/**"
       - "mcp/**"
-      - "skills/**"
       - "scripts/check_publish_lag.py"
       - "scripts/plan_package_publish.py"
       - ".github/workflows/publish-packages.yml"
@@ -33,8 +32,6 @@ jobs:
       pypi_publish_needed: ${{ steps.plan.outputs.pypi_publish_needed }}
       pypi_repo_version: ${{ steps.plan.outputs.pypi_repo_version }}
       pypi_published_version: ${{ steps.plan.outputs.pypi_published_version }}
-      clawhub_publish_needed: ${{ steps.plan.outputs.clawhub_publish_needed }}
-      clawhub_publish_matrix: ${{ steps.plan.outputs.clawhub_publish_matrix }}
 
     steps:
       - uses: actions/checkout@v4
@@ -47,49 +44,6 @@ jobs:
       - name: Compare repo versions with registries
         id: plan
         run: python3 scripts/plan_package_publish.py
-
-  publish-skills:
-    name: Publish ${{ matrix.slug }} to ClawHub
-    needs: plan
-    if: needs.plan.outputs.clawhub_publish_needed == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJson(needs.plan.outputs.clawhub_publish_matrix) }}
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "24"
-
-      - name: Bundle skill
-        env:
-          SKILL_PATH: ${{ matrix.path }}
-          SKILL_SLUG: ${{ matrix.slug }}
-        run: |
-          tmp="$(mktemp -d)"
-          bundle="$tmp/$SKILL_SLUG"
-          cp -R "$SKILL_PATH" "$bundle"
-          find "$bundle" -type d -name tests -prune -exec rm -rf {} + 2>/dev/null || true
-          find "$bundle" -type d -name __pycache__ -prune -exec rm -rf {} + 2>/dev/null || true
-          find "$bundle" -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete 2>/dev/null || true
-          echo "bundle=$bundle" >> "$GITHUB_ENV"
-
-      - name: Publish skill
-        env:
-          CLAWHUB_TOKEN: ${{ secrets.CLAWHUB_TOKEN }}
-          SKILL_SLUG: ${{ matrix.slug }}
-          SKILL_VERSION: ${{ matrix.version }}
-        run: |
-          if [ -z "$CLAWHUB_TOKEN" ]; then
-            echo "CLAWHUB_TOKEN is required to publish ClawHub skills"
-            exit 1
-          fi
-          npx -y clawhub skill publish "$bundle" --owner simmer --slug "$SKILL_SLUG" --version "$SKILL_VERSION"
 
   publish-mcp:
     name: Publish simmer-mcp to npm
@@ -234,8 +188,8 @@ jobs:
 
   verify:
     name: Verify registries caught up
-    needs: [plan, publish-mcp, publish-sdk, publish-skills]
-    if: always() && (needs.plan.outputs.npm_publish_needed == 'true' || needs.plan.outputs.pypi_publish_needed == 'true' || needs.plan.outputs.clawhub_publish_needed == 'true')
+    needs: [plan, publish-mcp, publish-sdk]
+    if: always() && (needs.plan.outputs.npm_publish_needed == 'true' || needs.plan.outputs.pypi_publish_needed == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
