@@ -285,6 +285,22 @@ def get_context(market_id: str) -> dict:
 # Copytrading Logic
 # =============================================================================
 
+# SIM-5274: funding-state structural-blocker error text the server returns for
+# this agent (missing approvals, wrong collateral type, pUSD migration pending).
+# Unlike a per-market rejection, this applies to every remaining signal in the
+# run. Keep these markers specific to the account-wide funding blocker; generic
+# "circuit breaker" text can also appear in per-market/per-venue errors.
+_ACCOUNT_BLOCKER_ERROR_MARKERS = (
+    "structural funding issue",
+    "trading approvals required",
+)
+
+
+def _is_account_blocker_error(error: Optional[str]) -> bool:
+    if not error:
+        return False
+    lowered = error.lower()
+    return any(marker in lowered for marker in _ACCOUNT_BLOCKER_ERROR_MARKERS)
 
 
 def execute_copytrading(wallets: list, top_n: int = None, max_usd: float = 50.0, dry_run: bool = True, buy_only: bool = True, detect_whale_exits: bool = True, max_trades: int = None, venue: str = None) -> dict:
@@ -369,6 +385,15 @@ def execute_copytrading(wallets: list, top_n: int = None, max_usd: float = 50.0,
             t["trade_id"] = trade_result.trade_id
             if trade_result.success:
                 executed += 1
+            elif not trade_result.retryable and _is_account_blocker_error(trade_result.error):
+                # SIM-5274: every remaining signal this run would fail the
+                # same way (missing approvals / wrong collateral / pUSD
+                # migration pending) — stop burning attempts against a
+                # wallet that's structurally blocked account-wide. The
+                # server-side breaker re-probes automatically once it
+                # expires or the wallet activates.
+                print(f"  ⛔ Trading blocked account-wide — stopping this run: {trade_result.error}")
+                break
             elif action == "sell" and not trade_result.retryable:
                 print(f"  ⛔ Sell aborted — position cleared on-chain, skipping retry: {trade_result.error}")
         except Exception as e:
