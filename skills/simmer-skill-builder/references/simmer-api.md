@@ -46,7 +46,7 @@ markets = client.get_markets(tags="world-cup", limit=50)
 market = client.get_market_by_id("uuid")
 ```
 
-**Note:** `get_markets()` accepts `status`, `import_source`, `limit`, `include`, `q`, plus keyword-only `venue`, `sort`, and `tags`. Unfiltered browse is recency-windowed and server-capped (a slice of all active markets), so use `sort="volume"`, `q=`, or `tags=` for discovery rather than paging an unsorted list (`ids=` is REST-only). **Default ordering is newest-first today but will flip to liquidity-first in an upcoming release — pin `sort="recent"` to keep newest-first.**
+**Note:** `get_markets()` accepts `status`, `import_source`, `limit`, `include`, `q`, plus keyword-only `venue`, `sort`, and `tags`. Unfiltered browse is server-capped (a slice of all active markets), so use `q=` or `tags=` to reach a specific market rather than paging the list (`ids=` is REST-only). **Default ordering is liquidity-first — the same ordering as `sort="volume"`. Pass `sort="recent"` for newest-first.** A keyword search overrides ordering entirely: `q=` returns relevance-ranked results (titles starting with the query first, then newest) whatever `sort` says.
 
 **REST API market params** (via `client._request("GET", "/api/sdk/markets", params=...)`):
 `status`, `import_source`, `tags`, `q`, `venue` (`sim`/`polymarket`/`kalshi`), `sort` (`volume`, `recent`), `limit`, `offset`, `ids`, `include`, `max_hours_to_resolution`.
