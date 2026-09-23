@@ -114,6 +114,35 @@ def test_fetch_tape_omits_q_when_not_given(cache, monkeypatch):
     assert "q" not in captured["json"]
 
 
+def test_fetch_tape_coverage_success(cache, monkeypatch):
+    captured = {}
+
+    def fake_get(url, headers=None, timeout=None):
+        captured["url"] = url
+        captured["headers"] = headers
+        return _Resp(200, {
+            "dataset_rev": "rev1",
+            "coverage_t1": "2026-05-05",
+            "canonical_coverage_t1": "2026-05-05",
+            "source": "replay-tapes:rev1",
+        })
+
+    monkeypatch.setattr(tp.requests, "get", fake_get)
+
+    coverage = tp.fetch_tape_coverage(base_url="http://localhost:8000")
+
+    assert captured["url"] == "http://localhost:8000/api/backtest/tape/coverage"
+    assert captured["headers"]["Authorization"] == "Bearer sk_live_test"
+    assert coverage["coverage_t1"] == "2026-05-05"
+
+
+def test_fetch_tape_coverage_requires_api_key(tmp_path, monkeypatch):
+    monkeypatch.setenv("SIMMER_TAPE_CACHE", str(tmp_path))
+    monkeypatch.delenv("SIMMER_API_KEY", raising=False)
+    with pytest.raises(tp.TapeFetchError, match="API key"):
+        tp.fetch_tape_coverage(base_url="http://x")
+
+
 def test_fetch_tape_requires_api_key(tmp_path, monkeypatch):
     monkeypatch.setenv("SIMMER_TAPE_CACHE", str(tmp_path))
     monkeypatch.delenv("SIMMER_API_KEY", raising=False)

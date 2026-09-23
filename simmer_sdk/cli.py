@@ -133,10 +133,11 @@ def _now_utc():
     return datetime.now(timezone.utc)
 
 
-def _resolve_window(args: argparse.Namespace) -> tuple[str, str]:
+def _resolve_window(args: argparse.Namespace, *, coverage_t1: Optional[str] = None) -> tuple[str, str]:
     """Return (t0, t1) ISO dates from explicit --t0/--t1 or a --window duration.
 
-    --window <Nd/Nh/...> anchors to --t1 (or today in UTC) and walks back.
+    --window <Nd/Nh/...> anchors to --t1, the tape service coverage end, or
+    today in UTC (for local-tape/BYO cases) and walks back.
     Explicit --t0/--t1 take precedence.
     """
     import re
@@ -149,7 +150,8 @@ def _resolve_window(args: argparse.Namespace) -> tuple[str, str]:
         if not m:
             raise ValueError(f"--window {args.window!r} not understood — use e.g. 30d, 12h, 90d")
         span = timedelta(seconds=float(m.group(1)) * _WINDOW_UNITS[m.group(2) or "d"])
-        t1 = datetime.fromisoformat(args.t1) if args.t1 else _now_utc()
+        anchor = args.t1 or coverage_t1
+        t1 = datetime.fromisoformat(anchor) if anchor else _now_utc()
         t1 = t1.replace(tzinfo=timezone.utc)
         t0 = t1 - span
         return t0.date().isoformat(), t1.date().isoformat()
@@ -177,8 +179,16 @@ def _cmd_backtest(args: argparse.Namespace) -> int:
         # tape is now OPTIONAL — omit it and the window slice is fetched from the
         # backend tape service and cached. --window derives [t0,t1] for convenience.
         try:
-            t0, t1 = _resolve_window(args)
+            coverage_t1 = None
+            if args.window and not args.t1 and not args.tape:
+                from simmer_sdk.backtest.tape import TapeFetchError, fetch_tape_coverage
+
+                coverage_t1 = fetch_tape_coverage(base_url=args.base_url).get("coverage_t1")
+            t0, t1 = _resolve_window(args, coverage_t1=coverage_t1)
         except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+        except TapeFetchError as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 2
         missing = [n for n, v in (("bundle", args.bundle),
