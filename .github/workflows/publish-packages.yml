@@ -7,7 +7,6 @@ on:
       - "pyproject.toml"
       - "simmer_sdk/**"
       - "mcp/**"
-      - "skills/**"
       - "scripts/check_publish_lag.py"
       - "scripts/plan_package_publish.py"
       - ".github/workflows/publish-packages.yml"

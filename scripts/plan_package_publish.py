@@ -15,7 +15,6 @@ from pathlib import Path
 
 import check_publish_lag
 
-
 def github_bool(value: bool) -> str:
     return "true" if value else "false"
 
@@ -69,7 +68,6 @@ def main() -> int:
     pypi_publish_needed = plan_package(
         check_publish_lag.PYPI_PACKAGE, pypi_repo_version, pypi_published_version
     )
-
     emit("npm_repo_version", npm_repo_version)
     emit("npm_published_version", npm_published_version)
     emit("npm_publish_needed", github_bool(npm_publish_needed))
