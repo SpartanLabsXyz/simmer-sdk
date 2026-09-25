@@ -78,12 +78,28 @@ def _print_summary(report: dict, *, balance: float) -> None:
     print(f"  activity     {s.get('decisions', 0)} decisions · "
           f"{s.get('trades', 0)} trades · {s.get('markets_traded', 0)} markets · "
           f"{s.get('ticks', 0)} ticks")
+    if s.get("markets_served") is not None:
+        requested = s.get("markets_requested")
+        served = s.get("markets_served")
+        matching = s.get("markets_matching_filter")
+        suffix = " (truncated)" if s.get("markets_truncated") else ""
+        match_text = f" · {matching} matched" if matching is not None else ""
+        print(f"  tape markets {served}/{requested or served} served{match_text}{suffix}")
     print(f"  baselines    buy&hold YES {_fmt_money(b.get('buy_and_hold_yes'))} · "
           f"random {_fmt_money(b.get('random'))}")
 
     if dp.get("kline_store"):
         print(f"  candle plane {dp.get('candles_served', 0)} served / "
               f"{dp.get('candle_requests', 0)} requested")
+
+    for tick in bundle.get("tick_logs") or []:
+        for line in (tick.get("stdout_tail") or "").splitlines():
+            if "Replay forecast archive:" in line:
+                print(f"  {line.strip()}")
+                break
+        else:
+            continue
+        break
 
     gaps = report.get("realism_gaps", [])
     if gaps:
@@ -111,16 +127,21 @@ def _print_summary(report: dict, *, balance: float) -> None:
 _WINDOW_UNITS = {"s": 1, "m": 60, "h": 3600, "d": 86400}
 
 
-def _resolve_window(args: argparse.Namespace) -> tuple[str, str]:
+def _now_utc():
+    from datetime import datetime, timezone
+
+    return datetime.now(timezone.utc)
+
+
+def _resolve_window(args: argparse.Namespace, *, coverage_t1: Optional[str] = None) -> tuple[str, str]:
     """Return (t0, t1) ISO dates from explicit --t0/--t1 or a --window duration.
 
-    --window <Nd/Nh/...> anchors to --t1 (or the dataset end until the freshness
-    fetcher lands) and walks back. Explicit --t0/--t1 take precedence.
+    --window <Nd/Nh/...> anchors to --t1, the tape service coverage end, or
+    today in UTC (for local-tape/BYO cases) and walks back.
+    Explicit --t0/--t1 take precedence.
     """
     import re
     from datetime import datetime, timedelta, timezone
-
-    from simmer_sdk.backtest.tape import DATASET_END
 
     if args.t0 and args.t1:
         return args.t0, args.t1
@@ -129,7 +150,8 @@ def _resolve_window(args: argparse.Namespace) -> tuple[str, str]:
         if not m:
             raise ValueError(f"--window {args.window!r} not understood — use e.g. 30d, 12h, 90d")
         span = timedelta(seconds=float(m.group(1)) * _WINDOW_UNITS[m.group(2) or "d"])
-        t1 = datetime.fromisoformat(args.t1) if args.t1 else datetime.fromisoformat(DATASET_END)
+        anchor = args.t1 or coverage_t1
+        t1 = datetime.fromisoformat(anchor) if anchor else _now_utc()
         t1 = t1.replace(tzinfo=timezone.utc)
         t0 = t1 - span
         return t0.date().isoformat(), t1.date().isoformat()
@@ -157,8 +179,16 @@ def _cmd_backtest(args: argparse.Namespace) -> int:
         # tape is now OPTIONAL — omit it and the window slice is fetched from the
         # backend tape service and cached. --window derives [t0,t1] for convenience.
         try:
-            t0, t1 = _resolve_window(args)
+            coverage_t1 = None
+            if args.window and not args.t1 and not args.tape:
+                from simmer_sdk.backtest.tape import TapeFetchError, fetch_tape_coverage
+
+                coverage_t1 = fetch_tape_coverage(base_url=args.base_url).get("coverage_t1")
+            t0, t1 = _resolve_window(args, coverage_t1=coverage_t1)
         except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+        except TapeFetchError as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 2
         missing = [n for n, v in (("bundle", args.bundle),

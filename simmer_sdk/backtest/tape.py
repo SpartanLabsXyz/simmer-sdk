@@ -32,6 +32,7 @@ import requests
 # locally gives a clearer message without a round-trip.
 DATASET_END = "2026-05-05"
 _TAPE_ENDPOINT = "/api/backtest/tape"
+_TAPE_COVERAGE_ENDPOINT = "/api/backtest/tape/coverage"
 
 
 class TapeFetchError(RuntimeError):
@@ -109,7 +110,7 @@ def fetch_tape(
         "min_volume": float(min_volume),
     }
     if q:
-        payload["q"] = q
+        payload["q"] = str(q)
     log(f"requesting tape slice {payload['t0']}..{payload['t1']} "
         f"(max {max_markets} markets, min volume {min_volume:,.0f}"
         f"{f', q={q!r}' if q else ''}) from {base}...")
@@ -151,7 +152,10 @@ def fetch_tape(
     slice_dir.mkdir(parents=True, exist_ok=True)
     n_markets = body.get("markets")
     n_quant = body.get("quant_rows")
-    log(f"downloading slice ({n_markets} markets, "
+    served = body.get("markets_served", n_markets)
+    requested = body.get("markets_requested")
+    served_text = f"{served}/{requested} markets served" if requested else f"{n_markets} markets"
+    log(f"downloading slice ({served_text}, "
         f"{f'{n_quant:,}' if isinstance(n_quant, int) else '?'} prints)"
         f"{' [server cache hit]' if body.get('cached') else ''}...")
     try:
@@ -171,6 +175,42 @@ def fetch_tape(
 
     log(f"tape ready → {slice_dir}")
     return str(slice_dir)
+
+
+def fetch_tape_coverage(
+    *,
+    base_url: Optional[str] = None,
+    api_key: Optional[str] = None,
+    timeout: int = 30,
+) -> dict:
+    """Return tape-service coverage metadata, including the latest servable t1."""
+    base = _resolve_base_url(base_url)
+    key = api_key or os.getenv("SIMMER_API_KEY")
+    if not key:
+        raise TapeFetchError(
+            "a Simmer API key is required to check tape coverage — set SIMMER_API_KEY "
+            "(the same key you trade with) or pass --t1 explicitly with --tape/--demo."
+        )
+    try:
+        resp = requests.get(
+            base + _TAPE_COVERAGE_ENDPOINT,
+            headers={"Authorization": f"Bearer {key}"},
+            timeout=timeout,
+        )
+    except requests.RequestException as exc:
+        raise TapeFetchError(f"could not reach the tape service at {base}: {exc}") from exc
+
+    if resp.status_code in (401, 403):
+        raise TapeFetchError(_detail(resp, "tape coverage rejected — check SIMMER_API_KEY"))
+    if resp.status_code == 503:
+        raise TapeFetchError(_detail(resp, "the backtest tape service is unavailable"))
+    if not resp.ok:
+        raise TapeFetchError(_detail(resp, f"tape coverage lookup failed ({resp.status_code})"))
+
+    body = resp.json()
+    if not body.get("coverage_t1"):
+        raise TapeFetchError(f"malformed tape coverage response from {base}: {body!r}")
+    return body
 
 
 def _detail(resp, fallback: str) -> str:
