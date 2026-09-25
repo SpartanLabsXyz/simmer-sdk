@@ -1,9 +1,9 @@
 ---
 name: polymarket-copytrading
-description: Mirror positions from top Polymarket traders. Polling mode (free) for portfolio-style copying, Reactor mode (Pro) for event-driven real-time mirroring via Simmer's on-chain signal infrastructure.
+description: Mirror Polymarket whale wallets, inspect wallet positions, follow specific trader addresses, or paper-trade copytrading with $SIM before using real money. Polling mode is free; Reactor mode is Pro for event-driven real-time mirroring via Simmer's on-chain signal infrastructure.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.12.4"
+  version: "1.12.5"
   displayName: Polymarket Copytrading
   difficulty: beginner
 ---
@@ -49,14 +49,6 @@ When user asks to install or configure this skill:
    - Top N positions: How many positions to track (auto-calculated from balance)
    - Max trades per run: Safety cap (default 10)
 
-## When to Use This Skill
-
-Use this skill when the user wants to:
-- Copytrade whale wallets on Polymarket
-- Paper trade (copytrade with $SIM) to test strategies without real money
-- Check what positions a wallet holds
-- Follow specific trader addresses
-- Check their copytrading positions
 
 ## Quick Commands
 

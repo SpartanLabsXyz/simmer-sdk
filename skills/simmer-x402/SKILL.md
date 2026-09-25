@@ -1,9 +1,9 @@
 ---
 name: simmer-x402
-description: Make x402 payments to access paid APIs and gated content. Use when a skill needs to fetch data from x402-gated endpoints (like Kaito mindshare API, Simmer premium endpoints, or any x402 provider). Handles 402 Payment Required responses automatically using USDC on Base.
+description: Make x402 payments, handle HTTP 402 Payment Required responses, check Base wallet balances, or access Simmer premium endpoints and other paid APIs. Uses USDC on Base.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.0.9"
+  version: "1.0.10"
   displayName: x402 Payments
   difficulty: advanced
 ---
@@ -15,13 +15,6 @@ Pay for x402-gated APIs using USDC on Base. This skill enables agents to autonom
 
 > **This is a template.** The default `x402_cli.py` handles 402 detection, payment-payload construction, and balance checks. Bring your own policy for which endpoints to pay for, what max payment per call is acceptable, and how to scope the funded wallet.
 
-## When to Use This Skill
-
-Use this skill when:
-- A skill or agent needs to fetch data from an x402-gated API (e.g., Kaito mindshare)
-- You encounter HTTP 402 Payment Required responses
-- You need to check your Base wallet balance (USDC + ETH)
-- You want to pay for Simmer premium endpoints beyond free tier rate limits
 
 ## Setup
 
