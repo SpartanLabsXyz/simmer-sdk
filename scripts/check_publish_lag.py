@@ -13,6 +13,7 @@ import os
 import re
 import subprocess
 import time
+import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
@@ -21,6 +22,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 NPM_PACKAGE = "simmer-mcp"
 PYPI_PACKAGE = "simmer-sdk"
+CLAWHUB_SKILL_URL = "https://clawhub.ai/api/v1/skills/{slug}"
 MCP_PACKAGE_JSON = "mcp/package.json"
 MCP_VERSION_GUARD_PATHS = (
     "mcp/package.json",
@@ -46,6 +48,16 @@ class Semver:
     minor: int
     patch: int
     prerelease: tuple[str | int, ...]
+
+
+@dataclass(frozen=True)
+class Skill:
+    slug: str
+    path: str
+    version: str
+    published: bool
+    first_publish: bool
+    publish_reason: str | None
 
 
 SEMVER_RE = re.compile(
@@ -110,6 +122,70 @@ def compare_versions(left: str, right: str) -> int:
 
 def read_json(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def read_frontmatter(path: Path) -> dict[str, str]:
+    text = path.read_text(encoding="utf-8")
+    match = re.match(r"^---\n(?P<body>.*?)\n---\n", text, re.DOTALL)
+    if not match:
+        raise PublishLagError(f"{path} has no YAML frontmatter")
+
+    values: dict[str, str] = {}
+    block: str | None = None
+    for line in match.group("body").splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or ":" not in stripped:
+            continue
+        is_top_level = line[0] not in " \t"
+        key, value = stripped.split(":", 1)
+        key = key.strip()
+        value = value.strip().strip("\"'")
+        if is_top_level:
+            block = key if not value else None
+            if value:
+                values[key] = value
+        elif block == "metadata" and key == "version":
+            values[key] = value
+    return values
+
+
+def discover_skills(root: Path) -> tuple[list[Skill], list[str]]:
+    skills_dir = root / "skills"
+    if not skills_dir.exists():
+        return [], []
+
+    skills: list[Skill] = []
+    errors: list[str] = []
+    for clawhub_json in sorted(skills_dir.glob("*/clawhub.json")):
+        skill_dir = clawhub_json.parent
+        try:
+            metadata = read_frontmatter(skill_dir / "SKILL.md")
+            config = read_json(clawhub_json)
+            version = metadata.get("version")
+            if not version:
+                raise PublishLagError(f"{skill_dir / 'SKILL.md'} has no metadata.version")
+            skills.append(
+                Skill(
+                    slug=metadata.get("name") or skill_dir.name,
+                    path=str(skill_dir.relative_to(root)),
+                    version=version,
+                    published=(
+                        metadata.get("published", "true").lower() != "false"
+                        and config.get("published", True) is not False
+                        and config.get("publish", True) is not False
+                    ),
+                    first_publish=config.get("first_publish", False) is True,
+                    publish_reason=config.get("publish_reason"),
+                )
+            )
+        except (OSError, json.JSONDecodeError, PublishLagError, KeyError) as exc:
+            errors.append(f"{skill_dir.relative_to(root)}: {exc}")
+    return skills, errors
+
+
+def fetch_clawhub_latest(slug: str) -> str | None:
+    payload = fetch_json(CLAWHUB_SKILL_URL.format(slug=slug))
+    return str(payload["skill"]["tags"]["latest"])
 
 
 def read_npm_repo_version(root: Path) -> str:
@@ -304,6 +380,88 @@ def check_package_with_retry(
         time.sleep(wait)
 
 
+def check_skill(skill: Skill, published_version: str | None) -> bool:
+    if not skill.published:
+        reason = f" ({skill.publish_reason})" if skill.publish_reason else ""
+        print(f"{skill.path}: ClawHub drift check skipped; hold flag set{reason}")
+        return True
+
+    if published_version is None:
+        if not skill.first_publish:
+            print(
+                f"::warning::{skill.path} ({skill.slug}) is not found on ClawHub; "
+                "skipping drift until clawhub.json sets first_publish true."
+            )
+            return True
+        print(
+            f"::error::{skill.slug} is {skill.version} in the repo and is not on ClawHub. "
+            f"Run `scripts/publish.sh {skill.path}`."
+        )
+        return False
+
+    comparison = compare_versions(skill.version, published_version)
+    if comparison > 0:
+        print(
+            f"::error::{skill.slug} is {skill.version} in the repo and "
+            f"{published_version} on ClawHub. Run `scripts/publish.sh {skill.path}`."
+        )
+        return False
+    if comparison < 0:
+        print(
+            f"::warning::{skill.slug} is {skill.version} in the repo and "
+            f"{published_version} on ClawHub; ClawHub is newer than git."
+        )
+        return True
+
+    print(f"{skill.path}: ClawHub version matches repo version {skill.version}.")
+    return True
+
+
+def check_clawhub_skills(root: Path) -> bool:
+    skills, discovery_errors = discover_skills(root)
+    ok = True
+    for error in discovery_errors:
+        print(f"::error::Malformed skill metadata: {error}")
+        ok = False
+
+    for skill in skills:
+        published_version: str | None
+        if not skill.published:
+            published_version = None
+        else:
+            try:
+                published_version = fetch_clawhub_latest(skill.slug)
+            except urllib.error.HTTPError as exc:
+                if exc.code == 404:
+                    published_version = None
+                else:
+                    print(
+                        f"::warning::Could not fetch ClawHub version for {skill.slug}: {exc}; "
+                        "skipping ClawHub drift result for this run."
+                    )
+                    continue
+            except urllib.error.URLError as exc:
+                print(
+                    f"::warning::Could not fetch ClawHub version for {skill.slug}: {exc}; "
+                    "skipping ClawHub drift result for this run."
+                )
+                continue
+            except TimeoutError as exc:
+                print(
+                    f"::warning::Could not fetch ClawHub version for {skill.slug}: {exc}; "
+                    "skipping ClawHub drift result for this run."
+                )
+                continue
+            except (KeyError, TypeError, ValueError) as exc:
+                print(
+                    f"::warning::Could not parse ClawHub version for {skill.slug}: {exc}; "
+                    "skipping ClawHub drift result for this run."
+                )
+                continue
+        ok = check_skill(skill, published_version) and ok
+    return ok
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=ROOT)
@@ -325,6 +483,15 @@ def parse_args() -> argparse.Namespace:
         help=(
             "Retry PyPI registry check until repo version appears (up to "
             f"{RETRY_MAX_SECS}s). Use when this CI run just published the PyPI package."
+        ),
+    )
+    parser.add_argument(
+        "--check-clawhub",
+        action="store_true",
+        default=False,
+        help=(
+            "Also alert on skill version drift between skills/*/SKILL.md and ClawHub. "
+            "Use only from the scheduled/manual lag check, not as a PR gate."
         ),
     )
     return parser.parse_args()
@@ -371,7 +538,9 @@ def main() -> int:
     for error in errors:
         print(f"::error::{error}")
 
-    return 0 if (npm_ok and pypi_ok and not errors) else 1
+    clawhub_ok = check_clawhub_skills(root) if args.check_clawhub else True
+
+    return 0 if (npm_ok and pypi_ok and clawhub_ok and not errors) else 1
 
 
 if __name__ == "__main__":

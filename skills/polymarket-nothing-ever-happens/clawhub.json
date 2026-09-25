@@ -1,6 +1,6 @@
 {
   "publish": false,
-  "publish_reason": "Entertainment-only strategy (sterlingcrispin). Kept as SDK reference/example, not for ClawHub.",
+  "publish_reason": "SIM-5443 hold: do not publish until the backtest returns a KEEP/KILL verdict.",
   "emoji": "\ud83d\udcc9",
   "primaryEnv": "SIMMER_API_KEY",
   "requires": {

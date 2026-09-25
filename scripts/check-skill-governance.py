@@ -202,9 +202,22 @@ def validate_skill_version_bumps(paths: list[str], base_ref: str) -> list[str]:
         if len(Path(path).parts) >= 2 and Path(path).parts[0] == "skills"
     }
     for slug in sorted(changed_slugs):
+        slug_paths = [
+            path
+            for path in paths
+            if len(Path(path).parts) >= 2
+            and Path(path).parts[0] == "skills"
+            and Path(path).parts[1] == slug
+        ]
         skill_md = SKILLS_DIR / slug / "SKILL.md"
         if not skill_md.exists():
             continue
+
+        clawhub_json = SKILLS_DIR / slug / "clawhub.json"
+        if set(slug_paths) == {f"skills/{slug}/clawhub.json"} and clawhub_json.exists():
+            config = load_json(clawhub_json)
+            if config.get("publish", True) is False or config.get("published", True) is False:
+                continue
 
         current_version = extract_skill_metadata_version(skill_md.read_text(encoding="utf-8"))
         if current_version is None:

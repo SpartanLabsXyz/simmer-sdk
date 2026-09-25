@@ -2331,11 +2331,12 @@ class SimmerClient:
                 Prefer this over ``import_source`` for venue-scoped discovery; if
                 both are given ``import_source`` wins.
             sort: Result ordering — "volume" (most-traded first; best for finding
-                liquid, tradeable markets) or "recent" (newest first). Keyword-only.
-                When omitted, results are newest-first today, but this default is
-                scheduled to become liquidity-first in an upcoming release — pass
-                sort="recent" to pin the current behavior, or sort="volume" to adopt
-                the new behavior now.
+                liquid, tradeable markets) or "recent"/"created" (newest first).
+                Keyword-only. When omitted the default is liquidity-first, which
+                is the same ordering as sort="volume"; pass sort="recent" for
+                newest-first. Note that ``q`` overrides ordering entirely: a
+                keyword search returns relevance-ranked results (titles starting
+                with the query first, then newest) whatever ``sort`` says.
             tags: Comma-separated tag filter (e.g. "world-cup" or "weather,crypto").
                 Keyword-only. Returns markets carrying ALL specified tags. Like ``q``,
                 applied before the result window.

@@ -3,6 +3,10 @@
 All notable changes to `simmer-sdk` are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+- **`get_markets()` now documents the ordering the server actually uses.** The `sort` docstring said the default was newest-first and "scheduled to become liquidity-first in an upcoming release", and told callers to pass `sort="recent"` to pin current behaviour. The server changed to liquidity-first in SIM-3126 and the docstring never followed, so `sort="recent"` silently *changed* the market universe for anyone who took that advice. The default is liquidity-first — the same ordering as `sort="volume"`. Also documents that `q=` overrides `sort` entirely. Same correction in `skills/simmer-skill-builder/references/simmer-api.md` (1.3.10 → 1.3.11). Docs only; no behaviour change.
+
 ## polymarket-signal-sniper 2.0.0 — 2026-09-18
 
 - **The skill no longer trades.** It emits article + market pairs that pass the safeguards, and the user's agent decides relevance, side and size. The old path guessed the side from keyword sentiment: two words like "rally" and "rise" gave 100% confidence, against every keyword-matched market whether or not the article was about it, and `--live` bought on that. An offline eval of 349 headline–market pairs found no directional edge in RSS headlines at all; the price move they describe mostly happens before they reach the feed.
@@ -44,6 +48,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## simmer-mcp v3.5.5 — 2026-09-14
 
 - **`simmer_trade` refuses a live placement when preflight would return `ok_to_trade=False`.** Additional gate on top of `SIMMER_MCP_ALLOW_LIVE`. Exposure cap is opt-in (`EXPOSURE_CAP_USD`); sells skip cap math and the cap finiteness check; `venue: null` positions count as sim (same as Python); non-finite caps are rejected on buys. Identity / briefing / positions reads run in parallel under an 8s budget. Set `SIMMER_SKIP_PREFLIGHT=1` to bypass for one release (warned). Paper / dry-run / coerced-to-sim paths are unchanged.
+
+## polymarket-copytrading — 2026-09-21
+
+- **Stops mirroring for the rest of a run once the account is structurally blocked from trading** (missing approvals, wrong collateral type, or a pending migration) instead of re-attempting every remaining whale signal against the same wallet-level condition. Trading resumes automatically once the account is fixed.
 
 ## 0.25.5 (2026-09-10)
 
