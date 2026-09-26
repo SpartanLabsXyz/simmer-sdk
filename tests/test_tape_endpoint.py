@@ -40,6 +40,11 @@ def _ok_body(key="abc123"):
         "dataset_rev": "rev1",
         "t0": "2026-03-01", "t1": "2026-03-08",
         "markets": 12, "quant_rows": 3456,
+        "markets_requested": 50,
+        "markets_matching_filter": 12,
+        "markets_served": 12,
+        "max_markets_served": 50,
+        "truncated": False,
         "expires_in": 3600, "cached": False,
         "urls": {
             "markets": "https://bucket/slices/%s/markets.parquet" % key,
@@ -52,8 +57,12 @@ def _ok_body(key="abc123"):
 def _patch_download(monkeypatch):
     """_download just writes a stub file so cache/existence logic is exercised."""
     def fake(url, dest, timeout=300):
-        with open(dest, "wb") as fh:
-            fh.write(b"PAR1")
+        if str(dest).endswith("manifest.json"):
+            with open(dest, "w") as fh:
+                json.dump({"markets_requested": 999, "markets": 12}, fh)
+        else:
+            with open(dest, "wb") as fh:
+                fh.write(b"PAR1")
     monkeypatch.setattr(tp, "_download", fake)
 
 
@@ -179,6 +188,23 @@ def test_fetch_tape_cache_hit_skips_redownload(cache, monkeypatch):
     assert first >= 2  # markets + quant downloaded
     tp.fetch_tape("2026-03-01", "2026-03-08", base_url="http://x")
     assert calls["n"] == first  # cached → no further downloads
+
+
+def test_fetch_tape_stamps_manifest_counts_from_current_response(cache, monkeypatch):
+    responses = [
+        _ok_body(key="shared"),
+        {**_ok_body(key="shared"), "markets_requested": 3000, "cached": True},
+    ]
+
+    monkeypatch.setattr(tp.requests, "post", lambda *a, **k: _Resp(200, responses.pop(0)))
+    _patch_download(monkeypatch)
+
+    out = tp.fetch_tape("2026-03-01", "2026-03-08", base_url="http://x")
+    manifest_path = os.path.join(out, "manifest.json")
+    assert json.load(open(manifest_path))["markets_requested"] == 50
+
+    tp.fetch_tape("2026-03-01", "2026-03-08", base_url="http://x")
+    assert json.load(open(manifest_path))["markets_requested"] == 3000
 
 
 def test_fetch_tape_maps_422(cache, monkeypatch):

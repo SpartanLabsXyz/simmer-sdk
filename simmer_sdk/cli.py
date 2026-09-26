@@ -24,6 +24,8 @@ import os
 import sys
 from typing import Optional
 
+from simmer_sdk.backtest.tape import TapeFetchError
+
 
 def _version() -> str:
     try:
@@ -181,7 +183,7 @@ def _cmd_backtest(args: argparse.Namespace) -> int:
         try:
             coverage_t1 = None
             if args.window and not args.t1 and not args.tape:
-                from simmer_sdk.backtest.tape import TapeFetchError, fetch_tape_coverage
+                from simmer_sdk.backtest.tape import fetch_tape_coverage
 
                 coverage_t1 = fetch_tape_coverage(base_url=args.base_url).get("coverage_t1")
             t0, t1 = _resolve_window(args, coverage_t1=coverage_t1)

@@ -20,6 +20,7 @@ which runs the tape, needs duckdb).
 from __future__ import annotations
 
 import os
+import json
 import tempfile
 from pathlib import Path
 from typing import Optional, Union
@@ -71,6 +72,30 @@ def _download(url: str, dest: Path, *, timeout: int = 300) -> None:
         os.replace(tmp, dest)  # atomic
     finally:
         tmp.unlink(missing_ok=True)
+
+
+def _stamp_manifest_from_response(slice_dir: Path, body: dict) -> None:
+    manifest_path = slice_dir / "manifest.json"
+    if not manifest_path.exists():
+        return
+    try:
+        with open(manifest_path) as fh:
+            manifest = json.load(fh)
+        for key in (
+            "markets_requested",
+            "markets_matching_filter",
+            "markets_served",
+            "max_markets_served",
+            "truncated",
+        ):
+            if key in body:
+                manifest[key] = body[key]
+        tmp = manifest_path.with_suffix(".json.part")
+        with open(tmp, "w") as fh:
+            json.dump(manifest, fh, indent=2)
+        os.replace(tmp, manifest_path)
+    except Exception:
+        return
 
 
 def fetch_tape(
@@ -146,6 +171,7 @@ def fetch_tape(
     markets_pq = slice_dir / "markets.parquet"
     quant_pq = slice_dir / "quant.parquet"
     if markets_pq.exists() and quant_pq.exists() and not refresh:
+        _stamp_manifest_from_response(slice_dir, body)
         log(f"using cached tape: {slice_dir}")
         return str(slice_dir)
 
@@ -164,6 +190,7 @@ def fetch_tape(
         if urls.get("manifest"):
             try:
                 _download(urls["manifest"], slice_dir / "manifest.json", timeout=timeout)
+                _stamp_manifest_from_response(slice_dir, body)
             except Exception:
                 pass  # manifest is best-effort (only feeds dataset_rev labeling)
     except requests.RequestException as exc:
