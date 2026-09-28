@@ -1,11 +1,11 @@
 ---
 name: simmer-mcp-setup
-version: "0.3.5"
+version: "0.3.6"
 published: true
 description: One-shot bootstrap for the Simmer MCP server. Detects your agent runtime (Claude Code / Cursor / OpenClaw / Hermes / Codex / Grok Bot), installs simmer-mcp via npm, writes the right MCP config, prompts a restart, and verifies the tool handshake. Use after registering an agent on simmer.markets to run pre-built Simmer trading strategies through your MCP-aware agent.
 metadata:
   author: "Simmer (@simmer_markets)"
-  version: "0.3.5"
+  version: "0.3.6"
   displayName: Simmer MCP Setup
   difficulty: beginner
   primaryEnv: SIMMER_API_KEY
@@ -31,7 +31,7 @@ So: MCP and SDK are different shapes, both legitimate. MCP runs pre-built strate
 
 ## What you'll have at the end
 
-- `simmer-mcp` runnable via `npx -y simmer-mcp` (global install optional)
+- `simmer-mcp` runnable via `npx -y simmer-mcp@3.5.8` (global install optional)
 - Optionally `simmer-sdk` on the host plus `SIMMER_MCP_PYTHON` pointing at it — needed
   only by the `preflight` tool, the one bundled skill that runs Python. See Step 3b.
 - Your agent runtime's MCP config updated with a `simmer` entry
@@ -98,14 +98,14 @@ The Node.js installer bundles npm, so installing Node.js gives you both. After i
 npm install -g simmer-mcp
 ```
 
-This step is **optional**. The MCP config in Step 4 uses `npx -y simmer-mcp`, which fetches the package on first launch even without a global install. Installing globally just makes the first launch slightly faster (no fetch delay). If you skip Step 3, everything still works.
+This step is **optional**. The MCP config in Step 4 uses `npx -y simmer-mcp@3.5.8`, which fetches the package on first launch even without a global install. Installing globally just makes the first launch slightly faster (no fetch delay). If you skip Step 3, everything still works.
 
-If you do install it and get an EACCES permission error on Linux/macOS: do NOT `sudo npm install` (creates permission tangles later). Either fix npm's global directory permissions per [npm's docs](https://docs.npmjs.com/resolving-eacces-permissions-errors-when-installing-packages-globally), or just skip the global install — the `npx -y simmer-mcp` form in the config works either way.
+If you do install it and get an EACCES permission error on Linux/macOS: do NOT `sudo npm install` (creates permission tangles later). Either fix npm's global directory permissions per [npm's docs](https://docs.npmjs.com/resolving-eacces-permissions-errors-when-installing-packages-globally), or just skip the global install — the `npx -y simmer-mcp@3.5.8` form in the config works either way.
 
 > **Why no `--version` check?** simmer-mcp's binary doesn't have CLI flags — every invocation starts the stdio MCP server. Verification happens in Step 6 when your agent calls a simmer tool and gets a real response.
 
 **If npm or `npx` is blocked or hangs on your host**, `bun` works as a drop-in:
-`bun add -g simmer-mcp`, and `bunx simmer-mcp` in place of `npx -y simmer-mcp` in the
+`bun add -g simmer-mcp`, and `bunx simmer-mcp@3.5.8` in place of `npx -y simmer-mcp@3.5.8` in the
 config below. Some agent runtimes gate npm behind a command review that never returns —
 observed on Grok Bot's cloud computer, 2026-09-04.
 
@@ -149,7 +149,7 @@ packaged separately on that distro: `sudo apt install python3-venv` (Debian/Ubun
 use `pipx`, or as a last resort `pip install --break-system-packages`.
 
 ⚠️ **Creating the venv is not enough — you must point the server at it.** The server is
-launched by your runtime as `npx -y simmer-mcp` and inherits *that* environment, not your
+launched by your runtime as `npx -y simmer-mcp@3.5.8` and inherits *that* environment, not your
 shell's. It resolves Python from `SIMMER_MCP_PYTHON`, then `which python`, then
 `which python3` — **it never looks for a `.venv`**. So a venv you made in a terminal is
 invisible to it, and `preflight` fails exactly as before.
@@ -191,7 +191,7 @@ Most onboarding flows want **user scope** — install once, available everywhere
 
 **Preferred (no file editing):**
 ```bash
-claude mcp add -s user simmer -e SIMMER_API_KEY="$SIMMER_API_KEY" -- npx -y simmer-mcp
+claude mcp add -s user simmer -e SIMMER_API_KEY="$SIMMER_API_KEY" -- npx -y simmer-mcp@3.5.8
 ```
 
 > ⚠️ Flag order matters: `-e KEY=value` goes **after** the server name `simmer`, then `--`, then the command. `-e` is variadic, so placed before the name it swallows the name as an env var. (An earlier version of this note said `claude mcp add --help` showed the wrong order; 2.1.260's help shows this one.) Verified 2026-09-04 on Claude Code 2.1.260 with a real add → `claude mcp get simmer` → remove cycle at local scope; the `-s user` form is the same command with the flag.
@@ -206,7 +206,7 @@ This writes `~/.claude.json` for you with the correct `command`/`args`/`env` str
   "mcpServers": {
     "simmer": {
       "command": "npx",
-      "args": ["-y", "simmer-mcp"],
+      "args": ["-y", "simmer-mcp@3.5.8"],
       "env": {
         "SIMMER_API_KEY": "sk_live_..."
       }
@@ -225,7 +225,7 @@ Edit `~/.cursor/mcp.json` (create the file if it doesn't exist):
   "mcpServers": {
     "simmer": {
       "command": "npx",
-      "args": ["-y", "simmer-mcp"],
+      "args": ["-y", "simmer-mcp@3.5.8"],
       "env": {
         "SIMMER_API_KEY": "sk_live_..."
       }
@@ -244,7 +244,7 @@ hand.
 
 ```bash
 export SIMMER_API_KEY=sk_live_...   # the gateway must see this too — see below
-openclaw mcp add simmer --command npx --arg -y --arg simmer-mcp \
+openclaw mcp add simmer --command npx --arg -y --arg simmer-mcp@3.5.8 \
   --env 'SIMMER_API_KEY=${SIMMER_API_KEY}'
 openclaw mcp doctor simmer --probe
 ```
@@ -332,7 +332,7 @@ If you edit the file by hand instead, add `simmer` under `mcp.servers`:
     "servers": {
       "simmer": {
         "command": "npx",
-        "args": ["-y", "simmer-mcp"],
+        "args": ["-y", "simmer-mcp@3.5.8"],
         "env": {
           "SIMMER_API_KEY": "${SIMMER_API_KEY}"
         }
@@ -372,7 +372,7 @@ runtimes):
 mcp_servers:
   simmer:
     command: "npx"
-    args: ["-y", "simmer-mcp"]
+    args: ["-y", "simmer-mcp@3.5.8"]
     env:
       SIMMER_API_KEY: "sk_live_..."
 ```
@@ -383,7 +383,7 @@ mcp_servers:
 ```bash
 hermes -p <profile> mcp add simmer --command npx \
   --env SIMMER_API_KEY="$SIMMER_API_KEY" SIMMER_MCP_PYTHON=/absolute/path/to/.venv/bin/python \
-  --args -y simmer-mcp
+  --args -y simmer-mcp@3.5.8
 hermes -p <profile> mcp test simmer    # connects and counts the tools
 hermes -p <profile> mcp list           # confirms which config Hermes actually read
 ```
@@ -424,7 +424,7 @@ nothing else to add for Simmer:
 ```toml
 [mcp_servers.simmer]
 command = "npx"
-args = ["-y", "simmer-mcp"]
+args = ["-y", "simmer-mcp@3.5.8"]
 env_vars = ["SIMMER_API_KEY"]   # forwarded from the environment Codex runs in
 startup_timeout_sec = 60       # default 10; a cold npx fetch can miss it (see below)
 required = true                # a server that fails to start aborts the session, loudly
@@ -451,7 +451,7 @@ Three things about that shape, each verified on codex-cli 0.149.1, 2026-09-04:
   on something else during such an outage, set `enabled = false` on the entry or drop
   `required`.
 
-`codex mcp add simmer --env SIMMER_API_KEY="$SIMMER_API_KEY" -- npx -y simmer-mcp` also
+`codex mcp add simmer --env SIMMER_API_KEY="$SIMMER_API_KEY" -- npx -y simmer-mcp@3.5.8` also
 works, but it writes the **literal** key into `[mcp_servers.simmer.env]` — there is no
 `env_vars` flag on `codex mcp add` in 0.149.1. If you started that way and switch to
 `env_vars`, delete the `SIMMER_API_KEY = "..."` line yourself; Codex accepts both at once
@@ -485,14 +485,14 @@ sqlite3 -readonly ~/.codex/logs_2.sqlite \
 ```
 
 Headless `codex exec` wrote nothing to that database in any run here, so for a headless
-host the banner is unreadable from inside Codex — run `npx -y simmer-mcp` once in a
+host the banner is unreadable from inside Codex — run `npx -y simmer-mcp@3.5.8` once in a
 terminal with the same env instead (Troubleshooting, "Others" row).
 
 ### Grok Bot
 
 Grok Bot has no MCP config file to edit — servers are added through its **Add MCP**
-control, with the same three fields: command `npx` with args `-y simmer-mcp` (or command
-`bunx` with args `simmer-mcp` where npm is blocked, as in Step 3), and `SIMMER_API_KEY` in
+control, with the same three fields: command `npx` with args `-y simmer-mcp@3.5.8` (or command
+`bunx` with args `simmer-mcp@3.5.8` where npm is blocked, as in Step 3), and `SIMMER_API_KEY` in
 env. `SIMMER_MCP_PYTHON` (Step 3b) goes in that same env field as a second entry; there is
 no JSON to write. The value must be a path **on the cloud computer**, since that is where
 the server runs — a venv on your own machine is invisible to it, and the server does not
@@ -528,7 +528,7 @@ If you're on a runtime not listed above but it speaks MCP, you almost certainly 
   "mcpServers": {
     "simmer": {
       "command": "npx",
-      "args": ["-y", "simmer-mcp"],
+      "args": ["-y", "simmer-mcp@3.5.8"],
       "env": {
         "SIMMER_API_KEY": "sk_live_..."
       }
@@ -610,7 +610,7 @@ launches nothing, so it produces no log at all.)
 | OpenClaw | Gateway-launched: `/tmp/openclaw/openclaw-YYYY-MM-DD.log` (`bundle-mcp::` entries). `agent --local` and the `mcp` CLI: **not in that log** — fall back to "Others". |
 | Claude Code | macOS: `~/Library/Caches/claude-cli-nodejs/*/mcp-logs-simmer/*.jsonl`; Linux: `~/.cache/claude-cli-nodejs/*/mcp-logs-simmer/*.jsonl`, or under `$XDG_CACHE_HOME` where set (same slug rule, Step 4). One file per launch. Windows not measured — fall back to "Others". |
 | Codex | Interactive session: `logs_2.sqlite` beside `config.toml`, rows starting `MCP server stderr (simmer)` (query in Step 4). Headless `codex exec`: **no file** — fall back to "Others". |
-| Others | Varies. If there is no log, run `npx -y simmer-mcp` once in a terminal with `SIMMER_API_KEY` set and read the line directly. |
+| Others | Varies. If there is no log, run `npx -y simmer-mcp@3.5.8` once in a terminal with `SIMMER_API_KEY` set and read the line directly. |
 
 If the resolved path is not your venv, set `SIMMER_MCP_PYTHON` (Step 3b).
 
@@ -622,7 +622,7 @@ skills never run Python, so their failures have some other cause.
 - Verify the key value: `printenv SIMMER_API_KEY | cut -c1-20` — must start with `sk_live_`. A common silent failure: install commands that use `pbpaste` or clipboard-read primitives can write the *install command text itself* as the key value when the user copies the command after copying the key. Fix: get a fresh key from [simmer.markets/dashboard](https://simmer.markets/dashboard?ref=sdk-skill&utm_campaign=sdk-skill), then `export SIMMER_API_KEY="sk_live_..."` typed/pasted directly.
 
 **`npm install -g simmer-mcp` fails with EACCES on Linux/macOS.**
-- Don't `sudo npm install` — that creates permission problems later. Either fix npm's global directory permissions per [npm's docs](https://docs.npmjs.com/resolving-eacces-permissions-errors-when-installing-packages-globally), or just use the `npx -y simmer-mcp` form in your config (no global install needed; npx fetches on first launch).
+- Don't `sudo npm install` — that creates permission problems later. Either fix npm's global directory permissions per [npm's docs](https://docs.npmjs.com/resolving-eacces-permissions-errors-when-installing-packages-globally), or just use the `npx -y simmer-mcp@3.5.8` form in your config (no global install needed; npx fetches on first launch).
 
 **`claude mcp add` fails with "command not found".**
 - Older Claude Code versions don't have the `mcp add` subcommand. Use the JSON-write fallback under [Step 4 — Claude Code](#claude-code).
@@ -634,7 +634,7 @@ skills never run Python, so their failures have some other cause.
 
 - **Don't auto-install Node.js via `curl | sh`** — modifying the user's system without explicit approval is bad practice. Show the platform-specific install hint and let the user decide.
 - **Don't paste the API key from clipboard into a pipe.** Use `read -s` (per [SIM-2118](https://github.com/SpartanLabsXyz/simmer/issues/2118)).
-- **Don't `sudo npm install -g`.** Fix the underlying npm permissions, or use `npx -y simmer-mcp` in the config (no global install needed).
+- **Don't `sudo npm install -g`.** Fix the underlying npm permissions, or use `npx -y simmer-mcp@3.5.8` in the config (no global install needed).
 - **Don't tell the user "it should work now" without verifying.** Run Step 6 — confirm a real tool call returns real data.
 
 ## Links
