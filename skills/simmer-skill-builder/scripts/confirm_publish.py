@@ -13,7 +13,10 @@ Usage:
 Confirmation source:
     Prompts on stdin: "Type the skill slug to publish it publicly: ". There is no
     env var or flag bypass — an agent holding credentials cannot self-authorize a
-    public publish; a human must be at the keyboard typing the slug.
+    public publish; a human must be at the keyboard typing the slug. stdin must
+    also be an interactive TTY: a piped or redirected stdin (e.g.
+    `printf 'slug\n' | python confirm_publish.py ...`) is rejected outright, since
+    an agent can supply that without a human ever reading the prompt.
 
 --clawhub-version must be an exact three-part version (e.g. 0.23.3). Mutable
 tags like "latest", "next", or "beta" are rejected, since accepting them would
@@ -34,6 +37,8 @@ PINNED_VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
 
 
 def get_confirmation(slug):
+    if not sys.stdin.isatty():
+        return None
     try:
         return input(f"Type the skill slug to publish it publicly ({slug}): ")
     except EOFError:
@@ -57,6 +62,13 @@ def main():
         return 2
 
     confirmation = get_confirmation(args.slug)
+    if confirmation is None:
+        print(
+            "ABORT: stdin is not an interactive TTY — a piped confirmation cannot "
+            "authorize a public publish; run this from a real terminal.",
+            file=sys.stderr,
+        )
+        return 2
     if confirmation.strip() != args.slug:
         print(
             f"ABORT: confirmation did not match slug '{args.slug}' — no publish attempted.",
