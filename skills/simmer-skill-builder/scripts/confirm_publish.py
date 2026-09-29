@@ -10,26 +10,30 @@ a human ever reading the prompt.
 Usage:
     python scripts/confirm_publish.py <skill_path> --slug <slug> --version <version> [--clawhub-version X.Y.Z]
 
-Confirmation source (checked in order):
-    1. $SIMMER_SKILL_BUILDER_CONFIRM env var, if set, must equal <slug> exactly.
-    2. Otherwise prompts on stdin: "Type the skill slug to publish it publicly: ".
+Confirmation source:
+    Prompts on stdin: "Type the skill slug to publish it publicly: ". There is no
+    env var or flag bypass — an agent holding credentials cannot self-authorize a
+    public publish; a human must be at the keyboard typing the slug.
+
+--clawhub-version must be an exact three-part version (e.g. 0.23.3). Mutable
+tags like "latest", "next", or "beta" are rejected, since accepting them would
+recreate the unpinned-npx hole this script exists to close.
 
 Exit codes:
     0 — published (npx clawhub publish invoked)
     2 — confirmation withheld or did not match; no publish attempted
+    2 — --clawhub-version is not an exact pinned version; no publish attempted
 """
 import argparse
-import os
+import re
 import subprocess
 import sys
 
 DEFAULT_CLAWHUB_VERSION = "0.23.3"
+PINNED_VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
 
 
 def get_confirmation(slug):
-    env_confirm = os.environ.get("SIMMER_SKILL_BUILDER_CONFIRM")
-    if env_confirm is not None:
-        return env_confirm
     try:
         return input(f"Type the skill slug to publish it publicly ({slug}): ")
     except EOFError:
@@ -43,6 +47,14 @@ def main():
     parser.add_argument("--version", required=True)
     parser.add_argument("--clawhub-version", default=DEFAULT_CLAWHUB_VERSION)
     args = parser.parse_args()
+
+    if not PINNED_VERSION_RE.match(args.clawhub_version):
+        print(
+            f"ABORT: --clawhub-version '{args.clawhub_version}' is not an exact pinned "
+            f"version (expected X.Y.Z, e.g. '{DEFAULT_CLAWHUB_VERSION}') — no publish attempted.",
+            file=sys.stderr,
+        )
+        return 2
 
     confirmation = get_confirmation(args.slug)
     if confirmation.strip() != args.slug:
