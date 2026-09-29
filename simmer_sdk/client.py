@@ -658,9 +658,17 @@ class SimmerClient:
 
         ``readonly()`` preserves normal venue selection and read endpoint
         behavior, but it disables constructor-time risk-exit processing and
-        rejects order and risk-exit submission calls. Use this for API-key
-        checks, status probes, and preflight-style validation where
-        construction must not submit orders.
+        raises ``RuntimeError`` on every call that places or cancels orders,
+        redeems, signs or relays approvals, links or activates wallets,
+        changes account settings, or creates/deletes monitors, alerts or
+        webhooks. Use this for API-key checks, status probes, and
+        preflight-style validation. Market imports (``import_market`` and the
+        Kalshi variants) stay allowed: they add a public catalog entry and
+        touch no account state.
+
+        ``live=False`` is different: it simulates ``trade()``,
+        ``place_combo()`` and ``client.hyperliquid`` orders, but every other
+        call above still acts on the real account.
 
         Args:
             api_key: Optional SDK API key. If omitted, reads ``SIMMER_API_KEY``.
@@ -4610,6 +4618,7 @@ class SimmerClient:
                 auto_risk_monitor_enabled=True
             )
         """
+        self._assert_not_readonly("update_settings()")
         if not kwargs:
             raise ValueError("No settings provided. Pass keyword arguments to update.")
         return self._request("PATCH", "/api/sdk/user/settings", json=kwargs)
@@ -4708,6 +4717,7 @@ class SimmerClient:
         Returns:
             Dict with cancellation result
         """
+        self._assert_not_readonly("cancel_order()")
         if self._ows_wallet:
             try:
                 from simmer_sdk.ows_utils import ows_cancel_order
@@ -4730,6 +4740,7 @@ class SimmerClient:
         Returns:
             Dict with cancellation result
         """
+        self._assert_not_readonly("cancel_market_orders()")
         if self._ows_wallet:
             # OWS: cancel all orders (CLOB doesn't support per-market cancel without token_id iteration)
             try:
@@ -4760,6 +4771,7 @@ class SimmerClient:
         Returns:
             Dict with cancellation result
         """
+        self._assert_not_readonly("cancel_all_orders()")
         if self._ows_wallet:
             try:
                 from simmer_sdk.ows_utils import ows_cancel_all_orders
@@ -5436,6 +5448,7 @@ class SimmerClient:
         Example:
             client.delete_alert("abc123...")
         """
+        self._assert_not_readonly("delete_alert()")
         return self._request("DELETE", f"/api/sdk/alerts/{alert_id}")
 
     def get_triggered_alerts(self, hours: int = 24) -> List[Dict[str, Any]]:
@@ -5490,6 +5503,7 @@ class SimmerClient:
             )
             print(f"Registered: {webhook['id']}")
         """
+        self._assert_not_readonly("register_webhook()")
         if events is None:
             events = ["trade.executed", "market.resolved", "price.movement"]
         payload = {"url": url, "events": events}
@@ -5524,6 +5538,7 @@ class SimmerClient:
         Example:
             client.delete_webhook("abc123...")
         """
+        self._assert_not_readonly("delete_webhook()")
         return self._request("DELETE", f"/api/sdk/webhooks/{webhook_id}")
 
     def test_webhook(self) -> Dict[str, Any]:
@@ -5536,6 +5551,7 @@ class SimmerClient:
         Example:
             client.test_webhook()
         """
+        self._assert_not_readonly("test_webhook()")
         return self._request("POST", "/api/sdk/webhooks/test")
 
     # ==========================================
@@ -6049,6 +6065,7 @@ class SimmerClient:
                 if not result.get("clob_credentials_registered", True):
                     print(f"Note: creds will derive on first trade")
         """
+        self._assert_not_readonly("link_wallet()")
         if not (self._ows_wallet or self._private_key) or not self._wallet_address:
             raise ValueError(
                 "private_key or ows_wallet required for wallet linking. "
@@ -6182,6 +6199,7 @@ class SimmerClient:
             clob_credentials_registered, balance_usd (best-effort, may be
             None), and error when a step failed.
         """
+        self._assert_not_readonly("import_polymarket_wallet()")
         # Calling this method IS explicit intent to use the local key, so adopt
         # the env wallet even when the client was built with the sim-venue
         # default (`from_env()` sets _ignore_env_wallets=True there, which
@@ -6481,6 +6499,7 @@ class SimmerClient:
             result = client.set_approvals()
             print(f"Set {result['set']} approvals, skipped {result['skipped']}")
         """
+        self._assert_not_readonly("set_approvals()")
         if not self._wallet_address:
             # SIM-1976: managed-wallet users (no local key) get a friendly
             # no-op instead of a misleading "configure private_key" error.
@@ -6852,6 +6871,7 @@ class SimmerClient:
             result = client.activate_polymarket_dw(agent_id="1b279e61-...")
             print(f"Done — already_set={result['already_set']}, calls={result['calls_count']}")
         """
+        self._assert_not_readonly("activate_polymarket_dw()")
         if not self._private_key and not self._ows_wallet:
             raise ValueError(
                 "activate_polymarket_dw() requires a signing key. "
@@ -7002,6 +7022,7 @@ class SimmerClient:
             # now DW combos settle:
             client.place_combo(leg_ids, 10.0, dry_run=False)
         """
+        self._assert_not_readonly("activate_combo_dw()")
         if not self._private_key and not self._ows_wallet:
             raise ValueError(
                 "activate_combo_dw() requires a signing key. "
@@ -7124,6 +7145,7 @@ class SimmerClient:
             else:
                 print("Nothing to wrap — deposit wallet already clean")
         """
+        self._assert_not_readonly("wrap_on_dw()")
         if not self._private_key and not self._ows_wallet:
             raise ValueError(
                 "wrap_on_dw() requires a signing key. "
@@ -7225,6 +7247,7 @@ class SimmerClient:
         Returns:
             dict with wallet record (id, agent_id, wallet_address, approvals_set)
         """
+        self._assert_not_readonly("register_agent_wallet()")
         import warnings
         warnings.warn(
             "register_agent_wallet(ows_wallet_name=...) is deprecated — the "
@@ -7339,6 +7362,7 @@ class SimmerClient:
         Returns:
             dict with updated wallet record
         """
+        self._assert_not_readonly("update_agent_wallet_creds()")
         if ows_wallet_name and private_key:
             raise ValueError("Pass either ows_wallet_name or private_key, not both")
 
