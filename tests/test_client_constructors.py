@@ -218,6 +218,62 @@ def test_readonly_rejects_trade_calls(monkeypatch):
         client.trade("market-id", "yes", amount=1.0)
 
 
+READONLY_BLOCKED = [
+    "update_settings", "cancel_order", "cancel_market_orders", "cancel_all_orders",
+    "delete_alert", "register_webhook", "delete_webhook", "test_webhook",
+    "link_wallet", "import_polymarket_wallet", "set_approvals",
+    "activate_polymarket_dw", "activate_combo_dw", "wrap_on_dw",
+    "register_agent_wallet", "update_agent_wallet_creds",
+]
+
+
+@pytest.mark.parametrize("method", READONLY_BLOCKED)
+def test_readonly_rejects_account_mutations_before_any_request(monkeypatch, method):
+    """Cancels, approvals, wallet, settings and webhook calls fail closed with no request sent."""
+    import inspect
+
+    monkeypatch.delenv("WALLET_PRIVATE_KEY", raising=False)
+    monkeypatch.delenv("OWS_WALLET", raising=False)
+    client = SimmerClient.readonly(api_key="sk_live_test")
+
+    def _no_request(*a, **k):
+        raise AssertionError(f"{method} sent a request from a readonly client")
+
+    monkeypatch.setattr(client, "_request", _no_request)
+    fn = getattr(client, method)
+    args = [
+        "x" for p in inspect.signature(fn).parameters.values()
+        if p.default is inspect.Parameter.empty
+        and p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD)
+    ]
+    with pytest.raises(RuntimeError, match="readonly"):
+        fn(*args)
+
+
+def test_every_public_write_method_is_readonly_guarded():
+    """A new public method that sends POST/PATCH/PUT/DELETE must be guarded or explicitly allowed."""
+    import ast
+    import inspect
+    import re
+    import textwrap
+
+    import simmer_sdk.client as client_module
+
+    # Writes that touch no account state (catalog imports) or only return order params.
+    allowed = {"import_market", "import_kalshi_market", "import_kalshi_event", "prepare_real_trade"}
+    src = inspect.getsource(client_module)
+    tree = ast.parse(src)
+    cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "SimmerClient")
+    unguarded = []
+    for fn in cls.body:
+        if not isinstance(fn, ast.FunctionDef) or fn.name.startswith("_") or fn.name in allowed:
+            continue
+        body = ast.get_source_segment(src, fn)
+        if re.search(r'_request\(\s*"(POST|PATCH|PUT|DELETE)"', body) and "_assert_not_readonly" not in body:
+            unguarded.append(fn.name)
+    assert unguarded == []
+
+
 # ---------------------------------------------------------------------------
 # with_ows_wallet()
 # ---------------------------------------------------------------------------
