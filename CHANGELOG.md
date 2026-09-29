@@ -5,6 +5,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## Unreleased
 
+## 0.25.9 (2026-09-29)
+
 - **`SimmerClient.readonly()` now blocks every account mutation, not just trades (SIM-5847).** It already refused `trade()`, `redeem()`, `auto_redeem()`, monitors and alerts, but still let `cancel_order()`, `cancel_market_orders()`, `cancel_all_orders()`, `set_approvals()`, `link_wallet()`, `update_settings()`, webhook calls, deposit-wallet activation and wrapping, and agent-wallet registration reach the server. All of these now raise `RuntimeError` before any request is sent, and a structural test fails if a new public write method ships unguarded. Market imports and `ensure_approvals()` (returns transaction data, signs nothing) stay allowed. **Behaviour change** for code that used a readonly client to cancel or set approvals: build a regular `SimmerClient` for those calls. `live=False` is unchanged; its docstring now states that it simulates only `trade()`, `place_combo()` and Hyperliquid orders.
 
 - **`get_markets()` now documents the ordering the server actually uses.** The `sort` docstring said the default was newest-first and "scheduled to become liquidity-first in an upcoming release", and told callers to pass `sort="recent"` to pin current behaviour. The server changed to liquidity-first in SIM-3126 and the docstring never followed, so `sort="recent"` silently *changed* the market universe for anyone who took that advice. The default is liquidity-first — the same ordering as `sort="volume"`. Also documents that `q=` overrides `sort` entirely. Same correction in `skills/simmer-skill-builder/references/simmer-api.md` (1.3.10 → 1.3.11). Docs only; no behaviour change.
