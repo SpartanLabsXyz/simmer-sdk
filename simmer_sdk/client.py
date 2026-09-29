@@ -172,12 +172,15 @@ class TradeResult:
     skip_reason: Optional[str] = None  # Why trade was skipped (e.g. "conflicts skipped")
     fill_status: str = "unknown"  # Server fill status: "filled", "submitted", "unconfirmed", "failed"
     order_id: Optional[str] = None  # CLOB order ID for GTC/GTD orders — use with cancel_order()
+    client_order_id: Optional[str] = None  # SDK-issued order id, set even when order_id is still pending.
+    exchange_order_id_pending: bool = False  # True when order_id hasn't come back yet — track the order via client_order_id.
     retryable: bool = True  # False when server knows retrying is futile (position cleared on-chain)
     fee_rate_bps: Optional[float] = None  # Taker fee rate in basis points (0 on Polymarket today)
     error_code: Optional[str] = None  # Machine-readable failure bucket.
     error_hint: Optional[str] = None  # Actionable next step for agents.
     next_steps: Optional[List[str]] = None  # Optional contextual follow-up hints.
     go_live: Optional[dict] = None  # Server milestone nudge: steps to enable real trading (sim-only accounts).
+    warnings: Optional[List[str]] = None  # Server-side notices, e.g. explaining an unconfirmed fill_status.
 
     @property
     def shares_filled(self) -> float:
@@ -3061,11 +3064,14 @@ class SimmerClient:
                 error=_error,
                 fill_status=d.get("fill_status", "unknown"),
                 order_id=d.get("order_id"),
+                client_order_id=d.get("client_order_id"),
+                exchange_order_id_pending=d.get("exchange_order_id_pending", False),
                 retryable=d.get("retryable", True),
                 fee_rate_bps=d.get("fee_rate_bps"),
                 error_code=d.get("error_code") or _structured.get("code"),
                 error_hint=d.get("error_hint") or d.get("hint") or _structured.get("hint"),
                 go_live=d.get("go_live"),
+                warnings=d.get("warnings") or None,
             )
             if include_hints:
                 result.next_steps = self._trade_next_steps(result)
