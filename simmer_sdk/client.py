@@ -1125,7 +1125,10 @@ class SimmerClient:
             return None
         if not isinstance(payload, dict):
             return None
-        return bool(payload.get("bids"))
+        bids = payload.get("bids")
+        if not isinstance(bids, list):
+            return None
+        return bool(bids)
 
     def get_briefing(self, since: str = None, process_risk_alerts: bool = True,
                      skill_versions: dict = None) -> dict:
