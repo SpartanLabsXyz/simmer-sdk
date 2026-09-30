@@ -3,7 +3,7 @@ name: simmer-skill-builder
 description: Generate complete, installable OpenClaw trading skills from natural language strategy descriptions. Use when your human wants to create a new trading strategy, build a bot, generate a skill, automate a trade idea, turn a tweet into a strategy, or asks "build me a skill that...". Produces a full skill folder (SKILL.md + Python script + config) ready to install and run.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.3.11"
+  version: "1.3.14"
   displayName: Simmer Skill Builder
   difficulty: beginner
 ---
@@ -278,7 +278,7 @@ Customize:
 
 ### Step 5: Validate
 
-Run the validator against the generated skill. The validator ships **inside this skill** at `scripts/validate_skill.py`, co-located with this `SKILL.md` — when the skill is installed (e.g. `npx simmer-mcp install-skill`) it lands in your runtime's skill directory alongside the instructions. Resolve the path relative to this file:
+Run the validator against the generated skill. The validator ships **inside this skill** at `scripts/validate_skill.py`, co-located with this `SKILL.md` — when the skill is installed (e.g. `npx -y simmer-mcp@3.5.8 install-skill`) it lands in your runtime's skill directory alongside the instructions. Resolve the path relative to this file:
 
 ```bash
 # from the simmer-skill-builder skill directory:
@@ -291,13 +291,15 @@ Fix any FAIL results before delivering to your human.
 
 ### Step 6: Publish to ClawHub
 
-Once validated, publish the skill so it appears in the Simmer registry automatically:
+Publishing makes the skill installable by anyone and runs `npx clawhub@<pinned version>` — a remote package fetch — so it requires an explicit confirmation before it runs. **Never run `npx clawhub ... publish` directly**; always go through the gate:
 
 ```bash
-npx clawhub@latest publish /path/to/generated-skill/ --slug <skill-slug> --version 1.0.0
+python scripts/confirm_publish.py /path/to/generated-skill/ --slug <skill-slug> --version 1.0.0
 ```
 
-After publishing, the Simmer sync job picks it up within ~1 hour (runs hourly at :45 UTC) and lists it at [simmer.markets/skills](https://simmer.markets/skills?ref=sdk-skill&utm_campaign=sdk-skill). No submission or approval needed — publishing to ClawHub with `simmer-sdk` as a dependency is all it takes.
+This prompts your human to type the exact skill slug back before it shells out to ClawHub. A bare "yes" or "y" does not satisfy it — only the slug, typed exactly, does. If the confirmation is withheld or doesn't match, the script exits non-zero and makes **no** network call to ClawHub. Do not work around the gate by calling `npx clawhub` yourself.
+
+Once confirmed and published, the Simmer sync job picks it up within ~1 hour (runs hourly at :45 UTC) and lists it at [simmer.markets/skills](https://simmer.markets/skills?ref=sdk-skill&utm_campaign=sdk-skill). No submission or approval needed — publishing to ClawHub with `simmer-sdk` as a dependency is all it takes.
 
 Tell your human:
 > ✅ Skill published to ClawHub. It will appear in the Simmer Skills Registry within ~1 hour at simmer.markets/skills.
@@ -317,6 +319,8 @@ There is no publish step. skills.sh resolves skills straight from a public git r
    ```
 
 That is all it takes. The same `SKILL.md` frontmatter (`name` + `description`) that ClawHub reads is what skills.sh reads.
+
+**`npx skills add` is intentionally left unpinned and outside this ticket's scope** — it runs on a third party's machine, installing a skill from a public git repo the builder-agent doesn't hold `SIMMER_API_KEY` for, and pinning a version this skill doesn't control would go stale the moment skills.sh cuts a release; the credential-holding-while-unpinned finding that opened this ticket is specifically about `npx` calls this agent itself runs while `SIMMER_API_KEY` is in its own environment (Step 6's `clawhub publish`, and `simmer-mcp-setup`'s server launch), not this one.
 
 **On discoverability:** a public repo makes the skill *installable* immediately, but skills.sh's search and leaderboard rank by install count, so a brand-new skill will not surface in search until it accrues installs. Share the direct `npx skills add` command to drive those first installs. To keep a skill installable but hidden from skills.sh discovery, set `metadata.internal: true` in the frontmatter.
 
@@ -359,7 +363,7 @@ You would:
    - `synth_volatility.py` (fetch Synth forecast, compare to market price, Kelly size, trade)
    - `scripts/status.py` (copied)
 7. Validate with `scripts/validate_skill.py`.
-8. Publish: `npx clawhub@latest publish polymarket-synth-volatility/ --slug polymarket-synth-volatility --version 1.0.0`
+8. Publish (after typing the slug to confirm): `python scripts/confirm_publish.py polymarket-synth-volatility/ --slug polymarket-synth-volatility --version 1.0.0`
 
 ## Example: World Cup Thread to Skill
 
@@ -383,7 +387,7 @@ You would:
    - `scripts/status.py`
 4. Add tests or a dry-run fixture for one match: prices `[0.49, 0.24, 0.24]` should trigger; `[0.50, 0.25, 0.27]` should not.
 5. Validate with `scripts/validate_skill.py`.
-6. Publish with an explicit slug:
-   `npx clawhub@latest publish polymarket-worldcup-split-scanner/ --slug polymarket-worldcup-split-scanner --version 1.0.0`
+6. Publish with an explicit slug (after typing the slug to confirm):
+   `python scripts/confirm_publish.py polymarket-worldcup-split-scanner/ --slug polymarket-worldcup-split-scanner --version 1.0.0`
 
 Do not silently broaden this into live in-play trading. If the pasted post mentions red cards, xG, or substitutions, split that into a separate skill or make it a clearly documented optional remix path with its own data requirements and cooldowns.
