@@ -39,6 +39,17 @@ def test_resolve_window_local_tape_falls_back_to_today(monkeypatch):
     assert t1 == "2026-09-16" and t0 == "2026-08-17"
 
 
+def test_resolve_window_subday_fallback_does_not_collapse_at_non_midnight(monkeypatch):
+    import argparse
+    from datetime import datetime, timezone
+
+    monkeypatch.setattr(cli, "_now_utc", lambda: datetime(2026, 9, 16, 15, tzinfo=timezone.utc))
+    a = argparse.Namespace(t0=None, t1=None, window="12h")
+    t0, t1 = cli._resolve_window(a)
+    assert t0 == "2026-09-15"
+    assert t1 == "2026-09-16"
+
+
 def test_resolve_window_explicit_takes_precedence():
     import argparse
 
