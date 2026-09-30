@@ -5,11 +5,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## Unreleased
 
+## 0.25.10 (2026-09-30)
+
+- **`TradeResult` now carries `client_order_id`, `exchange_order_id_pending` and `warnings` (SIM-5853).** A Polymarket buy whose fill is not yet verified returns `success=True` with 0 shares and `fill_status` `"unconfirmed"` or `"submitted"`. The server explained this in a warning, but the SDK dropped it, so the result looked like an empty fill. `result.warnings` now holds those notices (`None` when there are none) and `result.client_order_id` identifies the order attempt. When `fill_status` is not `"filled"`, check `get_positions()` before retrying, or you may buy twice.
+
 ## 0.25.9 (2026-09-29)
 
 - **`SimmerClient.readonly()` now blocks every account mutation, not just trades (SIM-5847).** It already refused `trade()`, `redeem()`, `auto_redeem()`, monitors and alerts, but still let `cancel_order()`, `cancel_market_orders()`, `cancel_all_orders()`, `set_approvals()`, `link_wallet()`, `update_settings()`, webhook calls, deposit-wallet activation and wrapping, and agent-wallet registration reach the server. All of these now raise `RuntimeError` before any request is sent, and a structural test fails if a new public write method ships unguarded. Market imports and `ensure_approvals()` (returns transaction data, signs nothing) stay allowed. **Behaviour change** for code that used a readonly client to cancel or set approvals: build a regular `SimmerClient` for those calls. `live=False` is unchanged; its docstring now states that it simulates only `trade()`, `place_combo()` and Hyperliquid orders.
 
-- **`TradeResult` now surfaces `client_order_id`, `exchange_order_id_pending` and `warnings`.** When a fill hasn't confirmed yet (`fill_status="unconfirmed"`), these fields give you the order id to track it by and any server-side notices explaining why — previously only `success` / `shares_bought` / `cost` came through, with no way to tell an unconfirmed fill apart from a silent no-op.
 - **`get_markets()` now documents the ordering the server actually uses.** The `sort` docstring said the default was newest-first and "scheduled to become liquidity-first in an upcoming release", and told callers to pass `sort="recent"` to pin current behaviour. The server changed to liquidity-first in SIM-3126 and the docstring never followed, so `sort="recent"` silently *changed* the market universe for anyone who took that advice. The default is liquidity-first — the same ordering as `sort="volume"`. Also documents that `q=` overrides `sort` entirely. Same correction in `skills/simmer-skill-builder/references/simmer-api.md` (1.3.10 → 1.3.11). Docs only; no behaviour change.
 
 ## polymarket-signal-sniper 2.0.0 — 2026-09-18
