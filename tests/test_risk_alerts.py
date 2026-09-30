@@ -83,3 +83,55 @@ def test_risk_alert_skips_non_polymarket_alerts(monkeypatch):
     }])
 
     assert trades == []
+
+
+def test_risk_alert_defers_sell_when_order_book_has_no_bids(monkeypatch):
+    client = _client(monkeypatch)
+    monkeypatch.setattr(
+        client,
+        "get_positions",
+        lambda venue=None: [_position(yes=3.25)],
+    )
+    monkeypatch.setattr(client, "_polymarket_has_bids", lambda token_id, **kwargs: False)
+
+    trades = []
+    monkeypatch.setattr(client, "trade", lambda **kwargs: trades.append(kwargs) or {"success": True})
+    monkeypatch.setattr(client, "delete_monitor", lambda market_id, side: None)
+    monkeypatch.setattr(client, "_request", lambda *args, **kwargs: {})
+
+    client._process_risk_alerts(alerts=[{
+        "market_id": "m1",
+        "side": "yes",
+        "shares": 10,
+        "exit_reason": "stop_loss",
+        "venue": "polymarket",
+        "token_id": "tok1",
+    }])
+
+    assert trades == []
+
+
+def test_risk_alert_sells_when_order_book_check_is_unfetchable(monkeypatch):
+    client = _client(monkeypatch)
+    monkeypatch.setattr(
+        client,
+        "get_positions",
+        lambda venue=None: [_position(yes=3.25)],
+    )
+    monkeypatch.setattr(client, "_polymarket_has_bids", lambda token_id, **kwargs: None)
+
+    trades = []
+    monkeypatch.setattr(client, "trade", lambda **kwargs: trades.append(kwargs) or {"success": True})
+    monkeypatch.setattr(client, "delete_monitor", lambda market_id, side: None)
+    monkeypatch.setattr(client, "_request", lambda *args, **kwargs: {})
+
+    client._process_risk_alerts(alerts=[{
+        "market_id": "m1",
+        "side": "yes",
+        "shares": 10,
+        "exit_reason": "stop_loss",
+        "venue": "polymarket",
+        "token_id": "tok1",
+    }])
+
+    assert len(trades) == 1

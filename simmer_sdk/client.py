@@ -1017,6 +1017,21 @@ class SimmerClient:
                     )
                     shares = fresh_shares
 
+                # A SELL into a book with no bids is rejected by the server
+                # ("No bids in order book - cannot execute SELL") every time —
+                # submitting it anyway just burns a failed trade. Defer the
+                # exit and retry next cycle instead; the alert and any open
+                # orders are left untouched. An unfetchable book (timeout,
+                # bad payload) fails open — skipping a stop-loss exit because
+                # a health check couldn't reach Polymarket is worse than the
+                # trade it would have prevented.
+                if token_id and self._polymarket_has_bids(token_id) is False:
+                    print(
+                        f"[SimmerSDK] Risk exit deferred for {market_id[:8]}... {side}: "
+                        "no bids in order book — will retry next cycle"
+                    )
+                    continue
+
                 # 1. Cancel open orders on this market (Polymarket only — token_id based)
                 if token_id:
                     self._cancel_orders_for_token(token_id)
@@ -1089,6 +1104,28 @@ class SimmerClient:
             shares = getattr(pos, f"shares_{side}", 0) or 0
             return float(shares)
         return None
+
+    def _polymarket_has_bids(self, token_id: str, *, timeout: int = 5) -> Optional[bool]:
+        """Check whether a Polymarket CLOB order book currently has any bids.
+
+        Returns True/False when the book was fetched successfully, or None
+        when it couldn't be (timeout, non-200, bad payload) — callers should
+        treat None as "unknown" and fail open rather than blocking on it.
+        """
+        try:
+            response = requests.get(
+                f"{self.POLYMARKET_CLOB_API}/book",
+                params={"token_id": token_id},
+                headers={"Accept": "application/json"},
+                timeout=timeout,
+            )
+            response.raise_for_status()
+            payload = response.json()
+        except Exception:
+            return None
+        if not isinstance(payload, dict):
+            return None
+        return bool(payload.get("bids"))
 
     def get_briefing(self, since: str = None, process_risk_alerts: bool = True,
                      skill_versions: dict = None) -> dict:
