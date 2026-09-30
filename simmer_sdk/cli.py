@@ -155,6 +155,8 @@ def _resolve_window(args: argparse.Namespace, *, coverage_t1: Optional[str] = No
         anchor = args.t1 or coverage_t1
         t1 = datetime.fromisoformat(anchor) if anchor else _now_utc()
         t1 = t1.replace(tzinfo=timezone.utc)
+        if not anchor:
+            t1 = t1.replace(hour=0, minute=0, second=0, microsecond=0)
         t0 = t1 - span
         return t0.date().isoformat(), t1.date().isoformat()
     raise ValueError("a window is required — pass --t0 and --t1, or --window 30d "

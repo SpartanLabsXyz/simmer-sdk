@@ -1,4 +1,4 @@
-# vendored from simmer_v3/replay/harness.py @ 28c663f93232
+# vendored from simmer_v3/replay/harness.py @ 97bcf863e81a
 # DO NOT EDIT HERE — regenerate via scripts/sync_replay_engine.py
 """Unmodified-bundle replay harness (SIM-3070).
 
