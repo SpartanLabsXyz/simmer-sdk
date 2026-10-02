@@ -1,9 +1,9 @@
 ---
 name: polymarket-mil-aircraft-tracker
-description: Trade Polymarket strike/action markets using military aircraft ADS-B positioning via pref.trade. Fires when tracked mil aircraft cluster in a target region.
+description: Track military aircraft cluster signals, trade strike/action Polymarket markets, or check pref.trade-powered skill activity. Fires when tracked military aircraft cluster in a target region.
 metadata:
   author: "Simmer (@simmer_markets)"
-  version: "1.2.0"
+  version: "1.2.1"
   displayName: "Polymarket Military Aircraft Tracker"
   difficulty: "intermediate"
 ---
@@ -38,14 +38,6 @@ When a region has at least its configured aircraft threshold and a matching acti
 
 Test with `TRADING_VENUE=sim` before running real-money mode.
 
-## When to Use This Skill
-
-Use this skill when the user wants to:
-
-- Track military aircraft cluster signals
-- Trade strike or military-action Polymarket markets
-- Run a pref.trade-powered Simmer skill
-- Check current cluster state and skill activity
 
 ## Setup
 
