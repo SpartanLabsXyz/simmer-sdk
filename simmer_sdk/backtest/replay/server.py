@@ -1,4 +1,4 @@
-# vendored from simmer_v3/replay/server.py @ 00a4065abbd5
+# vendored from simmer_v3/replay/server.py @ 983be31a933a
 # DO NOT EDIT HERE — regenerate via scripts/sync_replay_engine.py
 """Replay API server — the minimal /api/sdk surface skills consume (SIM-3070).
 
@@ -266,8 +266,9 @@ def create_app(session: ReplaySession) -> FastAPI:
 
     @app.get("/api/sdk/positions")
     def positions(venue: Optional[str] = None, status: Optional[str] = None):
-        _reject_unsupported(venue=venue)
         rows = _positions_rows(session)
+        # Replay positions are simulated regardless of live venue. Accept the
+        # SDK's venue parameter for compatibility, but do not filter out sim rows.
         if status == "resolved":
             rows = [r for r in rows if r["redeemable"]]
         return {"positions": rows, "sim_balance": session.sim.cash}

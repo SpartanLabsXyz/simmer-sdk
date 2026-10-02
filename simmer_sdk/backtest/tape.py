@@ -20,6 +20,7 @@ which runs the tape, needs duckdb).
 from __future__ import annotations
 
 import os
+import json
 import tempfile
 from pathlib import Path
 from typing import Optional, Union
@@ -32,6 +33,7 @@ import requests
 # locally gives a clearer message without a round-trip.
 DATASET_END = "2026-05-05"
 _TAPE_ENDPOINT = "/api/backtest/tape"
+_TAPE_COVERAGE_ENDPOINT = "/api/backtest/tape/coverage"
 
 
 class TapeFetchError(RuntimeError):
@@ -72,6 +74,30 @@ def _download(url: str, dest: Path, *, timeout: int = 300) -> None:
         tmp.unlink(missing_ok=True)
 
 
+def _stamp_manifest_from_response(slice_dir: Path, body: dict) -> None:
+    manifest_path = slice_dir / "manifest.json"
+    if not manifest_path.exists():
+        return
+    try:
+        with open(manifest_path) as fh:
+            manifest = json.load(fh)
+        for key in (
+            "markets_requested",
+            "markets_matching_filter",
+            "markets_served",
+            "max_markets_served",
+            "truncated",
+        ):
+            if key in body:
+                manifest[key] = body[key]
+        tmp = manifest_path.with_suffix(".json.part")
+        with open(tmp, "w") as fh:
+            json.dump(manifest, fh, indent=2)
+        os.replace(tmp, manifest_path)
+    except Exception:
+        return
+
+
 def fetch_tape(
     t0: Union[str, datetime],
     t1: Union[str, datetime],
@@ -109,7 +135,7 @@ def fetch_tape(
         "min_volume": float(min_volume),
     }
     if q:
-        payload["q"] = q
+        payload["q"] = str(q)
     log(f"requesting tape slice {payload['t0']}..{payload['t1']} "
         f"(max {max_markets} markets, min volume {min_volume:,.0f}"
         f"{f', q={q!r}' if q else ''}) from {base}...")
@@ -145,13 +171,17 @@ def fetch_tape(
     markets_pq = slice_dir / "markets.parquet"
     quant_pq = slice_dir / "quant.parquet"
     if markets_pq.exists() and quant_pq.exists() and not refresh:
+        _stamp_manifest_from_response(slice_dir, body)
         log(f"using cached tape: {slice_dir}")
         return str(slice_dir)
 
     slice_dir.mkdir(parents=True, exist_ok=True)
     n_markets = body.get("markets")
     n_quant = body.get("quant_rows")
-    log(f"downloading slice ({n_markets} markets, "
+    served = body.get("markets_served", n_markets)
+    requested = body.get("markets_requested")
+    served_text = f"{served}/{requested} markets served" if requested else f"{n_markets} markets"
+    log(f"downloading slice ({served_text}, "
         f"{f'{n_quant:,}' if isinstance(n_quant, int) else '?'} prints)"
         f"{' [server cache hit]' if body.get('cached') else ''}...")
     try:
@@ -160,6 +190,7 @@ def fetch_tape(
         if urls.get("manifest"):
             try:
                 _download(urls["manifest"], slice_dir / "manifest.json", timeout=timeout)
+                _stamp_manifest_from_response(slice_dir, body)
             except Exception:
                 pass  # manifest is best-effort (only feeds dataset_rev labeling)
     except requests.RequestException as exc:
@@ -171,6 +202,42 @@ def fetch_tape(
 
     log(f"tape ready → {slice_dir}")
     return str(slice_dir)
+
+
+def fetch_tape_coverage(
+    *,
+    base_url: Optional[str] = None,
+    api_key: Optional[str] = None,
+    timeout: int = 30,
+) -> dict:
+    """Return tape-service coverage metadata, including the latest servable t1."""
+    base = _resolve_base_url(base_url)
+    key = api_key or os.getenv("SIMMER_API_KEY")
+    if not key:
+        raise TapeFetchError(
+            "a Simmer API key is required to check tape coverage — set SIMMER_API_KEY "
+            "(the same key you trade with) or pass --t1 explicitly with --tape/--demo."
+        )
+    try:
+        resp = requests.get(
+            base + _TAPE_COVERAGE_ENDPOINT,
+            headers={"Authorization": f"Bearer {key}"},
+            timeout=timeout,
+        )
+    except requests.RequestException as exc:
+        raise TapeFetchError(f"could not reach the tape service at {base}: {exc}") from exc
+
+    if resp.status_code in (401, 403):
+        raise TapeFetchError(_detail(resp, "tape coverage rejected — check SIMMER_API_KEY"))
+    if resp.status_code == 503:
+        raise TapeFetchError(_detail(resp, "the backtest tape service is unavailable"))
+    if not resp.ok:
+        raise TapeFetchError(_detail(resp, f"tape coverage lookup failed ({resp.status_code})"))
+
+    body = resp.json()
+    if not body.get("coverage_t1"):
+        raise TapeFetchError(f"malformed tape coverage response from {base}: {body!r}")
+    return body
 
 
 def _detail(resp, fallback: str) -> str:
