@@ -5,6 +5,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## Unreleased
 
+- **Risk-monitor exits on Polymarket now confirm the order book has active bids before selling (SIM-5838).** A triggered stop-loss or take-profit exit checks the book first; if it's empty, the exit is deferred to the next cycle instead of submitting a SELL that can't fill.
+
 ## 0.25.10 (2026-09-30)
 
 - **`TradeResult` now carries `client_order_id`, `exchange_order_id_pending` and `warnings` (SIM-5853).** A Polymarket buy whose fill is not yet verified returns `success=True` with 0 shares and `fill_status` `"unconfirmed"` or `"submitted"`. The server explained this in a warning, but the SDK dropped it, so the result looked like an empty fill. `result.warnings` now holds those notices (`None` when there are none) and `result.client_order_id` identifies the order attempt. When `fill_status` is not `"filled"`, check `get_positions()` before retrying, or you may buy twice.
