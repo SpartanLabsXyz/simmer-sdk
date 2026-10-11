@@ -92,8 +92,8 @@ jobs:
       - name: Run tests (if present)
         run: |
           if [ -d "tests" ]; then
-            pip install pytest
-            pytest tests/
+            pip install pytest pytest-socket
+            pytest tests/ --disable-socket --allow-unix-socket
           else
             echo "No tests directory — skipping"
           fi
