@@ -78,7 +78,7 @@ Run each command block from the repo root (the MCP command changes directories).
   python scripts/check_skill_examples.py skills/ README.md
   ```
 
-- **MCP** (CI job: `mcp-build`): checks bundled skills and runs MCP tests; requires Node >= 22.
+- **MCP** (CI job: `mcp-build`): checks bundled skills and runs MCP tests; requires Node >= 22.18 (type stripping for `.ts` scripts).
 
   ```bash
   cd mcp && npm ci && npm run check:bundle-skills && npm test
