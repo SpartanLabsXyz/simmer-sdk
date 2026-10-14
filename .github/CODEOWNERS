@@ -18,3 +18,9 @@
 /simmer_sdk/solana_signing.py       @adlai88
 /simmer_sdk/hyperliquid_signing.py  @adlai88
 /simmer_sdk/dw_redeem.py            @adlai88
+
+# --- CI workflows and this file (Rule B, 2026-10-14) ---
+# CI decides what "green" means, so changing it needs the same human approval
+# as money code.
+/.github/workflows/  @adlai88
+/.github/CODEOWNERS  @adlai88
