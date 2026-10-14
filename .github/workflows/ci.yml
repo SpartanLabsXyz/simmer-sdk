@@ -93,7 +93,17 @@ jobs:
         run: |
           if [ -d "tests" ]; then
             pip install pytest pytest-socket
-            pytest tests/ --disable-socket --allow-unix-socket
+            test_output=$(mktemp)
+            pytest_status=0
+            pytest tests/ --disable-socket --allow-unix-socket >"$test_output" 2>&1 || pytest_status=$?
+            cat "$test_output"
+            if grep -qF 'tried to use socket' "$test_output"; then
+              echo "::error::pytest-socket detected a network attempt"
+              rm -f "$test_output"
+              exit 1
+            fi
+            rm -f "$test_output"
+            exit "$pytest_status"
           else
             echo "No tests directory — skipping"
           fi
