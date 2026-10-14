@@ -11,7 +11,7 @@ Usage:
     }
     _config = load_config(CONFIG_SCHEMA, __file__, slug=SKILL_SLUG)
 
-Config priority: config.json > env vars > defaults
+Config priority: env vars > config.json > defaults
 """
 
 import os
@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 def load_config(schema, skill_file, slug=None, config_filename="config.json"):
     """
-    Load skill config with priority: config.json > env vars > defaults.
+    Load skill config with priority: env vars > config.json > defaults.
 
     Args:
         schema: Dict of config keys to specs. Each spec has:
