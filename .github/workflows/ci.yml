@@ -108,6 +108,27 @@ jobs:
             echo "No tests directory — skipping"
           fi
 
+  backtest-extra-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install SDK with backtest extra
+        run: pip install -e '.[backtest]' pytest
+
+      - name: Run backtest extra tests
+        run: pytest tests/test_backtest_run.py tests/test_replay_markets_filters.py tests/test_cli.py -q -rs
+
+      - name: Backtest demo smoke test
+        run: simmer backtest --demo
+
   ows-constructor-tests:
     name: OWS Constructor Tests
     runs-on: ubuntu-latest
