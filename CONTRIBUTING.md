@@ -40,12 +40,55 @@ cd simmer-sdk
 pip install -e .
 ```
 
+### Optional: against a real agent
+
 Verify your change works against a real agent:
 
 ```bash
 export SIMMER_API_KEY=sk_live_...
 python -c "from simmer_sdk import SimmerClient; c = SimmerClient(api_key='$SIMMER_API_KEY'); print(c.get_markets(limit=1))"
 ```
+
+## Running tests locally
+
+After Dev setup, install pytest for the Python suites:
+
+```bash
+pip install pytest
+```
+
+Run each command block from the repo root (the MCP command changes directories).
+
+- **Root** (CI job: `build`): no API key or network required.
+
+  ```bash
+  pytest tests/
+  ```
+
+- **Per-skill** (CI job: `skill-tests`): no API key or network required.
+
+  ```bash
+  bash scripts/run_skill_tests.sh
+  ```
+
+- **Example binding** (CI job: `skill-example-bind`): tests the checker and validates documented SDK calls.
+
+  ```bash
+  pytest scripts/test_check_skill_examples.py -q
+  python scripts/check_skill_examples.py skills/ README.md
+  ```
+
+- **MCP** (CI job: `mcp-build`): checks bundled skills and runs MCP tests; requires Node >= 22.18 (type stripping for `.ts` scripts).
+
+  ```bash
+  cd mcp && npm ci && npm run check:bundle-skills && npm test
+  ```
+
+- **OWS** (CI job: `ows-constructor-tests`): installs the OWS extra and tests client constructors.
+
+  ```bash
+  pip install -e '.[ows]' pytest && pytest tests/test_client_constructors.py -q
+  ```
 
 ## Before opening a PR
 
