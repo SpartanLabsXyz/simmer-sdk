@@ -131,6 +131,18 @@ def _dataset_rev(tape_dir: str) -> str:
     return "unknown"
 
 
+def _tape_manifest(tape_dir: str) -> dict:
+    import json
+
+    manifest_path = os.path.join(tape_dir, "manifest.json")
+    try:
+        with open(manifest_path) as fh:
+            data = json.load(fh)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
 # -- public entrypoint --------------------------------------------------------
 
 def run_backtest(
@@ -248,6 +260,7 @@ def run_backtest(
     cadence_td = _parse_cadence(cadence)
     extra_args = _normalize_args(args)
     sdk_path = resolve_sdk_path(sdk_path)
+    tape_manifest = _tape_manifest(tape)
 
     # store + kline_store both hold OS resources (a DuckDB connection / FD); build
     # them INSIDE the try so the finally closes whatever was opened even if a later
@@ -293,6 +306,14 @@ def run_backtest(
     # Runner-asserted coverage: lets a 0-trade result read as verified
     # no-signal. Default False keeps 0-trade results inconclusive.
     report["coverage_ok"] = bool(coverage_ok)
+    if tape_manifest:
+        report["summary"].update({
+            "markets_requested": tape_manifest.get("markets_requested", tape_manifest.get("markets")),
+            "markets_matching_filter": tape_manifest.get("markets_matching_filter"),
+            "markets_served": tape_manifest.get("markets_served", tape_manifest.get("markets")),
+            "max_markets_served": tape_manifest.get("max_markets_served"),
+            "markets_truncated": bool(tape_manifest.get("truncated", False)),
+        })
     report["replay_job"] = {
         "slug": config.skill_slug,
         "version": None,

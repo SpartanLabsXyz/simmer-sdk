@@ -40,6 +40,11 @@ def _ok_body(key="abc123"):
         "dataset_rev": "rev1",
         "t0": "2026-03-01", "t1": "2026-03-08",
         "markets": 12, "quant_rows": 3456,
+        "markets_requested": 50,
+        "markets_matching_filter": 12,
+        "markets_served": 12,
+        "max_markets_served": 50,
+        "truncated": False,
         "expires_in": 3600, "cached": False,
         "urls": {
             "markets": "https://bucket/slices/%s/markets.parquet" % key,
@@ -52,8 +57,12 @@ def _ok_body(key="abc123"):
 def _patch_download(monkeypatch):
     """_download just writes a stub file so cache/existence logic is exercised."""
     def fake(url, dest, timeout=300):
-        with open(dest, "wb") as fh:
-            fh.write(b"PAR1")
+        if str(dest).endswith("manifest.json"):
+            with open(dest, "w") as fh:
+                json.dump({"markets_requested": 999, "markets": 12}, fh)
+        else:
+            with open(dest, "wb") as fh:
+                fh.write(b"PAR1")
     monkeypatch.setattr(tp, "_download", fake)
 
 
@@ -79,7 +88,7 @@ def test_fetch_tape_success_and_request_shape(cache, monkeypatch):
     assert os.path.exists(os.path.join(out, "quant.parquet"))
 
 
-def test_fetch_tape_passes_q_when_given(cache, monkeypatch):
+def test_fetch_tape_sends_q_filter(cache, monkeypatch):
     captured = {}
 
     def fake_post(url, json=None, headers=None, timeout=None):
@@ -89,9 +98,15 @@ def test_fetch_tape_passes_q_when_given(cache, monkeypatch):
     monkeypatch.setattr(tp.requests, "post", fake_post)
     _patch_download(monkeypatch)
 
-    tp.fetch_tape("2026-03-01", "2026-03-08", max_markets=50, min_volume=2000,
-                  q="temperature", base_url="http://localhost:8000")
-    assert captured["json"]["q"] == "temperature"
+    tp.fetch_tape("2026-08-17", "2026-09-16", max_markets=3000,
+                  min_volume=0, q="temperature", base_url="http://localhost:8000")
+    assert captured["json"] == {
+        "t0": "2026-08-17",
+        "t1": "2026-09-16",
+        "max_markets": 3000,
+        "min_volume": 0.0,
+        "q": "temperature",
+    }
 
 
 def test_fetch_tape_omits_q_when_not_given(cache, monkeypatch):
@@ -106,6 +121,35 @@ def test_fetch_tape_omits_q_when_not_given(cache, monkeypatch):
 
     tp.fetch_tape("2026-03-01", "2026-03-08", base_url="http://localhost:8000")
     assert "q" not in captured["json"]
+
+
+def test_fetch_tape_coverage_success(cache, monkeypatch):
+    captured = {}
+
+    def fake_get(url, headers=None, timeout=None):
+        captured["url"] = url
+        captured["headers"] = headers
+        return _Resp(200, {
+            "dataset_rev": "rev1",
+            "coverage_t1": "2026-05-05",
+            "canonical_coverage_t1": "2026-05-05",
+            "source": "replay-tapes:rev1",
+        })
+
+    monkeypatch.setattr(tp.requests, "get", fake_get)
+
+    coverage = tp.fetch_tape_coverage(base_url="http://localhost:8000")
+
+    assert captured["url"] == "http://localhost:8000/api/backtest/tape/coverage"
+    assert captured["headers"]["Authorization"] == "Bearer sk_live_test"
+    assert coverage["coverage_t1"] == "2026-05-05"
+
+
+def test_fetch_tape_coverage_requires_api_key(tmp_path, monkeypatch):
+    monkeypatch.setenv("SIMMER_TAPE_CACHE", str(tmp_path))
+    monkeypatch.delenv("SIMMER_API_KEY", raising=False)
+    with pytest.raises(tp.TapeFetchError, match="API key"):
+        tp.fetch_tape_coverage(base_url="http://x")
 
 
 def test_fetch_tape_requires_api_key(tmp_path, monkeypatch):
@@ -144,6 +188,23 @@ def test_fetch_tape_cache_hit_skips_redownload(cache, monkeypatch):
     assert first >= 2  # markets + quant downloaded
     tp.fetch_tape("2026-03-01", "2026-03-08", base_url="http://x")
     assert calls["n"] == first  # cached → no further downloads
+
+
+def test_fetch_tape_stamps_manifest_counts_from_current_response(cache, monkeypatch):
+    responses = [
+        _ok_body(key="shared"),
+        {**_ok_body(key="shared"), "markets_requested": 3000, "cached": True},
+    ]
+
+    monkeypatch.setattr(tp.requests, "post", lambda *a, **k: _Resp(200, responses.pop(0)))
+    _patch_download(monkeypatch)
+
+    out = tp.fetch_tape("2026-03-01", "2026-03-08", base_url="http://x")
+    manifest_path = os.path.join(out, "manifest.json")
+    assert json.load(open(manifest_path))["markets_requested"] == 50
+
+    tp.fetch_tape("2026-03-01", "2026-03-08", base_url="http://x")
+    assert json.load(open(manifest_path))["markets_requested"] == 3000
 
 
 def test_fetch_tape_maps_422(cache, monkeypatch):
