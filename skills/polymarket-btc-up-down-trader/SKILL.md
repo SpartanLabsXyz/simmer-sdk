@@ -17,10 +17,6 @@ Trade Polymarket's BTC daily and weekly UP/DOWN markets with built-in exit disci
 
 > **Not for fast (5m/15m) markets.** Use `polymarket-fast-loop` for those. This skill targets daily and weekly BTC direction markets with hours-to-days of duration.
 
-## What's New in v1.2.4
-
-- **Documentation-only trigger cleanup.** Folded the duplicate "When to Use" guidance into the frontmatter description so ClawHub shows one canonical usage cue.
-
 ## What's New in v1.2.3
 
 - **Removed the "Oracle-Engineering Halt Gate" section.** This skill never called that detector, and it does not trade the ≤5-minute markets the gate targets. No code change.

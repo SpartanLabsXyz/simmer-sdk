@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.23.23] - 2026-09-15
+
+### Docs
+- Moved inline version history out of `SKILL.md`; behavior changes now live in this changelog.
+- Clarified that `SIMMER_WEATHER_EXIT_THRESHOLD` owns the entry/exit threshold interaction, and safety rails point there instead of repeating it.
+- Clarified that `SIMMER_WEATHER_MIN_HOURS_TO_RESOLVE=24` widens discovery to +1/+2-day markets during morning heartbeats.
+
 ## [1.23.22] - 2026-09-18
 
 ### Added
@@ -107,15 +114,6 @@
 
 ### Docs
 - Tape gap: default HF volume slices in the #368 dogfood had 0 weather/temperature markets (vol floor ~$201k). A weather-capable tape query (`tags`, lower `--min-volume`, or a dedicated weather slice) is server/slice follow-up. This skill does not pretend a high-volume slice contains weather.
-
-## [1.23.10] - 2026-09-15
-
-### Docs
-- Moved inline version history out of `SKILL.md`; behavior changes now live in this changelog.
-- Clarified that `SIMMER_WEATHER_EXIT_THRESHOLD` owns the entry/exit threshold interaction, and safety rails point there instead of repeating it.
-- Clarified that `SIMMER_WEATHER_MIN_HOURS_TO_RESOLVE=24` widens discovery to +1/+2-day markets during morning heartbeats.
-- Reframed `--no-safeguards` as a backtest-only escape hatch.
-
 
 ## [1.23.8] - 2026-09-08
 
