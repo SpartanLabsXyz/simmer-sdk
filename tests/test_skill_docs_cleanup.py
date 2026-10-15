@@ -2,13 +2,14 @@
 import re
 from pathlib import Path
 
-import yaml
+import pytest
 
 
 SKILLS = Path(__file__).resolve().parents[1] / "skills"
 
 
 def test_mert_sniper_frontmatter_is_valid_yaml():
+    yaml = pytest.importorskip("yaml")
     text = (SKILLS / "polymarket-mert-sniper/SKILL.md").read_text()
     metadata = yaml.safe_load(text.split("---", 2)[1])
     assert "Defaults: $10" in metadata["description"]
