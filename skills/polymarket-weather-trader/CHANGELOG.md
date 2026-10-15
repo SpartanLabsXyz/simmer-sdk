@@ -1,11 +1,9 @@
 # Changelog
 
-## [1.23.23] - 2026-09-15
+## [1.23.23] - 2026-10-15
 
 ### Docs
 - Moved inline version history out of `SKILL.md`; behavior changes now live in this changelog.
-- Clarified that `SIMMER_WEATHER_EXIT_THRESHOLD` owns the entry/exit threshold interaction, and safety rails point there instead of repeating it.
-- Clarified that `SIMMER_WEATHER_MIN_HOURS_TO_RESOLVE=24` widens discovery to +1/+2-day markets during morning heartbeats.
 
 ## [1.23.22] - 2026-09-18
 

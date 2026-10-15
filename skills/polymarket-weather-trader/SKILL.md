@@ -27,7 +27,7 @@ This skill executes real-money trades on Polymarket only when the `--live` flag 
 - **Daily caps.** Platform-level daily caps apply (max trades/day, max USD/day). Set at [simmer.markets/dashboard](https://simmer.markets/dashboard?ref=sdk-skill&utm_campaign=sdk-skill) → SDK settings.
 - **Auto stop-loss is ON by default.** Server-side risk monitor watches every buy. Threshold is configurable per user at simmer.markets/dashboard → Settings → Auto Risk Monitor. **It cannot protect against gap-resolution, though:** weather temperature buckets jump straight to about 0 at resolution rather than decaying through your stop, so a percentage stop has no price to trigger on and no liquidity to exit into. Size for the full loss, not for the stop. See [DISCLAIMER.md](./DISCLAIMER.md).
 - **Strategy-side safeguards.** Beyond platform risk monitors, this skill checks flip-flop, slippage (`SIMMER_WEATHER_SLIPPAGE_MAX`, default 15%), time-decay (`SIMMER_WEATHER_MIN_HOURS_TO_RESOLVE`, default 2h), and resolved-market status before every order. Disable only with `--no-safeguards` (not recommended).
-- **Reversibility.** Open positions exit automatically when price > `SIMMER_WEATHER_EXIT_THRESHOLD` (default `0.45`), or via `client.cancel_order()` / a manual sell. `ENTRY_THRESHOLD` is an **upper** bound (buy *below*). See the `SIMMER_WEATHER_EXIT_THRESHOLD` configuration row before raising the entry threshold; own exits yourself only if you deliberately disable the built-in exit rule.
+- **Reversibility.** Open positions exit automatically when price > `SIMMER_WEATHER_EXIT_THRESHOLD` (default `0.45`), or via `client.cancel_order()` / a manual sell. `ENTRY_THRESHOLD` is an **upper** bound (buy *below*). If you raise it above the exit default (e.g. entry `0.50` vs exit `0.45`), the skill will try to sell the same position on the next cycle — raise `EXIT_THRESHOLD` too, or own exits yourself.
 
 If anything above isn't clear, stop and ask the user before passing `--live`.
 
@@ -61,7 +61,7 @@ Then `pip install --upgrade simmer-sdk` (>=0.13.0) and configure tunables below.
 | Entry threshold | `SIMMER_WEATHER_ENTRY_THRESHOLD` | 0.15 | **Upper** bound — buy when price is *below* this |
 | Min entry price | `SIMMER_WEATHER_MIN_ENTRY_PRICE` | 0 | **Lower** bound — skip lottery tickets below this (`0` = off), e.g. `0.15` to skip sub-15¢ tickets. Must be below the entry threshold. |
 | Min hours to resolve | `SIMMER_WEATHER_MIN_HOURS_TO_RESOLVE` | 2 | Skip entries if the market resolves in fewer than this many hours. Entry-only; exits keep a fixed 2h floor. Discovery looks ahead `max(this, 48h)` calendar days — raise it and the scan widens; a 24h floor still sees +1/+2 day markets in a morning heartbeat. |
-| Exit threshold | `SIMMER_WEATHER_EXIT_THRESHOLD` | 0.45 | Sell when price is above this. Raise this before raising entry above `0.45`; otherwise the next cycle can exit the same position you just entered. |
+| Exit threshold | `SIMMER_WEATHER_EXIT_THRESHOLD` | 0.45 | Sell when price above this. Raise this if you raise entry above `0.45`, or the skill will self-exit. |
 | Max position | `SIMMER_WEATHER_MAX_POSITION_USD` | 2.00 | Maximum USD per trade |
 | Max trades/run | `SIMMER_WEATHER_MAX_TRADES_PER_RUN` | 5 | Maximum trades per scan cycle |
 | Max buys/market | `SIMMER_WEATHER_MAX_BUYS_PER_MARKET` | 1 | Cap on buy-fills into the same market (bucket), checked against held positions before entry. `1` = one entry then hold; raise to keep DCA-ing into an underpriced bucket; `0` disables the cap (unbounded DCA). |
@@ -257,7 +257,7 @@ All trades are tagged with `source: "sdk:weather"`. This means:
 
 **"Slippage too high"** — market is illiquid; reduce position size or skip.
 
-**"Resolves in Xh - too soon"** — market resolving sooner than `SIMMER_WEATHER_MIN_HOURS_TO_RESOLVE` (default 2h). Raise `SIMMER_WEATHER_MIN_HOURS_TO_RESOLVE` to widen discovery; a morning heartbeat with 24h sees +1/+2-day markets.
+**"Resolves in Xh - too soon"** — market resolving sooner than `SIMMER_WEATHER_MIN_HOURS_TO_RESOLVE` (default 2h). Raise the env to skip resolve-day entries. Discovery already looks ahead `max(MIN_HOURS, 48h)`, so a morning run with `MIN_HOURS=24` can still take +1/+2 day markets. Same-day buckets will always fail a 24h floor before they have 24h left.
 
 **"Price $X.XX below min entry"** — mid is below `SIMMER_WEATHER_MIN_ENTRY_PRICE`. Lottery-ticket floor; default is off (`0`).
 

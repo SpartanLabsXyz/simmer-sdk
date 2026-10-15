@@ -6,7 +6,7 @@ metadata:
   version: "0.9.1"
   displayName: Polymarket Market Maker
   difficulty: advanced
-  attribution: Based on Akey et al. (2026): market-making reduces loss probability by 35.9 pp.
+  attribution: "Based on Akey et al. (2026): market-making reduces loss probability by 35.9 pp."
   venue: polymarket
   requires_wallet: true
   tier: developer

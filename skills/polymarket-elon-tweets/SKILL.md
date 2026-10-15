@@ -1,6 +1,6 @@
 ---
 name: polymarket-elon-tweets
-description: Trade Polymarket "Elon Musk # tweets" markets, check XTracker pace, monitor tweet-market positions, or configure bucket spreads and entry thresholds. Buys adjacent range buckets when combined cost < $1 for structural edge.
+description: 'Trade Polymarket "Elon Musk # tweets" markets, check XTracker pace, monitor tweet-market positions, or configure bucket spreads and entry thresholds. Buys adjacent range buckets when combined cost < $1 for structural edge.'
 metadata:
   author: Simmer (@simmer_markets)
   version: "1.3.7"

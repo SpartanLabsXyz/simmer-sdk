@@ -33,3 +33,12 @@ def test_weather_safeguards_guidance_preserved():
 def test_btc_cleanup_does_not_add_inline_history():
     text = (SKILLS / "polymarket-btc-up-down-trader/SKILL.md").read_text()
     assert "## What's New in v1.2.4" not in text
+
+
+@pytest.mark.parametrize("skill_md", sorted(SKILLS.glob("*/SKILL.md")), ids=lambda p: p.parent.name)
+def test_every_skill_frontmatter_parses(skill_md):
+    yaml = pytest.importorskip("yaml")
+    text = skill_md.read_text()
+    assert text.startswith("---"), skill_md
+    meta = yaml.safe_load(text.split("---", 2)[1])
+    assert isinstance(meta, dict) and meta.get("name") and meta.get("description"), skill_md
