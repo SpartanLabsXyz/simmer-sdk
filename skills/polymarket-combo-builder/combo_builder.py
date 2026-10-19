@@ -64,7 +64,7 @@ def browse_legs():
           "into combo_config.json.")
 
 
-def run(live: bool):
+def run(live: bool = False):
     cfg = _load_config()
     legs = cfg["legs"]
     stake = float(cfg.get("stake_usd", 1.0))

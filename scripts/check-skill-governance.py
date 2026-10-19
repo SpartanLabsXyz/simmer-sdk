@@ -124,7 +124,7 @@ def is_constant_expression(node: ast.AST) -> bool:
 
 
 def unchanged_parameters(node: ast.AST) -> set[str]:
-    """Find parameters without writes in this function, excluding nested scopes."""
+    """Find regular parameters without writes anywhere in the function subtree."""
     args = node.args
     names = {arg.arg for arg in args.posonlyargs + args.args + args.kwonlyargs}
 
@@ -135,17 +135,21 @@ def unchanged_parameters(node: ast.AST) -> set[str]:
 
         def visit_FunctionDef(self, child):
             names.discard(child.name)
+            self.generic_visit(child)
 
         visit_AsyncFunctionDef = visit_FunctionDef
 
         def visit_ClassDef(self, child):
             names.discard(child.name)
+            self.generic_visit(child)
 
-        def visit_Lambda(self, child):
-            pass
+        def visit_Nonlocal(self, child):
+            names.difference_update(child.names)
+
+        visit_Global = visit_Nonlocal
 
     visitor = Writes()
-    for child in ([node.body] if isinstance(node, ast.Lambda) else node.body):
+    for child in ast.iter_child_nodes(node):
         visitor.visit(child)
     return names
 
@@ -161,11 +165,11 @@ def collect_live_violations(root: Path) -> tuple[list[tuple[tuple[str, str, str]
     for path in sorted((root / "skills/simmer-skill-builder").rglob("*.md")):
         text = path.read_text(encoding="utf-8")
         for match in re.finditer(
-            r"^[ \t]*```(?:python3|python|py)[ \t]*\n(.*?)^[ \t]*```[ \t]*$",
+            r"^[ \t]*(```|~~~)[ \t]*(?:python3|python|py)[ \t]*\n(.*?)^[ \t]*\1[ \t]*$",
             text, re.MULTILINE | re.DOTALL | re.IGNORECASE,
         ):
-            sources.append((path, text.count("\n", 0, match.start(1)),
-                            textwrap.dedent(match.group(1))))
+            sources.append((path, text.count("\n", 0, match.start(2)),
+                            textwrap.dedent(match.group(2))))
 
     for path, offset, code in sources:
         relative = path.relative_to(root).as_posix()
@@ -177,9 +181,7 @@ def collect_live_violations(root: Path) -> tuple[list[tuple[tuple[str, str, str]
 
         parents = {child: parent for parent in ast.walk(tree)
                    for child in ast.iter_child_nodes(parent)}
-        check_aliases = ("tests" not in path.relative_to(root).parts
-                         and not path.name.startswith("test_")
-                         and not path.name.endswith("_test.py"))
+        check_aliases = "tests" not in path.relative_to(root).parts
 
         class Visitor(ast.NodeVisitor):
             def __init__(self):
@@ -220,11 +222,21 @@ def collect_live_violations(root: Path) -> tuple[list[tuple[tuple[str, str, str]
                 defaults = list(zip(positional[len(positional) - len(node.args.defaults):],
                                     node.args.defaults))
                 defaults.extend(zip(node.args.kwonlyargs, node.args.kw_defaults))
+                bad_live_defaults = set()
+                safe_parameters = set()
                 for arg, default in defaults:
+                    if isinstance(default, ast.Constant) and default.value is False:
+                        safe_parameters.add(arg.arg)
                     if (arg.arg == "live" and default is not None
                             and not (isinstance(default, ast.Constant) and default.value is False)):
+                        bad_live_defaults.add(arg.arg)
                         self.report(node, "live-default", "pass live=False by default and opt in with --live")
-                self.parameters.append(unchanged_parameters(node))
+                safe_parameters -= {"self", "cls"}
+                if isinstance(parents.get(node), ast.ClassDef) and positional:
+                    safe_parameters.discard(positional[0].arg)
+                self.parameters.append((
+                    safe_parameters & unchanged_parameters(node), bad_live_defaults,
+                ))
                 self.generic_visit(node)
                 self.parameters.pop()
                 self.scope.pop()
@@ -253,12 +265,14 @@ def collect_live_violations(root: Path) -> tuple[list[tuple[tuple[str, str, str]
                     literal_false = isinstance(live.value, ast.Constant) and live.value.value is False
                     known, value = constant_value(live.value)
                     parameter = (isinstance(live.value, ast.Name) and self.parameters
-                                 and live.value.id in self.parameters[-1])
+                                 and live.value.id in self.parameters[-1][0])
+                    bad_default = (isinstance(live.value, ast.Name) and self.parameters
+                                   and live.value.id in self.parameters[-1][1])
                     if not literal_false:
                         if (known and bool(value)) or (not constructor and is_constant_expression(live.value)):
                             self.report(node, "truthy-live", "pass live=False by default and opt in with --live using a runtime expression")
-                        elif constructor and not parameter:
-                            self.report(node, "live-allowlist", "pass live=False or an unchanged function parameter; opt in with --live")
+                        elif constructor and not parameter and not bad_default:
+                            self.report(node, "live-allowlist", "pass live=False or a live=False-defaulted parameter; opt in with --live")
                 self.generic_visit(node)
 
         Visitor().visit(tree)

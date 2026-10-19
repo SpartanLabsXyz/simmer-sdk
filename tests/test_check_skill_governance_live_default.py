@@ -226,3 +226,60 @@ def test_literal_true_constructor_keeps_truthy_rule(tmp_path):
     write_skill(tmp_path, "SimmerClient(live=True)")
     findings, _ = governance.collect_live_violations(tmp_path)
     assert [key[2] for key, _ in findings] == ["truthy-live"]
+
+
+@pytest.mark.parametrize("code", [
+    "def get_client(flag=True): return SimmerClient(api_key='k', live=flag)",
+    "def get_client(live=False, flag=True): return SimmerClient(api_key=k, live=flag)",
+    "def get_client(live): return SimmerClient(api_key=k, live=live)",
+    "def get_client(self): return SimmerClient(api_key=k, live=self)",
+    "class A:\n    def make(self, live=False): return SimmerClient(api_key=k, live=self)",
+    "class A:\n    @classmethod\n    def make(cls, live=False): return SimmerClient(api_key=k, live=cls)",
+    "class A:\n    def make(receiver=False): return SimmerClient(api_key=k, live=receiver)",
+    "def g(*live): return SimmerClient(api_key=k, live=live)",
+    "def g(**kwargs): return SimmerClient(api_key=k, live=kwargs)",
+    "def g(**kwargs): return SimmerClient(api_key=k, live=kwargs['live'])",
+    "def get_client(*, live): return SimmerClient(api_key=k, live=live)",
+    "def get_client(live=False):\n    def f():\n        nonlocal live\n        live = True\n    f()\n    return SimmerClient(api_key=k, live=live)",
+    "def get_client(live=False):\n    def f():\n        global live\n    return SimmerClient(api_key=k, live=live)",
+    "def get_client(live=False):\n    f = lambda: (live := True)\n    return SimmerClient(api_key=k, live=live)",
+    "def get_client(live=False):\n    class A:\n        live = True\n    return SimmerClient(api_key=k, live=live)",
+])
+def test_constructor_requires_false_defaulted_regular_parameter(tmp_path, code):
+    write_skill(tmp_path, code)
+    errors = governance.validate_live_defaults(tmp_path)
+    assert errors
+    assert any("live=False" in error and "--live" in error for error in errors)
+
+
+@pytest.mark.parametrize("code", [
+    "def get_client(*, live=False): return SimmerClient(api_key=k, live=live)",
+    "def get_client(live=False, /): return SimmerClient(api_key=k, live=live)",
+    "class A:\n    def make(self, live=False): return SimmerClient(api_key=k, live=live)",
+    "def get_client(flag=False): return SimmerClient(api_key=k, live=flag)",
+])
+def test_false_defaulted_parameter_allowed(tmp_path, code):
+    write_skill(tmp_path, code)
+    assert governance.validate_live_defaults(tmp_path) == []
+
+
+@pytest.mark.parametrize("fence", ["~~~python", "``` python"])
+def test_additional_fences_preserve_line_numbers(tmp_path, fence):
+    path = "skills/simmer-skill-builder/references/x.md"
+    write_skill(tmp_path, f"# Reference\n\n{fence}\ndef get_client(live=True): pass\n{fence[:3]}\n", path)
+    errors = governance.validate_live_defaults(tmp_path)
+    assert len(errors) == 1
+    assert f"{path}:4:" in errors[0]
+
+
+def test_test_filename_does_not_exempt_alias(tmp_path):
+    write_skill(tmp_path, "import simmer_sdk\nClient = simmer_sdk.SimmerClient\nClient(api_key='k')",
+                "skills/new-skill/test_bot.py")
+    assert governance.validate_live_defaults(tmp_path)
+
+
+def test_bad_live_default_has_one_root_cause(tmp_path):
+    write_skill(tmp_path, "def get_client(live=True): return SimmerClient(api_key=k, live=live)")
+    findings, errors = governance.collect_live_violations(tmp_path)
+    assert errors == []
+    assert [key[2] for key, _ in findings] == ["live-default"]
