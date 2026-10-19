@@ -16,6 +16,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## Unreleased
 
+- **`simmer-mcp` bumped to 3.5.10** — no server code change, only bundled skills refreshed for explicit live-client opt-in (#414).
 - **Risk-monitor exits on Polymarket now confirm the order book has active bids before selling (SIM-5838).** A triggered stop-loss or take-profit exit checks the book first; if it's empty, the exit is deferred to the next cycle instead of submitting a SELL that can't fill.
 
 ## 0.25.10 (2026-09-30)

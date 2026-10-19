@@ -1,11 +1,11 @@
 ---
 name: simmer-wallet-setup
-version: "0.4.0"
+version: "0.4.1"
 published: true
 description: Self-custody wallet setup for Simmer agents. Bring your own key, import a funded Polymarket wallet, or connect an existing dashboard-registered agent to your local runtime. Skip this skill if you use a managed wallet — managed setup is a one-time dashboard flow, not an agent task.
 metadata:
   author: "Simmer (@simmer_markets)"
-  version: "0.4.0"
+  version: "0.4.1"
   displayName: Simmer Wallet Setup
   difficulty: beginner
   primaryEnv: SIMMER_API_KEY
@@ -53,10 +53,10 @@ The private key goes in exactly one place: the agent host's environment, or a lo
 
 ## Path A — External key
 
-Set the key (see key safety above), then construct the client:
+Set the key (see key safety above), then opt in explicitly with `live=True`: wallet setup writes to a real-money wallet.
 
 ```python
-client = SimmerClient(api_key="sk_live_...")
+client = SimmerClient(api_key="sk_live_...", live=True)
 # signer auto-detected: WALLET_PRIVATE_KEY or OWS_WALLET env var
 client.link_wallet()    # signs a challenge message locally — fully headless
 client.set_approvals()  # signs approval txs locally — fully headless, key never leaves agent
@@ -79,7 +79,7 @@ All calls work without a browser session. `link_wallet()` signs a challenge with
 Set `SOLANA_PRIVATE_KEY` (base58) in the env, fund with SOL + USDC, complete KYC at dflow.net/proof. If the key lives in an OWS vault, the same wallet's derived Solana account signs — no `SOLANA_PRIVATE_KEY` needed:
 
 ```python
-client = SimmerClient.from_env(venue="kalshi")
+client = SimmerClient.from_env(venue="kalshi", live=True)
 client.trade(market_id, "yes", 5.0, reasoning="...")
 ```
 
@@ -88,7 +88,7 @@ client.trade(market_id, "yes", 5.0, reasoning="...")
 For a wallet born on polymarket.com: create the account there, fund it with their onramps (card, exchange transfer), export the private key (polymarket.com → Settings → Export Private Key), and set it as `WALLET_PRIVATE_KEY` on the agent host (key safety above applies in full — this is a raw key).
 
 ```python
-client = SimmerClient.from_env()
+client = SimmerClient.from_env(live=True)
 result = client.import_polymarket_wallet()   # SDK 0.24.4+
 # links with ownership proof, adopts the Polymarket-deployed deposit wallet
 # (no redeploy), tops up approvals gaslessly, derives creds, reports balance
@@ -149,7 +149,7 @@ You already created an agent in the dashboard, registered its dedicated wallet, 
 3. **Activate trading: on-chain approvals + CLOB credentials (one-time)**
    ```bash
    python -c "from simmer_sdk import SimmerClient; \
-     c = SimmerClient.from_env(venue='polymarket'); \
+     c = SimmerClient.from_env(venue='polymarket', live=True); \
      c.activate_polymarket_dw(agent_id='<agent_id>'); \
      c.update_agent_wallet_creds(agent_id='<agent_id>')"
    ```
@@ -168,7 +168,7 @@ You already created an agent in the dashboard, registered its dedicated wallet, 
 
 ## Risk monitor
 
-The auto risk monitor (stop-loss, take-profit) is configured at simmer.markets/dashboard → Settings → Auto Risk Monitor. The SDK auto-executes pending exits each `get_briefing()` cycle. The agent must be running.
+The auto risk monitor (stop-loss, take-profit) is configured at simmer.markets/dashboard → Settings → Auto Risk Monitor. An explicitly live client (`live=True`) auto-executes pending exits each `get_briefing()` cycle. The agent must be running.
 
 ## Troubleshooting
 
