@@ -1,8 +1,8 @@
 """import_polymarket_wallet() adopts the env wallet on a sim-default client.
 
 `from_env()` without venue sets _ignore_env_wallets=True, so the client has no
-signer even when WALLET_PRIVATE_KEY is set. An explicit import call is
-unambiguous intent to use that key — found by Adrian in the SIM-4646
+signer even when WALLET_PRIVATE_KEY is set. An import call on an explicit
+live=True client opts in to that key — found by Adrian in the SIM-4646
 acceptance run when the documented copy-paste snippet failed with
 "private_key or ows_wallet required".
 """
@@ -16,7 +16,7 @@ _KEY = "0x" + "11" * 32
 
 
 def _bare_client():
-    """Client shaped like from_env() with the sim default: no signer configured."""
+    """Client shaped like from_env(live=True) on sim: no signer configured."""
     client = SimmerClient.__new__(SimmerClient)
     client._agent_id = "test-agent-uuid"
     client._ows_wallet = None
@@ -24,6 +24,7 @@ def _bare_client():
     client._private_key = None
     client.base_url = "https://api.simmer.markets"
     client.live = True
+    client._live_explicit = True
     client.venue = "sim"
     client._request = MagicMock()
     return client

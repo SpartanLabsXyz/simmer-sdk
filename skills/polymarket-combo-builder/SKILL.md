@@ -8,7 +8,7 @@ tags:
   - combo
 metadata:
   author: Simmer (@simmer_markets)
-  version: "0.1.1"
+  version: "0.1.2"
   displayName: Combo Builder
   difficulty: beginner
 ---
@@ -93,6 +93,8 @@ The standard DW activation (`activate_polymarket_dw()`) does **not** set this â€
 combo approval is opt-in. Run it once per deposit wallet:
 
 ```python
+# Wallet activation writes to a real-money wallet; opt in explicitly.
+client = SimmerClient.from_env(venue="polymarket", live=True)
 client.activate_combo_dw()              # user-primary DW
 client.activate_combo_dw(agent_id="â€¦")  # per-agent (Elite) DW
 ```

@@ -200,7 +200,7 @@ def get_client(venue: str = None):
         if not api_key:
             print("Error: SIMMER_API_KEY not set.  Get yours at simmer.markets/dashboard → SDK tab.")
             sys.exit(1)
-        _client = SimmerClient(api_key=api_key, venue=_resolve_venue(venue))
+        _client = SimmerClient(api_key=api_key, venue=_resolve_venue(venue), live=True)
     elif venue and getattr(_client, "venue", None) != venue:
         _client.venue = venue
     return _client

@@ -85,7 +85,7 @@ def test_live_venue_construction_still_warns_real_funds(monkeypatch, caplog):
     )
 
     with caplog.at_level(logging.WARNING, logger="simmer_sdk.client"):
-        client = SimmerClient(api_key="sk_live_test_live", venue="polymarket")
+        client = SimmerClient(live=True, api_key="sk_live_test_live", venue="polymarket")
 
     assert client.venue == "polymarket"
     assert client.live is True
@@ -140,7 +140,7 @@ def test_from_env_forwards_kwargs(monkeypatch):
     monkeypatch.delenv("WALLET_PRIVATE_KEY", raising=False)
     monkeypatch.delenv("OWS_WALLET", raising=False)
 
-    client = SimmerClient.from_env(venue="kalshi", base_url="https://example.test")
+    client = SimmerClient.from_env(live=True, venue="kalshi", base_url="https://example.test")
 
     assert client.venue == "kalshi"
     assert client.base_url == "https://example.test"
@@ -175,7 +175,7 @@ def test_readonly_skips_constructor_risk_exits_for_live_polymarket_wallet(monkey
         fail_if_called,
     )
 
-    client = SimmerClient.readonly(api_key="sk_live_test", venue="polymarket")
+    client = SimmerClient.readonly(live=True, api_key="sk_live_test", venue="polymarket")
 
     assert client.venue == "polymarket"
     assert client._readonly is True
@@ -201,7 +201,7 @@ def test_default_constructor_still_processes_risk_exits_for_live_polymarket_wall
         lambda self, alerts=None: called.append(alerts),
     )
 
-    client = SimmerClient(api_key="sk_live_test", venue="polymarket")
+    client = SimmerClient(live=True, api_key="sk_live_test", venue="polymarket")
 
     assert client._readonly is False
     assert called == [None]
@@ -259,17 +259,19 @@ def test_every_public_write_method_is_readonly_guarded():
 
     import simmer_sdk.client as client_module
 
-    # Writes that touch no account state (catalog imports) or only return order params.
-    allowed = {"import_market", "import_kalshi_market", "import_kalshi_event", "prepare_real_trade"}
+    # Writes that touch no account state (catalog imports).
+    allowed = {"import_market", "import_kalshi_market", "import_kalshi_event"}
     src = inspect.getsource(client_module)
     tree = ast.parse(src)
     cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "SimmerClient")
+    helper = next(fn for fn in cls.body if isinstance(fn, ast.FunctionDef) and fn.name == "_assert_live_wallet_write")
+    assert "self._assert_not_readonly(method)" in ast.get_source_segment(src, helper)
     unguarded = []
     for fn in cls.body:
         if not isinstance(fn, ast.FunctionDef) or fn.name.startswith("_") or fn.name in allowed:
             continue
         body = ast.get_source_segment(src, fn)
-        if re.search(r'_request\(\s*"(POST|PATCH|PUT|DELETE)"', body) and "_assert_not_readonly" not in body:
+        if re.search(r'_request\(\s*"(POST|PATCH|PUT|DELETE)"', body) and not any(guard in body for guard in ("_assert_not_readonly", "_assert_live_wallet_write")):
             unguarded.append(fn.name)
     assert unguarded == []
 

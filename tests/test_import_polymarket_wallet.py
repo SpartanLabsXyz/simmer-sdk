@@ -24,6 +24,7 @@ def _make_client(**overrides):
     client._private_key = overrides.get("private_key", "0x" + "11" * 32)
     client.base_url = "https://api.simmer.markets"
     client.live = True
+    client._live_explicit = True
     client.venue = "polymarket"
     client._request = MagicMock()
     return client

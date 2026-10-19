@@ -24,6 +24,7 @@ from simmer_sdk.client import SimmerClient, TradeResult
 def _make_client(*, solana_key_available: bool = True) -> SimmerClient:
     """Live-mode client with network calls and Solana signing stubbed out."""
     client = SimmerClient.__new__(SimmerClient)
+    client._live_explicit = True
     client.live = True
     client.venue = "kalshi"
     client._readonly = False

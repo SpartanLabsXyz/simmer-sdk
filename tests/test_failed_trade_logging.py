@@ -15,6 +15,7 @@ from simmer_sdk.client import SimmerClient
 def _make_client(venue="polymarket"):
     """Build a SimmerClient with mocked _request for trade() unit tests."""
     client = SimmerClient.__new__(SimmerClient)
+    client._live_explicit = True
     client._agent_id = "test-agent"
     client._ows_wallet = None
     client._wallet_address = None

@@ -20,19 +20,19 @@ External Wallet Trading (BYOW):
 
     POLYMARKET (EVM wallet):
         # Set WALLET_PRIVATE_KEY env var to your EVM private key (0x...)
-        client = SimmerClient(api_key="sk_live_...", venue="polymarket")
+        client = SimmerClient(api_key="sk_live_...", venue="polymarket", live=True)
         result = client.trade(...)  # Signs locally with EVM key
 
         # Or pass explicitly
         client = SimmerClient(
             api_key="sk_live_...",
-            venue="polymarket",
+            venue="polymarket", live=True,
             private_key="0x..."
         )
 
     KALSHI (Solana wallet):
         # Set SOLANA_PRIVATE_KEY env var to your base58 Solana secret key
-        client = SimmerClient(api_key="sk_live_...", venue="kalshi")
+        client = SimmerClient(api_key="sk_live_...", venue="kalshi", live=True)
         result = client.trade(...)  # Signs locally with Solana key
 
         # Note: Kalshi BYOW requires Node.js for signing.
@@ -44,6 +44,7 @@ External Wallet Trading (BYOW):
     - Warn about missing Polymarket approvals
 
     For manual control (Polymarket):
+        client = SimmerClient(api_key="sk_live_...", venue="polymarket", live=True)
         client.link_wallet()  # Explicitly link wallet
         client.check_approvals()  # Check approval status
         client.ensure_approvals()  # Get missing approval tx data

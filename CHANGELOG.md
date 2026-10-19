@@ -1,10 +1,22 @@
 # Changelog
 
+## Unreleased
+
+- Breaking: real-venue clients require explicit `live=True` (real money) or
+  `live=False` (paper), including real-venue overrides on sim clients. Paper
+  clients refuse wallet writes and skip briefing risk exits. Failed or zero-fill
+  risk exits retain monitors and alerts; successful exits report filled shares.
+- Breaking: `link_wallet()`, `import_polymarket_wallet()`, `register_agent_wallet()`,
+  `update_agent_wallet_creds()` and `place_combo(dry_run=False)` now need an explicit
+  `live=True` client and refuse before any signing or request otherwise.
+
+
 All notable changes to `simmer-sdk` are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
 
+- **`simmer-mcp` bumped to 3.5.10** — no server code change, only bundled skills refreshed for explicit live-client opt-in (#414).
 - **Risk-monitor exits on Polymarket now confirm the order book has active bids before selling (SIM-5838).** A triggered stop-loss or take-profit exit checks the book first; if it's empty, the exit is deferred to the next cycle instead of submitting a SELL that can't fill.
 
 ## 0.25.10 (2026-09-30)

@@ -7,6 +7,7 @@ from simmer_sdk.client import SimmerClient
 
 def _client() -> SimmerClient:
     client = SimmerClient.__new__(SimmerClient)
+    client._live_explicit = True
     client._request = MagicMock()
     client._assert_not_readonly = MagicMock()
     client._get_held_markets = MagicMock(return_value={})

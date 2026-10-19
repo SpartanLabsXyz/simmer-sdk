@@ -120,7 +120,7 @@ for p in client.get_positions():
 client = SimmerClient(api_key="sk_live_...", venue="sim")
 
 # Real trading on Polymarket
-client = SimmerClient(api_key="sk_live_...", venue="polymarket")
+client = SimmerClient(api_key="sk_live_...", venue="polymarket", live=True)
 
 # Read-only validation/status client. Does not process constructor-time risk exits.
 client = SimmerClient.readonly(api_key="sk_live_...", venue="polymarket")
@@ -286,6 +286,8 @@ Methods: `"fractional_kelly"` (default, multiplier 0.25), `"kelly"` (full, aggre
 When a Polymarket market resolves and your side wins, the CTF tokens in your wallet must be redeemed to claim the USDC.e payout. Auto-redeem handles this automatically each cycle.
 
 ```python
+# Redemption writes to a real-money wallet; opt in explicitly.
+client = SimmerClient.from_env(venue="polymarket", live=True)
 # Call at the start of each cycle to claim any pending winnings
 results = client.auto_redeem()
 for r in results:
@@ -296,7 +298,7 @@ for r in results:
 - Fetches positions where `redeemable: true` and `redeemable_side` is set (Polymarket only)
 - For self-custody wallets (`WALLET_PRIVATE_KEY`): signs and broadcasts on-chain
 - For managed wallets: server handles signing, no local key needed
-- Never raises — safe to call every cycle
+- Requires an explicitly live client (`live=True`); paper and implicit-sim clients raise
 
 Auto-redeem can be toggled per-agent from the Simmer dashboard.
 

@@ -31,6 +31,7 @@ GO_LIVE_BLOCK = {
 
 def _make_client(venue: str = "sim") -> SimmerClient:
     client = SimmerClient.__new__(SimmerClient)
+    client._live_explicit = True
     client.live = True
     client.venue = venue
     client._private_key = None

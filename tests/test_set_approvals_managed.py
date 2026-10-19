@@ -24,6 +24,9 @@ def _make_no_wallet_client():
     from simmer_sdk.client import SimmerClient
 
     client = SimmerClient.__new__(SimmerClient)
+
+    client._live_explicit = True
+    client.live = True
     client._wallet_address = None
     client._private_key = None
     client._ows_wallet = None

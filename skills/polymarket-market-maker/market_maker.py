@@ -89,7 +89,7 @@ def get_client():
         if not api_key:
             print("Error: SIMMER_API_KEY not set — get from simmer.markets/dashboard")
             sys.exit(1)
-        _client = SimmerClient(api_key=api_key, venue="polymarket")
+        _client = SimmerClient(api_key=api_key, venue="polymarket", live=True)
     return _client
 
 # =============================================================================

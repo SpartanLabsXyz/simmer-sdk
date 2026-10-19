@@ -76,6 +76,8 @@ PREPARE_ALREADY_SET = {
 
 def _make_client(private_key=FAKE_PRIVATE_KEY):
     client = SimmerClient.__new__(SimmerClient)
+    client._live_explicit = True
+    client.live = True
     client._api_key = FAKE_KEY
     client._api_base = API_BASE
     client._private_key = private_key

@@ -3,7 +3,7 @@ name: polymarket-market-maker
 description: Post two-sided GTC limit orders on Polymarket CLOB. Manages inventory skew, cancel/replace on price drift, and estimates rebate-eligible volume.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "0.9.1"
+  version: "0.9.2"
   displayName: Polymarket Market Maker
   difficulty: advanced
   attribution: "Based on Akey et al. (2026): market-making reduces loss probability by 35.9 pp."
@@ -71,7 +71,7 @@ The `--status` and `--cancel-all` commands show cumulative fee-equivalent estima
 3. **Import markets to Simmer** (markets must be imported before the skill can quote them)
    ```python
    from simmer_sdk import SimmerClient
-   client = SimmerClient(api_key=os.environ["SIMMER_API_KEY"], venue="polymarket")
+   client = SimmerClient(api_key=os.environ["SIMMER_API_KEY"], venue="polymarket", live=True)
    result = client.import_market("https://polymarket.com/event/will-btc-hit-100k-by-eoy-2026")
    print(result["market_id"])  # use this ID in MM_MARKETS
    ```

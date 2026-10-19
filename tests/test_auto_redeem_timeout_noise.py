@@ -10,6 +10,8 @@ from simmer_sdk.client import SimmerClient
 
 def _make_client() -> SimmerClient:
     client = SimmerClient.__new__(SimmerClient)
+    client._live_explicit = True
+    client.live = True
     client._auto_redeem_enabled = True
     client._refresh_cohort_cache = MagicMock()
     client._request = MagicMock()

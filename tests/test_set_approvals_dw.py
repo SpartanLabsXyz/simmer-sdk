@@ -18,6 +18,9 @@ def _make_dw_client():
     from simmer_sdk.client import SimmerClient
 
     client = SimmerClient.__new__(SimmerClient)
+
+    client._live_explicit = True
+    client.live = True
     # Minimal attributes set_approvals() reads before the DW guard
     client._wallet_address = "0xb0d4000000000000000000000000000000005550"
     client._private_key = "0x" + "aa" * 32
@@ -32,6 +35,9 @@ def _make_eoa_client():
     from simmer_sdk.client import SimmerClient
 
     client = SimmerClient.__new__(SimmerClient)
+
+    client._live_explicit = True
+    client.live = True
     client._wallet_address = "0xAAAA000000000000000000000000000000000001"
     client._private_key = "0x" + "bb" * 32
     client._ows_wallet = None

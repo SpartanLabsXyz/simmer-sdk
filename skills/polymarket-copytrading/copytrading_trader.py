@@ -127,7 +127,7 @@ def get_client(venue: str = None):
             print("Error: SIMMER_API_KEY environment variable not set")
             print("Get your API key from: simmer.markets/dashboard -> SDK tab")
             sys.exit(1)
-        _client = SimmerClient(api_key=api_key, venue=_resolve_venue(venue))
+        _client = SimmerClient(api_key=api_key, venue=_resolve_venue(venue), live=True)
     elif venue and getattr(_client, "venue", None) != venue:
         _client.venue = venue
     return _client
@@ -455,13 +455,16 @@ def run_copytrading(wallets: list, top_n: int = None, max_usd: float = 50.0, dry
     get_client(effective_venue)
 
     # Redeem any winning positions before starting the cycle
-    try:
-        redeemed = get_client(effective_venue).auto_redeem()
-        for r in redeemed:
-            if r.get("success"):
-                print(f"  💰 Redeemed {r['market_id'][:8]}... ({r.get('side', '?')})")
-    except Exception:
-        pass  # Non-critical — don't block trading
+    if dry_run:
+        print("\n  💤 DRY-RUN: would auto-redeem resolved positions")
+    else:
+        try:
+            redeemed = get_client(effective_venue).auto_redeem()
+            for r in redeemed:
+                if r.get("success"):
+                    print(f"  💰 Redeemed {r['market_id'][:8]}... ({r.get('side', '?')})")
+        except Exception:
+            pass  # Non-critical — don't block trading
 
     # Balance pre-flight: skip cleanly when wallet is underfunded instead of
     # looping on rejected trades. Helper is collateral-agnostic — checks pUSD
