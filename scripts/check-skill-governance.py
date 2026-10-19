@@ -48,39 +48,103 @@ SIMMER_WEBSITE_SYNC_WAIVER_MARKERS = {
 
 
 SKILL_TEMPLATE_PATH = "skills/simmer-skill-builder/references/skill-template.md"
-# Existing offenders only. Shrink this list explicitly when migrating a file;
-# do not regenerate it from the tree or add new skills to bypass paper-first.
-LIVE_DEFAULT_ALLOWLIST = frozenset({
-    "skills/kalshi-weather-trader/weather_trader.py",
-    "skills/polymarket-ai-divergence/ai_divergence.py",
-    "skills/polymarket-btc-up-down-trader/strategy.py",
-    "skills/polymarket-elon-tweets/elon_tweets.py",
-    "skills/polymarket-fast-loop/fastloop_trader.py",
-    "skills/polymarket-fast-scaler/fast_scaler.py",
-    "skills/polymarket-mert-sniper/mert_sniper.py",
-    "skills/polymarket-mil-aircraft-tracker/milaircraft_tracker.py",
-    "skills/polymarket-nothing-ever-happens/nothing_ever_happens.py",
-    "skills/polymarket-weather-trader/weather_trader.py",
-})
+# Generated once from existing violations; shrink entries when migrating them.
+# Keys are (relative path, enclosing qualified function or <module>, rule ID).
+LIVE_DEFAULT_ALLOWLIST = {
+    ('skills/kalshi-weather-trader/weather_trader.py', 'get_client', 'live-default'): 1,
+    ('skills/polymarket-ai-divergence/ai_divergence.py', 'get_client', 'live-default'): 1,
+    ('skills/polymarket-btc-up-down-trader/strategy.py', 'get_client', 'live-default'): 1,
+    ('skills/polymarket-btc-up-down-trader/tests/test_exits.py', 'TestLiveTradeCalls.test_entry_scan_buys_with_client_trade', 'truthy-live'): 1,
+    ('skills/polymarket-btc-up-down-trader/tests/test_exits.py', 'TestLiveTradeCalls.test_exit_monitor_sells_with_client_trade', 'truthy-live'): 1,
+    ('skills/polymarket-btc-up-down-trader/tests/test_replay_plane.py', 'TestReplayEntryAndSpend.test_failed_trade_does_not_burn_daily_spend', 'truthy-live'): 1,
+    ('skills/polymarket-btc-up-down-trader/tests/test_replay_plane.py', 'TestReplayEntryAndSpend.test_replay_entry_uses_tape_price_without_skip_preflight', 'truthy-live'): 1,
+    ('skills/polymarket-combo-builder/combo_builder.py', 'activate_combo', 'truthy-live'): 1,
+    ('skills/polymarket-copytrading/copytrading_trader.py', 'get_client', 'explicit-live'): 1,
+    ('skills/polymarket-copytrading/tests/test_venue_routing.py', 'TestVenueRouting.test_client_repins_when_venue_overrides_config', 'truthy-live'): 1,
+    ('skills/polymarket-copytrading/tests/test_venue_routing.py', 'TestVenueRouting.test_env_venue_polymarket_without_cli_flag_used_in_trade', 'truthy-live'): 1,
+    ('skills/polymarket-copytrading/tests/test_venue_routing.py', 'TestVenueRouting.test_polymarket_config_venue_sim_arg_trade_gets_sim', 'truthy-live'): 1,
+    ('skills/polymarket-copytrading/tests/test_venue_routing.py', 'TestVenueRouting.test_polymarket_venue_preflight_receives_venue_kwarg', 'truthy-live'): 1,
+    ('skills/polymarket-copytrading/tests/test_venue_routing.py', 'TestVenueRouting.test_sim_config_venue_polymarket_arg_trade_gets_polymarket', 'truthy-live'): 1,
+    ('skills/polymarket-copytrading/tests/test_venue_routing.py', 'TestVenueRouting.test_sim_venue_no_polymarket_preflight', 'truthy-live'): 1,
+    ('skills/polymarket-copytrading/tests/test_venue_routing.py', '_run_copytrading', 'live-default'): 1,
+    ('skills/polymarket-dca-eval-trader/dca_eval_trader.py', 'run', 'truthy-live'): 1,
+    ('skills/polymarket-elon-tweets/elon_tweets.py', 'get_client', 'live-default'): 1,
+    ('skills/polymarket-fast-loop/fastloop_trader.py', 'get_client', 'live-default'): 1,
+    ('skills/polymarket-fast-scaler/fast_scaler.py', 'get_client', 'live-default'): 1,
+    ('skills/polymarket-market-maker/market_maker.py', 'get_client', 'explicit-live'): 1,
+    ('skills/polymarket-mert-sniper/mert_sniper.py', 'get_client', 'live-default'): 1,
+    ('skills/polymarket-mil-aircraft-tracker/milaircraft_tracker.py', 'get_client', 'live-default'): 1,
+    ('skills/polymarket-nothing-ever-happens/nothing_ever_happens.py', 'get_client', 'live-default'): 1,
+    ('skills/polymarket-nothing-ever-happens/tests/test_paper_mode_venue.py', 'VenueThreadingTests.test_explicit_polymarket_venue', 'truthy-live'): 1,
+    ('skills/polymarket-nothing-ever-happens/tests/test_paper_mode_venue.py', 'VenueThreadingTests.test_sim_venue_constructs_client_with_sim', 'truthy-live'): 1,
+    ('skills/polymarket-nothing-ever-happens/tests/test_paper_mode_venue.py', 'VenueThreadingTests.test_unset_venue_defaults_to_polymarket', 'truthy-live'): 1,
+    ('skills/polymarket-soccer-shock-ladder/shock_ladder_trader.py', 'get_client', 'explicit-live'): 1,
+    ('skills/polymarket-soccer-shock-ladder/tests/test_shock_ladder_trader.py', 'test_config_custom_buckets_and_live', 'truthy-live'): 1,
+    ('skills/polymarket-soccer-shock-ladder/tests/test_shock_ladder_trader.py', 'test_venue_sim_no_trades_no_open_orders_and_deletes', 'truthy-live'): 1,
+    ('skills/polymarket-weather-trader/weather_trader.py', 'get_client', 'live-default'): 1,
+    ('skills/polymarket-worldcup-copytrader/copytrader.py', 'get_client', 'explicit-live'): 1,
+}
 
 
-def validate_live_defaults(root: Path = ROOT) -> list[str]:
-    """AST-only paper-first check, independent of git's changed-file selection."""
+def constant_value(node: ast.AST) -> tuple[bool, Any]:
+    """Fold literals, not, and single-argument bool/int/str conversions only."""
+    if isinstance(node, ast.Constant):
+        return True, node.value
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
+        known, value = constant_value(node.operand)
+        return (True, not value) if known else (False, None)
+    if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+            and node.func.id in {"bool", "int", "str"}
+            and len(node.args) == 1 and not node.keywords):
+        known, value = constant_value(node.args[0])
+        if known:
+            try:
+                return True, {"bool": bool, "int": int, "str": str}[node.func.id](value)
+            except (ValueError, TypeError, OverflowError):
+                pass
+    return False, None
+
+
+def client_aliases(tree: ast.AST) -> set[str]:
+    """Names bound to SimmerClient: the class itself plus import/assign aliases."""
+    names = {"SimmerClient"}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            names.update(a.asname for a in node.names if a.name == "SimmerClient" and a.asname)
+    changed = True
+    while changed:
+        changed = False
+        for node in ast.walk(tree):
+            if (isinstance(node, ast.Assign) and isinstance(node.value, ast.Name)
+                    and node.value.id in names):
+                for target in node.targets:
+                    if isinstance(target, ast.Name) and target.id not in names:
+                        names.add(target.id)
+                        changed = True
+    return names
+
+
+def is_client_name(node: ast.AST, names: frozenset[str] | set[str] = frozenset({"SimmerClient"})) -> bool:
+    return ((isinstance(node, ast.Name) and node.id in names)
+            or (isinstance(node, ast.Attribute) and node.attr == "SimmerClient"))
+
+
+def collect_live_violations(root: Path) -> tuple[list[tuple[tuple[str, str, str], str]], list[str]]:
+    """Collect findings before grandfathering, preserving Markdown line numbers."""
     errors: list[str] = []
-    sources = [
-        (path, 0, path.read_text(encoding="utf-8"))
-        for path in sorted((root / "skills").rglob("*.py"))
-    ]
-    template = root / SKILL_TEMPLATE_PATH
-    if template.exists():
-        text = template.read_text(encoding="utf-8")
-        # No example-bind skip markers: every Python block must be checked.
+    violations = []
+    sources = [(path, 0, path.read_text(encoding="utf-8"))
+               for path in sorted((root / "skills").rglob("*.py"))]
+    if not (root / SKILL_TEMPLATE_PATH).is_file():
+        errors.append(f"{SKILL_TEMPLATE_PATH}:1: missing required paper-first template; restore it")
+    for path in sorted((root / "skills/simmer-skill-builder").rglob("*.md")):
+        text = path.read_text(encoding="utf-8")
         for match in re.finditer(
-            r"^[ \t]*```(?:python|py)[ \t]*\n(.*?)^[ \t]*```[ \t]*$",
+            r"^[ \t]*```(?:python3|python|py)[ \t]*\n(.*?)^[ \t]*```[ \t]*$",
             text, re.MULTILINE | re.DOTALL | re.IGNORECASE,
         ):
-            offset = text.count("\n", 0, match.start(1))
-            sources.append((template, offset, textwrap.dedent(match.group(1))))
+            sources.append((path, text.count("\n", 0, match.start(1)),
+                            textwrap.dedent(match.group(1))))
 
     for path, offset, code in sources:
         relative = path.relative_to(root).as_posix()
@@ -89,19 +153,64 @@ def validate_live_defaults(root: Path = ROOT) -> list[str]:
         except SyntaxError as exc:
             errors.append(f"{relative}:{offset + (exc.lineno or 1)}: cannot parse Python: {exc.msg}")
             continue
-        for node in ast.walk(tree):
-            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) or node.name != "get_client":
-                continue
-            positional = node.args.posonlyargs + node.args.args
-            defaults = list(zip(positional[-len(node.args.defaults):], node.args.defaults))
-            defaults.extend(zip(node.args.kwonlyargs, node.args.kw_defaults))
-            for arg, default in defaults:
-                if (arg.arg == "live" and isinstance(default, ast.Constant)
-                        and default.value is True and relative not in LIVE_DEFAULT_ALLOWLIST):
-                    errors.append(
-                        f"{relative}:{offset + node.lineno}: get_client has live=True; "
-                        "default live=False; use --live"
-                    )
+
+        aliases = client_aliases(tree)
+
+        class Visitor(ast.NodeVisitor):
+            def __init__(self):
+                self.scope = []
+
+            def report(self, node, rule, message):
+                key = (relative, ".".join(self.scope) or "<module>", rule)
+                violations.append((key, f"{relative}:{offset + node.lineno}: {message}"))
+
+            def visit_ClassDef(self, node):
+                self.scope.append(node.name)
+                self.generic_visit(node)
+                self.scope.pop()
+
+            def visit_FunctionDef(self, node):
+                self.scope.append("<lambda>" if isinstance(node, ast.Lambda) else node.name)
+                positional = node.args.posonlyargs + node.args.args
+                defaults = list(zip(positional[len(positional) - len(node.args.defaults):],
+                                    node.args.defaults))
+                defaults.extend(zip(node.args.kwonlyargs, node.args.kw_defaults))
+                for arg, default in defaults:
+                    if (arg.arg == "live" and default is not None
+                            and not (isinstance(default, ast.Constant) and default.value is False)):
+                        self.report(node, "live-default", "pass live=False by default and opt in with --live")
+                self.generic_visit(node)
+                self.scope.pop()
+
+            visit_AsyncFunctionDef = visit_FunctionDef
+            visit_Lambda = visit_FunctionDef
+
+            def visit_Call(self, node):
+                constructor = is_client_name(node.func, aliases) or (
+                    isinstance(node.func, ast.Attribute)
+                    and node.func.attr in {"from_env", "with_ows_wallet"}
+                    and is_client_name(node.func.value, aliases))
+                live = next((kw for kw in node.keywords if kw.arg == "live"), None)
+                if constructor and live is None:
+                    self.report(node, "explicit-live", "SimmerClient(...) must pass live= explicitly; pass live=False by default and opt in with --live")
+                if live is not None:
+                    known, value = constant_value(live.value)
+                    if known and bool(value):
+                        self.report(node, "truthy-live", "pass live=False by default and opt in with --live using a runtime expression")
+                self.generic_visit(node)
+
+        Visitor().visit(tree)
+    return violations, errors
+
+
+def validate_live_defaults(root: Path = ROOT) -> list[str]:
+    """AST-only paper-first check, independent of git's changed-file selection."""
+    violations, errors = collect_live_violations(root)
+    counts: dict[tuple[str, str, str], int] = {}
+    for key, message in violations:
+        counts[key] = counts.get(key, 0) + 1
+        if counts[key] > LIVE_DEFAULT_ALLOWLIST.get(key, 0):
+            errors.append(message)
     return errors
 
 
