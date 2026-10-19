@@ -4,10 +4,13 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import os
+import re
 import subprocess
 import sys
+import textwrap
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -42,6 +45,64 @@ SIMMER_WEBSITE_SYNC_WAIVER_MARKERS = {
     "simmer-website-sync-waived",
     "website-skill-sync-waived",
 }
+
+
+SKILL_TEMPLATE_PATH = "skills/simmer-skill-builder/references/skill-template.md"
+# Existing offenders only. Shrink this list explicitly when migrating a file;
+# do not regenerate it from the tree or add new skills to bypass paper-first.
+LIVE_DEFAULT_ALLOWLIST = frozenset({
+    "skills/kalshi-weather-trader/weather_trader.py",
+    "skills/polymarket-ai-divergence/ai_divergence.py",
+    "skills/polymarket-btc-up-down-trader/strategy.py",
+    "skills/polymarket-elon-tweets/elon_tweets.py",
+    "skills/polymarket-fast-loop/fastloop_trader.py",
+    "skills/polymarket-fast-scaler/fast_scaler.py",
+    "skills/polymarket-mert-sniper/mert_sniper.py",
+    "skills/polymarket-mil-aircraft-tracker/milaircraft_tracker.py",
+    "skills/polymarket-nothing-ever-happens/nothing_ever_happens.py",
+    "skills/polymarket-weather-trader/weather_trader.py",
+})
+
+
+def validate_live_defaults(root: Path = ROOT) -> list[str]:
+    """AST-only paper-first check, independent of git's changed-file selection."""
+    errors: list[str] = []
+    sources = [
+        (path, 0, path.read_text(encoding="utf-8"))
+        for path in sorted((root / "skills").rglob("*.py"))
+    ]
+    template = root / SKILL_TEMPLATE_PATH
+    if template.exists():
+        text = template.read_text(encoding="utf-8")
+        # No example-bind skip markers: every Python block must be checked.
+        for match in re.finditer(
+            r"^[ \t]*```(?:python|py)[ \t]*\n(.*?)^[ \t]*```[ \t]*$",
+            text, re.MULTILINE | re.DOTALL | re.IGNORECASE,
+        ):
+            offset = text.count("\n", 0, match.start(1))
+            sources.append((template, offset, textwrap.dedent(match.group(1))))
+
+    for path, offset, code in sources:
+        relative = path.relative_to(root).as_posix()
+        try:
+            tree = ast.parse(code, filename=relative)
+        except SyntaxError as exc:
+            errors.append(f"{relative}:{offset + (exc.lineno or 1)}: cannot parse Python: {exc.msg}")
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) or node.name != "get_client":
+                continue
+            positional = node.args.posonlyargs + node.args.args
+            defaults = list(zip(positional[-len(node.args.defaults):], node.args.defaults))
+            defaults.extend(zip(node.args.kwonlyargs, node.args.kw_defaults))
+            for arg, default in defaults:
+                if (arg.arg == "live" and isinstance(default, ast.Constant)
+                        and default.value is True and relative not in LIVE_DEFAULT_ALLOWLIST):
+                    errors.append(
+                        f"{relative}:{offset + node.lineno}: get_client has live=True; "
+                        "default live=False; use --live"
+                    )
+    return errors
 
 
 def run_git(args: list[str]) -> str:
@@ -430,7 +491,7 @@ def main() -> int:
     )
     pr_approved = pr_has_sensitive_approval_marker()
 
-    errors: list[str] = []
+    errors = validate_live_defaults()
     if paths and base_ref is not None:
         errors.extend(validate_skill_version_bumps(paths, base_ref))
         errors.extend(validate_simmer_website_sync_gate(paths, base_ref))
