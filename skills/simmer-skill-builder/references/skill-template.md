@@ -102,7 +102,7 @@ _config = load_config(CONFIG_SCHEMA, __file__, slug=SKILL_SLUG)
 
 Merging `SIZING_CONFIG_SCHEMA` gives users `SIMMER_POSITION_SIZING`, `SIMMER_KELLY_MULTIPLIER`, and `SIMMER_MIN_EV` env vars without you wiring them up. See the [Position Sizing docs](https://docs.simmer.markets/sdk/position-sizing) for full details.
 
-Config priority: `config.json > automaton tuning > env vars > defaults`.
+Config priority: `env vars > config.json > defaults`.
 
 When `slug` is provided, `load_config` automatically fetches tuned config from the Simmer Automaton (if the user has one running). This is transparent — skills don't need to know about the automaton.
 

@@ -168,8 +168,11 @@ def check_block(block: Block, classes: dict[str, type], default_floor: str, seed
     floor = block.floor_override or default_floor
     try:
         tree = ast.parse(block.code)
-    except SyntaxError:
-        return []
+    except SyntaxError as exc:
+        return [Violation(
+            path=block.path, line=block.start_line + (exc.lineno or 1),
+            call="<python fence>", reason=f"cannot parse Python: {exc.msg}", floor=floor,
+        )]
     var_class: dict[str, str] = {}
     if seed_defaults and not FOREIGN_CLIENT_RE.search(block.code):
         var_class.update(DEFAULT_VAR_CLASS)

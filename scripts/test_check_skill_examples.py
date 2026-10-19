@@ -74,5 +74,15 @@ def test_kwargs_splat_is_not_flagged():
     assert _violations("client.trade(**params)") == []
 
 
-def test_syntax_fragment_is_skipped():
-    assert _violations("client.trade(market_id=") == []
+def test_syntax_fragment_is_rejected():
+    violations = _violations("client.trade(market_id=")
+    assert len(violations) == 1
+    assert "cannot parse Python" in violations[0].reason
+    assert violations[0].line == 2
+
+
+@pytest.mark.parametrize("method", ["trade", "place_combo"])
+def test_per_trade_live_is_rejected(method):
+    violations = _violations(f"client.{method}(live=False)")
+    assert len(violations) == 1
+    assert "live" in violations[0].reason

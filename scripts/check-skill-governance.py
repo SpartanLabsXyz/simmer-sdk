@@ -724,6 +724,40 @@ def validate_skill(skill_dir: Path, pr_approved: bool) -> list[str]:
     return errors
 
 
+def validate_doc_rules(root: Path = ROOT) -> list[str]:
+    """Check currency and explicit config precedence chains without dependencies."""
+    paths = {root / "README.md"}
+    paths.update((root / "skills").rglob("*.md"))
+    paths.update((root / "docs").rglob("*.md"))
+    currency = re.compile(r"\$SIM\s*\d|\$\s*\d[\d,.]*\s+\$SIM\b")
+    config_term = re.compile(
+        r"environment variables|env(?:ironment)?[ -]vars|config\.json|defaults",
+        re.IGNORECASE,
+    )
+    errors = []
+    for path in sorted(paths):
+        if not path.is_file():
+            continue
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            location = f"{path.relative_to(root)}:{number}"
+            if currency.search(line):
+                errors.append(f"{location}: use Simmer currency as 100.00 $SIM")
+            # Recognize explicit high-to-low chains, including Markdown &gt;.
+            normalized = line.replace("&gt;", ">").replace("`", "")
+            terms = list(config_term.finditer(normalized))
+            if len(terms) < 2 or not any(
+                ">" in normalized[a.end():b.start()] for a, b in zip(terms, terms[1:])
+            ):
+                continue
+            order = ["config.json" if t.group().lower() == "config.json" else
+                     "defaults" if t.group().lower() == "defaults" else "env vars"
+                     for t in terms]
+            expected = ["env vars", "config.json", "defaults"]
+            if order != [term for term in expected if term in order]:
+                errors.append(f"{location}: config priority must be env vars > config.json > defaults")
+    return errors
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--all", action="store_true", help="check every skills/*/clawhub.json")
@@ -739,6 +773,7 @@ def main() -> int:
     pr_approved = pr_has_sensitive_approval_marker()
 
     errors = validate_live_defaults()
+    errors.extend(validate_doc_rules())
     if paths and base_ref is not None:
         errors.extend(validate_skill_version_bumps(paths, base_ref))
         errors.extend(validate_simmer_website_sync_gate(paths, base_ref))

@@ -8,7 +8,7 @@ tags:
   - copytrading
 metadata:
   author: Simmer (@simmer_markets)
-  version: "0.1.3"
+  version: "0.1.4"
   displayName: World Cup Copytrader
   difficulty: beginner
   sensitivity: sensitive
@@ -171,7 +171,7 @@ scheduled run.
 
 **"Insufficient balance"**
 - Reduce `WC_COPYTRADER_MAX_USD` or fund your wallet.
-- For $SIM: each market starts with a $10,000 $SIM balance.
+- For $SIM: each market starts with a 10,000 $SIM balance.
 
 **"External wallet requires a pre-signed order"**
 - `WALLET_PRIVATE_KEY` is not set. Required for `--venue polymarket --live` with an

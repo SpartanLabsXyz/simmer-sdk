@@ -3,7 +3,7 @@ name: polymarket-elon-tweets
 description: 'Trade Polymarket "Elon Musk # tweets" markets, check XTracker pace, monitor tweet-market positions, or configure bucket spreads and entry thresholds. Buys adjacent range buckets when combined cost < $1 for structural edge.'
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.3.7"
+  version: "1.3.8"
   displayName: Polymarket Elon Tweet Trader
   difficulty: advanced
   attribution: Strategy inspired by @noovd
@@ -68,7 +68,7 @@ When user asks to install or configure this skill:
 | Data source | `SIMMER_ELON_DATA_SOURCE` | `data_source` | xtracker | Data source (xtracker) |
 | Order type | `SIMMER_ELON_ORDER_TYPE` | `order_type` | GTC | Order type: GTC (good-til-cancelled) or FAK (fill-and-kill) |
 
-Config priority: config.json > environment variables > defaults.
+Config priority: env vars > config.json > defaults.
 
 ## Quick Commands
 
