@@ -455,13 +455,16 @@ def run_copytrading(wallets: list, top_n: int = None, max_usd: float = 50.0, dry
     get_client(effective_venue)
 
     # Redeem any winning positions before starting the cycle
-    try:
-        redeemed = get_client(effective_venue).auto_redeem()
-        for r in redeemed:
-            if r.get("success"):
-                print(f"  💰 Redeemed {r['market_id'][:8]}... ({r.get('side', '?')})")
-    except Exception:
-        pass  # Non-critical — don't block trading
+    if dry_run:
+        print("\n  💤 DRY-RUN: would auto-redeem resolved positions")
+    else:
+        try:
+            redeemed = get_client(effective_venue).auto_redeem()
+            for r in redeemed:
+                if r.get("success"):
+                    print(f"  💰 Redeemed {r['market_id'][:8]}... ({r.get('side', '?')})")
+        except Exception:
+            pass  # Non-critical — don't block trading
 
     # Balance pre-flight: skip cleanly when wallet is underfunded instead of
     # looping on rejected trades. Helper is collateral-agnostic — checks pUSD

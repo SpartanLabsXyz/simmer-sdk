@@ -56,6 +56,21 @@ def test_paper_briefing_skips_risk():
     assert [call.args[0] for call in client._request.call_args_list] == ['GET']
 
 
+def test_implicit_sim_briefing_skips_risk():
+    client = SimmerClient(api_key='sk_test_...')
+    client._private_key = '0x' + '11' * 32
+    briefing = {'triggered_risk_alerts': [{'market_id': 'market'}]}
+    client._request = Mock(return_value=briefing)
+    client.trade = Mock()
+    client.delete_monitor = Mock()
+    client._cancel_orders_for_token = Mock()
+    assert client.get_briefing() == briefing
+    client._request.assert_called_once_with('GET', '/api/sdk/briefing', params={})
+    client.trade.assert_not_called()
+    client.delete_monitor.assert_not_called()
+    client._cancel_orders_for_token.assert_not_called()
+
+
 @pytest.mark.parametrize('venue', ['polymarket', 'kalshi', 'hyperliquid'])
 def test_real_venue_requires_explicit_live(venue):
     with pytest.raises(ValueError, match='live=True.*live=False'):

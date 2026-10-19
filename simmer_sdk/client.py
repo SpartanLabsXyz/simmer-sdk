@@ -1170,8 +1170,8 @@ class SimmerClient:
         Args:
             since: ISO timestamp — only show changes since this time.
             process_risk_alerts: If True and triggered_risk_alerts are present,
-                execute the pending SL/TP exits automatically on live, non-readonly
-                clients. Paper and readonly clients skip processing.
+                execute the pending SL/TP exits automatically on explicitly live,
+                non-readonly clients. Other clients skip processing.
             skill_versions: Optional dict of {slug: version} to check for updates.
                 If not provided, uses auto-detected skill from SKILL.md.
 
@@ -1195,8 +1195,8 @@ class SimmerClient:
         # Process triggered risk alerts if present and requested
         triggered = response.get("triggered_risk_alerts")
         if process_risk_alerts and triggered:
-            if self._readonly or not self.live:
-                logger.info("Skipping risk-alert processing in paper or readonly mode")
+            if self._readonly or not self.live or not self._live_explicit:
+                logger.info("Skipping risk-alert processing: explicit live, non-readonly mode required")
             elif self._private_key or self._ows_wallet:
                 self._process_risk_alerts(alerts=triggered)
 

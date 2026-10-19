@@ -199,6 +199,19 @@ class TestVenueRouting(unittest.TestCase):
         _run_copytrading(mod, mock_client, live=False, venue="polymarket")
         mock_client.trade.assert_not_called()
 
+    def test_dry_run_does_not_auto_redeem(self):
+        mod, mock_client = _make_skill_module(config_venue="polymarket")
+        with patch("builtins.print") as mock_print:
+            _run_copytrading(mod, mock_client, live=False, venue="polymarket")
+        mock_client.auto_redeem.assert_not_called()
+        self.assertTrue(any("DRY-RUN: would auto-redeem resolved positions" in str(call)
+                            for call in mock_print.call_args_list))
+
+    def test_live_run_auto_redeems_once(self):
+        mod, mock_client = _make_skill_module(config_venue="polymarket")
+        _run_copytrading(mod, mock_client, live=True, venue="polymarket")
+        mock_client.auto_redeem.assert_called_once_with()
+
     def test_env_venue_polymarket_without_cli_flag_used_in_trade(self):
         """TRADING_VENUE=polymarket env without --venue CLI flag → trade gets venue=polymarket."""
         mod, mock_client = _make_skill_module(config_venue="", env_venue="polymarket")
