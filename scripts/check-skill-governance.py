@@ -105,28 +105,49 @@ def constant_value(node: ast.AST) -> tuple[bool, Any]:
     return False, None
 
 
-def client_aliases(tree: ast.AST) -> set[str]:
-    """Names bound to SimmerClient: the class itself plus import/assign aliases."""
-    names = {"SimmerClient"}
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom):
-            names.update(a.asname for a in node.names if a.name == "SimmerClient" and a.asname)
-    changed = True
-    while changed:
-        changed = False
-        for node in ast.walk(tree):
-            if (isinstance(node, ast.Assign) and isinstance(node.value, ast.Name)
-                    and node.value.id in names):
-                for target in node.targets:
-                    if isinstance(target, ast.Name) and target.id not in names:
-                        names.add(target.id)
-                        changed = True
-    return names
+CLIENT_FACTORIES = {"from_env", "with_ows_wallet", "readonly"}
 
 
-def is_client_name(node: ast.AST, names: frozenset[str] | set[str] = frozenset({"SimmerClient"})) -> bool:
-    return ((isinstance(node, ast.Name) and node.id in names)
+def is_client_name(node: ast.AST) -> bool:
+    return ((isinstance(node, ast.Name) and node.id == "SimmerClient")
             or (isinstance(node, ast.Attribute) and node.attr == "SimmerClient"))
+
+
+def is_constant_expression(node: ast.AST) -> bool:
+    """Constant calls may use only bool/int/str as function names."""
+    parents = {child: parent for parent in ast.walk(node) for child in ast.iter_child_nodes(parent)}
+    return all(
+        isinstance(parents.get(part), ast.Call)
+        and parents[part].func is part and part.id in {"bool", "int", "str"}
+        for part in ast.walk(node) if isinstance(part, ast.Name)
+    )
+
+
+def unchanged_parameters(node: ast.AST) -> set[str]:
+    """Find parameters without writes in this function, excluding nested scopes."""
+    args = node.args
+    names = {arg.arg for arg in args.posonlyargs + args.args + args.kwonlyargs}
+
+    class Writes(ast.NodeVisitor):
+        def visit_Name(self, child):
+            if isinstance(child.ctx, (ast.Store, ast.Del)):
+                names.discard(child.id)
+
+        def visit_FunctionDef(self, child):
+            names.discard(child.name)
+
+        visit_AsyncFunctionDef = visit_FunctionDef
+
+        def visit_ClassDef(self, child):
+            names.discard(child.name)
+
+        def visit_Lambda(self, child):
+            pass
+
+    visitor = Writes()
+    for child in ([node.body] if isinstance(node, ast.Lambda) else node.body):
+        visitor.visit(child)
+    return names
 
 
 def collect_live_violations(root: Path) -> tuple[list[tuple[tuple[str, str, str], str]], list[str]]:
@@ -154,15 +175,39 @@ def collect_live_violations(root: Path) -> tuple[list[tuple[tuple[str, str, str]
             errors.append(f"{relative}:{offset + (exc.lineno or 1)}: cannot parse Python: {exc.msg}")
             continue
 
-        aliases = client_aliases(tree)
+        parents = {child: parent for parent in ast.walk(tree)
+                   for child in ast.iter_child_nodes(parent)}
+        check_aliases = ("tests" not in path.relative_to(root).parts
+                         and not path.name.startswith("test_")
+                         and not path.name.endswith("_test.py"))
 
         class Visitor(ast.NodeVisitor):
             def __init__(self):
                 self.scope = []
+                self.parameters = []
 
             def report(self, node, rule, message):
                 key = (relative, ".".join(self.scope) or "<module>", rule)
                 violations.append((key, f"{relative}:{offset + node.lineno}: {message}"))
+
+            def visit(self, node):
+                if check_aliases and is_client_name(node) and isinstance(node.ctx, ast.Load):
+                    parent = parents.get(node)
+                    direct = isinstance(parent, ast.Call) and parent.func is node
+                    method = (isinstance(parent, ast.Attribute) and parent.value is node
+                              and parent.attr in CLIENT_FACTORIES
+                              and isinstance(parents.get(parent), ast.Call)
+                              and parents[parent].func is parent)
+                    if not direct and not method:
+                        subclass = isinstance(parent, ast.ClassDef) and node in parent.bases
+                        self.report(node, "client-alias", "do not subclass SimmerClient" if subclass
+                                    else "do not alias or wrap SimmerClient")
+                return super().visit(node)
+
+            def visit_ImportFrom(self, node):
+                if check_aliases and any(a.name == "SimmerClient" and a.asname
+                                         and a.asname != "SimmerClient" for a in node.names):
+                    self.report(node, "client-alias", "do not alias SimmerClient")
 
             def visit_ClassDef(self, node):
                 self.scope.append(node.name)
@@ -179,24 +224,41 @@ def collect_live_violations(root: Path) -> tuple[list[tuple[tuple[str, str, str]
                     if (arg.arg == "live" and default is not None
                             and not (isinstance(default, ast.Constant) and default.value is False)):
                         self.report(node, "live-default", "pass live=False by default and opt in with --live")
+                self.parameters.append(unchanged_parameters(node))
                 self.generic_visit(node)
+                self.parameters.pop()
                 self.scope.pop()
 
             visit_AsyncFunctionDef = visit_FunctionDef
             visit_Lambda = visit_FunctionDef
 
             def visit_Call(self, node):
-                constructor = is_client_name(node.func, aliases) or (
+                constructor = is_client_name(node.func) or (
                     isinstance(node.func, ast.Attribute)
                     and node.func.attr in {"from_env", "with_ows_wallet"}
-                    and is_client_name(node.func.value, aliases))
+                    and is_client_name(node.func.value))
                 live = next((kw for kw in node.keywords if kw.arg == "live"), None)
-                if constructor and live is None:
-                    self.report(node, "explicit-live", "SimmerClient(...) must pass live= explicitly; pass live=False by default and opt in with --live")
+                if constructor:
+                    splat = any(kw.arg is None for kw in node.keywords)
+                    if live is None or splat:
+                        message = "SimmerClient(...) must pass live= explicitly; pass live=False by default and opt in with --live"
+                        if splat:
+                            message += "; no ** splat into SimmerClient"
+                        self.report(node, "explicit-live", message)
+                if check_aliases and isinstance(node.func, ast.Name) and node.func.id == "getattr":
+                    if (len(node.args) >= 2 and isinstance(node.args[1], ast.Constant)
+                            and node.args[1].value == "SimmerClient"):
+                        self.report(node, "client-alias", "do not alias or wrap SimmerClient with getattr")
                 if live is not None:
+                    literal_false = isinstance(live.value, ast.Constant) and live.value.value is False
                     known, value = constant_value(live.value)
-                    if known and bool(value):
-                        self.report(node, "truthy-live", "pass live=False by default and opt in with --live using a runtime expression")
+                    parameter = (isinstance(live.value, ast.Name) and self.parameters
+                                 and live.value.id in self.parameters[-1])
+                    if not literal_false:
+                        if (known and bool(value)) or (not constructor and is_constant_expression(live.value)):
+                            self.report(node, "truthy-live", "pass live=False by default and opt in with --live using a runtime expression")
+                        elif constructor and not parameter:
+                            self.report(node, "live-allowlist", "pass live=False or an unchanged function parameter; opt in with --live")
                 self.generic_visit(node)
 
         Visitor().visit(tree)

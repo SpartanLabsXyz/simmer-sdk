@@ -70,9 +70,9 @@ def test_lambda_default(tmp_path):
 @pytest.mark.parametrize("code", [
     "def get_client(live=False): pass", "def get_client(live): pass",
     "async def make_client(*, live): pass", "factory = lambda live=False: live",
-    "SimmerClient(api_key=k, live=False)", "SimmerClient(api_key=k, live=args.live)",
+    "SimmerClient(api_key=k, live=False)",
     "get_client(live=not dry_run)", 'SimmerClient.readonly(api_key=k, venue="polymarket")',
-    "SimmerClient.from_env(live=live)", "get_client(live=bool(0))",
+    "def get_client(live=False):\n    return SimmerClient.from_env(live=live)",
 ])
 def test_accept_paper_or_runtime_opt_in(tmp_path, code):
     write_skill(tmp_path, code)
@@ -146,4 +146,83 @@ def test_syntax_error_fails_closed(tmp_path):
 def test_aliased_constructor_requires_explicit_live(tmp_path, code):
     write_skill(tmp_path, code)
     errors = governance.validate_live_defaults(tmp_path)
-    assert any("must pass live= explicitly" in e for e in errors), errors
+    assert errors
+
+
+@pytest.mark.parametrize("code", [
+    *[f"SimmerClient(api_key='k', live={value})" for value in [
+        "True or False", "True and True", "True if True else False", "+True",
+        "~0", "1==1", "args.live", "not x", "live", "0",
+    ]],
+    *[f"get_client(live={value})" for value in [
+        "True or False", "1==1", "+True", "~0", "bool(0)", "0",
+    ]],
+    "def get_client(**kwargs): return SimmerClient(api_key='k', live=kwargs.get('live', True))",
+    "import simmer_sdk; Client = simmer_sdk.SimmerClient; Client(api_key='k', venue='polymarket')",
+    "Factory = SimmerClient.from_env; Factory(venue='x')",
+    "(C := SimmerClient)(api_key='k')",
+    "import functools; functools.partial(SimmerClient, api_key='k')()",
+    "getattr(simmer_sdk, 'SimmerClient')(api_key='k')",
+    "class C(SimmerClient): pass\nC(api_key='k')",
+    "class C(m.SimmerClient): pass",
+    "def get_client(live=False):\n    live = True\n    return SimmerClient(api_key=k, live=live)",
+    "SimmerClient(api_key=k, live=False, **kw)",
+])
+def test_reject_bypasses(tmp_path, code):
+    write_skill(tmp_path, code)
+    assert governance.validate_live_defaults(tmp_path)
+
+
+def test_test_file_mock_references_allowed(tmp_path):
+    write_skill(tmp_path, "sdk.SimmerClient = object\nobject.__new__(SimmerClient)",
+                "skills/x/tests/test_a.py")
+    assert governance.validate_live_defaults(tmp_path) == []
+
+
+@pytest.mark.parametrize("statement", [
+    "live = True", "live += 1", "live: bool = True", "(live := True)",
+    "for live in values: pass", "with context() as live: pass", "del live",
+])
+def test_rebound_parameter_rejected(tmp_path, statement):
+    write_skill(tmp_path, "def get_client(live=False):\n"
+                f"    {statement}\n"
+                "    return SimmerClient(api_key=k, live=live)")
+    findings, _ = governance.collect_live_violations(tmp_path)
+    assert any(key[2] == "live-allowlist" for key, _ in findings)
+
+
+@pytest.mark.parametrize("code", [
+    "def get_client(live=False):\n    return SimmerClient(api_key=k, live=live)",
+    "async def get_client(live=False):\n    return SimmerClient(api_key=k, live=live)",
+    "factory = lambda live=False: SimmerClient(api_key=k, live=live)",
+    "get_client(live=args.live)",
+])
+def test_unchanged_parameter_or_helper_runtime_allowed(tmp_path, code):
+    write_skill(tmp_path, code)
+    assert governance.validate_live_defaults(tmp_path) == []
+
+
+def test_closure_parameter_rejected(tmp_path):
+    write_skill(tmp_path, "def outer(live=False):\n"
+                "    def inner():\n"
+                "        return SimmerClient(api_key=k, live=live)")
+    assert governance.validate_live_defaults(tmp_path)
+
+
+@pytest.mark.parametrize("code", [
+    "def get_client(**live):\n    return SimmerClient(api_key=k, live=live)",
+    "def get_client(*live):\n    return SimmerClient(api_key=k, live=live)",
+    "SimmerClient.__new__(SimmerClient)",
+    "make = SimmerClient.__call__",
+    "from simmer_sdk import SimmerClient as C\nC(api_key='k', live=False)",
+    "import simmer_sdk as s\nclients = [s.SimmerClient]",
+])
+def test_reject_splat_params_and_other_aliases(tmp_path, code):
+    write_skill(tmp_path, code)
+    assert governance.validate_live_defaults(tmp_path)
+
+
+def test_literal_true_constructor_keeps_truthy_rule(tmp_path):
+    write_skill(tmp_path, "SimmerClient(live=True)")
+    findings, _ = governance.collect_live_violations(tmp_path)
+    assert [key[2] for key, _ in findings] == ["truthy-live"]
