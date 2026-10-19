@@ -113,8 +113,8 @@ Env var naming convention: `SIMMER_<SKILLNAME>_<PARAM>`.
 ```python
 _client = None
 
-def get_client(live=True):
-    """Lazy-init SimmerClient singleton."""
+def get_client(*, live=False):
+    """Lazy-init SimmerClient singleton; paper by default, opt in with --live."""
     global _client
     if _client is None:
         try:

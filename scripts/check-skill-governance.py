@@ -4,10 +4,13 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import os
+import re
 import subprocess
 import sys
+import textwrap
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -42,6 +45,311 @@ SIMMER_WEBSITE_SYNC_WAIVER_MARKERS = {
     "simmer-website-sync-waived",
     "website-skill-sync-waived",
 }
+
+
+SKILL_TEMPLATE_PATH = "skills/simmer-skill-builder/references/skill-template.md"
+# Generated once from existing violations; shrink entries when migrating them.
+# Keys are (relative path, enclosing qualified function or <module>, rule ID).
+LIVE_DEFAULT_ALLOWLIST = {
+    ('skills/kalshi-weather-trader/weather_trader.py', 'get_client', 'live-default'): 1,
+    ('skills/polymarket-ai-divergence/ai_divergence.py', 'get_client', 'live-default'): 1,
+    ('skills/polymarket-btc-up-down-trader/strategy.py', 'get_client', 'live-default'): 1,
+    ('skills/polymarket-btc-up-down-trader/tests/test_exits.py', 'TestLiveTradeCalls.test_entry_scan_buys_with_client_trade', 'truthy-live'): 1,
+    ('skills/polymarket-btc-up-down-trader/tests/test_exits.py', 'TestLiveTradeCalls.test_exit_monitor_sells_with_client_trade', 'truthy-live'): 1,
+    ('skills/polymarket-btc-up-down-trader/tests/test_replay_plane.py', 'TestReplayEntryAndSpend.test_failed_trade_does_not_burn_daily_spend', 'truthy-live'): 1,
+    ('skills/polymarket-btc-up-down-trader/tests/test_replay_plane.py', 'TestReplayEntryAndSpend.test_replay_entry_uses_tape_price_without_skip_preflight', 'truthy-live'): 1,
+    ('skills/polymarket-combo-builder/combo_builder.py', 'activate_combo', 'truthy-live'): 1,
+    ('skills/polymarket-copytrading/copytrading_trader.py', 'get_client', 'truthy-live'): 1,
+    ('skills/polymarket-copytrading/tests/test_venue_routing.py', 'TestVenueRouting.test_client_repins_when_venue_overrides_config', 'truthy-live'): 1,
+    ('skills/polymarket-copytrading/tests/test_venue_routing.py', 'TestVenueRouting.test_env_venue_polymarket_without_cli_flag_used_in_trade', 'truthy-live'): 1,
+    ('skills/polymarket-copytrading/tests/test_venue_routing.py', 'TestVenueRouting.test_polymarket_config_venue_sim_arg_trade_gets_sim', 'truthy-live'): 1,
+    ('skills/polymarket-copytrading/tests/test_venue_routing.py', 'TestVenueRouting.test_polymarket_venue_preflight_receives_venue_kwarg', 'truthy-live'): 1,
+    ('skills/polymarket-copytrading/tests/test_venue_routing.py', 'TestVenueRouting.test_sim_config_venue_polymarket_arg_trade_gets_polymarket', 'truthy-live'): 1,
+    ('skills/polymarket-copytrading/tests/test_venue_routing.py', 'TestVenueRouting.test_sim_venue_no_polymarket_preflight', 'truthy-live'): 1,
+    ('skills/polymarket-copytrading/tests/test_venue_routing.py', 'TestVenueRouting.test_live_run_auto_redeems_once', 'truthy-live'): 1,
+    ('skills/polymarket-copytrading/tests/test_venue_routing.py', '_make_skill_module.MockSimmerClient.__init__', 'live-default'): 1,
+    ('skills/polymarket-copytrading/tests/test_venue_routing.py', '_run_copytrading', 'live-default'): 1,
+    ('skills/polymarket-dca-eval-trader/dca_eval_trader.py', 'run', 'truthy-live'): 1,
+    # No-default `live` param; migrating it needs the sensitive-skill-approved label.
+    ('skills/polymarket-dca-eval-trader/dca_eval_trader.py', '_get_client', 'live-allowlist'): 1,
+    ('skills/polymarket-elon-tweets/elon_tweets.py', 'get_client', 'live-default'): 1,
+    ('skills/polymarket-fast-loop/fastloop_trader.py', 'get_client', 'live-default'): 1,
+    ('skills/polymarket-fast-scaler/fast_scaler.py', 'get_client', 'live-default'): 1,
+    ('skills/polymarket-market-maker/market_maker.py', 'get_client', 'truthy-live'): 1,
+    ('skills/polymarket-mert-sniper/mert_sniper.py', 'get_client', 'live-default'): 1,
+    ('skills/polymarket-mil-aircraft-tracker/milaircraft_tracker.py', 'get_client', 'live-default'): 1,
+    ('skills/polymarket-nothing-ever-happens/nothing_ever_happens.py', 'get_client', 'live-default'): 1,
+    ('skills/polymarket-nothing-ever-happens/tests/test_paper_mode_venue.py', 'VenueThreadingTests.test_explicit_polymarket_venue', 'truthy-live'): 1,
+    ('skills/polymarket-nothing-ever-happens/tests/test_paper_mode_venue.py', 'VenueThreadingTests.test_sim_venue_constructs_client_with_sim', 'truthy-live'): 1,
+    ('skills/polymarket-nothing-ever-happens/tests/test_paper_mode_venue.py', 'VenueThreadingTests.test_unset_venue_defaults_to_polymarket', 'truthy-live'): 1,
+    ('skills/polymarket-soccer-shock-ladder/shock_ladder_trader.py', 'get_client', 'truthy-live'): 1,
+    ('skills/polymarket-soccer-shock-ladder/tests/test_shock_ladder_trader.py', 'test_config_custom_buckets_and_live', 'truthy-live'): 1,
+    ('skills/polymarket-soccer-shock-ladder/tests/test_shock_ladder_trader.py', 'test_venue_sim_no_trades_no_open_orders_and_deletes', 'truthy-live'): 1,
+    ('skills/polymarket-weather-trader/weather_trader.py', 'get_client', 'live-default'): 1,
+    ('skills/polymarket-worldcup-copytrader/copytrader.py', 'get_client', 'truthy-live'): 1,
+}
+
+
+def constant_value(node: ast.AST) -> tuple[bool, Any]:
+    """Fold literals, not, and single-argument bool/int/str conversions only."""
+    if isinstance(node, ast.Constant):
+        return True, node.value
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
+        known, value = constant_value(node.operand)
+        return (True, not value) if known else (False, None)
+    if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+            and node.func.id in {"bool", "int", "str"}
+            and len(node.args) == 1 and not node.keywords):
+        known, value = constant_value(node.args[0])
+        if known:
+            try:
+                return True, {"bool": bool, "int": int, "str": str}[node.func.id](value)
+            except (ValueError, TypeError, OverflowError):
+                pass
+    return False, None
+
+
+CLIENT_FACTORIES = {"from_env", "with_ows_wallet", "readonly"}
+
+
+def is_client_name(node: ast.AST) -> bool:
+    return ((isinstance(node, ast.Name) and node.id == "SimmerClient")
+            or (isinstance(node, ast.Attribute) and node.attr == "SimmerClient"))
+
+
+def is_constant_expression(node: ast.AST) -> bool:
+    """Constant calls may use only bool/int/str as function names."""
+    parents = {child: parent for parent in ast.walk(node) for child in ast.iter_child_nodes(parent)}
+    return all(
+        isinstance(parents.get(part), ast.Call)
+        and parents[part].func is part and part.id in {"bool", "int", "str"}
+        for part in ast.walk(node) if isinstance(part, ast.Name)
+    )
+
+
+def unchanged_parameters(node: ast.AST) -> set[str]:
+    """Find regular parameters without writes anywhere in the function subtree."""
+    args = node.args
+    names = {arg.arg for arg in args.posonlyargs + args.args + args.kwonlyargs}
+
+    class Writes(ast.NodeVisitor):
+        def visit_Name(self, child):
+            if isinstance(child.ctx, (ast.Store, ast.Del)):
+                names.discard(child.id)
+
+        def visit_FunctionDef(self, child):
+            names.discard(child.name)
+            self.generic_visit(child)
+
+        visit_AsyncFunctionDef = visit_FunctionDef
+
+        def visit_ClassDef(self, child):
+            names.discard(child.name)
+            self.generic_visit(child)
+
+        def visit_Nonlocal(self, child):
+            names.difference_update(child.names)
+
+        visit_Global = visit_Nonlocal
+
+    visitor = Writes()
+    for child in ast.iter_child_nodes(node):
+        visitor.visit(child)
+    return names
+
+
+def collect_live_violations(root: Path) -> tuple[list[tuple[tuple[str, str, str], str]], list[str]]:
+    """Collect findings before grandfathering, preserving Markdown line numbers."""
+    errors: list[str] = []
+    violations = []
+    sources = [(path, 0, path.read_text(encoding="utf-8"))
+               for path in sorted((root / "skills").rglob("*.py"))]
+    if not (root / SKILL_TEMPLATE_PATH).is_file():
+        errors.append(f"{SKILL_TEMPLATE_PATH}:1: missing required paper-first template; restore it")
+    for path in sorted((root / "skills/simmer-skill-builder").rglob("*.md")):
+        text = path.read_text(encoding="utf-8")
+        for match in re.finditer(
+            r"^[ \t]*(```|~~~)[ \t]*(?:python3|python|py)[ \t]*\n(.*?)^[ \t]*\1[ \t]*$",
+            text, re.MULTILINE | re.DOTALL | re.IGNORECASE,
+        ):
+            sources.append((path, text.count("\n", 0, match.start(2)),
+                            textwrap.dedent(match.group(2))))
+
+    for path, offset, code in sources:
+        relative = path.relative_to(root).as_posix()
+        try:
+            tree = ast.parse(code, filename=relative)
+        except SyntaxError as exc:
+            errors.append(f"{relative}:{offset + (exc.lineno or 1)}: cannot parse Python: {exc.msg}")
+            continue
+
+        parents = {child: parent for parent in ast.walk(tree)
+                   for child in ast.iter_child_nodes(parent)}
+        check_aliases = "tests" not in path.relative_to(root).parts
+
+        # Index the whole source before checking calls, including forward references.
+        local_names = set()
+        live_signatures = {}
+        for definition in ast.walk(tree):
+            names = []
+            bound_method = False
+            if isinstance(definition, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                names = [definition.name]
+                bound_method = (isinstance(parents.get(definition), ast.ClassDef)
+                                and not any(
+                                    (isinstance(d, ast.Name) and d.id == "staticmethod")
+                                    or (isinstance(d, ast.Attribute) and d.attr == "staticmethod")
+                                    for d in definition.decorator_list))
+            elif isinstance(definition, ast.Lambda):
+                assignment = parents.get(definition)
+                if isinstance(assignment, ast.Assign):
+                    names = [t.id for t in assignment.targets if isinstance(t, ast.Name)]
+                elif isinstance(assignment, ast.AnnAssign) and isinstance(assignment.target, ast.Name):
+                    names = [assignment.target.id]
+            for name in names:
+                local_names.add(name)
+                args = definition.args
+                if any(arg.arg == "live" for arg in args.posonlyargs + args.args + args.kwonlyargs):
+                    live_signatures.setdefault(name, []).append((args, bound_method))
+
+        class Visitor(ast.NodeVisitor):
+            def __init__(self):
+                self.scope = []
+                self.parameters = []
+
+            def report(self, node, rule, message):
+                key = (relative, ".".join(self.scope) or "<module>", rule)
+                violations.append((key, f"{relative}:{offset + node.lineno}: {message}"))
+
+            def visit(self, node):
+                if check_aliases and is_client_name(node) and isinstance(node.ctx, ast.Load):
+                    parent = parents.get(node)
+                    direct = isinstance(parent, ast.Call) and parent.func is node
+                    method = (isinstance(parent, ast.Attribute) and parent.value is node
+                              and parent.attr in CLIENT_FACTORIES
+                              and isinstance(parents.get(parent), ast.Call)
+                              and parents[parent].func is parent)
+                    if not direct and not method:
+                        subclass = isinstance(parent, ast.ClassDef) and node in parent.bases
+                        self.report(node, "client-alias", "do not subclass SimmerClient" if subclass
+                                    else "do not alias or wrap SimmerClient")
+                return super().visit(node)
+
+            def visit_ImportFrom(self, node):
+                if check_aliases and any(a.name == "SimmerClient" and a.asname
+                                         and a.asname != "SimmerClient" for a in node.names):
+                    self.report(node, "client-alias", "do not alias SimmerClient")
+
+            def visit_ClassDef(self, node):
+                self.scope.append(node.name)
+                self.generic_visit(node)
+                self.scope.pop()
+
+            def visit_FunctionDef(self, node):
+                self.scope.append("<lambda>" if isinstance(node, ast.Lambda) else node.name)
+                positional = node.args.posonlyargs + node.args.args
+                defaults = list(zip(positional[len(positional) - len(node.args.defaults):],
+                                    node.args.defaults))
+                defaults.extend(zip(node.args.kwonlyargs, node.args.kw_defaults))
+                bad_live_defaults = set()
+                safe_parameters = set()
+                for arg, default in defaults:
+                    if isinstance(default, ast.Constant) and default.value is False:
+                        safe_parameters.add(arg.arg)
+                    if (arg.arg == "live" and default is not None
+                            and not (isinstance(default, ast.Constant) and default.value is False)):
+                        bad_live_defaults.add(arg.arg)
+                        self.report(node, "live-default", "pass live=False by default and opt in with --live")
+                safe_parameters -= {"self", "cls"}
+                if isinstance(parents.get(node), ast.ClassDef) and positional:
+                    safe_parameters.discard(positional[0].arg)
+                self.parameters.append((
+                    safe_parameters & unchanged_parameters(node), bad_live_defaults,
+                ))
+                self.generic_visit(node)
+                self.parameters.pop()
+                self.scope.pop()
+
+            visit_AsyncFunctionDef = visit_FunctionDef
+            visit_Lambda = visit_FunctionDef
+
+            def visit_Call(self, node):
+                constructor = is_client_name(node.func) or (
+                    isinstance(node.func, ast.Attribute)
+                    and node.func.attr in {"from_env", "with_ows_wallet"}
+                    and is_client_name(node.func.value))
+                live = next((kw for kw in node.keywords if kw.arg == "live"), None)
+                if constructor:
+                    splat = any(kw.arg is None for kw in node.keywords)
+                    if live is None or splat:
+                        message = "SimmerClient(...) must pass live= explicitly; pass live=False by default and opt in with --live"
+                        if splat:
+                            message += "; no ** splat into SimmerClient"
+                        self.report(node, "explicit-live", message)
+                if check_aliases and isinstance(node.func, ast.Name) and node.func.id == "getattr":
+                    if (len(node.args) >= 2 and isinstance(node.args[1], ast.Constant)
+                            and node.args[1].value == "SimmerClient"):
+                        self.report(node, "client-alias", "do not alias or wrap SimmerClient with getattr")
+                name = (node.func.id if isinstance(node.func, ast.Name) else
+                        node.func.attr if isinstance(node.func, ast.Attribute) else None)
+                signatures = live_signatures.get(name, [])
+                fallback = name in {"get_client", "_get_client"} and name not in local_names
+                bad_positional_live = False
+                if signatures or fallback:
+                    if (any(isinstance(arg, ast.Starred) for arg in node.args)
+                            or any(kw.arg is None for kw in node.keywords)):
+                        self.report(node, "live-splat", "no */** splat into a live helper; pass live=False by default and opt in with --live")
+                    bound_values = []
+                    if fallback and node.args:
+                        bound_values.append(node.args[0])
+                    for args, bound_method in signatures:
+                        positional = args.posonlyargs + args.args
+                        if bound_method and isinstance(node.func, ast.Attribute):
+                            positional = positional[1:]
+                        bound_values.extend(value for parameter, value in zip(positional, node.args)
+                                            if parameter.arg == "live")
+                    # A positional-only live cannot be bound by a keyword (which
+                    # may instead be captured in **kwargs).
+                    if signatures and not any(
+                        arg.arg == "live" for args, _ in signatures
+                        for arg in args.args + args.kwonlyargs
+                    ):
+                        live = None
+                    bad_positional_live = any(
+                        is_constant_expression(value)
+                        and not (isinstance(value, ast.Constant) and value.value is False)
+                        for value in bound_values
+                    )
+                    if bad_positional_live:
+                        self.report(node, "truthy-live", "pass live=False by default and opt in with --live using a runtime expression")
+                if live is not None:
+                    literal_false = isinstance(live.value, ast.Constant) and live.value.value is False
+                    known, value = constant_value(live.value)
+                    parameter = (isinstance(live.value, ast.Name) and self.parameters
+                                 and live.value.id in self.parameters[-1][0])
+                    bad_default = (isinstance(live.value, ast.Name) and self.parameters
+                                   and live.value.id in self.parameters[-1][1])
+                    if not literal_false:
+                        if (known and bool(value)) or (not constructor and is_constant_expression(live.value)):
+                            if not bad_positional_live:
+                                self.report(node, "truthy-live", "pass live=False by default and opt in with --live using a runtime expression")
+                        elif constructor and not parameter and not bad_default:
+                            self.report(node, "live-allowlist", "pass live=False or a live=False-defaulted parameter; opt in with --live")
+                self.generic_visit(node)
+
+        Visitor().visit(tree)
+    return violations, errors
+
+
+def validate_live_defaults(root: Path = ROOT) -> list[str]:
+    """AST-only paper-first check, independent of git's changed-file selection."""
+    violations, errors = collect_live_violations(root)
+    counts: dict[tuple[str, str, str], int] = {}
+    for key, message in violations:
+        counts[key] = counts.get(key, 0) + 1
+        if counts[key] > LIVE_DEFAULT_ALLOWLIST.get(key, 0):
+            errors.append(message)
+    return errors
 
 
 def run_git(args: list[str]) -> str:
@@ -430,7 +738,7 @@ def main() -> int:
     )
     pr_approved = pr_has_sensitive_approval_marker()
 
-    errors: list[str] = []
+    errors = validate_live_defaults()
     if paths and base_ref is not None:
         errors.extend(validate_skill_version_bumps(paths, base_ref))
         errors.extend(validate_simmer_website_sync_gate(paths, base_ref))

@@ -8,7 +8,7 @@ tags:
   - combo
 metadata:
   author: Simmer (@simmer_markets)
-  version: "0.1.2"
+  version: "0.1.3"
   displayName: Combo Builder
   difficulty: beginner
 ---

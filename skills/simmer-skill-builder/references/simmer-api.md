@@ -16,7 +16,7 @@ from simmer_sdk import SimmerClient
 client = SimmerClient(
     api_key="sk_live_...",   # Required: from SIMMER_API_KEY env var
     venue="polymarket",       # "sim" (virtual $SIM), "polymarket" (real USDC), "kalshi" (real USD)
-    live=True,                # False = paper mode (simulated trades at real prices)
+    live=False,               # True = real money; opt in explicitly
 )
 ```
 
