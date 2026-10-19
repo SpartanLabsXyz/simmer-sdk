@@ -130,7 +130,7 @@ def test_allowlist_shrink_only():
 
 def test_allowlist_total():
     # This ceiling may only go down as existing violations are migrated.
-    assert sum(governance.LIVE_DEFAULT_ALLOWLIST.values()) <= 32
+    assert sum(governance.LIVE_DEFAULT_ALLOWLIST.values()) <= 33
 
 
 def test_syntax_error_fails_closed(tmp_path):

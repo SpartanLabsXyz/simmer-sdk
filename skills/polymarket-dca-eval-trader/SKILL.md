@@ -3,7 +3,7 @@ name: polymarket-dca-eval-trader
 description: Build and optionally execute a three-tranche Polymarket DCA plan with prop-firm-shaped evaluation envelope checks. Use when the user wants a Bubbles/Roya-style staged averaging template for one thesis, with paper mode by default and explicit live opt-in.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "0.1.1"
+  version: "0.1.0"
   status: scaffold
   displayName: Polymarket DCA Eval Trader
   difficulty: advanced

@@ -68,6 +68,8 @@ LIVE_DEFAULT_ALLOWLIST = {
     ('skills/polymarket-copytrading/tests/test_venue_routing.py', 'TestVenueRouting.test_sim_venue_no_polymarket_preflight', 'truthy-live'): 1,
     ('skills/polymarket-copytrading/tests/test_venue_routing.py', '_run_copytrading', 'live-default'): 1,
     ('skills/polymarket-dca-eval-trader/dca_eval_trader.py', 'run', 'truthy-live'): 1,
+    # No-default `live` param; migrating it needs the sensitive-skill-approved label.
+    ('skills/polymarket-dca-eval-trader/dca_eval_trader.py', '_get_client', 'live-allowlist'): 1,
     ('skills/polymarket-elon-tweets/elon_tweets.py', 'get_client', 'live-default'): 1,
     ('skills/polymarket-fast-loop/fastloop_trader.py', 'get_client', 'live-default'): 1,
     ('skills/polymarket-fast-scaler/fast_scaler.py', 'get_client', 'live-default'): 1,

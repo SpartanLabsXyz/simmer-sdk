@@ -310,7 +310,7 @@ def journal_event(event: dict, path: Optional[Path] = None) -> None:
         f.write(json.dumps(payload, sort_keys=True) + "\n")
 
 
-def _get_client(live: bool = False):
+def _get_client(live: bool):
     try:
         from simmer_sdk import SimmerClient
     except ImportError:
