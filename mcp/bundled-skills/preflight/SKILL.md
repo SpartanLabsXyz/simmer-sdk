@@ -6,7 +6,7 @@ read_only: true
 description: Pre-trade readiness check for autonomous agents. One call returns wallet identity, venue status, spendable balance, open exposure, and a structured ok_to_trade verdict. Live real-venue trades auto-run this check and refuse when ok_to_trade is False.
 metadata:
   author: "Simmer (@simmer_markets)"
-  version: "0.3.7"
+  version: "0.3.6"
   displayName: Simmer Preflight
   difficulty: beginner
   primaryEnv: SIMMER_API_KEY
@@ -45,7 +45,7 @@ Do not call it on every polling tick — it makes 3 API calls. Once per trade in
 ```python
 from simmer_sdk import SimmerClient
 
-client = SimmerClient.from_env(venue="polymarket", live=True)
+client = SimmerClient.from_env(venue="polymarket")
 
 result = client.preflight(
     venue="polymarket",       # venue to check (defaults to client.venue)
@@ -139,7 +139,7 @@ If you see warnings, log them. Fetch failures on individual endpoints are gracef
 import os
 from simmer_sdk import SimmerClient
 
-client = SimmerClient.from_env(venue="polymarket", live=True)
+client = SimmerClient.from_env(venue="polymarket")
 
 def safe_trade(market_id: str, side: str, amount: float):
     # Live auto-gate: EXPOSURE_CAP_USD is opt-in (unset = no cap, no $100 default).
