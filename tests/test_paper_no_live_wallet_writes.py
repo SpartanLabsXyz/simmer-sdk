@@ -125,3 +125,78 @@ def test_readonly_real_venue_needs_no_live_and_still_refuses_writes(monkeypatch)
     with pytest.raises(RuntimeError, match="readonly"):
         client.cancel_all_orders()
     client._request.assert_not_called()
+
+
+@pytest.mark.parametrize('mode', ['paper-polymarket', 'paper-sim', 'implicit', 'from_env', 'readonly'])
+@pytest.mark.parametrize('method,args,kwargs', [
+    ('link_wallet', (), {}),
+    ('import_polymarket_wallet', (), {}),
+    ('update_agent_wallet_creds', (), {'agent_id': 'agent'}),
+    ('update_agent_wallet_creds', (), {'ows_wallet_name': 'test-wallet'}),
+    ('register_agent_wallet', ('test-wallet',), {}),
+    ('place_combo', (['1', '2'], 1), {'dry_run': False}),
+])
+def test_wallet_entry_refuses_before_http_or_signing(mode, method, args, kwargs, monkeypatch, offline):
+    monkeypatch.setenv('WALLET_PRIVATE_KEY', '0x' + '11' * 32)
+    monkeypatch.setenv('SIMMER_API_KEY', 'sk_test_...')
+    if mode.startswith('paper-'):
+        client = SimmerClient(api_key='sk_test_...', venue=mode.split('-')[1], live=False)
+    elif mode == 'from_env':
+        client = SimmerClient.from_env()
+    elif mode == 'readonly':
+        client = SimmerClient.readonly()
+    else:
+        client = SimmerClient(api_key='sk_test_...')
+    client._private_key = '0x' + '11' * 32
+    client._wallet_address = '0x' + '11' * 20
+    client._request.reset_mock()
+    sentinels = []
+    for target in (
+        'simmer_sdk.signing.sign_message',
+        'simmer_sdk.signing.get_wallet_address',
+        'simmer_sdk.ows_utils.ows_sign_message',
+        'simmer_sdk.ows_utils.ows_derive_clob_creds',
+        'simmer_sdk.ows_utils.get_ows_wallet_address',
+        'py_clob_client.client.ClobClient',
+        'eth_account.Account.sign_typed_data',
+    ):
+        sentinel = Mock(side_effect=AssertionError('signing or CLOB construction reached'))
+        monkeypatch.setattr(target, sentinel)
+        sentinels.append(sentinel)
+    expected, message = (ValueError, 'explicit live mode') if mode in ('implicit', 'from_env') else (RuntimeError, 'readonly' if mode == 'readonly' else 'paper mode')
+    with pytest.raises(expected, match=message):
+        getattr(client, method)(*args, **kwargs)
+    client._request.assert_not_called()
+    offline.assert_not_called()
+    __import__('requests').get.assert_not_called()
+    for sentinel in sentinels:
+        sentinel.assert_not_called()
+
+
+def _linked_live_client():
+    client = SimmerClient(api_key='sk_test_...', venue='polymarket', live=True)
+    client.link_wallet = Mock(return_value={'success': True, 'wallet_address': '0x' + '11' * 20})
+    client._request = Mock(return_value={'deposit_wallet_address': '0x' + '22' * 20})
+    return client
+
+
+def test_import_does_not_swallow_activation_guard():
+    client = _linked_live_client()
+    client.activate_polymarket_dw = Mock()
+
+    def go_paper(*_args, **_kwargs):
+        client.live = False
+        return {'deposit_wallet_address': '0x' + '22' * 20}
+
+    client._request.side_effect = go_paper
+    with pytest.raises(RuntimeError, match='paper mode'):
+        client.import_polymarket_wallet()
+    client.activate_polymarket_dw.assert_not_called()
+
+
+def test_import_still_reports_operational_activation_failure():
+    client = _linked_live_client()
+    client.activate_polymarket_dw = Mock(side_effect=RuntimeError('relayer down'))
+    result = client.import_polymarket_wallet()
+    assert result['success'] is False and result['step'] == 'approvals'
+    assert 'relayer down' in result['error']

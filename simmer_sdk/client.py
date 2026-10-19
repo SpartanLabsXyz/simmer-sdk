@@ -1710,7 +1710,7 @@ class SimmerClient:
         Returns the dry-run plan, or ``{status, tx_hash, rfq_id}`` on a fill.
         """
         if not dry_run:
-            self._assert_not_readonly("place_combo(dry_run=False)")
+            self._assert_live_wallet_write("place_combo(dry_run=False)")
         self._assert_explicit_live("polymarket")
         from simmer_sdk import combo as _combo
 
@@ -1741,12 +1741,6 @@ class SimmerClient:
         uses_dw = bool(self._uses_deposit_wallet and self._deposit_wallet_address)
         signature_type = 3 if uses_dw else 0
         dw = self._deposit_wallet_address if uses_dw else None
-
-        if not dry_run and not self.live:
-            raise RuntimeError(
-                "place_combo(dry_run=False) requires the client in live mode. "
-                "Refusing to place a real combo from a non-live client."
-            )
 
         if not dry_run and self.live:
             combo_is_sell = str(direction).upper() == "SELL"
@@ -6151,7 +6145,7 @@ class SimmerClient:
                 if not result.get("clob_credentials_registered", True):
                     print(f"Note: creds will derive on first trade")
         """
-        self._assert_not_readonly("link_wallet()")
+        self._assert_live_wallet_write("link_wallet()")
         if not (self._ows_wallet or self._private_key) or not self._wallet_address:
             raise ValueError(
                 "private_key or ows_wallet required for wallet linking. "
@@ -6285,7 +6279,7 @@ class SimmerClient:
             clob_credentials_registered, balance_usd (best-effort, may be
             None), and error when a step failed.
         """
-        self._assert_not_readonly("import_polymarket_wallet()")
+        self._assert_live_wallet_write("import_polymarket_wallet()")
         # Calling this method IS explicit intent to use the local key, so adopt
         # the env wallet even when the client was built with the sim-venue
         # default (`from_env()` sets _ignore_env_wallets=True there, which
@@ -6345,6 +6339,9 @@ class SimmerClient:
         summary["dw_already_existed"] = bool(upgrade.get("already_existed"))
 
         # Step 3 — gasless allowance top-up for the extended spender set.
+        # The live-wallet guard stays outside the try so it is never reported
+        # as a soft "approvals" failure.
+        self._assert_live_wallet_write("activate_polymarket_dw()")
         try:
             summary["approvals"] = self.activate_polymarket_dw()
         except Exception as e:
@@ -7333,7 +7330,7 @@ class SimmerClient:
         Returns:
             dict with wallet record (id, agent_id, wallet_address, approvals_set)
         """
-        self._assert_not_readonly("register_agent_wallet()")
+        self._assert_live_wallet_write("register_agent_wallet()")
         import warnings
         warnings.warn(
             "register_agent_wallet(ows_wallet_name=...) is deprecated — the "
@@ -7448,7 +7445,7 @@ class SimmerClient:
         Returns:
             dict with updated wallet record
         """
-        self._assert_not_readonly("update_agent_wallet_creds()")
+        self._assert_live_wallet_write("update_agent_wallet_creds()")
         if ows_wallet_name and private_key:
             raise ValueError("Pass either ows_wallet_name or private_key, not both")
 

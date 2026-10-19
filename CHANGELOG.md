@@ -6,6 +6,9 @@
   `live=False` (paper), including real-venue overrides on sim clients. Paper
   clients refuse wallet writes and skip briefing risk exits. Failed or zero-fill
   risk exits retain monitors and alerts; successful exits report filled shares.
+- Breaking: `link_wallet()`, `import_polymarket_wallet()`, `register_agent_wallet()`,
+  `update_agent_wallet_creds()` and `place_combo(dry_run=False)` now need an explicit
+  `live=True` client and refuse before any signing or request otherwise.
 
 
 All notable changes to `simmer-sdk` are documented here.

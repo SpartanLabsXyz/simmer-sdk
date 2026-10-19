@@ -44,6 +44,7 @@ External Wallet Trading (BYOW):
     - Warn about missing Polymarket approvals
 
     For manual control (Polymarket):
+        client = SimmerClient(api_key="sk_live_...", venue="polymarket", live=True)
         client.link_wallet()  # Explicitly link wallet
         client.check_approvals()  # Check approval status
         client.ensure_approvals()  # Get missing approval tx data
