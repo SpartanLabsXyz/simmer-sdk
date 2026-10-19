@@ -185,6 +185,31 @@ def collect_live_violations(root: Path) -> tuple[list[tuple[tuple[str, str, str]
                    for child in ast.iter_child_nodes(parent)}
         check_aliases = "tests" not in path.relative_to(root).parts
 
+        # Index the whole source before checking calls, including forward references.
+        local_names = set()
+        live_signatures = {}
+        for definition in ast.walk(tree):
+            names = []
+            bound_method = False
+            if isinstance(definition, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                names = [definition.name]
+                bound_method = (isinstance(parents.get(definition), ast.ClassDef)
+                                and not any(
+                                    (isinstance(d, ast.Name) and d.id == "staticmethod")
+                                    or (isinstance(d, ast.Attribute) and d.attr == "staticmethod")
+                                    for d in definition.decorator_list))
+            elif isinstance(definition, ast.Lambda):
+                assignment = parents.get(definition)
+                if isinstance(assignment, ast.Assign):
+                    names = [t.id for t in assignment.targets if isinstance(t, ast.Name)]
+                elif isinstance(assignment, ast.AnnAssign) and isinstance(assignment.target, ast.Name):
+                    names = [assignment.target.id]
+            for name in names:
+                local_names.add(name)
+                args = definition.args
+                if any(arg.arg == "live" for arg in args.posonlyargs + args.args + args.kwonlyargs):
+                    live_signatures.setdefault(name, []).append((args, bound_method))
+
         class Visitor(ast.NodeVisitor):
             def __init__(self):
                 self.scope = []
@@ -263,6 +288,38 @@ def collect_live_violations(root: Path) -> tuple[list[tuple[tuple[str, str, str]
                     if (len(node.args) >= 2 and isinstance(node.args[1], ast.Constant)
                             and node.args[1].value == "SimmerClient"):
                         self.report(node, "client-alias", "do not alias or wrap SimmerClient with getattr")
+                name = (node.func.id if isinstance(node.func, ast.Name) else
+                        node.func.attr if isinstance(node.func, ast.Attribute) else None)
+                signatures = live_signatures.get(name, [])
+                fallback = name in {"get_client", "_get_client"} and name not in local_names
+                bad_positional_live = False
+                if signatures or fallback:
+                    if (any(isinstance(arg, ast.Starred) for arg in node.args)
+                            or any(kw.arg is None for kw in node.keywords)):
+                        self.report(node, "live-splat", "no */** splat into a live helper; pass live=False by default and opt in with --live")
+                    bound_values = []
+                    if fallback and node.args:
+                        bound_values.append(node.args[0])
+                    for args, bound_method in signatures:
+                        positional = args.posonlyargs + args.args
+                        if bound_method and isinstance(node.func, ast.Attribute):
+                            positional = positional[1:]
+                        bound_values.extend(value for parameter, value in zip(positional, node.args)
+                                            if parameter.arg == "live")
+                    # A positional-only live cannot be bound by a keyword (which
+                    # may instead be captured in **kwargs).
+                    if signatures and not any(
+                        arg.arg == "live" for args, _ in signatures
+                        for arg in args.args + args.kwonlyargs
+                    ):
+                        live = None
+                    bad_positional_live = any(
+                        is_constant_expression(value)
+                        and not (isinstance(value, ast.Constant) and value.value is False)
+                        for value in bound_values
+                    )
+                    if bad_positional_live:
+                        self.report(node, "truthy-live", "pass live=False by default and opt in with --live using a runtime expression")
                 if live is not None:
                     literal_false = isinstance(live.value, ast.Constant) and live.value.value is False
                     known, value = constant_value(live.value)
@@ -272,7 +329,8 @@ def collect_live_violations(root: Path) -> tuple[list[tuple[tuple[str, str, str]
                                    and live.value.id in self.parameters[-1][1])
                     if not literal_false:
                         if (known and bool(value)) or (not constructor and is_constant_expression(live.value)):
-                            self.report(node, "truthy-live", "pass live=False by default and opt in with --live using a runtime expression")
+                            if not bad_positional_live:
+                                self.report(node, "truthy-live", "pass live=False by default and opt in with --live using a runtime expression")
                         elif constructor and not parameter and not bad_default:
                             self.report(node, "live-allowlist", "pass live=False or a live=False-defaulted parameter; opt in with --live")
                 self.generic_visit(node)

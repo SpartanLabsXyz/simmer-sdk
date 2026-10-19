@@ -82,7 +82,7 @@ def test_accept_paper_or_runtime_opt_in(tmp_path, code):
 def test_updated_template():
     assert governance.validate_live_defaults(ROOT) == []
     template = (ROOT / governance.SKILL_TEMPLATE_PATH).read_text()
-    assert "def get_client(live=False):" in template
+    assert "def get_client(*, live=False):" in template
     assert 'parser.add_argument("--live", action="store_true"' in template
     assert "Always default to dry-run" in template
 
@@ -283,3 +283,68 @@ def test_bad_live_default_has_one_root_cause(tmp_path):
     findings, errors = governance.collect_live_violations(tmp_path)
     assert errors == []
     assert [key[2] for key, _ in findings] == ["live-default"]
+
+
+@pytest.mark.parametrize("call", [
+    "get_client(True)", "get_client(not False)", "get_client(1)",
+    "get_client(*(True,))", 'get_client(**{"live": True})',
+])
+def test_helper_live_arguments_rejected(tmp_path, call):
+    write_skill(tmp_path, "def get_client(live=False):\n"
+                '    return SimmerClient(api_key="k", venue="polymarket", live=live)\n'
+                + call)
+    assert governance.validate_live_defaults(tmp_path)
+
+
+@pytest.mark.parametrize("code", [
+    "get_client(True)", "_get_client(1)",
+    "def get_client(live=False, /): pass\nget_client(True)",
+    "class A:\n    def get_client(self, live=False): pass\n    def run(self): self.get_client(True)",
+    'def make(venue, live=False): pass\nmake("sim", True)',
+    "async def make(live=False): pass\nmake(True)",
+    "def outer():\n    def make(live=False): pass\n    make(True)",
+    "make = lambda live=False: live\nmake(True)",
+    "def make(venue, live=False): pass\ndef make(live=False): pass\nmake(True)",
+    "class A:\n    @staticmethod\n    def make(live=False): pass\nA.make(True)",
+    "def make(*, live=False): pass\nmake(**options)",
+    "def get_client(live=False, /, **kwargs): pass\nget_client(True, live=False)",
+])
+def test_live_helper_binding_rejected(tmp_path, code):
+    write_skill(tmp_path, code)
+    assert governance.validate_live_defaults(tmp_path)
+
+
+@pytest.mark.parametrize("call", [
+    "get_client(live=False)", "get_client(False)",
+    "get_client(live=not dry_run)", "get_client(not dry_run)", "get_client()",
+])
+def test_live_helper_binding_allowed(tmp_path, call):
+    write_skill(tmp_path, "def get_client(live=False): pass\n" + call)
+    assert governance.validate_live_defaults(tmp_path) == []
+
+
+@pytest.mark.parametrize("code", [
+    'def make(venue, live=False): pass\nmake("sim")',
+    'def get_client(venue=None): pass\nget_client("polymarket")',
+    "class A:\n    def make(self, live=False): pass\n    def run(self): self.make(False)",
+    "def get_client(live=False, /, **kwargs): pass\nget_client(live=True)",
+])
+def test_helper_omitted_live_and_non_live_signature_allowed(tmp_path, code):
+    write_skill(tmp_path, code)
+    assert governance.validate_live_defaults(tmp_path) == []
+
+
+def test_helper_keyword_reported_once(tmp_path):
+    write_skill(tmp_path, "def get_client(live=False): pass\nget_client(live=True)")
+    findings, errors = governance.collect_live_violations(tmp_path)
+    assert errors == []
+    assert [key[2] for key, _ in findings] == ["truthy-live"]
+
+
+@pytest.mark.parametrize("call", ["get_client(*args)", "get_client(**options)"])
+def test_helper_splat_rule(tmp_path, call):
+    write_skill(tmp_path, call)
+    findings, errors = governance.collect_live_violations(tmp_path)
+    assert errors == []
+    assert [key[2] for key, _ in findings] == ["live-splat"]
+    assert "no */** splat into a live helper" in findings[0][1]
