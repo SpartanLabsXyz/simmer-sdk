@@ -17,6 +17,7 @@ from simmer_sdk.client import SimmerClient
 
 def _client(**attrs) -> SimmerClient:
     client = SimmerClient.__new__(SimmerClient)
+    client._live_explicit = True
     client.venue = "polymarket"
     client.live = True
     client._private_key = None

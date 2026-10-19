@@ -21,6 +21,7 @@ def _make_client():
     amount/shares actually reached the wire after quantization.
     """
     client = SimmerClient.__new__(SimmerClient)
+    client._live_explicit = True
     client.live = True
     client.venue = "polymarket"
     client._private_key = None

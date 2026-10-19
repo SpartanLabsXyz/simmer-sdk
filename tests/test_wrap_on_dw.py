@@ -79,6 +79,8 @@ PREPARE_NO_OP = {
 
 def _make_client(private_key=FAKE_PRIVATE_KEY, ows_wallet=None):
     client = SimmerClient.__new__(SimmerClient)
+    client._live_explicit = True
+    client.live = True
     client._api_key = FAKE_KEY
     client._api_base = API_BASE
     client._private_key = private_key

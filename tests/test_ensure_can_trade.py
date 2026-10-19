@@ -17,7 +17,7 @@ from simmer_sdk.client import SimmerClient
 def _make_client(venue: str = "polymarket") -> SimmerClient:
     # API key is required at construction; helper never makes a network call
     # because we mock get_portfolio below.
-    return SimmerClient(api_key="test-key", venue=venue)
+    return SimmerClient(live=True, api_key="test-key", venue=venue)
 
 
 def test_skipped_non_polymarket_venue():

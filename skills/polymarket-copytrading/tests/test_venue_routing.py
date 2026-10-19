@@ -98,7 +98,7 @@ def _make_skill_module(config_venue="sim", trade_success=True, plan_trades=None,
     mock_client._request.side_effect = _request
 
     class MockSimmerClient:
-        def __init__(self, api_key, venue):
+        def __init__(self, api_key, venue, live=True):
             pass
         def __new__(cls, *args, **kwargs):
             return mock_client
@@ -220,7 +220,8 @@ class TestVenueRouting(unittest.TestCase):
         construction_venues = []
 
         class TrackingClient:
-            def __new__(cls, api_key, venue):
+            def __new__(cls, api_key, venue, live):
+                assert live is True
                 construction_venues.append(venue)
                 return MagicMock()
 
@@ -250,7 +251,8 @@ class TestReactorVenueRouting(unittest.TestCase):
         construction_venues = []
 
         class TrackingClient:
-            def __new__(cls, api_key, venue):
+            def __new__(cls, api_key, venue, live):
+                assert live is True
                 construction_venues.append(venue)
                 mc = MagicMock()
                 mc.venue = venue

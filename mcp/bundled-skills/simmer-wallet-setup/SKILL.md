@@ -5,7 +5,7 @@ published: true
 description: Self-custody wallet setup for Simmer agents. Bring your own key, import a funded Polymarket wallet, or connect an existing dashboard-registered agent to your local runtime. Skip this skill if you use a managed wallet — managed setup is a one-time dashboard flow, not an agent task.
 metadata:
   author: "Simmer (@simmer_markets)"
-  version: "0.4.0"
+  version: "0.4.1"
   displayName: Simmer Wallet Setup
   difficulty: beginner
   primaryEnv: SIMMER_API_KEY
@@ -79,7 +79,7 @@ All calls work without a browser session. `link_wallet()` signs a challenge with
 Set `SOLANA_PRIVATE_KEY` (base58) in the env, fund with SOL + USDC, complete KYC at dflow.net/proof. If the key lives in an OWS vault, the same wallet's derived Solana account signs — no `SOLANA_PRIVATE_KEY` needed:
 
 ```python
-client = SimmerClient.from_env(venue="kalshi")
+client = SimmerClient.from_env(venue="kalshi", live=True)
 client.trade(market_id, "yes", 5.0, reasoning="...")
 ```
 

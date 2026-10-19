@@ -6,7 +6,7 @@ from simmer_sdk.client import SimmerClient
 
 
 def _client():
-    return SimmerClient(api_key="sk_test", venue="polymarket")
+    return SimmerClient(live=True, api_key="sk_test", venue="polymarket")
 
 
 def test_complete_response_returns_candles_no_fallback():

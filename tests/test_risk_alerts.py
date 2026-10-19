@@ -8,7 +8,7 @@ def _client(monkeypatch):
         "simmer_sdk.version_check.check_server_version_compatibility",
         lambda *args, **kwargs: None,
     )
-    return SimmerClient(api_key="sk_test", venue="polymarket")
+    return SimmerClient(live=True, api_key="sk_test", venue="polymarket")
 
 
 def _position(market_id="m1", *, yes=0.0, no=0.0, venue="polymarket"):

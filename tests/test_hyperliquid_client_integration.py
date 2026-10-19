@@ -18,7 +18,7 @@ def test_hyperliquid_property_builds_adapter(monkeypatch):
     pytest.importorskip("hyperliquid", reason="requires the [hyperliquid] extra")
     monkeypatch.setenv("WALLET_PRIVATE_KEY", TEST_KEY)
     monkeypatch.delenv("OWS_WALLET", raising=False)
-    c = SimmerClient(api_key="test", private_key=TEST_KEY)
+    c = SimmerClient(live=True, api_key="test", private_key=TEST_KEY)
     venue = c.hyperliquid
     assert venue.venue == "hyperliquid"
     assert venue.is_mainnet is True
@@ -36,7 +36,7 @@ def test_hyperliquid_from_env_uses_wallet_private_key(monkeypatch):
         lambda *args, **kwargs: None,
     )
 
-    c = SimmerClient.from_env(venue="hyperliquid")
+    c = SimmerClient.from_env(live=True, venue="hyperliquid")
 
     assert c._private_key == TEST_KEY
 
@@ -44,14 +44,14 @@ def test_hyperliquid_from_env_uses_wallet_private_key(monkeypatch):
 def test_hyperliquid_testnet_env(monkeypatch):
     pytest.importorskip("hyperliquid", reason="requires the [hyperliquid] extra")
     monkeypatch.setenv("SIMMER_HYPERLIQUID_TESTNET", "1")
-    c = SimmerClient(api_key="test", private_key=TEST_KEY)
+    c = SimmerClient(live=True, api_key="test", private_key=TEST_KEY)
     assert c.hyperliquid.is_mainnet is False
 
 
 def test_hyperliquid_main_address_env(monkeypatch):
     pytest.importorskip("hyperliquid", reason="requires the [hyperliquid] extra")
     monkeypatch.setenv("SIMMER_HYPERLIQUID_MAIN_ADDRESS", MAIN_ADDR)
-    c = SimmerClient(api_key="test", private_key=TEST_KEY)
+    c = SimmerClient(live=True, api_key="test", private_key=TEST_KEY)
     assert c.hyperliquid.address == MAIN_ADDR
     assert c.hyperliquid.signer_address != MAIN_ADDR
 
@@ -60,7 +60,7 @@ def test_hyperliquid_property_without_signer_raises(monkeypatch):
     monkeypatch.delenv("WALLET_PRIVATE_KEY", raising=False)
     monkeypatch.delenv("OWS_WALLET", raising=False)
     monkeypatch.delenv("SIMMER_PRIVATE_KEY", raising=False)
-    c = SimmerClient(api_key="test")
+    c = SimmerClient(live=True, api_key="test")
     with pytest.raises(ValueError, match="requires a signer"):
         _ = c.hyperliquid
 
@@ -69,7 +69,7 @@ def test_unified_trade_hyperliquid_guarded(monkeypatch):
     """trade(venue='hyperliquid') must NOT fall through to /api/sdk/trade —
     it raises until the server fill-recording endpoint lands."""
     monkeypatch.setenv("WALLET_PRIVATE_KEY", TEST_KEY)
-    c = SimmerClient(api_key="test", private_key=TEST_KEY)
+    c = SimmerClient(live=True, api_key="test", private_key=TEST_KEY)
     with pytest.raises(NotImplementedError, match="client.hyperliquid.place_order"):
         c.trade(market_id="m1", side="yes", amount=5.0, venue="hyperliquid")
 
@@ -97,6 +97,7 @@ def _offline(monkeypatch, posts, signs):
 
 
 def _gated_client(monkeypatch, posts, signs, **kwargs):
+    kwargs.setdefault("live", True)
     monkeypatch.setenv("WALLET_PRIVATE_KEY", TEST_KEY)
     monkeypatch.delenv("OWS_WALLET", raising=False)
     _offline(monkeypatch, posts, signs)

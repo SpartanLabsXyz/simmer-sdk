@@ -7,6 +7,7 @@ from simmer_sdk.client import SimmerClient
 def _make_client(**overrides):
     """Create a SimmerClient with mocked internals for testing."""
     client = SimmerClient.__new__(SimmerClient)
+    client._live_explicit = True
     client._agent_id = overrides.get("agent_id", "test-agent-uuid")
     client._ows_wallet = overrides.get("ows_wallet", None)
     client._wallet_address = overrides.get("wallet_address", None)

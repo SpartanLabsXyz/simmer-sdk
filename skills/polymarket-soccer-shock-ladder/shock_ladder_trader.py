@@ -81,7 +81,7 @@ def get_client():
     api_key = os.getenv("SIMMER_API_KEY")
     if not api_key:
         raise SystemExit("SIMMER_API_KEY not set — get one at simmer.markets/dashboard → SDK tab.")
-    return SimmerClient(api_key=api_key)
+    return SimmerClient(api_key=api_key, live=True)
 
 
 # --- signal pipe (mirror copytrading reactor) ---

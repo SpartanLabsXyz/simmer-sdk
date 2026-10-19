@@ -14,6 +14,7 @@ from simmer_sdk.client import SimmerClient
 def _make_external_client(venue="polymarket"):
     """SimmerClient with external private key — exercises the retry path."""
     client = SimmerClient.__new__(SimmerClient)
+    client._live_explicit = True
     client._agent_id = "test-agent"
     client._ows_wallet = None
     client._wallet_address = "0x1234567890abcdef1234567890abcdef12345678"

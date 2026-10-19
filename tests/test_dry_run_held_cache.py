@@ -17,6 +17,7 @@ from simmer_sdk.client import SimmerClient
 def _sim_client() -> SimmerClient:
     """Minimal client on the sim venue with a warm (empty) held-markets cache."""
     client = SimmerClient.__new__(SimmerClient)
+    client._live_explicit = True
     client._agent_id = "test-agent"
     client._ows_wallet = None
     client._wallet_address = None

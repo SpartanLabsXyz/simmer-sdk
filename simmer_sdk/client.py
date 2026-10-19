@@ -271,7 +271,7 @@ class SimmerClient:
         print(f"Bought {result.shares_bought} shares for ${result.cost}")
 
         # Real trading on Polymarket - uses real USDC (requires wallet linked in dashboard)
-        client = SimmerClient(api_key="sk_live_...", venue="polymarket")
+        client = SimmerClient(api_key="sk_live_...", venue="polymarket", live=True)
         result = client.trade(market_id=markets[0].id, side="yes", amount=10)
     """
 
@@ -296,7 +296,7 @@ class SimmerClient:
         venue: str = "sim",
         private_key: Optional[str] = None,
         ows_wallet: Optional[str] = None,
-        live: bool = True,
+        live: Optional[bool] = None,
         starting_balance: float = 10_000.0,
         _ignore_env_wallets: bool = False,
         _readonly: bool = False,
@@ -318,7 +318,8 @@ class SimmerClient:
                 - "kalshi": Execute real trades on Kalshi via DFlow
                   (requires SOLANA_PRIVATE_KEY env var with base58 secret key)
                 Note: "simmer" is a silent alias for "sim". "sandbox" is deprecated (will be removed in 30 days).
-            live: Whether to execute real trades (default: True).
+            live: Pass True for real money or False for paper trading.
+                Required for real venues; defaults to True for sim.
                 When False, trades are simulated with real market prices
                 and tracked in memory for the duration of the run. All read
                 endpoints (get_markets, get_context, etc.) work normally.
@@ -371,6 +372,10 @@ class SimmerClient:
         if venue == "simmer":
             venue = "sim"
 
+        self._live_explicit = live is not None
+        self._assert_explicit_live(venue)
+        live = True if live is None else live
+
         self.api_key = api_key
         self._readonly = _readonly
         # base_url resolution: explicit arg > SIMMER_API_URL env > production.
@@ -407,8 +412,8 @@ class SimmerClient:
         if venue == "sim":
             logger.info(
                 "venue='sim' — PAPER trading with virtual $SIM (no real money). "
-                "For LIVE trading pass venue='polymarket' per trade, or "
-                "SimmerClient.from_env(venue='polymarket')."
+                "For LIVE trading construct with live=True and "
+                "venue='polymarket'."
             )
         elif live:
             logger.warning("venue='%s' — LIVE trading with real funds.", venue)
@@ -582,7 +587,7 @@ class SimmerClient:
                 "trade(), place_combo() and client.hyperliquid orders are "
                 "simulated with real market data. Wallet operations (approvals, "
                 "redemption, deposit-wallet activation, risk-alert processing) "
-                "still act on the real wallet.",
+                "are refused in paper mode.",
                 venue, starting_balance
             )
 
@@ -641,7 +646,7 @@ class SimmerClient:
             >>> client = SimmerClient.from_env()
             >>>
             >>> # Polymarket with auto-detected WALLET_PRIVATE_KEY
-            >>> client = SimmerClient.from_env(venue="polymarket")
+            >>> client = SimmerClient.from_env(venue="polymarket", live=True)
         """
         api_key = os.environ.get("SIMMER_API_KEY")
         if not api_key:
@@ -670,8 +675,8 @@ class SimmerClient:
         touch no account state.
 
         ``live=False`` is different: it simulates ``trade()``,
-        ``place_combo()`` and ``client.hyperliquid`` orders, but every other
-        call above still acts on the real account.
+        ``place_combo()`` and ``client.hyperliquid`` orders and refuses real
+        wallet writes. Account configuration still requires readonly() to block.
 
         Args:
             api_key: Optional SDK API key. If omitted, reads ``SIMMER_API_KEY``.
@@ -691,6 +696,9 @@ class SimmerClient:
                 "tab, then either pass api_key=... or export SIMMER_API_KEY."
             )
         kwargs["_readonly"] = True
+        # readonly() refuses every write, so live mode only selects real (not
+        # paper) reads here; no explicit opt-in is needed.
+        kwargs.setdefault("live", True)
         return cls(api_key=api_key, **kwargs)
 
     @classmethod
@@ -728,7 +736,7 @@ class SimmerClient:
             >>> client = SimmerClient.with_ows_wallet("my-agent")
             >>> # Or with explicit api_key:
             >>> client = SimmerClient.with_ows_wallet(
-            ...     "my-agent", api_key="sk_live_...", venue="polymarket"
+            ...     "my-agent", api_key="sk_live_...", venue="polymarket", live=True
             ... )
         """
         if api_key is None:
@@ -748,6 +756,23 @@ class SimmerClient:
                 "submit orders or mutate account state. Construct a regular "
                 "SimmerClient for trading."
             )
+
+    def _assert_explicit_live(self, venue: str) -> None:
+        if self._is_real_money_venue(venue) and not self._live_explicit:
+            raise ValueError(
+                "Real-money venues require explicit live mode: pass live=True "
+                "(real money) or live=False (paper) to SimmerClient."
+            )
+
+    def _assert_live_wallet_write(self, method: str) -> None:
+        self._assert_not_readonly(method)
+        if not self.live:
+            raise RuntimeError(
+                f"paper mode (live=False) cannot call {method}; it would act on "
+                "the real wallet. Construct SimmerClient(live=True) to opt in."
+            )
+        # These operations always touch real wallets, even on a sim client.
+        self._assert_explicit_live("polymarket")
 
     def _validate_and_set_wallet(self, private_key: str) -> None:
         """Validate private key format and derive wallet address."""
@@ -803,6 +828,7 @@ class SimmerClient:
         "hyperliquid")`` routing (with server-side fill recording) lands in a
         follow-up; use this adapter for HIP-4 trading today.
         """
+        self._assert_explicit_live("hyperliquid")
         if self._hyperliquid_venue is None:
             from simmer_sdk.hyperliquid_signing import (
                 OwsHyperliquidSigner,
@@ -981,7 +1007,7 @@ class SimmerClient:
 
         If alerts is provided, processes those directly. Otherwise fetches from /api/sdk/risk-alerts.
         """
-        self._assert_not_readonly("_process_risk_alerts()")
+        self._assert_live_wallet_write("_process_risk_alerts()")
         if alerts is None:
             try:
                 response = self._request("GET", "/api/sdk/risk-alerts")
@@ -1046,6 +1072,13 @@ class SimmerClient:
                     venue=alert_venue,
                 )
 
+                if not result.success or result.shares_sold <= 0:
+                    print(
+                        f"[SimmerSDK] Risk exit failed for {market_id[:8]}... {side}: "
+                        f"{result.error or 'no shares filled'}"
+                    )
+                    continue
+
                 # 3. Delete the risk setting (position is exited)
                 try:
                     self.delete_monitor(market_id, side)
@@ -1059,7 +1092,7 @@ class SimmerClient:
                     pass  # Non-fatal — alert expires via TTL
 
                 print(f"[SimmerSDK] Risk exit executed: {reason} on {market_id[:8]}... "
-                      f"{side} — sold {shares:.2f} shares")
+                      f"{side} — sold {result.shares_sold:.2f} shares")
 
             except Exception as e:
                 print(f"[SimmerSDK] Risk exit failed for {market_id[:8]}... {side}: {e}")
@@ -1137,7 +1170,8 @@ class SimmerClient:
         Args:
             since: ISO timestamp — only show changes since this time.
             process_risk_alerts: If True and triggered_risk_alerts are present,
-                execute the pending SL/TP exits automatically.
+                execute the pending SL/TP exits automatically on live, non-readonly
+                clients. Paper and readonly clients skip processing.
             skill_versions: Optional dict of {slug: version} to check for updates.
                 If not provided, uses auto-detected skill from SKILL.md.
 
@@ -1160,9 +1194,11 @@ class SimmerClient:
 
         # Process triggered risk alerts if present and requested
         triggered = response.get("triggered_risk_alerts")
-        if process_risk_alerts and triggered and self._private_key:
-            self._assert_not_readonly("get_briefing(process_risk_alerts=True)")
-            self._process_risk_alerts(alerts=triggered)
+        if process_risk_alerts and triggered:
+            if self._readonly or not self.live:
+                logger.info("Skipping risk-alert processing in paper or readonly mode")
+            elif self._private_key or self._ows_wallet:
+                self._process_risk_alerts(alerts=triggered)
 
         # Log skill update nudges
         skill_updates = response.get("skill_updates")
@@ -1499,7 +1535,7 @@ class SimmerClient:
     def _is_real_money_venue(venue: str) -> bool:
         """True for venues that place real (non-$SIM) orders."""
         resolved = "sim" if venue in ("simmer", "sandbox") else venue
-        return resolved in ("polymarket", "kalshi")
+        return resolved in ("polymarket", "kalshi", "hyperliquid")
 
     @staticmethod
     def _alert_signals_insufficient_gas(alert: Any) -> bool:
@@ -1675,6 +1711,7 @@ class SimmerClient:
         """
         if not dry_run:
             self._assert_not_readonly("place_combo(dry_run=False)")
+        self._assert_explicit_live("polymarket")
         from simmer_sdk import combo as _combo
 
         if len(leg_position_ids) < 2:
@@ -1811,6 +1848,7 @@ class SimmerClient:
 
     def _cancel_orders_for_token(self, token_id: str):
         """Cancel all open orders for a token using local py_clob_client."""
+        self._assert_live_wallet_write("_cancel_orders_for_token()")
         try:
             client = self._get_clob_client()
             result = client.cancel_market_orders(asset_id=token_id)
@@ -2803,7 +2841,7 @@ class SimmerClient:
             # External wallet trading - Polymarket (local EVM signing)
             client = SimmerClient(
                 api_key="sk_live_...",
-                venue="polymarket",
+                venue="polymarket", live=True,
                 private_key="0x..."  # Your EVM wallet's private key
             )
             result = client.trade(market_id, "yes", 10.0)  # Signs locally
@@ -2812,11 +2850,12 @@ class SimmerClient:
             # Set SOLANA_PRIVATE_KEY env var to your base58 Solana secret key
             import os
             os.environ["SOLANA_PRIVATE_KEY"] = "your_base58_secret_key"
-            client = SimmerClient(api_key="sk_live_...", venue="kalshi")
+            client = SimmerClient(api_key="sk_live_...", venue="kalshi", live=True)
             result = client.trade(market_id, "yes", 10.0)  # Signs locally with Solana key
         """
         self._assert_not_readonly("trade()")
         effective_venue = venue or self.venue
+        self._assert_explicit_live(effective_venue)
         if effective_venue not in self.VENUES:
             raise ValueError(f"Invalid venue '{effective_venue}'. Must be one of: {self.VENUES}")
         if order_type is not None and order_type not in self.ORDER_TYPES:
@@ -3420,6 +3459,7 @@ class SimmerClient:
                     )
                 )
         """
+        self._assert_live_wallet_write("prepare_real_trade()")
         data = self._request(
             "POST",
             "/api/sdk/trade",
@@ -4763,7 +4803,7 @@ class SimmerClient:
         Returns:
             Dict with cancellation result
         """
-        self._assert_not_readonly("cancel_order()")
+        self._assert_live_wallet_write("cancel_order()")
         if self._ows_wallet:
             try:
                 from simmer_sdk.ows_utils import ows_cancel_order
@@ -4786,7 +4826,7 @@ class SimmerClient:
         Returns:
             Dict with cancellation result
         """
-        self._assert_not_readonly("cancel_market_orders()")
+        self._assert_live_wallet_write("cancel_market_orders()")
         if self._ows_wallet:
             # OWS: cancel all orders (CLOB doesn't support per-market cancel without token_id iteration)
             try:
@@ -4817,7 +4857,7 @@ class SimmerClient:
         Returns:
             Dict with cancellation result
         """
-        self._assert_not_readonly("cancel_all_orders()")
+        self._assert_live_wallet_write("cancel_all_orders()")
         if self._ows_wallet:
             try:
                 from simmer_sdk.ows_utils import ows_cancel_all_orders
@@ -5075,7 +5115,7 @@ class SimmerClient:
                     result = client.redeem(p['market_id'], p['redeemable_side'])
                     print(f"Redeemed: {result['tx_hash']}")
         """
-        self._assert_not_readonly("redeem()")
+        self._assert_live_wallet_write("redeem()")
         # External + DW dispatch (added 0.17.0). Position lives on the deposit
         # wallet contract, so msg.sender of the redeem call must be the DW.
         # The legacy unsigned-tx path (returned for non-DW external wallets)
@@ -5306,7 +5346,7 @@ class SimmerClient:
                 else:
                     print(f"Failed {r['market_id']} {r['side']}: {r['error']}")
         """
-        self._assert_not_readonly("auto_redeem()")
+        self._assert_live_wallet_write("auto_redeem()")
         results = []
 
         # Refresh auto_redeem + cohort cache from /agents/me (5-min TTL, shared
@@ -6540,12 +6580,12 @@ class SimmerClient:
                 path only).
 
         Example:
-            client = SimmerClient(api_key="...")  # WALLET_PRIVATE_KEY auto-detected
+            client = SimmerClient(live=True, api_key="...")  # WALLET_PRIVATE_KEY auto-detected
             client.link_wallet()
             result = client.set_approvals()
             print(f"Set {result['set']} approvals, skipped {result['skipped']}")
         """
-        self._assert_not_readonly("set_approvals()")
+        self._assert_live_wallet_write("set_approvals()")
         if not self._wallet_address:
             # SIM-1976: managed-wallet users (no local key) get a friendly
             # no-op instead of a misleading "configure private_key" error.
@@ -6909,15 +6949,15 @@ class SimmerClient:
             ImportError: if eth-account is not installed and we're on the raw-key path
 
         Example (user-primary, raw key):
-            client = SimmerClient(api_key="sk_live_...")  # WALLET_PRIVATE_KEY in env
+            client = SimmerClient(live=True, api_key="sk_live_...")  # WALLET_PRIVATE_KEY in env
             result = client.activate_polymarket_dw()
 
         Example (per-agent, OWS — Herman's case):
-            client = SimmerClient(api_key="sk_live_per_agent_...", ows_wallet="herman-v3")
+            client = SimmerClient(live=True, api_key="sk_live_per_agent_...", ows_wallet="herman-v3")
             result = client.activate_polymarket_dw(agent_id="1b279e61-...")
             print(f"Done — already_set={result['already_set']}, calls={result['calls_count']}")
         """
-        self._assert_not_readonly("activate_polymarket_dw()")
+        self._assert_live_wallet_write("activate_polymarket_dw()")
         if not self._private_key and not self._ows_wallet:
             raise ValueError(
                 "activate_polymarket_dw() requires a signing key. "
@@ -7063,12 +7103,12 @@ class SimmerClient:
             ImportError: if eth-account is not installed and using raw-key signing
 
         Example (user-primary, raw key):
-            client = SimmerClient(api_key="sk_live_...")  # WALLET_PRIVATE_KEY in env
+            client = SimmerClient(live=True, api_key="sk_live_...")  # WALLET_PRIVATE_KEY in env
             client.activate_combo_dw()
             # now DW combos settle:
             client.place_combo(leg_ids, 10.0, dry_run=False)
         """
-        self._assert_not_readonly("activate_combo_dw()")
+        self._assert_live_wallet_write("activate_combo_dw()")
         if not self._private_key and not self._ows_wallet:
             raise ValueError(
                 "activate_combo_dw() requires a signing key. "
@@ -7184,14 +7224,14 @@ class SimmerClient:
             ImportError: if eth-account is not installed
 
         Example:
-            client = SimmerClient(api_key="sk_live_...")  # WALLET_PRIVATE_KEY in env
+            client = SimmerClient(live=True, api_key="sk_live_...")  # WALLET_PRIVATE_KEY in env
             result = client.wrap_on_dw()
             if result["wrapped"]:
                 print(f"Wrapped {result['amount_units']} USDC.e units to pUSD")
             else:
                 print("Nothing to wrap — deposit wallet already clean")
         """
-        self._assert_not_readonly("wrap_on_dw()")
+        self._assert_live_wallet_write("wrap_on_dw()")
         if not self._private_key and not self._ows_wallet:
             raise ValueError(
                 "wrap_on_dw() requires a signing key. "

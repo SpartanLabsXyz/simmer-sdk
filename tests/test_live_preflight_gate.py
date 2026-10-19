@@ -46,6 +46,7 @@ def _blocked_preflight(blockers=None, **overrides) -> PreflightResult:
 
 def _live_client(venue: str = "polymarket") -> SimmerClient:
     client = SimmerClient.__new__(SimmerClient)
+    client._live_explicit = True
     client.live = True
     client.venue = venue
     client.base_url = "https://api.simmer.markets"
@@ -69,6 +70,8 @@ def _paper_client(venue: str = "polymarket") -> SimmerClient:
     from simmer_sdk.paper import PaperPortfolio
 
     client = SimmerClient.__new__(SimmerClient)
+
+    client._live_explicit = True
     client.live = False
     client.venue = venue
     client._readonly = False
@@ -687,6 +690,7 @@ def test_preflight_structured_gas_code_blocks():
 
 def _combo_client() -> SimmerClient:
     client = SimmerClient.__new__(SimmerClient)
+    client._live_explicit = True
     client.live = True
     client.venue = "polymarket"
     client._readonly = False

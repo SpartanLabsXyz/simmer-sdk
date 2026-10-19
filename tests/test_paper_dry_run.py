@@ -31,6 +31,7 @@ _RESOLVED_YES_MARKET = {
 
 def _paper_client(starting_balance: float = 10_000.0, markets=None) -> SimmerClient:
     client = SimmerClient.__new__(SimmerClient)
+    client._live_explicit = True
     client._readonly = False
     client.live = False
     client.venue = "polymarket"

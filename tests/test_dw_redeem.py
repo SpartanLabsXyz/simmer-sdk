@@ -298,7 +298,7 @@ def _make_client(**kwargs) -> SimmerClient:
     defaults = dict(
         api_key="test_key",
         venue="polymarket",
-        live=False,  # paper mode — no auto risk-alerts call
+        live=True,  # live redemption; constructor has no external signer
         base_url="https://api.simmer.example.com",
     )
     defaults.update(kwargs)

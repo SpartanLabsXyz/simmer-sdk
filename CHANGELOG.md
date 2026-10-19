@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Breaking: real-venue clients require explicit `live=True` (real money) or
+  `live=False` (paper), including real-venue overrides on sim clients. Paper
+  clients refuse wallet writes and skip briefing risk exits. Failed or zero-fill
+  risk exits retain monitors and alerts; successful exits report filled shares.
+
+
 All notable changes to `simmer-sdk` are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 

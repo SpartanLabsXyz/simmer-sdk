@@ -17,6 +17,7 @@ from simmer_sdk.client import SimmerClient, TradeResult
 def _make_client(venue: str = "sim") -> SimmerClient:
     """Live-mode client with network calls stubbed out."""
     client = SimmerClient.__new__(SimmerClient)
+    client._live_explicit = True
     client.live = True
     client.venue = venue
     client._private_key = None

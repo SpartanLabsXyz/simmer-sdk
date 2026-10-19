@@ -120,7 +120,7 @@ for p in client.get_positions():
 client = SimmerClient(api_key="sk_live_...", venue="sim")
 
 # Real trading on Polymarket
-client = SimmerClient(api_key="sk_live_...", venue="polymarket")
+client = SimmerClient(api_key="sk_live_...", venue="polymarket", live=True)
 
 # Read-only validation/status client. Does not process constructor-time risk exits.
 client = SimmerClient.readonly(api_key="sk_live_...", venue="polymarket")
