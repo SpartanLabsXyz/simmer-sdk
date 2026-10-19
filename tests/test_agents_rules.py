@@ -45,3 +45,19 @@ def test_doc_scope_and_good_spelling(tmp_path, relative):
 
 def test_repo_doc_rules():
     assert governance.validate_doc_rules(ROOT) == []
+
+
+@pytest.mark.parametrize('text', ['$10K $SIM', '$1.5m $SIM', '$2B $SIM', '$100$SIM',
+    'env vars > defaults', 'config.json > env variables > defaults'])
+def test_additional_bad_docs(tmp_path, text):
+    (tmp_path / 'README.md').write_text(text)
+    assert governance.validate_doc_rules(tmp_path)
+
+
+@pytest.mark.parametrize('text', ['10,000 $SIM', '100.00 $SIM', '10K $SIM',
+    'config.json > defaults', 'env vars > config.json',
+    'env vars > config.json > defaults (config.json is optional)',
+    'env variables > config.json > defaults', 'combo_config.json > env vars'])
+def test_additional_good_docs(tmp_path, text):
+    (tmp_path / 'README.md').write_text(text)
+    assert governance.validate_doc_rules(tmp_path) == []

@@ -3,7 +3,7 @@ name: simmer
 description: The prediction market interface for AI agents. Trade Polymarket and Kalshi through one API with self-custody wallets, safety rails, and smart context.
 metadata:
   author: "Simmer (@simmer_markets)"
-  version: "1.25.4"
+  version: "1.25.3"
   displayName: Simmer
   difficulty: beginner
   homepage: "https://simmer.markets"
@@ -123,7 +123,7 @@ Documentation references — open when the situation matches.
 ```python
 client.get_briefing()              # portfolio + risk + opportunities (one call)
 client.find_markets(query)         # text-search markets
-client.get_markets(tags="crypto", q="bitcoin", sort="volume", venue="sim", limit=20)  # discover; unfiltered browse = windowed slice, use tags=/q= to reach a specific market, sort="volume" for liquid
+client.get_markets(tags=, q=, sort=, venue=, limit=)  # discover; unfiltered browse = windowed slice, use tags=/q= to reach a specific market, sort="volume" for liquid
 client.get_market_context(id)      # warnings, position info before trading
 client.trade(id, side, usd, ...)   # execute (always with reasoning=)
 client.cancel_order(order_id)      # or cancel_market_orders / cancel_all_orders

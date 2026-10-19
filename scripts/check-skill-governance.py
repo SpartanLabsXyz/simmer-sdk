@@ -729,9 +729,9 @@ def validate_doc_rules(root: Path = ROOT) -> list[str]:
     paths = {root / "README.md"}
     paths.update((root / "skills").rglob("*.md"))
     paths.update((root / "docs").rglob("*.md"))
-    currency = re.compile(r"\$SIM\s*\d|\$\s*\d[\d,.]*\s+\$SIM\b")
+    currency = re.compile(r"\$SIM\s*\d|\$\s*\d[\d,.]*[KMB]?\s*\$SIM\b", re.IGNORECASE)
     config_term = re.compile(
-        r"environment variables|env(?:ironment)?[ -]vars|config\.json|defaults",
+        r"\benv(?:ironment)?[ -](?:vars|variables)\b|(?<![\w_])config\.json\b|\bdefaults\b",
         re.IGNORECASE,
     )
     errors = []
@@ -753,7 +753,9 @@ def validate_doc_rules(root: Path = ROOT) -> list[str]:
                      "defaults" if t.group().lower() == "defaults" else "env vars"
                      for t in terms]
             expected = ["env vars", "config.json", "defaults"]
-            if order != [term for term in expected if term in order]:
+            order = list(dict.fromkeys(order))
+            start = expected.index(order[0])
+            if order != expected[start:start + len(order)]:
                 errors.append(f"{location}: config priority must be env vars > config.json > defaults")
     return errors
 

@@ -3,7 +3,7 @@ name: polymarket-copytrading
 description: Mirror Polymarket whale wallets, inspect wallet positions, follow specific trader addresses, or paper-trade copytrading with $SIM before using real money. Polling mode is free; Reactor mode is Pro for event-driven real-time mirroring via Simmer's on-chain signal infrastructure.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.12.6"
+  version: "1.12.7"
   displayName: Polymarket Copytrading
   difficulty: beginner
 ---
@@ -309,7 +309,7 @@ python copytrading_trader.py --wallets 0x123... --live
 
 In $SIM mode:
 - Trades execute on Simmer's LMSR at real Polymarket prices
-- Each market gets an independent $10K $SIM balance
+- Each market gets an independent 10K $SIM balance
 - Positions tracked in your Simmer portfolio (source: `sdk:copytrading`)
 - Whale signals still come from real Polymarket data
 

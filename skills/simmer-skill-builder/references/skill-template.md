@@ -104,7 +104,7 @@ Merging `SIZING_CONFIG_SCHEMA` gives users `SIMMER_POSITION_SIZING`, `SIMMER_KEL
 
 Config priority: `env vars > config.json > defaults`.
 
-When `slug` is provided, `load_config` automatically fetches tuned config from the Simmer Automaton (if the user has one running). This is transparent — skills don't need to know about the automaton.
+`slug` is accepted for compatibility and is currently unused by `load_config`. Simmer Automaton tuning reaches the skill through environment variables.
 
 Env var naming convention: `SIMMER_<SKILLNAME>_<PARAM>`.
 
