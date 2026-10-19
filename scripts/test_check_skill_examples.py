@@ -74,5 +74,46 @@ def test_kwargs_splat_is_not_flagged():
     assert _violations("client.trade(**params)") == []
 
 
-def test_syntax_fragment_is_skipped():
-    assert _violations("client.trade(market_id=") == []
+def test_syntax_fragment_is_rejected():
+    violations = _violations("client.trade(market_id=")
+    assert len(violations) == 1
+    assert "cannot parse Python" in violations[0].reason
+    assert violations[0].line == 2
+
+
+@pytest.mark.parametrize("method", ["trade", "place_combo"])
+def test_per_trade_live_is_rejected(method):
+    violations = _violations(f"client.{method}(live=False)")
+    assert len(violations) == 1
+    assert "live" in violations[0].reason
+
+
+def test_repo_examples_pass():
+    root = Path(__file__).resolve().parents[1]
+    classes = chk.load_classes()
+    for path in [root / 'README.md', *(root / 'skills').rglob('*.md')]:
+        for block in chk.extract_blocks(path):
+            assert chk.check_block(block, classes, 'local', 'SimmerClient' in path.read_text()) == []
+
+
+def test_known_unparseable_blocks_are_shrink_only():
+    import ast
+    import hashlib
+
+    root = Path(__file__).resolve().parents[1]
+    assert len(chk.KNOWN_UNPARSEABLE_BLOCKS) <= 1
+    for (relative, digest), reason in chk.KNOWN_UNPARSEABLE_BLOCKS.items():
+        assert reason
+        matches = [b for b in chk.extract_blocks(root / relative)
+                   if hashlib.sha256(b.code.encode()).hexdigest() == digest]
+        assert len(matches) == 1
+        with pytest.raises(SyntaxError):
+            ast.parse(matches[0].code)
+        block = matches[0]
+        assert chk.check_block(block, CLASSES, 'local', True) == []
+        for path, code in [(block.path, block.code + '\n# edited'),
+                           (root / 'skills/other/SKILL.md', block.code),
+                           (block.path, 'client.trade(market_id=')]:
+            violations = chk.check_block(chk.Block(path, 1, code, None), CLASSES, 'local', True)
+            assert len(violations) == 1
+            assert 'cannot parse Python' in violations[0].reason

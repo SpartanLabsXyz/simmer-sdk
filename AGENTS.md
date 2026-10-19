@@ -43,7 +43,7 @@ that assumes `get_markets()` sees every market is a bug.
 ## Examples must match real client signatures
 
 Doc and skill code examples are bound against the shipped SDK by CI (`skill-example-bind`).
-Every `client.<method>(...)` shown in `README.md`, `skills/**/SKILL.md`, or docstrings
+Every `client.<method>(...)` shown in `README.md`, `skills/**/SKILL.md`
 must be a real method with real parameter names. Don't introduce illustrative-but-fake
 calls — they break the bind gate.
 

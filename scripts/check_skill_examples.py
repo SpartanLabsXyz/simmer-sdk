@@ -48,12 +48,21 @@ from __future__ import annotations
 
 import argparse
 import ast
+import hashlib
 import inspect
 import re
 import sys
 import textwrap
 from dataclasses import dataclass
 from pathlib import Path
+
+# Shrink-only: preserve the release-synced cheat sheet until its canonical and
+# generated website copies can be fixed together. Never add new exceptions.
+KNOWN_UNPARSEABLE_BLOCKS = {
+    ("skills/simmer/SKILL.md", "b07f1d1ba8f283339fd36bcf340ec28c3fe14a947c02d140676d0fbb03f2aaf1"):
+        "cheat-sheet placeholder line; fixed at next CTO release sync with the website copy (SupaFund website/public/skill.md)",
+}
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 CLIENT_CLASS_NAMES = {"SimmerClient", "GammaClient"}
 DEFAULT_VAR_CLASS = {"client": "SimmerClient", "c": "SimmerClient", "gamma": "GammaClient"}
@@ -168,8 +177,18 @@ def check_block(block: Block, classes: dict[str, type], default_floor: str, seed
     floor = block.floor_override or default_floor
     try:
         tree = ast.parse(block.code)
-    except SyntaxError:
-        return []
+    except SyntaxError as exc:
+        try:
+            relative = block.path.resolve().relative_to(REPO_ROOT).as_posix()
+        except ValueError:
+            relative = None
+        digest = hashlib.sha256(block.code.encode("utf-8")).hexdigest()
+        if (relative, digest) in KNOWN_UNPARSEABLE_BLOCKS:
+            return []
+        return [Violation(
+            path=block.path, line=block.start_line + (exc.lineno or 1),
+            call="<python fence>", reason=f"cannot parse Python: {exc.msg}", floor=floor,
+        )]
     var_class: dict[str, str] = {}
     if seed_defaults and not FOREIGN_CLIENT_RE.search(block.code):
         var_class.update(DEFAULT_VAR_CLASS)
