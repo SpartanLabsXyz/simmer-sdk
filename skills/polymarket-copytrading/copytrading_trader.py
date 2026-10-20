@@ -1045,7 +1045,10 @@ def run_reactor(once: bool = False, venue: str = None) -> None:
 
 def show_positions():
     """Show current SDK positions."""
-    print("\n📊 Your Polymarket Positions")
+    active_venue = get_client().venue
+    if active_venue == "simmer":
+        active_venue = "sim"
+    print(f"\n📊 Your {active_venue.title()} Positions")
     print("=" * 50)
 
     try:
@@ -1053,9 +1056,6 @@ def show_positions():
         positions = data.get("positions", [])
 
         # Filter to active venue positions
-        active_venue = os.environ.get("TRADING_VENUE", "polymarket")
-        if active_venue == "simmer":
-            active_venue = "sim"
         venue_positions = [p for p in positions if p.get("venue") == active_venue]
 
         if not venue_positions:

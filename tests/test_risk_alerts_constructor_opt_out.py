@@ -79,3 +79,46 @@ def test_copytrading_main_real_client(monkeypatch, flags, expected_calls):
     module.main()
     assert isinstance(module._client, SimmerClient)
     assert check.call_count == expected_calls
+
+
+@pytest.mark.parametrize("venue", ["sim", "polymarket"])
+def test_copytrading_positions_uses_client_venue(monkeypatch, capsys, venue):
+    import importlib.util
+    from pathlib import Path
+    import sys
+
+    monkeypatch.setenv("SIMMER_API_KEY", "sk_test_x")
+    monkeypatch.setenv("WALLET_PRIVATE_KEY", KEY)
+    monkeypatch.setenv("TRADING_VENUE", "polymarket")
+    monkeypatch.setattr(sys.stdout, "reconfigure", lambda **kwargs: None, raising=False)
+    question = "Distinctive client venue position"
+    response = Mock(status_code=200)
+    response.json.return_value = {"positions": [{
+        "venue": venue, "question": question, "shares_yes": 10,
+        "shares_no": 0, "current_value": 6, "pnl": 1, "cost_basis": 5,
+    }]}
+    http = Mock(return_value=response)
+    monkeypatch.setattr("requests.sessions.Session.request", http)
+    check = Mock()
+    monkeypatch.setattr(SimmerClient, "_process_risk_alerts", check)
+    path = Path(__file__).parents[1] / "skills/polymarket-copytrading/copytrading_trader.py"
+    monkeypatch.syspath_prepend(str(path.parent))
+    spec = importlib.util.spec_from_file_location("copytrading_positions_venue_test", path)
+    module = importlib.util.module_from_spec(spec)
+    monkeypatch.setitem(sys.modules, spec.name, module)
+    spec.loader.exec_module(module)
+    monkeypatch.setattr(sys, "argv", ["trader", "--positions", "--venue", venue])
+
+    module.main()
+
+    assert isinstance(module._client, SimmerClient)
+    check.assert_not_called()
+    position_urls = [call.kwargs["url"] for call in http.call_args_list
+                     if "/api/sdk/positions" in call.kwargs.get("url", "")]
+    assert len(position_urls) == 1
+    assert f"venue={venue}" in position_urls[0]
+    output = capsys.readouterr().out
+    assert question in output
+    assert "No polymarket positions found" not in output
+    assert "No sim positions found" not in output
+    assert f"Your {venue.title()} Positions" in output
