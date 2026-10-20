@@ -76,12 +76,12 @@ class Config:
 
 # --- SDK client ---
 
-def get_client():
+def get_client(*, dry_run: bool = False):
     from simmer_sdk import SimmerClient
     api_key = os.getenv("SIMMER_API_KEY")
     if not api_key:
         raise SystemExit("SIMMER_API_KEY not set — get one at simmer.markets/dashboard → SDK tab.")
-    return SimmerClient(api_key=api_key, live=True)
+    return SimmerClient(api_key=api_key, live=True, process_risk_alerts=not dry_run)
 
 
 # --- signal pipe (mirror copytrading reactor) ---
@@ -282,7 +282,7 @@ def main():
         print("[shock-ladder] ⚠ venue=sim: LMSR has no order book — this is a plumbing smoke "
               "test, NOT the real ladder strategy. Use --venue polymarket for live trading.")
 
-    client = get_client()
+    client = get_client(dry_run=not cfg.live)
     if cfg.once:
         run_once(client, cfg)
     else:

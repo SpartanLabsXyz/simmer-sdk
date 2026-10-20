@@ -8,7 +8,7 @@ tags:
   - copytrading
 metadata:
   author: Simmer (@simmer_markets)
-  version: "0.1.4"
+  version: "0.1.5"
   displayName: World Cup Copytrader
   difficulty: beginner
   sensitivity: sensitive
@@ -22,6 +22,7 @@ copyability (slippage-adjusted copy P&L via PolyNode) and serves the qualified s
 
 > 🚨 **Read [DISCLAIMER.md](./DISCLAIMER.md) before going live.** This skill executes trades
 > automatically. Dry-run is the default; pass `--live` to execute.
+> A dry run (no `--live`) also skips the SDK's startup stop-loss/take-profit exits, so it never sells, even with `WALLET_PRIVATE_KEY` set.
 
 > **Sim-first.** The default venue is `$SIM` (Simmer's LMSR). Validate the skill works
 > correctly on sim before switching to `--venue polymarket` with real USDC.
@@ -54,7 +55,7 @@ You follow this set, not wallets you chose yourself.
 
 1. **Install the Simmer SDK** (0.17.27 or newer):
    ```bash
-   pip install -U 'simmer-sdk>=0.17.27'
+   pip install -U 'simmer-sdk>=0.26.0'
    ```
 
 2. **Set your Simmer API key**:

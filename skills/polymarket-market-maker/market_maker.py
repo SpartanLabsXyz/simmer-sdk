@@ -77,7 +77,7 @@ if _automaton_max:
 
 _client = None
 
-def get_client():
+def get_client(*, dry_run: bool = False):
     global _client
     if _client is None:
         try:
@@ -89,7 +89,7 @@ def get_client():
         if not api_key:
             print("Error: SIMMER_API_KEY not set — get from simmer.markets/dashboard")
             sys.exit(1)
-        _client = SimmerClient(api_key=api_key, venue="polymarket", live=True)
+        _client = SimmerClient(api_key=api_key, venue="polymarket", live=True, process_risk_alerts=not dry_run)
     return _client
 
 # =============================================================================
@@ -645,9 +645,12 @@ def main():
     state_file = _config["state_file"]
 
     if args.status:
+        get_client(dry_run=True)
         state = load_state(state_file)
         cmd_status(state)
         return
+
+    get_client(dry_run=not args.live)
 
     if args.cancel_all:
         state = load_state(state_file)

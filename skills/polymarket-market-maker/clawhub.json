@@ -8,7 +8,7 @@
       "SIMMER_API_KEY"
     ],
     "pip": [
-      "simmer-sdk>=0.13.0"
+      "simmer-sdk>=0.26.0"
     ]
   },
   "envVars": [

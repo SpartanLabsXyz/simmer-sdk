@@ -107,7 +107,7 @@ def _resolve_venue(cli_venue: str = None) -> str:
     return cli_venue or _config.get("venue") or os.environ.get("TRADING_VENUE") or "polymarket"
 
 
-def get_client(venue: str = None):
+def get_client(venue: str = None, *, dry_run: bool = False):
     """Lazy-init SimmerClient singleton; re-pins venue when CLI --venue overrides config/env.
 
     The CLI --venue flag is authoritative: if the cached singleton was created
@@ -127,7 +127,7 @@ def get_client(venue: str = None):
             print("Error: SIMMER_API_KEY environment variable not set")
             print("Get your API key from: simmer.markets/dashboard -> SDK tab")
             sys.exit(1)
-        _client = SimmerClient(api_key=api_key, venue=_resolve_venue(venue), live=True)
+        _client = SimmerClient(api_key=api_key, venue=_resolve_venue(venue), live=True, process_risk_alerts=not dry_run)
     elif venue and getattr(_client, "venue", None) != venue:
         _client.venue = venue
     return _client
@@ -341,7 +341,7 @@ def execute_copytrading(wallets: list, top_n: int = None, max_usd: float = 50.0,
     if venue is not None:
         data["venue"] = venue
 
-    result = get_client()._request("POST", "/api/sdk/copytrading/execute", json=data, timeout=60)
+    result = get_client(venue, dry_run=dry_run)._request("POST", "/api/sdk/copytrading/execute", json=data, timeout=60)
 
     # If caller wants dry_run, return the plan as-is
     if dry_run:
@@ -452,7 +452,7 @@ def run_copytrading(wallets: list, top_n: int = None, max_usd: float = 50.0, dry
     # Prevents the singleton (initialized from config/env at first call) from
     # using a stale venue when the CLI --venue flag overrides config/env.
     effective_venue = _resolve_venue(venue)
-    get_client(effective_venue)
+    get_client(effective_venue, dry_run=dry_run)
 
     # Redeem any winning positions before starting the cycle
     if dry_run:
@@ -1045,7 +1045,10 @@ def run_reactor(once: bool = False, venue: str = None) -> None:
 
 def show_positions():
     """Show current SDK positions."""
-    print("\n📊 Your Polymarket Positions")
+    active_venue = get_client().venue
+    if active_venue == "simmer":
+        active_venue = "sim"
+    print(f"\n📊 Your {active_venue.title()} Positions")
     print("=" * 50)
 
     try:
@@ -1053,9 +1056,6 @@ def show_positions():
         positions = data.get("positions", [])
 
         # Filter to active venue positions
-        active_venue = os.environ.get("TRADING_VENUE", "polymarket")
-        if active_venue == "simmer":
-            active_venue = "sim"
         venue_positions = [p for p in positions if p.get("venue") == active_venue]
 
         if not venue_positions:
@@ -1218,6 +1218,7 @@ def main():
 
     # Show positions
     if args.positions:
+        get_client(_resolve_venue(args.venue), dry_run=True)
         show_positions()
         return
 
@@ -1238,7 +1239,7 @@ def main():
 
     # Resolve venue BEFORE constructing the client: SimmerClient.__init__ has
     # Polymarket-specific side effects that fire on construction, not just on trade.
-    get_client(_resolve_venue(args.venue))
+    get_client(_resolve_venue(args.venue), dry_run=dry_run)
 
     # Get wallets (from args or env)
     if args.wallets:

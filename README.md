@@ -131,7 +131,7 @@ client.trade(market_id, side="yes", amount=10.0, venue="polymarket")
 
 `TRADING_VENUE` environment variable is read at client init — OpenClaw skills use this to select venue at startup without code changes.
 
-> **Constructor side effect:** for live Polymarket clients with `WALLET_PRIVATE_KEY` or `OWS_WALLET`, regular `SimmerClient(...)` construction checks pending risk alerts and may submit stop-loss/take-profit exit orders. This is intentional for self-custody safety: Simmer's server cannot sign those exits. Use `SimmerClient.readonly(...)` for API-key validation, preflight/status checks, and other non-trading paths.
+> **Constructor side effect:** for live Polymarket clients with `WALLET_PRIVATE_KEY` or `OWS_WALLET`, regular `SimmerClient(...)` construction checks pending risk alerts and may submit stop-loss/take-profit exit orders. This is intentional for self-custody safety: Simmer's server cannot sign those exits. Pass `process_risk_alerts=False` to skip this constructor check for dry runs. Use `SimmerClient.readonly(...)` for API-key validation, preflight/status checks, and other non-trading paths.
 
 > **Spread caveat:** $SIM fills instantly (AMM, no spread). Real venues have orderbook spreads of 2–5%. Target edges >5% in $SIM before graduating to real money.
 

@@ -182,7 +182,7 @@ _automaton_reported = False
 _client = None
 
 
-def get_client(venue: str = None):
+def get_client(venue: str = None, *, dry_run: bool = False):
     """Return the cached SimmerClient, pinned to the requested venue.
 
     The CLI --venue flag is authoritative: if the cached singleton was created
@@ -194,13 +194,13 @@ def get_client(venue: str = None):
         try:
             from simmer_sdk import SimmerClient
         except ImportError:
-            print("Error: simmer-sdk not installed.  Run: pip install 'simmer-sdk>=0.17.27'")
+            print("Error: simmer-sdk not installed.  Run: pip install 'simmer-sdk>=0.26.0'")
             sys.exit(1)
         api_key = os.environ.get("SIMMER_API_KEY")
         if not api_key:
             print("Error: SIMMER_API_KEY not set.  Get yours at simmer.markets/dashboard → SDK tab.")
             sys.exit(1)
-        _client = SimmerClient(api_key=api_key, venue=_resolve_venue(venue), live=True)
+        _client = SimmerClient(api_key=api_key, venue=_resolve_venue(venue), live=True, process_risk_alerts=not dry_run)
     elif venue and getattr(_client, "venue", None) != venue:
         _client.venue = venue
     return _client
@@ -351,7 +351,7 @@ def run(dry_run: bool = True, venue: str = None) -> None:
     detect_exits = str(_config.get("detect_exits", "true")).lower() not in ("false", "0", "no")
 
     # Pin the client singleton to the effective venue before any client use.
-    client = get_client(effective_venue)
+    client = get_client(effective_venue, dry_run=dry_run)
 
     print("\n🌍 World Cup Copytrader — Regular mode")
     print("=" * 50)
@@ -790,9 +790,11 @@ def main() -> None:
         print_config()
         return
     if args.positions:
+        get_client(_resolve_venue(args.venue), dry_run=True)
         show_positions(venue=args.venue)
         return
     if args.leaders:
+        get_client(_resolve_venue(args.venue), dry_run=True)
         print_leaders()
         return
 
