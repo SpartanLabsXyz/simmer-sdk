@@ -1676,8 +1676,9 @@ class SimmerClient:
           - deposit-wallet cohort -> signature_type 3 (POLY_1271), maker=signer=DW
           - EOA cohort            -> signature_type 0, maker=signer=EOA
 
-        MONEY PATH. ``dry_run=True`` (default) opens no socket and signs
-        nothing — it returns the resolved request for inspection. Pass
+        MONEY PATH. ``dry_run=True`` (default) signs nothing and places nothing;
+        it may still make read-only API calls. It returns the resolved request
+        for inspection. Pass
         ``dry_run=False`` to actually place; that also requires the client to
         be in live mode (``SimmerClient(live=True)``).
 
@@ -4787,6 +4788,8 @@ class SimmerClient:
         """
         Cancel a single open order by ID.
 
+        Requires ``SimmerClient(live=True)``; refuses paper and implicit-live clients.
+
         For external wallets: cancels locally via CLOB API.
         For OWS wallets: cancels via CLOB using OWS-derived credentials.
         For managed wallets: cancels via server endpoint.
@@ -4812,6 +4815,8 @@ class SimmerClient:
     def cancel_market_orders(self, market_id: str, side: Optional[str] = None) -> Dict[str, Any]:
         """
         Cancel all open orders on a market.
+
+        Requires ``SimmerClient(live=True)``; refuses paper and implicit-live clients.
 
         Args:
             market_id: Market ID
@@ -4847,6 +4852,8 @@ class SimmerClient:
     def cancel_all_orders(self) -> Dict[str, Any]:
         """
         Cancel all open orders across all markets.
+
+        Requires ``SimmerClient(live=True)``; refuses paper and implicit-live clients.
 
         Returns:
             Dict with cancellation result
@@ -5102,6 +5109,7 @@ class SimmerClient:
             Dict with 'success' (bool) and 'tx_hash' (str) on success
 
         Example:
+            client = SimmerClient(api_key="sk_live_...", live=True)
             # Check for redeemable positions
             positions = client.get_positions()
             for p in positions:
@@ -5333,6 +5341,7 @@ class SimmerClient:
                 - error: str or None
 
         Example:
+            client = SimmerClient(api_key="sk_live_...", live=True)
             results = client.auto_redeem()
             for r in results:
                 if r["success"]:
@@ -6137,7 +6146,8 @@ class SimmerClient:
         Example:
             client = SimmerClient(
                 api_key="sk_live_...",
-                private_key="0x..."
+                private_key="0x...",
+                live=True
             )
             result = client.link_wallet()
             if result["success"]:

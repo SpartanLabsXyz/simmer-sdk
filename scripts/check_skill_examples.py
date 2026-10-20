@@ -56,12 +56,8 @@ import textwrap
 from dataclasses import dataclass
 from pathlib import Path
 
-# Shrink-only: preserve the release-synced cheat sheet until its canonical and
-# generated website copies can be fixed together. Never add new exceptions.
-KNOWN_UNPARSEABLE_BLOCKS = {
-    ("skills/simmer/SKILL.md", "b07f1d1ba8f283339fd36bcf340ec28c3fe14a947c02d140676d0fbb03f2aaf1"):
-        "cheat-sheet placeholder line; fixed at next CTO release sync with the website copy (SupaFund website/public/skill.md)",
-}
+# Shrink-only: all Python fences must parse. Never add new exceptions.
+KNOWN_UNPARSEABLE_BLOCKS = {}
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 CLIENT_CLASS_NAMES = {"SimmerClient", "GammaClient"}
