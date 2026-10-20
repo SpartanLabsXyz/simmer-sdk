@@ -1,6 +1,9 @@
 # Changelog
 
-## Unreleased
+All notable changes to `simmer-sdk` are documented here.
+This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## 0.25.11 (2026-10-20)
 
 - Breaking: real-venue clients require explicit `live=True` (real money) or
   `live=False` (paper), including real-venue overrides on sim clients. Paper
@@ -10,13 +13,7 @@
   `update_agent_wallet_creds()` and `place_combo(dry_run=False)` now need an explicit
   `live=True` client and refuse before any signing or request otherwise.
 
-
-All notable changes to `simmer-sdk` are documented here.
-This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-
-## Unreleased
-
-- **Dry runs can skip constructor risk exits (#421).** `SimmerClient(process_risk_alerts=False)` opts out of the constructor check; four live skills now disable it during dry runs while preserving live risk exits.
+- **Dry runs can skip constructor risk exits (#421).** `SimmerClient(process_risk_alerts=False)` opts out of the constructor check; dry runs of copytrading, market-maker, worldcup-copytrader and shock-ladder, plus the first three skills’ read-only commands, skip constructor risk exits. Live runs of copytrading, market-maker and worldcup-copytrader retain them. Shock-ladder’s client is not pinned to Polymarket, so its constructor check does not run in either mode (unchanged; follow-up).
 - **`simmer-mcp` bumped to 3.5.10** — no server code change, only bundled skills refreshed for explicit live-client opt-in (#414).
 - **The skill-builder template is now paper-first (#415).** `skills/simmer-skill-builder/references/skill-template.md` defines `get_client(*, live=False)`, so a copied skill simulates trades until the author passes `--live`. `scripts/check-skill-governance.py` now fails CI when a skill passes `SimmerClient` anything but a provably paper `live=` (literal `False` or a `live=False`-defaulted parameter), passes a constant truthy `live` to a helper, splats into a live helper, or aliases/subclasses `SimmerClient`; existing violations are grandfathered per function (shrink-only). Bumps simmer-skill-builder to 1.3.15.
 - **Risk-monitor exits on Polymarket now confirm the order book has active bids before selling (SIM-5838).** A triggered stop-loss or take-profit exit checks the book first; if it's empty, the exit is deferred to the next cycle instead of submitting a SELL that can't fill.

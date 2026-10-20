@@ -30,7 +30,7 @@ When user asks to install or configure this skill:
 
 1. **Install the Simmer SDK** (version 0.9.19 or newer — reactor mode requires it)
    ```bash
-   pip install -U 'simmer-sdk>=0.9.19'
+   pip install -U 'simmer-sdk>=0.25.11'
    ```
 
 2. **Ask for Simmer API key**

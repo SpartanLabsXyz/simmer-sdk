@@ -49,3 +49,33 @@ def test_readonly_still_skips(monkeypatch):
     monkeypatch.setattr(SimmerClient, "_process_risk_alerts", check)
     SimmerClient.readonly(api_key="sk_test_...", venue="polymarket", private_key=KEY)
     check.assert_not_called()
+
+
+@pytest.mark.parametrize("flags, expected_calls", [([], 0), (["--positions"], 0), (["--live"], 1)])
+def test_copytrading_main_real_client(monkeypatch, flags, expected_calls):
+    import importlib.util
+    from pathlib import Path
+    import sys
+
+    monkeypatch.setenv("SIMMER_API_KEY", "sk_test_x")
+    monkeypatch.setenv("WALLET_PRIVATE_KEY", KEY)
+    monkeypatch.setenv("TRADING_VENUE", "polymarket")
+    monkeypatch.setattr(sys.stdout, "reconfigure", lambda **kwargs: None, raising=False)
+    response = Mock(status_code=200)
+    response.json.return_value = {}
+    monkeypatch.setattr("requests.sessions.Session.request", Mock(return_value=response))
+    check = Mock()
+    monkeypatch.setattr(SimmerClient, "_process_risk_alerts", check)
+    path = Path(__file__).parents[1] / "skills/polymarket-copytrading/copytrading_trader.py"
+    monkeypatch.syspath_prepend(str(path.parent))
+    spec = importlib.util.spec_from_file_location("copytrading_real_risk_test", path)
+    module = importlib.util.module_from_spec(spec)
+    monkeypatch.setitem(sys.modules, spec.name, module)
+    spec.loader.exec_module(module)
+    module._config["venue"] = "polymarket"
+    assert module._client is None
+    monkeypatch.setattr(module, "run_copytrading", Mock())
+    monkeypatch.setattr(sys, "argv", ["trader"] + flags)
+    module.main()
+    assert isinstance(module._client, SimmerClient)
+    assert check.call_count == expected_calls

@@ -645,6 +645,7 @@ def main():
     state_file = _config["state_file"]
 
     if args.status:
+        get_client(dry_run=True)
         state = load_state(state_file)
         cmd_status(state)
         return

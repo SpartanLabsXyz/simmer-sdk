@@ -44,3 +44,18 @@ def test_unspecified_mode_preserves_risk_exits(skill):
     module, constructor = skill
     module.get_client()
     assert constructor.call_args.kwargs["process_risk_alerts"] is True
+
+
+def test_status_skips_risk_exits(skill, monkeypatch, tmp_path):
+    import json
+
+    module, constructor = skill
+    state_file = tmp_path / "state.json"
+    state_file.write_text(json.dumps({"markets": {"market1": {}}}))
+    module._config["state_file"] = str(state_file)
+    constructor.return_value.get_open_orders.return_value = {"orders": []}
+    constructor.return_value.get_positions.return_value = []
+    monkeypatch.setattr(sys, "argv", ["trader", "--status"])
+    module.main()
+    constructor.assert_called_once()
+    assert constructor.call_args.kwargs["process_risk_alerts"] is False

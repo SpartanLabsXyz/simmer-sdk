@@ -194,7 +194,7 @@ def get_client(venue: str = None, *, dry_run: bool = False):
         try:
             from simmer_sdk import SimmerClient
         except ImportError:
-            print("Error: simmer-sdk not installed.  Run: pip install 'simmer-sdk>=0.17.27'")
+            print("Error: simmer-sdk not installed.  Run: pip install 'simmer-sdk>=0.25.11'")
             sys.exit(1)
         api_key = os.environ.get("SIMMER_API_KEY")
         if not api_key:
@@ -790,9 +790,11 @@ def main() -> None:
         print_config()
         return
     if args.positions:
+        get_client(_resolve_venue(args.venue), dry_run=True)
         show_positions(venue=args.venue)
         return
     if args.leaders:
+        get_client(_resolve_venue(args.venue), dry_run=True)
         print_leaders()
         return
 

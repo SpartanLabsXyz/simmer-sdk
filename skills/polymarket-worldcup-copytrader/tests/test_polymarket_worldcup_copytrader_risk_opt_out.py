@@ -44,3 +44,16 @@ def test_unspecified_mode_preserves_risk_exits(skill):
     module, constructor = skill
     module.get_client()
     assert constructor.call_args.kwargs["process_risk_alerts"] is True
+
+
+@pytest.mark.parametrize("flags", [['--positions'], ['--leaders'], ['--positions', '--venue', 'sim']])
+def test_readonly_cli_skips_risk_exits(skill, monkeypatch, flags):
+    module, constructor = skill
+    module._config["venue"] = "polymarket"
+    constructor.return_value._request.return_value = {}
+    constructor.return_value.get_positions.return_value = []
+    monkeypatch.setattr(sys, "argv", ["trader"] + flags)
+    module.main()
+    constructor.assert_called_once()
+    assert constructor.call_args.kwargs["process_risk_alerts"] is False
+    assert constructor.call_args.kwargs["venue"] == ("sim" if "sim" in flags else "polymarket")
