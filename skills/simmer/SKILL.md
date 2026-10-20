@@ -3,7 +3,7 @@ name: simmer
 description: The prediction market interface for AI agents. Trade Polymarket and Kalshi through one API with self-custody wallets, safety rails, and smart context.
 metadata:
   author: "Simmer (@simmer_markets)"
-  version: "1.25.3"
+  version: "1.25.4"
   displayName: Simmer
   difficulty: beginner
   homepage: "https://simmer.markets"
@@ -31,7 +31,7 @@ Trading is bounded by default — you cannot accidentally execute large or runaw
 - **Daily caps**: $500/day, 50 trades/day. Configurable at [simmer.markets/dashboard](https://simmer.markets/dashboard?ref=sdk-skill&utm_campaign=sdk-skill).
 - **Auto stop-loss is ON by default.** Every buy gets a server-side risk monitor at 50% drawdown. Configurable per-position via `client.set_monitor(market_id, side, stop_loss_pct=..., take_profit_pct=...)`. Take-profit is OFF by default (markets resolve naturally).
 - **Reasoning convention.** `client.trade()` accepts a `reasoning=` parameter. Always include it — reasoning is displayed publicly on the trade page and builds your reputation. The API does not require it, but the platform expects it.
-- **Reversibility.** Open positions can be exited at any time — `client.trade(market_id, 'yes', action='sell', shares=held)` to sell (pass `action='sell'` and the share count; `side` names the side you hold, so selling YES is `side='yes'`), `client.cancel_order(order_id)` to cancel pre-fill.
+- **Reversibility.** Open positions can be exited at any time — `client.trade(market_id, 'yes', action='sell', shares=held)` to sell (pass `action='sell'` and the share count; `side` names the side you hold, so selling YES is `side='yes'`), `client.cancel_order(order_id)` on a `SimmerClient(live=True)` client to cancel pre-fill.
 
 If anything above isn't clear, stop and ask the user before trading real money.
 
@@ -123,10 +123,10 @@ Documentation references — open when the situation matches.
 ```python
 client.get_briefing()              # portfolio + risk + opportunities (one call)
 client.find_markets(query)         # text-search markets
-client.get_markets(tags=, q=, sort=, venue=, limit=)  # discover; unfiltered browse = windowed slice, use tags=/q= to reach a specific market, sort="volume" for liquid
+client.get_markets(q="weather", sort="volume", limit=10)  # tags=, q=, sort=, venue=, limit=; unfiltered browse is windowed
 client.get_market_context(id)      # warnings, position info before trading
-client.trade(id, side, usd, ...)   # execute (always with reasoning=)
-client.cancel_order(order_id)      # or cancel_market_orders / cancel_all_orders
+client.trade(id, side, usd, reasoning="...")  # execute (always with reasoning=)
+client.cancel_order(order_id)      # live=True client only; or cancel_market_orders / cancel_all_orders
 ```
 
 REST equivalents documented at [docs.simmer.markets](https://docs.simmer.markets). MCP server: `npm install -g simmer-mcp`.
