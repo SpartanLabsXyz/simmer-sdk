@@ -182,10 +182,8 @@ def test_place_combo_dw_unapproved_blocks_with_activate_hint():
 def test_place_combo_dw_precheck_skipped_when_allow_flag():
     """allow_deposit_wallet=True skips the pre-check entirely (no RPC read)."""
     client = _make_client(dw=True, live=True)
-    with patch.object(client, "_combo_dw_approved", side_effect=AssertionError("should not be called")), \
-         patch("py_clob_client.client.ClobClient") as clob_client:
-        clob_client.return_value.create_or_derive_api_creds.side_effect = RuntimeError("offline test")
-        # Will fail later at credential derivation, but must NOT raise the pre-check
+    with patch.object(client, "_combo_dw_approved", side_effect=AssertionError("should not be called")):
+        # Will fail later at creds/network, but must NOT raise the pre-check
         # ValueError nor call _combo_dw_approved.
         with pytest.raises(Exception) as ei:
             client.place_combo(

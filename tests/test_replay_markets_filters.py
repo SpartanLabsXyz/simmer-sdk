@@ -20,8 +20,16 @@ from simmer_sdk.backtest.replay.simstate import SimState  # noqa: E402
 from simmer_sdk.backtest.replay.store import MarketMeta, PricePoint  # noqa: E402
 
 
-# Loopback-only: event-loop self-pipe / local replay server; outside hosts stay blocked.
-LOOPBACK_ONLY = pytest.mark.allow_hosts(["127.0.0.1", "::1", "localhost"])
+# Loopback-only: TestClient's asyncio self-pipe and the --demo replay server use
+# 127.0.0.1; pytest-socket still blocks every outside host for these tests.
+# Applied only when pytest-socket is installed, so plain `pytest` needs no marker
+# registration.
+try:
+    import pytest_socket  # noqa: F401
+except ImportError:  # pragma: no cover - plain pytest without the plugin
+    LOOPBACK_ONLY = []
+else:
+    LOOPBACK_ONLY = [pytest.mark.allow_hosts(["127.0.0.1", "::1", "localhost"])]
 pytestmark = LOOPBACK_ONLY
 
 

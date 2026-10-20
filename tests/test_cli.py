@@ -12,8 +12,22 @@ import pytest
 from simmer_sdk import cli
 
 
-# Loopback-only: event-loop self-pipe / local replay server; outside hosts stay blocked.
-LOOPBACK_ONLY = pytest.mark.allow_hosts(["127.0.0.1", "::1", "localhost"])
+# Loopback-only: TestClient's asyncio self-pipe and the --demo replay server use
+# 127.0.0.1; pytest-socket still blocks every outside host for these tests.
+# Applied only when pytest-socket is installed, so plain `pytest` needs no marker
+# registration.
+try:
+    import pytest_socket  # noqa: F401
+except ImportError:  # pragma: no cover - plain pytest without the plugin
+    LOOPBACK_ONLY = []
+else:
+    LOOPBACK_ONLY = [pytest.mark.allow_hosts(["127.0.0.1", "::1", "localhost"])]
+
+
+def _loopback(fn):
+    for mark in LOOPBACK_ONLY:
+        fn = mark(fn)
+    return fn
 
 
 # -- arg validation (CI-safe, no engine import reached) -----------------------
@@ -173,7 +187,7 @@ def test_print_summary_includes_tape_markets(capsys):
 
 # -- demo end-to-end (gated on the [backtest] extra) --------------------------
 
-@LOOPBACK_ONLY
+@_loopback
 def test_demo_runs_offline(tmp_path, capsys):
     pytest.importorskip("duckdb", reason="requires the [backtest] extra")
     pytest.importorskip("fastapi", reason="requires the [backtest] extra")
@@ -197,7 +211,7 @@ def test_demo_runs_offline(tmp_path, capsys):
     assert 0.0 <= s["hit_rate"] <= 1.0
 
 
-@LOOPBACK_ONLY
+@_loopback
 def test_demo_without_out_writes_no_file(tmp_path, monkeypatch, capsys):
     pytest.importorskip("duckdb", reason="requires the [backtest] extra")
     pytest.importorskip("fastapi", reason="requires the [backtest] extra")
