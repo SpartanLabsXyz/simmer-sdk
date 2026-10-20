@@ -55,7 +55,7 @@ You follow this set, not wallets you chose yourself.
 
 1. **Install the Simmer SDK** (0.17.27 or newer):
    ```bash
-   pip install -U 'simmer-sdk>=0.25.11'
+   pip install -U 'simmer-sdk>=0.26.0'
    ```
 
 2. **Set your Simmer API key**:

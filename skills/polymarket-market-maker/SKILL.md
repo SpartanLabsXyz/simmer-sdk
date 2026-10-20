@@ -60,7 +60,7 @@ The `--status` and `--cancel-all` commands show cumulative fee-equivalent estima
 
 1. **Install SDK**
    ```bash
-   pip install -U 'simmer-sdk>=0.25.11'
+   pip install -U 'simmer-sdk>=0.26.0'
    ```
 
 2. **Set API key**

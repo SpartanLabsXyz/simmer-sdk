@@ -1,1 +1,1 @@
-simmer-sdk>=0.25.11
+simmer-sdk>=0.26.0

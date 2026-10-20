@@ -3,7 +3,9 @@
 All notable changes to `simmer-sdk` are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## 0.25.11 (2026-10-20)
+## 0.26.0 (2026-10-20)
+
+This is a minor (not patch) release because #414’s breaking `live=` change ships here: real-venue clients now require explicit `live=True`/`live=False`.
 
 - Breaking: real-venue clients require explicit `live=True` (real money) or
   `live=False` (paper), including real-venue overrides on sim clients. Paper
