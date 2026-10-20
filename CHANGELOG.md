@@ -16,6 +16,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## Unreleased
 
+- **Dry runs can skip constructor risk exits (#421).** `SimmerClient(process_risk_alerts=False)` opts out of the constructor check; four live skills now disable it during dry runs while preserving live risk exits.
 - **`simmer-mcp` bumped to 3.5.10** — no server code change, only bundled skills refreshed for explicit live-client opt-in (#414).
 - **The skill-builder template is now paper-first (#415).** `skills/simmer-skill-builder/references/skill-template.md` defines `get_client(*, live=False)`, so a copied skill simulates trades until the author passes `--live`. `scripts/check-skill-governance.py` now fails CI when a skill passes `SimmerClient` anything but a provably paper `live=` (literal `False` or a `live=False`-defaulted parameter), passes a constant truthy `live` to a helper, splats into a live helper, or aliases/subclasses `SimmerClient`; existing violations are grandfathered per function (shrink-only). Bumps simmer-skill-builder to 1.3.15.
 - **Risk-monitor exits on Polymarket now confirm the order book has active bids before selling (SIM-5838).** A triggered stop-loss or take-profit exit checks the book first; if it's empty, the exit is deferred to the next cycle instead of submitting a SELL that can't fill.

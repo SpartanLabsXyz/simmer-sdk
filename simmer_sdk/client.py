@@ -298,6 +298,7 @@ class SimmerClient:
         ows_wallet: Optional[str] = None,
         live: Optional[bool] = None,
         starting_balance: float = 10_000.0,
+        process_risk_alerts: bool = True,
         _ignore_env_wallets: bool = False,
         _readonly: bool = False,
     ):
@@ -327,6 +328,8 @@ class SimmerClient:
                 realistic P&L. Positions auto-settle when markets resolve.
             starting_balance: Virtual starting capital for paper trading
                 (default: 10,000). Only used when live=False.
+            process_risk_alerts: False skips the constructor-time risk-exit check;
+                dry runs should pass False. Default True keeps the self-custody safety net.
             _readonly: Internal flag used by SimmerClient.readonly(). Read-only
                 clients preserve venue/read behavior but never auto-process
                 risk exits or submit orders.
@@ -597,6 +600,7 @@ class SimmerClient:
         # orders as a construction side effect.
         if (
             not self._readonly
+            and process_risk_alerts
             and self.live
             and (self._private_key or self._ows_wallet)
             and venue in ("polymarket",)

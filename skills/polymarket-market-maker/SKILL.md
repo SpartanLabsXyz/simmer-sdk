@@ -3,7 +3,7 @@ name: polymarket-market-maker
 description: Post two-sided GTC limit orders on Polymarket CLOB. Manages inventory skew, cancel/replace on price drift, and estimates rebate-eligible volume.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "0.9.2"
+  version: "0.9.3"
   displayName: Polymarket Market Maker
   difficulty: advanced
   attribution: "Based on Akey et al. (2026): market-making reduces loss probability by 35.9 pp."
@@ -83,7 +83,7 @@ The `--status` and `--cancel-all` commands show cumulative fee-equivalent estima
    export MM_QUOTE_USDC=10                    # $10 USDC per side per market
    ```
 
-5. **Dry run** (default — no orders placed)
+5. **Dry run** (default — no orders placed). A dry run (no `--live`) also skips the SDK's startup stop-loss/take-profit exits, so it never sells, even with `WALLET_PRIVATE_KEY` set.
    ```bash
    python market_maker.py
    ```

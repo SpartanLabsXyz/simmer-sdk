@@ -7,7 +7,7 @@ tags:
   - soccer
 metadata:
   author: Simmer (@simmer_markets)
-  version: "0.1.6"
+  version: "0.1.7"
   displayName: World Cup Shock Ladder
   difficulty: intermediate
   simmer:
@@ -94,7 +94,8 @@ By default the skill only acts on **moderate-favorite** markets (pre-shock price
 ## Running it
 
 Dry-run is the default. It shows the exact ladder and exits it *would* place,
-without trading. Review that before going live.
+without trading. Review that before going live. A dry run also skips the SDK's
+startup stop-loss/take-profit exits, so it never sells.
 
 ```bash
 # Dry-run, single poll (safe; good for a cron)

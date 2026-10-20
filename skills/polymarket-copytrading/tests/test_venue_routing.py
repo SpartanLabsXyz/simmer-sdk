@@ -233,7 +233,7 @@ class TestVenueRouting(unittest.TestCase):
         construction_venues = []
 
         class TrackingClient:
-            def __new__(cls, api_key, venue, live):
+            def __new__(cls, api_key, venue, live, process_risk_alerts):
                 assert live is True
                 construction_venues.append(venue)
                 return MagicMock()
@@ -264,7 +264,7 @@ class TestReactorVenueRouting(unittest.TestCase):
         construction_venues = []
 
         class TrackingClient:
-            def __new__(cls, api_key, venue, live):
+            def __new__(cls, api_key, venue, live, process_risk_alerts):
                 assert live is True
                 construction_venues.append(venue)
                 mc = MagicMock()

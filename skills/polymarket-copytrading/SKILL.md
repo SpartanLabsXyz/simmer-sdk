@@ -3,7 +3,7 @@ name: polymarket-copytrading
 description: Mirror Polymarket whale wallets, inspect wallet positions, follow specific trader addresses, or paper-trade copytrading with $SIM before using real money. Polling mode is free; Reactor mode is Pro for event-driven real-time mirroring via Simmer's on-chain signal infrastructure.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.12.7"
+  version: "1.12.8"
   displayName: Polymarket Copytrading
   difficulty: beginner
 ---
@@ -316,6 +316,8 @@ In $SIM mode:
 ## Running the Skill
 
 **Run a scan (dry run by default — no trades):**
+
+A dry run (no `--live`) also skips the SDK's startup stop-loss/take-profit exits, so it never sells, even with `WALLET_PRIVATE_KEY` set.
 ```bash
 python copytrading_trader.py
 ```
