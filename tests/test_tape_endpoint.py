@@ -233,3 +233,14 @@ def test_base_url_resolution_prefers_env(monkeypatch):
     monkeypatch.setenv("SIMMER_API_URL", "http://localhost:9000/")
     assert tp._resolve_base_url(None) == "http://localhost:9000"
     assert tp._resolve_base_url("http://explicit:1/") == "http://explicit:1"
+
+
+def test_fetch_tape_coverage_404_falls_back_to_dataset_end(cache, monkeypatch):
+    def fake_get(url, headers=None, timeout=None):
+        assert url == "http://localhost:8000/api/backtest/tape/coverage"
+        return _Resp(404, {"detail": "Not Found"})
+
+    monkeypatch.setattr(tp.requests, "get", fake_get)
+    coverage = tp.fetch_tape_coverage(base_url="http://localhost:8000")
+    assert coverage["coverage_t1"] == tp.DATASET_END
+    assert coverage["source"] == "fallback:dataset_end"

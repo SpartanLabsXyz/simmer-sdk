@@ -201,3 +201,38 @@ def test_demo_without_out_writes_no_file(tmp_path, monkeypatch, capsys):
     # running --demo must NOT silently drop a report file into the user's CWD
     assert not list(tmp_path.glob("*.json")), "--demo wrote a file without --out"
     assert "--out" in capsys.readouterr().out  # hints how to save it
+
+
+def test_backtest_window_falls_back_to_dataset_end_when_coverage_404(monkeypatch, tmp_path):
+    captured = {}
+
+    def fake_run_backtest(bundle, **kwargs):
+        captured.update(kwargs)
+        return {"summary": {}, "bundle": {}}
+
+    import simmer_sdk.backtest as bt_mod
+    from simmer_sdk.backtest import tape as tape_mod
+
+    class NotFound:
+        status_code = 404
+        ok = False
+
+        def json(self):
+            return {"detail": "Not Found"}
+
+    def fake_get(url, headers=None, timeout=None):
+        assert url.endswith("/api/backtest/tape/coverage")
+        return NotFound()
+
+    monkeypatch.setenv("SIMMER_API_KEY", "sk_test_placeholder")
+    monkeypatch.setattr(bt_mod, "run_backtest", fake_run_backtest)
+    monkeypatch.setattr(tape_mod.requests, "get", fake_get)
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    (bundle / "run.py").write_text("")
+
+    rc = cli.main(["backtest", str(bundle), "--entrypoint", "run.py", "--window", "30d"])
+
+    assert rc == 0
+    assert captured["t0"] == "2026-04-05"
+    assert captured["t1"] == tape_mod.DATASET_END == "2026-05-05"

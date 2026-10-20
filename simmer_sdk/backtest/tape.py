@@ -28,9 +28,7 @@ from datetime import datetime
 
 import requests
 
-# Last day the canonical dataset covers, until the freshness fetcher (slice 6)
-# grows it. A window starting past this errors server-side too, but checking
-# locally gives a clearer message without a round-trip.
+# Legacy dataset end used when the server has no coverage endpoint.
 DATASET_END = "2026-05-05"
 _TAPE_ENDPOINT = "/api/backtest/tape"
 _TAPE_COVERAGE_ENDPOINT = "/api/backtest/tape/coverage"
@@ -227,6 +225,9 @@ def fetch_tape_coverage(
     except requests.RequestException as exc:
         raise TapeFetchError(f"could not reach the tape service at {base}: {exc}") from exc
 
+    # Older servers predate the coverage route; preserve their legacy window anchor.
+    if resp.status_code == 404:
+        return {"coverage_t1": DATASET_END, "source": "fallback:dataset_end"}
     if resp.status_code in (401, 403):
         raise TapeFetchError(_detail(resp, "tape coverage rejected — check SIMMER_API_KEY"))
     if resp.status_code == 503:
