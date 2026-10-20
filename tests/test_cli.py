@@ -265,3 +265,13 @@ def test_backtest_window_malformed_coverage_exits_cleanly(monkeypatch, tmp_path,
 
     assert rc == 2
     assert "error:" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("coverage,expected", [
+    ("2026-10-21", ("2026-10-20", "2026-10-21")),
+    ("2026-10-20T13:00:00+00:00", ("2026-10-19", "2026-10-20")),
+])
+def test_resolve_window_fresh_coverage(coverage, expected):
+    import argparse
+    args = argparse.Namespace(t0=None, t1=None, window="1d")
+    assert cli._resolve_window(args, coverage_t1=coverage) == expected

@@ -136,6 +136,29 @@ def test_replay_positions_accepts_session_venue_without_422(monkeypatch):
     assert positions[0]["venue"] == session.venue
 
 
+@pytest.mark.parametrize("venue,rows", [(None, 1), ("sim", 1), ("polymarket", 1), ("kalshi", 0), ("other", 0)])
+def test_replay_positions_filters_venue(monkeypatch, venue, rows):
+    store = _MemStore([_meta("wx1", "Highest temperature in NYC", "temperature")])
+    monkeypatch.setattr(store, "price", lambda market_id, at: PricePoint(market_id, at, 0.5))
+    session = ReplaySession(store=store, sim=SimState(starting_balance=1000.0), now=NOW)
+    client = TestClient(create_app(session))
+    trade = client.post("/api/sdk/trade", json={
+        "market_id": "wx1", "action": "buy", "side": "yes", "amount": 40.0,
+    })
+    assert trade.status_code == 200
+    assert trade.json()["success"] is True
+
+    response = client.get("/api/sdk/positions", params={} if venue is None else {"venue": venue})
+    assert response.status_code == 200
+    positions = response.json()["positions"]
+    assert session.venue == "polymarket"
+    if rows:
+        assert len(positions) == 1
+        assert positions[0]["venue"] == session.venue
+    else:
+        assert positions == []
+
+
 def test_replay_markets_still_rejects_venue_with_422():
     response = _client().get("/api/sdk/markets", params={"venue": "kalshi"})
     assert response.status_code == 422

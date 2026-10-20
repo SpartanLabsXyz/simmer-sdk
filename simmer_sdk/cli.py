@@ -267,7 +267,7 @@ def _build_parser() -> argparse.ArgumentParser:
     bt.add_argument("--t0", help="window start (ISO, e.g. 2026-03-01)")
     bt.add_argument("--t1", help="window end (ISO)")
     bt.add_argument("--max-markets", type=int, default=300, dest="max_markets",
-                    help="cap on markets in a fetched slice (default 300; server clamps to 1000)")
+                    help="cap on markets in a fetched slice (default 300; server clamps to 1000, or 5000 with --q)")
     bt.add_argument("--min-volume", type=float, default=1000.0, dest="min_volume",
                     help="min market volume for a fetched slice (default 1000)")
     bt.add_argument("--q", default=None, dest="q",

@@ -305,3 +305,15 @@ def test_fetch_tape_coverage_malformed_raises_tape_fetch_error(cache, monkeypatc
 
     with pytest.raises(tp.TapeFetchError, match="malformed tape coverage response"):
         tp.fetch_tape_coverage(base_url="http://localhost:8000")
+
+
+def test_fetch_tape_full_iso_end_repairs_corrupt_manifest(cache, monkeypatch):
+    body = {**_ok_body(), "t1": "2026-10-20T13:00:00+00:00"}
+    monkeypatch.setattr(tp.requests, "post", lambda *a, **k: _Resp(200, body))
+    def download(url, dest, timeout=300):
+        with open(dest, "wb") as fh:
+            fh.write(b'{"t0": ' if str(dest).endswith("manifest.json") else b"PAR1")
+    monkeypatch.setattr(tp, "_download", download)
+    out = tp.fetch_tape("2026-10-19", "2026-10-21", base_url="http://x")
+    with open(os.path.join(out, "manifest.json")) as fh:
+        assert json.load(fh)["t1"] == body["t1"]

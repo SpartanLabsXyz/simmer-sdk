@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import os
 import re
+import sys
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Union
 
@@ -146,6 +147,15 @@ def _tape_manifest(tape_dir: str) -> dict:
         return {}
 
 
+def _served_t1(t0_dt: datetime, t1_dt: datetime, manifest: dict) -> datetime:
+    """Use a valid service end only when it shortens the requested window."""
+    try:
+        served = _parse_dt(manifest.get("t1"))
+    except (TypeError, ValueError):
+        return t1_dt
+    return served if t0_dt < served < t1_dt else t1_dt
+
+
 # -- public entrypoint --------------------------------------------------------
 
 def run_backtest(
@@ -236,7 +246,8 @@ def run_backtest(
         raise BacktestError(f"entrypoint {entrypoint!r} not found in bundle {bundle}")
 
     # No local tape => fetch (and cache) the slice for [t0, t1] from the backend.
-    if tape is None:
+    fetched_tape = tape is None
+    if fetched_tape:
         from .tape import TapeFetchError, fetch_tape
 
         try:
@@ -264,6 +275,15 @@ def run_backtest(
     extra_args = _normalize_args(args)
     sdk_path = resolve_sdk_path(sdk_path)
     tape_manifest = _tape_manifest(tape)
+    if fetched_tape:
+        effective_t1 = _served_t1(t0_dt, t1_dt, tape_manifest)
+        if effective_t1 < t1_dt:
+            print(
+                f"note: tape service served data through {effective_t1.isoformat()}; "
+                f"window clamped from {t1_dt.isoformat()}",
+                file=sys.stderr,
+            )
+            t1_dt = effective_t1
 
     # store + kline_store both hold OS resources (a DuckDB connection / FD); build
     # them INSIDE the try so the finally closes whatever was opened even if a later
