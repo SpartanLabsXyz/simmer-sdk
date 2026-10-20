@@ -77,8 +77,15 @@ def _stamp_manifest_from_response(slice_dir: Path, body: dict) -> None:
     if not manifest_path.exists():
         return
     try:
-        with open(manifest_path) as fh:
-            manifest = json.load(fh)
+        try:
+            with open(manifest_path) as fh:
+                manifest = json.load(fh)
+        except ValueError:
+            manifest = None
+        if not isinstance(manifest, dict):
+            manifest = {key: body[key] for key in
+                        ("t0", "t1", "markets", "quant_rows", "dataset_rev")
+                        if key in body}
         for key in (
             "markets_requested",
             "markets_matching_filter",
@@ -88,10 +95,14 @@ def _stamp_manifest_from_response(slice_dir: Path, body: dict) -> None:
         ):
             if key in body:
                 manifest[key] = body[key]
-        tmp = manifest_path.with_suffix(".json.part")
-        with open(tmp, "w") as fh:
-            json.dump(manifest, fh, indent=2)
-        os.replace(tmp, manifest_path)
+        fd, tmp_name = tempfile.mkstemp(dir=slice_dir, prefix=".manifest.", suffix=".part")
+        tmp = Path(tmp_name)
+        try:
+            with os.fdopen(fd, "w") as fh:
+                json.dump(manifest, fh, indent=2)
+            os.replace(tmp, manifest_path)
+        finally:
+            tmp.unlink(missing_ok=True)
     except Exception:
         return
 
@@ -235,9 +246,17 @@ def fetch_tape_coverage(
     if not resp.ok:
         raise TapeFetchError(_detail(resp, f"tape coverage lookup failed ({resp.status_code})"))
 
-    body = resp.json()
-    if not body.get("coverage_t1"):
-        raise TapeFetchError(f"malformed tape coverage response from {base}: {body!r}")
+    malformed = f"malformed tape coverage response from {base}"
+    try:
+        body = resp.json()
+    except ValueError as exc:
+        raise TapeFetchError(malformed) from exc
+    if not isinstance(body, dict) or not isinstance(body.get("coverage_t1"), str) or not body["coverage_t1"]:
+        raise TapeFetchError(f"{malformed}: {body!r}")
+    try:
+        datetime.fromisoformat(body["coverage_t1"])
+    except ValueError as exc:
+        raise TapeFetchError(f"{malformed}: {body!r}") from exc
     return body
 
 

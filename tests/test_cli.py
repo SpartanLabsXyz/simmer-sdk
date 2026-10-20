@@ -236,3 +236,32 @@ def test_backtest_window_falls_back_to_dataset_end_when_coverage_404(monkeypatch
     assert rc == 0
     assert captured["t0"] == "2026-04-05"
     assert captured["t1"] == tape_mod.DATASET_END == "2026-05-05"
+
+
+@pytest.mark.parametrize("payload", [[], {"coverage_t1": 20260505}, None])
+def test_backtest_window_malformed_coverage_exits_cleanly(monkeypatch, tmp_path, capsys, payload):
+    from simmer_sdk.backtest import tape as tape_mod
+
+    class MalformedCoverage:
+        status_code = 200
+        ok = True
+
+        def json(self):
+            if payload is None:
+                return json.loads("not json")
+            return payload
+
+    def fake_get(url, headers=None, timeout=None):
+        assert url.endswith("/api/backtest/tape/coverage")
+        return MalformedCoverage()
+
+    monkeypatch.setenv("SIMMER_API_KEY", "sk_test_placeholder")
+    monkeypatch.setattr(tape_mod.requests, "get", fake_get)
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    (bundle / "run.py").write_text("")
+
+    rc = cli.main(["backtest", str(bundle), "--entrypoint", "run.py", "--window", "30d"])
+
+    assert rc == 2
+    assert "error:" in capsys.readouterr().err

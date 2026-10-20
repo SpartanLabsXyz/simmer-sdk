@@ -124,11 +124,14 @@ def _dataset_rev(tape_dir: str) -> str:
     import json
 
     manifest_path = os.path.join(tape_dir, "manifest.json")
-    if os.path.exists(manifest_path):
+    try:
         with open(manifest_path) as fh:
             m = json.load(fh)
-        return f"hf-slice:{m.get('t0')}..{m.get('t1')}:{m.get('markets')}mk"
-    return "unknown"
+    except (OSError, ValueError):
+        return "unknown"
+    if not isinstance(m, dict):
+        return "unknown"
+    return f"hf-slice:{m.get('t0')}..{m.get('t1')}:{m.get('markets')}mk"
 
 
 def _tape_manifest(tape_dir: str) -> dict:

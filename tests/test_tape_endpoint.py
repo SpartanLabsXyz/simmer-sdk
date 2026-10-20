@@ -244,3 +244,64 @@ def test_fetch_tape_coverage_404_falls_back_to_dataset_end(cache, monkeypatch):
     coverage = tp.fetch_tape_coverage(base_url="http://localhost:8000")
     assert coverage["coverage_t1"] == tp.DATASET_END
     assert coverage["source"] == "fallback:dataset_end"
+
+
+def test_concurrent_manifest_stamps_publish_valid_json(cache, monkeypatch):
+    manifest_path = cache / "manifest.json"
+    manifest_path.write_text('{"markets": 12}')
+    original_dump = tp.json.dump
+    overlapping = False
+
+    def overlapping_dump(manifest, fh, **kwargs):
+        nonlocal overlapping
+        if overlapping:
+            return original_dump(manifest, fh, **kwargs)
+        overlapping = True
+        encoded = json.dumps(manifest, **kwargs)
+        fh.write(encoded[:1])
+        fh.flush()
+        tp._stamp_manifest_from_response(cache, {"markets_requested": 10 ** 100})
+        fh.write(encoded[1:])
+
+    monkeypatch.setattr(tp.json, "dump", overlapping_dump)
+    tp._stamp_manifest_from_response(cache, {"markets_requested": 1})
+
+    assert json.loads(manifest_path.read_text())["markets_requested"] == 1
+    assert not list(cache.glob("*.part"))
+
+
+@pytest.mark.parametrize("contents", ['{"t0": ', '[]'])
+def test_stamp_manifest_repairs_corrupt_manifest(cache, contents):
+    manifest_path = cache / "manifest.json"
+    manifest_path.write_text(contents)
+    body = _ok_body()
+
+    tp._stamp_manifest_from_response(cache, body)
+
+    manifest = json.loads(manifest_path.read_text())
+    for key in ("t0", "t1", "markets", "quant_rows", "dataset_rev",
+                "markets_requested", "markets_matching_filter", "markets_served",
+                "max_markets_served", "truncated"):
+        assert manifest[key] == body[key]
+
+
+@pytest.mark.parametrize("contents", ['{"t0": ', '[]'])
+def test_dataset_rev_tolerates_corrupt_manifest(cache, contents):
+    from simmer_sdk.backtest import _dataset_rev
+
+    (cache / "manifest.json").write_text(contents)
+    assert _dataset_rev(str(cache)) == "unknown"
+
+
+@pytest.mark.parametrize("payload", [None, [], {}, {"coverage_t1": 20260505},
+                                     {"coverage_t1": "not-a-date"}, {"coverage_t1": ""}])
+def test_fetch_tape_coverage_malformed_raises_tape_fetch_error(cache, monkeypatch, payload):
+    response = _Resp(200, payload)
+    if payload is None:
+        def invalid_json():
+            return json.loads("not json")
+        monkeypatch.setattr(response, "json", invalid_json)
+    monkeypatch.setattr(tp.requests, "get", lambda *a, **k: response)
+
+    with pytest.raises(tp.TapeFetchError, match="malformed tape coverage response"):
+        tp.fetch_tape_coverage(base_url="http://localhost:8000")
