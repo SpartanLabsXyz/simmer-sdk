@@ -20,6 +20,11 @@ from simmer_sdk.backtest.replay.simstate import SimState  # noqa: E402
 from simmer_sdk.backtest.replay.store import MarketMeta, PricePoint  # noqa: E402
 
 
+# Loopback-only: event-loop self-pipe / local replay server; outside hosts stay blocked.
+LOOPBACK_ONLY = pytest.mark.allow_hosts(["127.0.0.1", "::1", "localhost"])
+pytestmark = LOOPBACK_ONLY
+
+
 NOW = datetime(2026, 4, 30, tzinfo=timezone.utc)
 
 
@@ -163,3 +168,13 @@ def test_replay_markets_still_rejects_venue_with_422():
     response = _client().get("/api/sdk/markets", params={"venue": "kalshi"})
     assert response.status_code == 422
     assert "venue" in response.json()["detail"]
+
+
+def test_loopback_marker_blocks_outside_hosts(request):
+    if not request.config.getoption("--disable-socket", default=False):
+        pytest.skip("requires --disable-socket")
+    pytest_socket = pytest.importorskip("pytest_socket")
+    import socket
+
+    with pytest.raises(pytest_socket.SocketConnectBlockedError):
+        socket.create_connection(("198.51.100.1", 443), timeout=0.1)

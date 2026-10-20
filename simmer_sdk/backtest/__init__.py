@@ -193,7 +193,7 @@ def run_backtest(
             under ``~/.simmer/tapes/`` (``POST /api/backtest/tape``); pass an
             explicit dir to use your own local slice (BYO escape hatch).
         t0, t1: window bounds (ISO string or datetime; naive => UTC).
-        max_markets: cap on markets in a fetched slice (server clamps to 1000).
+        max_markets: cap on markets in a fetched slice (server clamps to 1000, or 5000 with ``q``).
             Ignored when ``tape`` is an explicit local dir.
         min_volume: min market volume for a fetched slice. Ignored for a local tape.
         q: case-insensitive substring match on question OR slug for a fetched

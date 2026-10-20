@@ -12,6 +12,10 @@ import pytest
 from simmer_sdk import cli
 
 
+# Loopback-only: event-loop self-pipe / local replay server; outside hosts stay blocked.
+LOOPBACK_ONLY = pytest.mark.allow_hosts(["127.0.0.1", "::1", "localhost"])
+
+
 # -- arg validation (CI-safe, no engine import reached) -----------------------
 
 def test_backtest_requires_inputs_or_demo(capsys):
@@ -169,6 +173,7 @@ def test_print_summary_includes_tape_markets(capsys):
 
 # -- demo end-to-end (gated on the [backtest] extra) --------------------------
 
+@LOOPBACK_ONLY
 def test_demo_runs_offline(tmp_path, capsys):
     pytest.importorskip("duckdb", reason="requires the [backtest] extra")
     pytest.importorskip("fastapi", reason="requires the [backtest] extra")
@@ -192,6 +197,7 @@ def test_demo_runs_offline(tmp_path, capsys):
     assert 0.0 <= s["hit_rate"] <= 1.0
 
 
+@LOOPBACK_ONLY
 def test_demo_without_out_writes_no_file(tmp_path, monkeypatch, capsys):
     pytest.importorskip("duckdb", reason="requires the [backtest] extra")
     pytest.importorskip("fastapi", reason="requires the [backtest] extra")
