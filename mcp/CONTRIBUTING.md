@@ -25,19 +25,19 @@ Run these before tagging a release:
 npm test
 npm run check:bundle-skills
 
-# 2. Keyless discovery tier: exactly 9 tools (no API key)
+# 2. Keyless discovery tier: exactly 10 tools (no API key)
 echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"smoke","version":"0.0.1"}}}' | \
 printf '%s\n{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}\n{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}\n' | \
 SIMMER_API_KEY="" node dist/mcp-server.js 2>/dev/null | grep '"id":2'
-# Expected: tools array with 9 entries — list_skills, get_skill_docs, troubleshoot_error,
-# simmer_browse_markets, simmer_get_leaderboard, and the 4 Tier-A instruction-only skills
+# Expected: tools array with 10 entries — list_skills, get_skill_docs, troubleshoot_error,
+# simmer_browse_markets, simmer_get_leaderboard, simmer_register_agent, and the 4 Tier-A instruction-only skills
 # (simmer_simmer, simmer_simmer_briefing, simmer_simmer_mcp_setup, simmer_simmer_wallet_setup).
 # No key-requiring tool may appear here — simmer_preflight in particular is Tier B and must NOT.
 
-# 3. Pro-tier: 23 tools (with API key)
+# 3. Pro-tier: 24 tools (with API key)
 printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"smoke","version":"0.0.1"}}}\n{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}\n{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}\n' | \
 SIMMER_API_KEY="sk_test_any" node dist/mcp-server.js 2>/dev/null | grep '"id":2'
-# Expected: tools array with 23 entries (9 keyless + 4 autoresearch + 9 raw market/trade/data + 1 Tier-B skill)
+# Expected: tools array with 24 entries (10 keyless + 4 autoresearch + 9 raw market/trade/data + 1 Tier-B skill)
 
 # 4. Resources absent
 printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"smoke","version":"0.0.1"}}}\n{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}\n{"jsonrpc":"2.0","id":2,"method":"resources/list","params":{}}\n' | \
@@ -51,7 +51,7 @@ npm pack --dry-run
 
 # 6. Startup log looks correct
 SIMMER_API_KEY="" node dist/mcp-server.js </dev/null 2>&1 | head -5
-# Expected: [simmer-mcp] v<version> | tools: 9 (discovery only, 9 keyless) | skills: 5 bundled
+# Expected: [simmer-mcp] v<version> | tools: 10 (discovery only, 10 keyless) | skills: 5 bundled
 ```
 
 ## Test structure
