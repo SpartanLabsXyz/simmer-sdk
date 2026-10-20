@@ -17,7 +17,20 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from simmer_sdk.backtest.replay.server import ReplaySession, create_app  # noqa: E402
 from simmer_sdk.backtest.replay.simstate import SimState  # noqa: E402
-from simmer_sdk.backtest.replay.store import MarketMeta  # noqa: E402
+from simmer_sdk.backtest.replay.store import MarketMeta, PricePoint  # noqa: E402
+
+
+# Loopback-only: TestClient's asyncio self-pipe and the --demo replay server use
+# 127.0.0.1; pytest-socket still blocks every outside host for these tests.
+# Applied only when pytest-socket is installed, so plain `pytest` needs no marker
+# registration.
+try:
+    import pytest_socket  # noqa: F401
+except ImportError:  # pragma: no cover - plain pytest without the plugin
+    LOOPBACK_ONLY = []
+else:
+    LOOPBACK_ONLY = [pytest.mark.allow_hosts(["127.0.0.1", "::1", "localhost"])]
+pytestmark = LOOPBACK_ONLY
 
 
 NOW = datetime(2026, 4, 30, tzinfo=timezone.utc)
@@ -116,3 +129,60 @@ def test_replay_q_miss_is_empty_200_not_422():
     r = _client(only_btc).get("/api/sdk/markets", params={"q": "temperature", "limit": 10})
     assert r.status_code == 200
     assert r.json()["markets"] == []
+
+
+def test_replay_positions_accepts_session_venue_without_422(monkeypatch):
+    store = _MemStore([_meta("wx1", "Highest temperature in NYC", "temperature")])
+    monkeypatch.setattr(store, "price", lambda market_id, at: PricePoint(market_id, at, 0.5))
+    session = ReplaySession(store=store, sim=SimState(starting_balance=1000.0), now=NOW)
+    client = TestClient(create_app(session))
+    trade = client.post("/api/sdk/trade", json={
+        "market_id": "wx1", "action": "buy", "side": "yes", "amount": 40.0,
+    })
+    assert trade.status_code == 200
+    assert trade.json()["success"] is True
+
+    response = client.get("/api/sdk/positions", params={"venue": session.venue})
+    assert response.status_code == 200
+    positions = response.json()["positions"]
+    assert len(positions) == 1
+    assert positions[0]["venue"] == session.venue
+
+
+@pytest.mark.parametrize("venue,rows", [(None, 1), ("sim", 1), ("polymarket", 1), ("kalshi", 0), ("other", 0)])
+def test_replay_positions_filters_venue(monkeypatch, venue, rows):
+    store = _MemStore([_meta("wx1", "Highest temperature in NYC", "temperature")])
+    monkeypatch.setattr(store, "price", lambda market_id, at: PricePoint(market_id, at, 0.5))
+    session = ReplaySession(store=store, sim=SimState(starting_balance=1000.0), now=NOW)
+    client = TestClient(create_app(session))
+    trade = client.post("/api/sdk/trade", json={
+        "market_id": "wx1", "action": "buy", "side": "yes", "amount": 40.0,
+    })
+    assert trade.status_code == 200
+    assert trade.json()["success"] is True
+
+    response = client.get("/api/sdk/positions", params={} if venue is None else {"venue": venue})
+    assert response.status_code == 200
+    positions = response.json()["positions"]
+    assert session.venue == "polymarket"
+    if rows:
+        assert len(positions) == 1
+        assert positions[0]["venue"] == session.venue
+    else:
+        assert positions == []
+
+
+def test_replay_markets_still_rejects_venue_with_422():
+    response = _client().get("/api/sdk/markets", params={"venue": "kalshi"})
+    assert response.status_code == 422
+    assert "venue" in response.json()["detail"]
+
+
+def test_loopback_marker_blocks_outside_hosts(request):
+    if not request.config.getoption("--disable-socket", default=False):
+        pytest.skip("requires --disable-socket")
+    pytest_socket = pytest.importorskip("pytest_socket")
+    import socket
+
+    with pytest.raises(pytest_socket.SocketConnectBlockedError):
+        socket.create_connection(("198.51.100.1", 443), timeout=0.1)

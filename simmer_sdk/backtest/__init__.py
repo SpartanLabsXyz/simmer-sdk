@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import os
 import re
+import sys
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Union
 
@@ -124,11 +125,35 @@ def _dataset_rev(tape_dir: str) -> str:
     import json
 
     manifest_path = os.path.join(tape_dir, "manifest.json")
-    if os.path.exists(manifest_path):
+    try:
         with open(manifest_path) as fh:
             m = json.load(fh)
-        return f"hf-slice:{m.get('t0')}..{m.get('t1')}:{m.get('markets')}mk"
-    return "unknown"
+    except (OSError, ValueError):
+        return "unknown"
+    if not isinstance(m, dict):
+        return "unknown"
+    return f"hf-slice:{m.get('t0')}..{m.get('t1')}:{m.get('markets')}mk"
+
+
+def _tape_manifest(tape_dir: str) -> dict:
+    import json
+
+    manifest_path = os.path.join(tape_dir, "manifest.json")
+    try:
+        with open(manifest_path) as fh:
+            data = json.load(fh)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _served_t1(t0_dt: datetime, t1_dt: datetime, manifest: dict) -> datetime:
+    """Use a valid service end only when it shortens the requested window."""
+    try:
+        served = _parse_dt(manifest.get("t1"))
+    except (TypeError, ValueError):
+        return t1_dt
+    return served if t0_dt < served < t1_dt else t1_dt
 
 
 # -- public entrypoint --------------------------------------------------------
@@ -168,7 +193,7 @@ def run_backtest(
             under ``~/.simmer/tapes/`` (``POST /api/backtest/tape``); pass an
             explicit dir to use your own local slice (BYO escape hatch).
         t0, t1: window bounds (ISO string or datetime; naive => UTC).
-        max_markets: cap on markets in a fetched slice (server clamps to 1000).
+        max_markets: cap on markets in a fetched slice (server clamps to 1000, or 5000 with ``q``).
             Ignored when ``tape`` is an explicit local dir.
         min_volume: min market volume for a fetched slice. Ignored for a local tape.
         q: case-insensitive substring match on question OR slug for a fetched
@@ -221,7 +246,8 @@ def run_backtest(
         raise BacktestError(f"entrypoint {entrypoint!r} not found in bundle {bundle}")
 
     # No local tape => fetch (and cache) the slice for [t0, t1] from the backend.
-    if tape is None:
+    fetched_tape = tape is None
+    if fetched_tape:
         from .tape import TapeFetchError, fetch_tape
 
         try:
@@ -248,6 +274,16 @@ def run_backtest(
     cadence_td = _parse_cadence(cadence)
     extra_args = _normalize_args(args)
     sdk_path = resolve_sdk_path(sdk_path)
+    tape_manifest = _tape_manifest(tape)
+    if fetched_tape:
+        effective_t1 = _served_t1(t0_dt, t1_dt, tape_manifest)
+        if effective_t1 < t1_dt:
+            print(
+                f"note: tape service served data through {effective_t1.isoformat()}; "
+                f"window clamped from {t1_dt.isoformat()}",
+                file=sys.stderr,
+            )
+            t1_dt = effective_t1
 
     # store + kline_store both hold OS resources (a DuckDB connection / FD); build
     # them INSIDE the try so the finally closes whatever was opened even if a later
@@ -293,6 +329,14 @@ def run_backtest(
     # Runner-asserted coverage: lets a 0-trade result read as verified
     # no-signal. Default False keeps 0-trade results inconclusive.
     report["coverage_ok"] = bool(coverage_ok)
+    if tape_manifest:
+        report["summary"].update({
+            "markets_requested": tape_manifest.get("markets_requested", tape_manifest.get("markets")),
+            "markets_matching_filter": tape_manifest.get("markets_matching_filter"),
+            "markets_served": tape_manifest.get("markets_served", tape_manifest.get("markets")),
+            "max_markets_served": tape_manifest.get("max_markets_served"),
+            "markets_truncated": bool(tape_manifest.get("truncated", False)),
+        })
     report["replay_job"] = {
         "slug": config.skill_slug,
         "version": None,

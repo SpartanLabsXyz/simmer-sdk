@@ -12,6 +12,24 @@ import pytest
 from simmer_sdk import cli
 
 
+# Loopback-only: TestClient's asyncio self-pipe and the --demo replay server use
+# 127.0.0.1; pytest-socket still blocks every outside host for these tests.
+# Applied only when pytest-socket is installed, so plain `pytest` needs no marker
+# registration.
+try:
+    import pytest_socket  # noqa: F401
+except ImportError:  # pragma: no cover - plain pytest without the plugin
+    LOOPBACK_ONLY = []
+else:
+    LOOPBACK_ONLY = [pytest.mark.allow_hosts(["127.0.0.1", "::1", "localhost"])]
+
+
+def _loopback(fn):
+    for mark in LOOPBACK_ONLY:
+        fn = mark(fn)
+    return fn
+
+
 # -- arg validation (CI-safe, no engine import reached) -----------------------
 
 def test_backtest_requires_inputs_or_demo(capsys):
@@ -20,13 +38,35 @@ def test_backtest_requires_inputs_or_demo(capsys):
     assert "required" in capsys.readouterr().err
 
 
-def test_resolve_window_from_duration():
+def test_resolve_window_from_duration(monkeypatch):
     import argparse
 
-    # --window anchors to the dataset end when --t1 is absent and walks back.
+    # --window anchors to tape coverage when --t1 is absent and walks back.
+    a = argparse.Namespace(t0=None, t1=None, window="30d")
+    t0, t1 = cli._resolve_window(a, coverage_t1="2026-05-05")
+    assert t1 == "2026-05-05" and t0 == "2026-04-05"
+
+
+def test_resolve_window_local_tape_falls_back_to_today(monkeypatch):
+    import argparse
+    from datetime import datetime, timezone
+
+    monkeypatch.setattr(cli, "_now_utc", lambda: datetime(2026, 9, 16, tzinfo=timezone.utc))
     a = argparse.Namespace(t0=None, t1=None, window="30d")
     t0, t1 = cli._resolve_window(a)
-    assert t1 == "2026-05-05" and t0 == "2026-04-05"
+    assert t1 == "2026-09-16" and t0 == "2026-08-17"
+
+
+def test_resolve_window_local_tape_non_midnight_short_window(monkeypatch):
+    import argparse
+    from datetime import datetime, timezone
+
+    monkeypatch.setattr(cli, "_now_utc", lambda: datetime(2026, 9, 16, 18, 30, tzinfo=timezone.utc))
+    a = argparse.Namespace(t0=None, t1=None, window="12h")
+    t0, t1 = cli._resolve_window(a)
+    assert t1 == "2026-09-16"
+    assert t0 == "2026-09-15"
+    assert t0 != t1
 
 
 def test_resolve_window_explicit_takes_precedence():
@@ -96,8 +136,58 @@ def test_backtest_q_flag_defaults_to_none(monkeypatch, tmp_path):
     assert captured["q"] is None
 
 
+def test_backtest_window_fetches_coverage_when_t1_omitted(monkeypatch, tmp_path):
+    captured = {}
+
+    def fake_run_backtest(bundle, **kwargs):
+        captured.update(kwargs)
+        return {"summary": {}, "bundle": {}}
+
+    import simmer_sdk.backtest as bt_mod
+    from simmer_sdk.backtest import tape as tape_mod
+
+    monkeypatch.setattr(bt_mod, "run_backtest", fake_run_backtest)
+    monkeypatch.setattr(tape_mod, "fetch_tape_coverage", lambda **_kwargs: {"coverage_t1": "2026-05-05"})
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    (bundle / "run.py").write_text("")
+
+    rc = cli.main(["backtest", str(bundle), "--entrypoint", "run.py", "--window", "30d"])
+
+    assert rc == 0
+    assert captured["t0"] == "2026-04-05"
+    assert captured["t1"] == "2026-05-05"
+
+
+def test_print_summary_includes_tape_markets(capsys):
+    cli._print_summary({
+        "summary": {
+            "pnl": 0.0,
+            "final_equity": 1000.0,
+            "hit_rate": None,
+            "settlements": 0,
+            "max_drawdown": 0.0,
+            "decisions": 0,
+            "trades": 0,
+            "markets_traded": 0,
+            "ticks": 1,
+            "markets_requested": 3000,
+            "markets_matching_filter": 1900,
+            "markets_served": 1900,
+            "markets_truncated": False,
+        },
+        "baselines": {},
+        "reproducibility": {"skill": "weather@1", "window": ["a", "b"], "cadence": "86400s"},
+        "bundle": {},
+    }, balance=1000.0)
+    out = capsys.readouterr().out
+    assert "tape markets 1900/3000 served" in out
+    assert "1900 matched" in out
+
+
 # -- demo end-to-end (gated on the [backtest] extra) --------------------------
 
+@_loopback
 def test_demo_runs_offline(tmp_path, capsys):
     pytest.importorskip("duckdb", reason="requires the [backtest] extra")
     pytest.importorskip("fastapi", reason="requires the [backtest] extra")
@@ -121,6 +211,7 @@ def test_demo_runs_offline(tmp_path, capsys):
     assert 0.0 <= s["hit_rate"] <= 1.0
 
 
+@_loopback
 def test_demo_without_out_writes_no_file(tmp_path, monkeypatch, capsys):
     pytest.importorskip("duckdb", reason="requires the [backtest] extra")
     pytest.importorskip("fastapi", reason="requires the [backtest] extra")
@@ -130,3 +221,77 @@ def test_demo_without_out_writes_no_file(tmp_path, monkeypatch, capsys):
     # running --demo must NOT silently drop a report file into the user's CWD
     assert not list(tmp_path.glob("*.json")), "--demo wrote a file without --out"
     assert "--out" in capsys.readouterr().out  # hints how to save it
+
+
+def test_backtest_window_falls_back_to_dataset_end_when_coverage_404(monkeypatch, tmp_path):
+    captured = {}
+
+    def fake_run_backtest(bundle, **kwargs):
+        captured.update(kwargs)
+        return {"summary": {}, "bundle": {}}
+
+    import simmer_sdk.backtest as bt_mod
+    from simmer_sdk.backtest import tape as tape_mod
+
+    class NotFound:
+        status_code = 404
+        ok = False
+
+        def json(self):
+            return {"detail": "Not Found"}
+
+    def fake_get(url, headers=None, timeout=None):
+        assert url.endswith("/api/backtest/tape/coverage")
+        return NotFound()
+
+    monkeypatch.setenv("SIMMER_API_KEY", "sk_test_placeholder")
+    monkeypatch.setattr(bt_mod, "run_backtest", fake_run_backtest)
+    monkeypatch.setattr(tape_mod.requests, "get", fake_get)
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    (bundle / "run.py").write_text("")
+
+    rc = cli.main(["backtest", str(bundle), "--entrypoint", "run.py", "--window", "30d"])
+
+    assert rc == 0
+    assert captured["t0"] == "2026-04-05"
+    assert captured["t1"] == tape_mod.DATASET_END == "2026-05-05"
+
+
+@pytest.mark.parametrize("payload", [[], {"coverage_t1": 20260505}, None])
+def test_backtest_window_malformed_coverage_exits_cleanly(monkeypatch, tmp_path, capsys, payload):
+    from simmer_sdk.backtest import tape as tape_mod
+
+    class MalformedCoverage:
+        status_code = 200
+        ok = True
+
+        def json(self):
+            if payload is None:
+                return json.loads("not json")
+            return payload
+
+    def fake_get(url, headers=None, timeout=None):
+        assert url.endswith("/api/backtest/tape/coverage")
+        return MalformedCoverage()
+
+    monkeypatch.setenv("SIMMER_API_KEY", "sk_test_placeholder")
+    monkeypatch.setattr(tape_mod.requests, "get", fake_get)
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    (bundle / "run.py").write_text("")
+
+    rc = cli.main(["backtest", str(bundle), "--entrypoint", "run.py", "--window", "30d"])
+
+    assert rc == 2
+    assert "error:" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("coverage,expected", [
+    ("2026-10-21", ("2026-10-20", "2026-10-21")),
+    ("2026-10-20T13:00:00+00:00", ("2026-10-19", "2026-10-20")),
+])
+def test_resolve_window_fresh_coverage(coverage, expected):
+    import argparse
+    args = argparse.Namespace(t0=None, t1=None, window="1d")
+    assert cli._resolve_window(args, coverage_t1=coverage) == expected

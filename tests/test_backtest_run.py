@@ -149,3 +149,52 @@ def test_run_backtest_end_to_end():
     assert (report["reproducibility"]["config_hash"]
             == again["reproducibility"]["config_hash"])
     assert report["summary"]["pnl"] == again["summary"]["pnl"]
+
+
+@pytest.mark.parametrize("value,expected", [
+    ("2026-10-20", "2026-10-20"),
+    ("2026-10-20T13:00:00+00:00", "2026-10-20T13:00:00+00:00"),
+    (None, "2026-10-21"), ("invalid", "2026-10-21"),
+    ("2026-10-19", "2026-10-21"), ("2026-10-18", "2026-10-21"),
+    ("2026-10-21", "2026-10-21"), ("2026-10-22", "2026-10-21"),
+])
+def test_served_t1(value, expected):
+    assert bt._served_t1(bt._parse_dt("2026-10-19"), bt._parse_dt("2026-10-21"), {"t1": value}) == bt._parse_dt(expected)
+
+
+@pytest.mark.parametrize("local", [False, True])
+@pytest.mark.parametrize("served", ["2026-10-20", "2026-10-20T13:00:00+00:00"])
+def test_run_backtest_served_window(tmp_path, monkeypatch, capsys, local, served):
+    import json
+    from simmer_sdk.backtest import tape as tp
+    pytest.importorskip("duckdb", reason="requires the [backtest] extra")
+    pytest.importorskip("fastapi", reason="requires the [backtest] extra")
+    from simmer_sdk.backtest.replay import duckdb_store, harness
+
+    (tmp_path / "run.py").write_text("")
+    for name in ("markets.parquet", "quant.parquet"):
+        (tmp_path / name).touch()
+    (tmp_path / "manifest.json").write_text(json.dumps({"t1": served}))
+    monkeypatch.setattr(tp, "fetch_tape", lambda *a, **k: str(tmp_path))
+    class Store:
+        def __init__(self, *args):
+            pass
+        def close(self):
+            pass
+    monkeypatch.setattr(duckdb_store, "DuckDBStore", Store)
+    configs = []
+    def replay(store, bundle, entrypoint, config, sdk_path, **kwargs):
+        configs.append(config)
+        return {"summary": {}}
+    monkeypatch.setattr(harness, "replay_bundle", replay)
+    report = run_backtest(str(tmp_path), entrypoint="run.py",
+                          tape=str(tmp_path) if local else None,
+                          t0="2026-10-19", t1="2026-10-21", candles=False)
+    expected = bt._parse_dt("2026-10-21" if local else served)
+    assert configs[0].t1 == expected
+    assert report["replay_job"]["t1"] == expected.isoformat()
+    err = capsys.readouterr().err
+    if local:
+        assert err == ""
+    else:
+        assert err == f"note: tape service served data through {expected.isoformat()}; window clamped from 2026-10-21T00:00:00+00:00\n"
