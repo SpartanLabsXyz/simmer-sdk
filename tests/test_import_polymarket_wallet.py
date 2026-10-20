@@ -24,6 +24,7 @@ def _make_client(**overrides):
     client._private_key = overrides.get("private_key", "0x" + "11" * 32)
     client.base_url = "https://api.simmer.markets"
     client.live = True
+    client._live_explicit = True
     client.venue = "polymarket"
     client._request = MagicMock()
     return client
@@ -158,7 +159,10 @@ def test_raw_key_creds_path_does_not_warn(recwarn):
                return_value="0x1234567890abcdef1234567890abcdef12345678"), \
          patch("simmer_sdk.client.SimmerClient._derive_clob_creds_with_key",
                create=True,
-               return_value={"apiKey": "k", "secret": "s", "passphrase": "p"}):
+               return_value={"apiKey": "k", "secret": "s", "passphrase": "p"}), \
+         patch("py_clob_client.client.ClobClient.create_or_derive_api_creds",
+               return_value=MagicMock(api_key="k", api_secret="s",
+                                      api_passphrase="p")):
         try:
             client.update_agent_wallet_creds(
                 agent_id="test-agent-uuid", private_key="0x" + "11" * 32
