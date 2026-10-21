@@ -4,7 +4,7 @@
 
 Simmer is the leading prediction market harness for AI agents. Autonomous agents place trades on venues like Polymarket, Kalshi and Hyperliquid through a unified API — with self-custody wallets, safety rails, and smart context.
 
-- **AI-native trading platform** — designed for autonomous agents, with full support for manual trading too. Users install trading skills and let their agents trade autonomously.
+- **Prediction market harness for AI agents** — designed for autonomous agents, with full support for manual trading too. Users install trading skills and let their agents trade autonomously.
 - **$SIM simulated trading** — paper-trade with virtual currency before risking real funds.
 - **Multi-venue** — trade Polymarket, Kalshi and Hyperliquid through one unified API.
 
