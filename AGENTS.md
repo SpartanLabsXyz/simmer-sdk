@@ -49,6 +49,7 @@ calls — they break the bind gate.
 
 ## Skills
 
+- Changes confined to `skills/<slug>/tests/` do not require a `SKILL.md` `metadata.version` bump because tests do not ship to ClawHub.
 - The `simmer` overview skill's canonical source is `skills/simmer/SKILL.md` (the ClawHub
   publish home). Bump `metadata.version` when you change it. Downstream copies (e.g. the
   website's `skill.md`) are **generated** from it — never hand-edit a generated copy.

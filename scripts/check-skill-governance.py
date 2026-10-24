@@ -503,6 +503,15 @@ def open_simmer_website_sync_pr(new_version: str) -> str | None:
 
 def validate_skill_version_bumps(paths: list[str], base_ref: str) -> list[str]:
     errors: list[str] = []
+    paths = [
+        path
+        for path in paths
+        if not (
+            len(Path(path).parts) >= 4
+            and Path(path).parts[0] == "skills"
+            and Path(path).parts[2] == "tests"
+        )
+    ]
 
     changed_slugs = {
         Path(path).parts[1]

@@ -63,6 +63,31 @@ def test_skill_file_change_requires_metadata_version_bump(tmp_path, monkeypatch)
     ]
 
 
+def test_skill_tests_only_change_does_not_require_version_bump(tmp_path, monkeypatch) -> None:
+    write_skill(tmp_path, "1.2.3")
+    patch_repo(monkeypatch, tmp_path, previous_version="1.2.3")
+
+    assert check_skill_governance.validate_skill_version_bumps(
+        ["skills/weather/tests/test_weather.py"],
+        "base-ref",
+    ) == []
+
+
+def test_skill_tests_and_file_change_requires_version_bump(tmp_path, monkeypatch) -> None:
+    write_skill(tmp_path, "1.2.3")
+    patch_repo(monkeypatch, tmp_path, previous_version="1.2.3")
+
+    errors = check_skill_governance.validate_skill_version_bumps(
+        ["skills/weather/tests/test_weather.py", "skills/weather/weather_trader.py"],
+        "base-ref",
+    )
+
+    assert errors == [
+        "skills/weather changed but SKILL.md metadata.version did not change from 1.2.3; "
+        "bump the skill version so ClawHub can publish it"
+    ]
+
+
 def test_held_skill_clawhub_json_only_change_does_not_require_bump(
     tmp_path, monkeypatch
 ) -> None:
