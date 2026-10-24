@@ -376,11 +376,11 @@ def diff_base_ref() -> str:
 def changed_paths() -> list[str]:
     base_ref = diff_base_ref()
     if os.environ.get("GITHUB_BASE_REF"):
-        diff = run_git(["diff", "--name-only", f"{base_ref}..HEAD"])
+        diff = run_git(["diff", "--name-only", "--no-renames", f"{base_ref}..HEAD"])
     else:
-        diff = run_git(["diff", "--name-only", "--cached"])
+        diff = run_git(["diff", "--name-only", "--no-renames", "--cached"])
         if not diff:
-            diff = run_git(["diff", "--name-only", f"{base_ref}..HEAD"])
+            diff = run_git(["diff", "--name-only", "--no-renames", f"{base_ref}..HEAD"])
 
     return [line for line in diff.splitlines() if line]
 
@@ -503,6 +503,15 @@ def open_simmer_website_sync_pr(new_version: str) -> str | None:
 
 def validate_skill_version_bumps(paths: list[str], base_ref: str) -> list[str]:
     errors: list[str] = []
+    paths = [
+        path
+        for path in paths
+        if not (
+            len(Path(path).parts) >= 4
+            and Path(path).parts[0] == "skills"
+            and Path(path).parts[2] == "tests"
+        )
+    ]
 
     changed_slugs = {
         Path(path).parts[1]
