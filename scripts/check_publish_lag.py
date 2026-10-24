@@ -161,6 +161,8 @@ def discover_skills(root: Path) -> tuple[list[Skill], list[str]]:
         try:
             metadata = read_frontmatter(skill_dir / "SKILL.md")
             config = read_json(clawhub_json)
+            if not isinstance(config, dict):
+                raise PublishLagError(f"{clawhub_json} must contain a JSON object")
             version = metadata.get("version")
             if not version:
                 raise PublishLagError(f"{skill_dir / 'SKILL.md'} has no metadata.version")
