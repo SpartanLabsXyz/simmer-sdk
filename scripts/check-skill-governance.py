@@ -376,11 +376,11 @@ def diff_base_ref() -> str:
 def changed_paths() -> list[str]:
     base_ref = diff_base_ref()
     if os.environ.get("GITHUB_BASE_REF"):
-        diff = run_git(["diff", "--name-only", f"{base_ref}..HEAD"])
+        diff = run_git(["diff", "--name-only", "--no-renames", f"{base_ref}..HEAD"])
     else:
-        diff = run_git(["diff", "--name-only", "--cached"])
+        diff = run_git(["diff", "--name-only", "--no-renames", "--cached"])
         if not diff:
-            diff = run_git(["diff", "--name-only", f"{base_ref}..HEAD"])
+            diff = run_git(["diff", "--name-only", "--no-renames", f"{base_ref}..HEAD"])
 
     return [line for line in diff.splitlines() if line]
 

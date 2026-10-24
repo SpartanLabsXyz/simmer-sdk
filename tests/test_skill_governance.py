@@ -276,3 +276,37 @@ def test_simmer_website_sync_gate_requires_matching_open_sync_pr(
         "open a matching SupaFund/simmer PR that changes website/public/skill.md "
         "to 1.25.3, or add 'simmer-website-sync-waived: <reason>' to this PR body."
     ]
+
+
+def test_git_mv_shipping_file_into_tests_requires_version_bump(tmp_path, monkeypatch) -> None:
+    def git(*args: str) -> None:
+        subprocess.run(
+            ["git", "-c", "user.name=t", "-c", "user.email=t@example.com", *args],
+            cwd=tmp_path,
+            check=True,
+            capture_output=True,
+        )
+
+    write_skill(tmp_path, "1.2.3")
+    (tmp_path / "skills" / "weather" / "weather_trader.py").write_text(
+        "def trade():\n    return 'ship'\n", encoding="utf-8"
+    )
+    git("init", "-q")
+    git("config", "diff.renames", "true")
+    git("add", ".")
+    git("commit", "-q", "-m", "base")
+    (tmp_path / "skills" / "weather" / "tests").mkdir()
+    git("mv", "skills/weather/weather_trader.py", "skills/weather/tests/weather_trader.py")
+    git("commit", "-q", "-m", "move shipping file into tests")
+
+    monkeypatch.delenv("GITHUB_BASE_REF", raising=False)
+    monkeypatch.setattr(check_skill_governance, "ROOT", tmp_path)
+    monkeypatch.setattr(check_skill_governance, "SKILLS_DIR", tmp_path / "skills")
+
+    paths = check_skill_governance.changed_paths()
+
+    assert "skills/weather/weather_trader.py" in paths
+    assert check_skill_governance.validate_skill_version_bumps(paths, "HEAD~1") == [
+        "skills/weather changed but SKILL.md metadata.version did not change from 1.2.3; "
+        "bump the skill version so ClawHub can publish it"
+    ]
