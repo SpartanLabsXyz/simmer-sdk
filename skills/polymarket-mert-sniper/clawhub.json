@@ -1,4 +1,6 @@
 {
+  "publish": false,
+  "publish_reason": "Held for the first ClawHub auto-publish run (simmer-sdk #428), which ships only the #427 skills. Remove this hold to publish.",
   "emoji": "\ud83c\udfaf",
   "primaryEnv": "SIMMER_API_KEY",
   "requires": {
