@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Plan npm/PyPI publishes for the release workflow.
+"""Plan npm/PyPI/ClawHub publishes for the release workflow.
 
 The CI publish-lag gate fails when a repo version is ahead of the public
 registry. This helper uses the same registry readers and semver comparator, but
@@ -10,10 +10,13 @@ only the packages that need it.
 from __future__ import annotations
 
 import argparse
+import json
 import os
+import urllib.error
 from pathlib import Path
 
 import check_publish_lag
+
 
 def github_bool(value: bool) -> str:
     return "true" if value else "false"
@@ -41,11 +44,54 @@ def plan_package(label: str, repo_version: str, published_version: str) -> bool:
     return False
 
 
+def plan_skills(root: Path, versions: dict[str, str | None] | None = None) -> list[str]:
+    skills, discovery_errors = check_publish_lag.discover_skills(root)
+    errors = [f"Malformed skill metadata: {error}" for error in discovery_errors]
+
+    paths: list[str] = []
+    for skill in skills:
+        if not skill.published:
+            print(f"{skill.path}: skipped hold flag")
+            continue
+        try:
+            check_publish_lag.parse_semver(skill.version)
+            try:
+                latest = (
+                    versions[skill.slug] if versions is not None
+                    else check_publish_lag.fetch_clawhub_latest(skill.slug)
+                )
+            except urllib.error.HTTPError as exc:
+                if exc.code != 404:
+                    raise
+                latest = None
+            if latest is None:
+                needed = skill.first_publish
+                status = "publish needed (first publish)" if needed else "skipped missing first_publish flag"
+            else:
+                needed = check_publish_lag.compare_versions(skill.version, latest) > 0
+                status = (
+                    f"publish needed ({skill.version} > {latest})" if needed
+                    else f"already published (ClawHub {latest}, repo {skill.version})"
+                )
+            print(f"{skill.path}: {status}")
+            if needed:
+                paths.append(skill.path)
+        except (OSError, ValueError, KeyError, TypeError, check_publish_lag.PublishLagError) as exc:
+            errors.append(f"{skill.path}: could not plan ClawHub publish: {exc}")
+    if errors:
+        raise check_publish_lag.PublishLagError("\n".join(f"::error::{error}" for error in errors))
+    return paths
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=check_publish_lag.ROOT)
     parser.add_argument("--npm-published-version", help="Override npm latest version for tests.")
     parser.add_argument("--pypi-published-version", help="Override PyPI latest version for tests.")
+    parser.add_argument(
+        "--clawhub-versions-json", type=Path,
+        help="Override ClawHub latest versions with a slug-to-version/null JSON object for tests.",
+    )
     return parser.parse_args()
 
 
@@ -68,6 +114,15 @@ def main() -> int:
     pypi_publish_needed = plan_package(
         check_publish_lag.PYPI_PACKAGE, pypi_repo_version, pypi_published_version
     )
+    versions_path = getattr(args, "clawhub_versions_json", None)
+    versions = json.loads(versions_path.read_text(encoding="utf-8")) if versions_path else None
+    try:
+        skills_to_publish = plan_skills(root, versions)
+    except check_publish_lag.PublishLagError as exc:
+        print(exc)
+        return 1
+    emit("skills_publish_needed", github_bool(bool(skills_to_publish)))
+    emit("skills_to_publish", json.dumps(skills_to_publish, separators=(",", ":")))
     emit("npm_repo_version", npm_repo_version)
     emit("npm_published_version", npm_published_version)
     emit("npm_publish_needed", github_bool(npm_publish_needed))

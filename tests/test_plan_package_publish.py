@@ -1,4 +1,8 @@
 import importlib.util
+import json
+import urllib.error
+
+import pytest
 import sys
 from pathlib import Path
 
@@ -64,3 +68,147 @@ def test_main_outputs_package_publish_plan(tmp_path: Path, monkeypatch, capsys) 
     assert "npm_publish_needed=true" in output
     assert "pypi_publish_needed=false" in output
     assert "clawhub_publish_needed" not in output
+
+
+@pytest.fixture(autouse=True)
+def block_network(monkeypatch):
+    def blocked(*args, **kwargs):
+        raise AssertionError("Tests must not access the network")
+    monkeypatch.setattr(check_publish_lag.urllib.request, "urlopen", blocked)
+
+
+def write_skill(root, name="example", frontmatter="", config=None, version="1.2.0"):
+    directory = root / "skills" / name
+    directory.mkdir(parents=True)
+    (directory / "SKILL.md").write_text(
+        f"---\nname: {name}\n{frontmatter}metadata:\n  version: {version}\n---\n"
+    )
+    (directory / "clawhub.json").write_text(json.dumps(config or {}))
+    return directory
+
+
+@pytest.mark.parametrize(
+    "latest,frontmatter,config,needed",
+    [
+        ("1.1.0", "", {}, True),
+        ("1.2.0", "", {}, False),
+        ("1.3.0", "", {}, False),
+        ("1.1.0", "published: false\n", {}, False),
+        ("1.1.0", "", {"publish": False}, False),
+        ("1.1.0", "", {"published": False}, False),
+        (None, "", {}, False),
+        (None, "", {"first_publish": True}, True),
+    ],
+)
+def test_skill_plan(tmp_path, monkeypatch, capsys, latest, frontmatter, config, needed):
+    write_package_files(tmp_path, "1.0.0", "1.0.0")
+    write_skill(tmp_path, frontmatter=frontmatter, config=config)
+    versions = tmp_path / "versions.json"
+    versions.write_text(json.dumps({"example": latest}))
+    output_file = tmp_path / "outputs"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output_file))
+    monkeypatch.setattr(sys, "argv", [
+        "plan_package_publish.py", "--root", str(tmp_path),
+        "--npm-published-version", "1.0.0",
+        "--pypi-published-version", "1.0.0",
+        "--clawhub-versions-json", str(versions),
+    ])
+    assert plan_package_publish.main() == 0
+    outputs = dict(line.split("=", 1) for line in output_file.read_text().splitlines())
+    assert outputs["skills_publish_needed"] == ("true" if needed else "false")
+    assert outputs["skills_to_publish"] == (
+        '["skills/example"]' if needed else "[]"
+    )
+    log = capsys.readouterr().out
+    assert "skills/example:" in log
+    if frontmatter or config.get("publish") is False or config.get("published") is False:
+        assert "skipped hold flag" in log
+
+
+@pytest.mark.parametrize("error", [
+    urllib.error.HTTPError("https://example.invalid", 503, "unavailable", {}, None),
+    urllib.error.URLError("offline"),
+    TimeoutError("timed out"),
+    check_publish_lag.PublishLagError("bad registry data"),
+    KeyError("latest"),
+    TypeError("unexpected response shape"),
+    ValueError("invalid JSON"),
+])
+def test_fetch_error_fails_plan_after_reporting_all_skills(tmp_path, monkeypatch, capsys, error):
+    write_package_files(tmp_path, "1.0.0", "1.0.0")
+    monkeypatch.delenv("GITHUB_OUTPUT", raising=False)
+    monkeypatch.setattr(plan_package_publish, "parse_args", lambda: make_args(
+        root=tmp_path, npm_published_version="1.0.0", pypi_published_version="1.0.0",
+    ))
+    write_skill(tmp_path, name="broken")
+    write_skill(tmp_path, name="also-broken")
+    write_skill(tmp_path, name="healthy")
+    def fetch(slug):
+        if slug in {"broken", "also-broken"}:
+            raise error
+        return "1.0.0"
+    monkeypatch.setattr(check_publish_lag, "fetch_clawhub_latest", fetch)
+    assert plan_package_publish.main() == 1
+    output = capsys.readouterr().out
+    assert "::error::skills/broken:" in output
+    assert "::error::skills/also-broken:" in output
+    assert "skills/healthy: publish needed" in output
+    assert "skills_to_publish=" not in output
+
+
+@pytest.mark.parametrize("first_publish", [False, True])
+def test_404_allows_first_publish(tmp_path, monkeypatch, first_publish):
+    write_skill(tmp_path, config={"first_publish": first_publish})
+    def fetch(slug):
+        raise urllib.error.HTTPError("https://example.invalid", 404, "missing", {}, None)
+    monkeypatch.setattr(check_publish_lag, "fetch_clawhub_latest", fetch)
+    assert plan_package_publish.plan_skills(tmp_path) == (["skills/example"] if first_publish else [])
+
+
+@pytest.mark.parametrize("malformed", ["missing-frontmatter", "invalid-json", "invalid-version", "non-object"])
+def test_malformed_skill_fails_package_plan(tmp_path, monkeypatch, capsys, malformed):
+    write_package_files(tmp_path, "1.0.0", "1.0.0")
+    directory = write_skill(tmp_path)
+    if malformed == "missing-frontmatter":
+        (directory / "SKILL.md").write_text("no metadata")
+    elif malformed == "invalid-json":
+        (directory / "clawhub.json").write_text("{")
+    elif malformed == "non-object":
+        (directory / "clawhub.json").write_text("[]")
+    else:
+        write = directory / "SKILL.md"
+        write.write_text(write.read_text().replace("1.2.0", "invalid"))
+    monkeypatch.delenv("GITHUB_OUTPUT", raising=False)
+    monkeypatch.setattr(plan_package_publish, "parse_args", lambda: make_args(
+        root=tmp_path, npm_published_version="1.0.0", pypi_published_version="1.0.0",
+    ))
+    assert plan_package_publish.main() == 1
+    output = capsys.readouterr().out
+    assert any("::error::" in line and "skills/example" in line for line in output.splitlines())
+    assert "skills_to_publish=" not in output
+
+
+@pytest.mark.parametrize("frontmatter,config", [
+    ("published: false\n", {}),
+    ("", {"publish": False}),
+    ("", {"published": False}),
+])
+def test_held_skills_never_lookup(tmp_path, monkeypatch, capsys, frontmatter, config):
+    write_skill(tmp_path, frontmatter=frontmatter, config=config, version="invalid")
+    def fetch(slug):
+        pytest.fail("Held skills must not trigger a registry lookup")
+    monkeypatch.setattr(check_publish_lag, "fetch_clawhub_latest", fetch)
+    assert plan_package_publish.plan_skills(tmp_path) == []
+    assert "skills/example: skipped hold flag" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("latest", ["invalid", "None", "{}"])
+def test_invalid_registry_version_fails_plan(tmp_path, monkeypatch, capsys, latest):
+    write_package_files(tmp_path, "1.0.0", "1.0.0")
+    write_skill(tmp_path)
+    monkeypatch.setattr(plan_package_publish, "parse_args", lambda: make_args(
+        root=tmp_path, npm_published_version="1.0.0", pypi_published_version="1.0.0",
+    ))
+    monkeypatch.setattr(check_publish_lag, "fetch_clawhub_latest", lambda slug: latest)
+    assert plan_package_publish.main() == 1
+    assert "::error::skills/example:" in capsys.readouterr().out

@@ -7,6 +7,8 @@ on:
       - "pyproject.toml"
       - "simmer_sdk/**"
       - "mcp/**"
+      - "skills/**"
+      - "scripts/publish.sh"
       - "scripts/check_publish_lag.py"
       - "scripts/plan_package_publish.py"
       - ".github/workflows/publish-packages.yml"
@@ -26,6 +28,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
+      skills_publish_needed: ${{ steps.plan.outputs.skills_publish_needed }}
+      skills_to_publish: ${{ steps.plan.outputs.skills_to_publish }}
       npm_publish_needed: ${{ steps.plan.outputs.npm_publish_needed }}
       npm_repo_version: ${{ steps.plan.outputs.npm_repo_version }}
       npm_published_version: ${{ steps.plan.outputs.npm_published_version }}
@@ -127,6 +131,73 @@ jobs:
       - name: Publish to PyPI (OIDC trusted publishing)
         uses: pypa/gh-action-pypi-publish@release/v1
 
+  publish-skills:
+    name: Publish skills to ClawHub
+    needs: plan
+    if: github.ref == 'refs/heads/main' && needs.plan.outputs.skills_publish_needed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    env:
+      CLAWHUB_VERSION: "0.23.3"
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Authenticate ClawHub
+        env:
+          CLAWHUB_TOKEN: ${{ secrets.CLAWHUB_TOKEN }}
+          CLAWHUB_CONFIG_PATH: ${{ runner.temp }}/clawhub/config.json
+        run: |
+          if [ -z "$CLAWHUB_TOKEN" ]; then
+            echo "::error::CLAWHUB_TOKEN is required to publish skills to ClawHub"
+            exit 1
+          fi
+          npx -y "clawhub@$CLAWHUB_VERSION" login --token "$CLAWHUB_TOKEN" --no-browser --label "simmer-sdk publish-packages" > /dev/null
+          npx -y "clawhub@$CLAWHUB_VERSION" whoami
+
+      - name: Publish skills
+        env:
+          SKILLS_TO_PUBLISH: ${{ needs.plan.outputs.skills_to_publish }}
+          CLAWHUB_CONFIG_PATH: ${{ runner.temp }}/clawhub/config.json
+          SIMMER_ADMIN_API_KEY: ${{ secrets.SIMMER_ADMIN_API_KEY }}
+        run: |
+          python3 - <<'PYTHON'
+          import json
+          import os
+          import subprocess
+          import sys
+
+          failures = []
+          for directory in json.loads(os.environ["SKILLS_TO_PUBLISH"]):
+              result = subprocess.run(["./scripts/publish.sh", directory], check=False)
+              if result.returncode:
+                  failures.append(directory)
+          if failures:
+              print("::error::Failed to publish skills: " + ", ".join(failures))
+          sys.exit(1 if failures else 0)
+          PYTHON
+
+      - name: Remove ClawHub config
+        if: always()
+        env:
+          CLAWHUB_CONFIG_PATH: ${{ runner.temp }}/clawhub/config.json
+        run: rm -f -- "$CLAWHUB_CONFIG_PATH"
+
   docs-example-bind:
     name: Re-run docs SDK example bind
     needs: [plan, publish-sdk]
@@ -188,8 +259,8 @@ jobs:
 
   verify:
     name: Verify registries caught up
-    needs: [plan, publish-mcp, publish-sdk]
-    if: always() && (needs.plan.outputs.npm_publish_needed == 'true' || needs.plan.outputs.pypi_publish_needed == 'true')
+    needs: [plan, publish-mcp, publish-sdk, publish-skills]
+    if: always() && (needs.plan.outputs.npm_publish_needed == 'true' || needs.plan.outputs.pypi_publish_needed == 'true' || needs.plan.outputs.skills_publish_needed == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -206,9 +277,11 @@ jobs:
         # the verify step waits for CDN propagation instead of reading stale data.
         env:
           NPM_RESULT: ${{ needs.publish-mcp.result }}
+          SKILLS_RESULT: ${{ needs.publish-skills.result }}
           PYPI_RESULT: ${{ needs.publish-sdk.result }}
         run: |
           args=""
           [ "$NPM_RESULT" = "success" ] && args="$args --retry-npm"
           [ "$PYPI_RESULT" = "success" ] && args="$args --retry-pypi"
+          [ "$SKILLS_RESULT" = "success" ] && args="$args --check-clawhub"
           python3 scripts/check_publish_lag.py $args
