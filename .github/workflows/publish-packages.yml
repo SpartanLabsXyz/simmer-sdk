@@ -134,12 +134,19 @@ jobs:
   publish-skills:
     name: Publish skills to ClawHub
     needs: plan
-    if: needs.plan.outputs.skills_publish_needed == 'true'
+    if: github.ref == 'refs/heads/main' && needs.plan.outputs.skills_publish_needed == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      contents: read
+    env:
+      CLAWHUB_VERSION: "0.23.3"
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -160,8 +167,8 @@ jobs:
             echo "::error::CLAWHUB_TOKEN is required to publish skills to ClawHub"
             exit 1
           fi
-          npx -y clawhub@latest login --token "$CLAWHUB_TOKEN" --no-browser --label "simmer-sdk publish-packages" > /dev/null
-          npx -y clawhub@latest whoami
+          npx -y "clawhub@$CLAWHUB_VERSION" login --token "$CLAWHUB_TOKEN" --no-browser --label "simmer-sdk publish-packages" > /dev/null
+          npx -y "clawhub@$CLAWHUB_VERSION" whoami
 
       - name: Publish skills
         env:

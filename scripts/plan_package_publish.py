@@ -45,9 +45,8 @@ def plan_package(label: str, repo_version: str, published_version: str) -> bool:
 
 
 def plan_skills(root: Path, versions: dict[str, str | None] | None = None) -> list[str]:
-    skills, errors = check_publish_lag.discover_skills(root)
-    for error in errors:
-        print(f"::warning::Malformed skill metadata: {error}")
+    skills, discovery_errors = check_publish_lag.discover_skills(root)
+    errors = [f"Malformed skill metadata: {error}" for error in discovery_errors]
 
     paths: list[str] = []
     for skill in skills:
@@ -78,8 +77,9 @@ def plan_skills(root: Path, versions: dict[str, str | None] | None = None) -> li
             if needed:
                 paths.append(skill.path)
         except (OSError, ValueError, KeyError, TypeError, check_publish_lag.PublishLagError) as exc:
-            print(f"::warning::{skill.path}: could not plan ClawHub publish: {exc}; skipping")
-            print(f"{skill.path}: skipped invalid metadata or unavailable ClawHub version")
+            errors.append(f"{skill.path}: could not plan ClawHub publish: {exc}")
+    if errors:
+        raise check_publish_lag.PublishLagError("\n".join(f"::error::{error}" for error in errors))
     return paths
 
 
@@ -116,7 +116,11 @@ def main() -> int:
     )
     versions_path = getattr(args, "clawhub_versions_json", None)
     versions = json.loads(versions_path.read_text(encoding="utf-8")) if versions_path else None
-    skills_to_publish = plan_skills(root, versions)
+    try:
+        skills_to_publish = plan_skills(root, versions)
+    except check_publish_lag.PublishLagError as exc:
+        print(exc)
+        return 1
     emit("skills_publish_needed", github_bool(bool(skills_to_publish)))
     emit("skills_to_publish", json.dumps(skills_to_publish, separators=(",", ":")))
     emit("npm_repo_version", npm_repo_version)

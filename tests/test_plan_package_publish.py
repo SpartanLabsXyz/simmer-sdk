@@ -129,29 +129,44 @@ def test_skill_plan(tmp_path, monkeypatch, capsys, latest, frontmatter, config, 
     urllib.error.HTTPError("https://example.invalid", 503, "unavailable", {}, None),
     urllib.error.URLError("offline"),
     TimeoutError("timed out"),
+    check_publish_lag.PublishLagError("bad registry data"),
+    KeyError("latest"),
+    TypeError("unexpected response shape"),
+    ValueError("invalid JSON"),
 ])
-def test_fetch_error_skips_only_affected_skill(tmp_path, monkeypatch, capsys, error):
+def test_fetch_error_fails_plan_after_reporting_all_skills(tmp_path, monkeypatch, capsys, error):
+    write_package_files(tmp_path, "1.0.0", "1.0.0")
+    monkeypatch.delenv("GITHUB_OUTPUT", raising=False)
+    monkeypatch.setattr(plan_package_publish, "parse_args", lambda: make_args(
+        root=tmp_path, npm_published_version="1.0.0", pypi_published_version="1.0.0",
+    ))
     write_skill(tmp_path, name="broken")
+    write_skill(tmp_path, name="also-broken")
     write_skill(tmp_path, name="healthy")
     def fetch(slug):
-        if slug == "broken":
+        if slug in {"broken", "also-broken"}:
             raise error
         return "1.0.0"
     monkeypatch.setattr(check_publish_lag, "fetch_clawhub_latest", fetch)
-    assert plan_package_publish.plan_skills(tmp_path) == ["skills/healthy"]
-    assert "::warning::" in capsys.readouterr().out
+    assert plan_package_publish.main() == 1
+    output = capsys.readouterr().out
+    assert "::error::skills/broken:" in output
+    assert "::error::skills/also-broken:" in output
+    assert "skills/healthy: publish needed" in output
+    assert "skills_to_publish=" not in output
 
 
-def test_404_allows_first_publish(tmp_path, monkeypatch):
-    write_skill(tmp_path, config={"first_publish": True})
+@pytest.mark.parametrize("first_publish", [False, True])
+def test_404_allows_first_publish(tmp_path, monkeypatch, first_publish):
+    write_skill(tmp_path, config={"first_publish": first_publish})
     def fetch(slug):
         raise urllib.error.HTTPError("https://example.invalid", 404, "missing", {}, None)
     monkeypatch.setattr(check_publish_lag, "fetch_clawhub_latest", fetch)
-    assert plan_package_publish.plan_skills(tmp_path) == ["skills/example"]
+    assert plan_package_publish.plan_skills(tmp_path) == (["skills/example"] if first_publish else [])
 
 
 @pytest.mark.parametrize("malformed", ["missing-frontmatter", "invalid-json", "invalid-version", "non-object"])
-def test_malformed_skill_does_not_break_package_plan(tmp_path, monkeypatch, capsys, malformed):
+def test_malformed_skill_fails_package_plan(tmp_path, monkeypatch, capsys, malformed):
     write_package_files(tmp_path, "1.0.0", "1.0.0")
     directory = write_skill(tmp_path)
     if malformed == "missing-frontmatter":
@@ -167,8 +182,33 @@ def test_malformed_skill_does_not_break_package_plan(tmp_path, monkeypatch, caps
     monkeypatch.setattr(plan_package_publish, "parse_args", lambda: make_args(
         root=tmp_path, npm_published_version="1.0.0", pypi_published_version="1.0.0",
     ))
-    assert plan_package_publish.main() == 0
+    assert plan_package_publish.main() == 1
     output = capsys.readouterr().out
-    assert "::warning::" in output
-    assert "npm_publish_needed=false" in output
-    assert "skills_to_publish=[]" in output
+    assert any("::error::" in line and "skills/example" in line for line in output.splitlines())
+    assert "skills_to_publish=" not in output
+
+
+@pytest.mark.parametrize("frontmatter,config", [
+    ("published: false\n", {}),
+    ("", {"publish": False}),
+    ("", {"published": False}),
+])
+def test_held_skills_never_lookup(tmp_path, monkeypatch, capsys, frontmatter, config):
+    write_skill(tmp_path, frontmatter=frontmatter, config=config, version="invalid")
+    def fetch(slug):
+        pytest.fail("Held skills must not trigger a registry lookup")
+    monkeypatch.setattr(check_publish_lag, "fetch_clawhub_latest", fetch)
+    assert plan_package_publish.plan_skills(tmp_path) == []
+    assert "skills/example: skipped hold flag" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("latest", ["invalid", "None", "{}"])
+def test_invalid_registry_version_fails_plan(tmp_path, monkeypatch, capsys, latest):
+    write_package_files(tmp_path, "1.0.0", "1.0.0")
+    write_skill(tmp_path)
+    monkeypatch.setattr(plan_package_publish, "parse_args", lambda: make_args(
+        root=tmp_path, npm_published_version="1.0.0", pypi_published_version="1.0.0",
+    ))
+    monkeypatch.setattr(check_publish_lag, "fetch_clawhub_latest", lambda slug: latest)
+    assert plan_package_publish.main() == 1
+    assert "::error::skills/example:" in capsys.readouterr().out

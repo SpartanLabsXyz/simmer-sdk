@@ -17,6 +17,8 @@
 
 set -euo pipefail
 
+readonly CLAWHUB_VERSION="0.23.3"
+
 if [ $# -lt 1 ]; then
   echo "Usage: $0 <skill-folder>"
   echo "Example: $0 skills/fastloop"
@@ -107,7 +109,7 @@ echo "   Source: $SKILL_DIR"
 
 # Check if version already exists
 echo "   Checking ClawHub for existing version..."
-if npx clawhub@latest inspect "$NAME" --owner simmer 2>&1 | grep -q "Latest: $VERSION"; then
+if npx "clawhub@$CLAWHUB_VERSION" inspect "$NAME" --owner simmer 2>&1 | grep -q "Latest: $VERSION"; then
   echo "❌ Version $VERSION already exists on ClawHub"
   echo "   Bump the version in $SKILL_MD and try again"
   exit 1
@@ -116,6 +118,7 @@ fi
 # Copy full directory to temp (using slug as folder name)
 TMP_BASE="${PAPERCLIP_RUN_SCRATCH_DIR:-${TMPDIR:-/tmp}}"
 TMP_DIR="$TMP_BASE/$NAME"
+trap 'rm -rf "$TMP_DIR"' EXIT
 mkdir -p "$TMP_BASE"
 rm -rf "$TMP_DIR"
 cp -r "$SKILL_DIR" "$TMP_DIR"
@@ -149,7 +152,7 @@ echo "   Publishing..."
 # error report below prints (a bare `clawhub` binary missing from PATH died
 # silently at exactly this line on 2026-06-12).
 EXIT_CODE=0
-OUTPUT=$(npx clawhub@latest publish "$TMP_DIR" --version "$VERSION" --owner simmer --slug "$NAME" 2>&1) || EXIT_CODE=$?
+OUTPUT=$(npx "clawhub@$CLAWHUB_VERSION" publish "$TMP_DIR" --version "$VERSION" --owner simmer --slug "$NAME" 2>&1) || EXIT_CODE=$?
 
 if [ $EXIT_CODE -eq 0 ]; then
   echo "✅ Published $NAME@$VERSION"
@@ -160,23 +163,23 @@ if [ $EXIT_CODE -eq 0 ]; then
   # synced from ClawHub only on the hourly crawl) doesn't block a freshly
   # published skill for up to ~1h. Surfaced 2026-06-16: Herman's correct local
   # 0.1.1 copytrader was blocked against a stale 0.1.0 backend hash.
-  # Fire-and-forget against the existing admin endpoint; needs an admin SDK key
-  # in SIMMER_ADMIN_API_KEY, otherwise we print the manual command.
+  # Requires SIMMER_ADMIN_API_KEY; otherwise print the manual command.
   SIMMER_API_BASE="${SIMMER_API_URL:-https://api.simmer.markets}"
   if [ -n "${SIMMER_ADMIN_API_KEY:-}" ]; then
     echo "   Refreshing Simmer backend skill registry (content_hash sync)…"
     sync_code=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
       "$SIMMER_API_BASE/api/admin/skills/sync" \
-      -H "Authorization: Bearer $SIMMER_ADMIN_API_KEY" 2>/dev/null || echo "000")
+      -H "Authorization: Bearer $SIMMER_ADMIN_API_KEY" 2>/dev/null) || sync_code="000"
     case "$sync_code" in
       200|202) echo "   ✅ Backend sync triggered (HTTP $sync_code) — content_hash refreshes shortly." ;;
       409)     echo "   ℹ️  Backend sync already running (HTTP 409) — it will pick up this publish." ;;
-      *)       echo "   ⚠️  Backend sync trigger returned HTTP $sync_code. Run manually:"
-               echo "      curl -X POST $SIMMER_API_BASE/api/admin/skills/sync -H \"Authorization: Bearer \$SIMMER_ADMIN_API_KEY\"" ;;
+      *)       echo "::error::Backend skill registry sync failed (HTTP $sync_code). Run manually:"
+               echo "      curl -X POST $SIMMER_API_BASE/api/admin/skills/sync -H \"Authorization: Bearer \$SIMMER_ADMIN_API_KEY\""
+               exit 1 ;;
     esac
   else
-    echo "   ℹ️  SIMMER_ADMIN_API_KEY not set — the SDK integrity check may block this"
-    echo "      skill until the hourly backend sync runs. Refresh it now with:"
+    echo "Skipping backend skill registry sync: SIMMER_ADMIN_API_KEY not set"
+    echo "      Refresh it manually with:"
     echo "      curl -X POST $SIMMER_API_BASE/api/admin/skills/sync -H \"Authorization: Bearer <admin SDK key>\""
   fi
 else
@@ -184,6 +187,3 @@ else
   echo "   $OUTPUT"
   exit 1
 fi
-
-# Cleanup
-rm -rf "$TMP_DIR"
