@@ -121,7 +121,7 @@
     "check": 5,
     "file": "skills/kalshi-weather-trader/SKILL.md",
     "line": 35,
-    "message": "pip install must use exact == pins",
+    "message": "pip install must use exact == pins: simmer-sdk",
     "owner": "splabs-ci",
     "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
   },
@@ -301,7 +301,7 @@
     "check": 5,
     "file": "skills/nansen-copytrader-overlay/SKILL.md",
     "line": 55,
-    "message": "pip install must use exact == pins",
+    "message": "pip install must use exact == pins: pytest",
     "owner": "splabs-ci",
     "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
   },
@@ -400,7 +400,7 @@
     "check": 5,
     "file": "skills/polymarket-ai-divergence/SKILL.md",
     "line": 32,
-    "message": "pip install must use exact == pins",
+    "message": "pip install must use exact == pins: simmer-sdk",
     "owner": "splabs-ci",
     "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
   },
@@ -589,7 +589,7 @@
     "check": 5,
     "file": "skills/polymarket-btc-up-down-trader/SKILL.md",
     "line": 43,
-    "message": "pip install must use exact == pins",
+    "message": "pip install must use exact == pins: simmer-sdk",
     "owner": "splabs-ci",
     "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
   },
@@ -1066,7 +1066,7 @@
     "check": 5,
     "file": "skills/polymarket-elon-tweets/SKILL.md",
     "line": 34,
-    "message": "pip install must use exact == pins",
+    "message": "pip install must use exact == pins: simmer-sdk",
     "owner": "splabs-ci",
     "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
   },
@@ -1255,7 +1255,7 @@
     "check": 5,
     "file": "skills/polymarket-fast-loop/SKILL.md",
     "line": 41,
-    "message": "pip install must use exact == pins",
+    "message": "pip install must use exact == pins: simmer-sdk",
     "owner": "splabs-ci",
     "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
   },
@@ -1408,7 +1408,7 @@
     "check": 5,
     "file": "skills/polymarket-fast-scaler/SKILL.md",
     "line": 49,
-    "message": "pip install must use exact == pins",
+    "message": "pip install must use exact == pins: simmer-sdk",
     "owner": "splabs-ci",
     "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
   },
@@ -1534,7 +1534,7 @@
     "check": 5,
     "file": "skills/polymarket-market-maker/SKILL.md",
     "line": 63,
-    "message": "pip install must use exact == pins",
+    "message": "pip install must use exact == pins: -U 'simmer-sdk>=0.26.0'",
     "owner": "splabs-ci",
     "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
   },
@@ -1633,7 +1633,7 @@
     "check": 5,
     "file": "skills/polymarket-mert-sniper/SKILL.md",
     "line": 27,
-    "message": "pip install must use exact == pins",
+    "message": "pip install must use exact == pins: simmer-sdk",
     "owner": "splabs-ci",
     "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
   },
@@ -1723,7 +1723,7 @@
     "check": 5,
     "file": "skills/polymarket-mil-aircraft-tracker/SKILL.md",
     "line": 121,
-    "message": "pip install must use exact == pins",
+    "message": "pip install must use exact == pins: --upgrade simmer-sdk",
     "owner": "splabs-ci",
     "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
   },
@@ -1858,7 +1858,7 @@
     "check": 5,
     "file": "skills/polymarket-nothing-ever-happens/SKILL.md",
     "line": 61,
-    "message": "pip install must use exact == pins",
+    "message": "pip install must use exact == pins: simmer-sdk",
     "owner": "splabs-ci",
     "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
   },
@@ -1957,7 +1957,7 @@
     "check": 5,
     "file": "skills/polymarket-research/SKILL.md",
     "line": 20,
-    "message": "pip install must use exact == pins",
+    "message": "pip install must use exact == pins: simmer-sdk",
     "owner": "splabs-ci",
     "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
   },
@@ -2029,7 +2029,7 @@
     "check": 5,
     "file": "skills/polymarket-signal-sniper/SKILL.md",
     "line": 26,
-    "message": "pip install must use exact == pins",
+    "message": "pip install must use exact == pins: simmer-sdk",
     "owner": "splabs-ci",
     "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
   },
@@ -2236,7 +2236,7 @@
     "check": 5,
     "file": "skills/polymarket-soccer-shock-ladder/SKILL.md",
     "line": 68,
-    "message": "pip install must use exact == pins",
+    "message": "pip install must use exact == pins: -U 'simmer-sdk>=0.26.0'",
     "owner": "splabs-ci",
     "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
   },
@@ -2407,7 +2407,7 @@
     "check": 5,
     "file": "skills/polymarket-wallet-xray/SKILL.md",
     "line": 56,
-    "message": "pip install must use exact == pins",
+    "message": "pip install must use exact == pins: simmer-sdk",
     "owner": "splabs-ci",
     "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
   },
@@ -2866,7 +2866,7 @@
     "check": 5,
     "file": "skills/polymarket-weather-trader/SKILL.md",
     "line": 54,
-    "message": "pip install must use exact == pins",
+    "message": "pip install must use exact == pins: --upgrade simmer-sdk '(>=0.13.0)' and configure tunables below.",
     "owner": "splabs-ci",
     "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
   },
@@ -3019,7 +3019,7 @@
     "check": 5,
     "file": "skills/polymarket-worldcup-copytrader/SKILL.md",
     "line": 58,
-    "message": "pip install must use exact == pins",
+    "message": "pip install must use exact == pins: -U 'simmer-sdk>=0.26.0'",
     "owner": "splabs-ci",
     "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
   },
@@ -3226,7 +3226,7 @@
     "check": 5,
     "file": "skills/prediction-trade-journal/SKILL.md",
     "line": 20,
-    "message": "pip install must use exact == pins",
+    "message": "pip install must use exact == pins: simmer-sdk",
     "owner": "splabs-ci",
     "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
   },
@@ -3622,7 +3622,7 @@
     "check": 5,
     "file": "skills/simmer-mcp-setup/SKILL.md",
     "line": 116,
-    "message": "pip install must use exact == pins",
+    "message": "pip install must use exact == pins: 'simmer-sdk>=0.17.13,' then set SIMMER_MCP_PYTHON to that",
     "owner": "splabs-ci",
     "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
   },
@@ -3631,7 +3631,7 @@
     "check": 5,
     "file": "skills/simmer-mcp-setup/SKILL.md",
     "line": 132,
-    "message": "pip install must use exact == pins",
+    "message": "pip install must use exact == pins: 'simmer-sdk>=0.17.13'",
     "owner": "splabs-ci",
     "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
   },
@@ -3640,7 +3640,7 @@
     "check": 5,
     "file": "skills/simmer-mcp-setup/SKILL.md",
     "line": 142,
-    "message": "pip install must use exact == pins",
+    "message": "pip install must use exact == pins: 'simmer-sdk>=0.17.13'",
     "owner": "splabs-ci",
     "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
   },
@@ -3649,7 +3649,7 @@
     "check": 5,
     "file": "skills/simmer-mcp-setup/SKILL.md",
     "line": 147,
-    "message": "pip install must use exact == pins",
+    "message": "pip install must use exact == pins: --break-system-packages.",
     "owner": "splabs-ci",
     "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
   },
@@ -3658,7 +3658,7 @@
     "check": 5,
     "file": "skills/simmer-mcp-setup/SKILL.md",
     "line": 581,
-    "message": "pip install must use exact == pins",
+    "message": "pip install must use exact == pins: 'simmer-sdk>=0.17.13'",
     "owner": "splabs-ci",
     "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
   },
@@ -3693,34 +3693,7 @@
     "skill": "simmer-mcp-setup",
     "check": 8,
     "file": "skills/simmer-mcp-setup/SKILL.md",
-    "line": 103,
-    "message": "documented persistence or privilege recipe needs review",
-    "owner": "splabs-ci",
-    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
-  },
-  {
-    "skill": "simmer-mcp-setup",
-    "check": 8,
-    "file": "skills/simmer-mcp-setup/SKILL.md",
     "line": 148,
-    "message": "documented persistence or privilege recipe needs review",
-    "owner": "splabs-ci",
-    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
-  },
-  {
-    "skill": "simmer-mcp-setup",
-    "check": 8,
-    "file": "skills/simmer-mcp-setup/SKILL.md",
-    "line": 625,
-    "message": "documented persistence or privilege recipe needs review",
-    "owner": "splabs-ci",
-    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
-  },
-  {
-    "skill": "simmer-mcp-setup",
-    "check": 8,
-    "file": "skills/simmer-mcp-setup/SKILL.md",
-    "line": 637,
     "message": "documented persistence or privilege recipe needs review",
     "owner": "splabs-ci",
     "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
@@ -3991,7 +3964,7 @@
     "check": 5,
     "file": "skills/simmer-wallet-setup/SKILL.md",
     "line": 47,
-    "message": "pip install must use exact == pins",
+    "message": "pip install must use exact == pins: 'simmer-sdk[ows]'",
     "owner": "splabs-ci",
     "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
   },
@@ -4000,7 +3973,7 @@
     "check": 5,
     "file": "skills/simmer-wallet-setup/SKILL.md",
     "line": 138,
-    "message": "pip install must use exact == pins",
+    "message": "pip install must use exact == pins: simmer-sdk",
     "owner": "splabs-ci",
     "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
   },
@@ -4207,7 +4180,7 @@
     "check": 5,
     "file": "skills/simmer-x402/SKILL.md",
     "line": 23,
-    "message": "pip install must use exact == pins",
+    "message": "pip install must use exact == pins: simmer-sdk",
     "owner": "splabs-ci",
     "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
   },
@@ -4216,7 +4189,7 @@
     "check": 5,
     "file": "skills/simmer-x402/SKILL.md",
     "line": 38,
-    "message": "pip install must use exact == pins",
+    "message": "pip install must use exact == pins: 'x402[httpx,evm]'",
     "owner": "splabs-ci",
     "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
   },
@@ -4342,7 +4315,7 @@
     "check": 5,
     "file": "skills/simmer/SKILL.md",
     "line": 51,
-    "message": "pip install must use exact == pins",
+    "message": "pip install must use exact == pins: simmer-sdk",
     "owner": "splabs-ci",
     "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
   },
@@ -4351,7 +4324,7 @@
     "check": 5,
     "file": "skills/simmer/SKILL.md",
     "line": 109,
-    "message": "pip install must use exact == pins",
+    "message": "pip install must use exact == pins: 'simmer-sdk[backtest]' then simmer backtest '<skill>' --entrypoint run.py --window 30d '|'",
     "owner": "splabs-ci",
     "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
   },

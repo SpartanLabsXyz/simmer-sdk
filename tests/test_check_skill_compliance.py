@@ -383,3 +383,137 @@ def test_review_patterns_allow_known_safe_literals(tmp_path):
     doc = skill / 'SKILL.md'
     doc.write_text(doc.read_text() + 'pip -q install example==1.2.3\n')
     assert run(skill).returncode == 0
+
+
+@pytest.mark.parametrize('code', [
+    'def first():\n    env = os.environ\n    return env.get("FIXTURE_KEY")\n'
+    'def second():\n    env = {"LOCAL": "value"}\n    return env.get("LOCAL")\n',
+    'env = os.environ\ndef second():\n    env = {}\n    return env.get("LOCAL")\n',
+    'env = os.environ\nenv = {}\nx = env.get("LOCAL")\n',
+    'env = os.environ\ndef second(env):\n    return env.get("LOCAL")\n',
+])
+def test_environment_alias_scope_and_rebinding(tmp_path, code):
+    skill = copy_green(tmp_path)
+    with (skill / 'main.py').open('a') as stream:
+        stream.write('import os\n' + code)
+    assert run(skill).returncode == 0
+
+
+@pytest.mark.parametrize('code,check', [
+    ('import subprocess\nrun = subprocess.run\nrun("echo hi", shell=True)', 6),
+    ('run = eval\nrun("1")', 6),
+    ('import os\nread = os.environ.get\nread("MISSING_KEY")', 2),
+    ('import os\ndef first():\n    read = os.environ.get\n    read("MISSING_KEY")', 2),
+])
+def test_callable_assignment_alias(tmp_path, code, check):
+    skill = copy_green(tmp_path)
+    with (skill / 'main.py').open('a') as stream:
+        stream.write(code + '\n')
+    assert any(f['check'] == check for f in json.loads(run(skill).stdout))
+
+
+@pytest.mark.parametrize('prohibition', ["Don't", 'Do not', 'Never run', 'Avoid', 'No need to'])
+def test_documented_privilege_prohibition(tmp_path, prohibition):
+    skill = copy_green(tmp_path)
+    doc = skill / 'SKILL.md'
+    doc.write_text(doc.read_text() + f'{prohibition} `sudo npm install`.\n')
+    assert run(skill).returncode == 0
+    doc.write_text(doc.read_text() + 'Never run `sudo bad`. Run `sudo good`.\n')
+    findings = json.loads(run(skill).stdout)
+    assert sum(f['check'] == 8 for f in findings) == 1
+
+
+@pytest.mark.parametrize('host', ['api.example.com:443', 'API.EXAMPLE.COM:443',
+                                 '127.0.0.1', '127.0.0.1:443', '[::1]:443'])
+def test_normalized_connection_hosts(tmp_path, host):
+    skill = copy_green(tmp_path)
+    doc = skill / 'SKILL.md'
+    doc.write_text(doc.read_text() + '\nLocal connections: 127.0.0.1 and http://[::1]:443.\n')
+    with (skill / 'main.py').open('a') as stream:
+        stream.write(f'import http.client\nhttp.client.HTTPSConnection({host!r})\n'
+                     'import socket\nsocket.create_connection(("127.0.0.1", 443))\n')
+    assert run(skill).returncode == 0
+
+
+def test_documented_install_identity_ratchets(tmp_path):
+    skill = copy_green(tmp_path)
+    doc = skill / 'SKILL.md'
+    original = doc.read_text()
+    doc.write_text(original + 'pip install simmer-sdk\n')
+    baseline = tmp_path / 'baseline.json'
+    baseline.write_text(json.dumps([dict(f, owner='test', reason='debt')
+                                    for f in json.loads(run(skill).stdout)]))
+    doc.write_text(original + 'pip install simmer-sdk new-package\n')
+    result = run('--baseline', baseline, skill)
+    assert result.returncode == 1
+    assert any('new-package' in f['message'] for f in json.loads(result.stdout))
+
+
+@pytest.mark.parametrize('code', [
+    'open("../outside-state.json", "w")',
+    'import io; io.open("../outside-state.json", "w")',
+    'import io; io.open("/tmp/outside-state.json", "w")',
+    'from pathlib import Path; Path("../outside-state.json").write_text("{}")',
+])
+def test_escaping_state_write(tmp_path, code):
+    skill = copy_green(tmp_path)
+    with (skill / 'main.py').open('a') as stream:
+        stream.write(code + '\n')
+    assert any(f['check'] == 8 and 'write' in f['message']
+               for f in json.loads(run(skill).stdout))
+
+
+def test_nested_relative_write_stays_in_skill(tmp_path):
+    skill = copy_green(tmp_path)
+    (skill / 'nested').mkdir()
+    (skill / 'nested/helper.py').write_text('import io\nio.open("../state.json", "w")\n')
+    assert run(skill).returncode == 0
+
+
+@pytest.mark.parametrize('option', ['-rextra.txt', '-r extra.txt',
+                                    '--requirement extra.txt', '--requirement=extra.txt'])
+@pytest.mark.parametrize('executable', ['pip', 'pip3.12'])
+def test_documented_requirement_manifests(tmp_path, option, executable):
+    skill = copy_green(tmp_path)
+    doc = skill / 'SKILL.md'
+    doc.write_text(doc.read_text() + f'{executable} install {option} example==1.2.3\n')
+    with (skill / 'main.py').open('a') as stream:
+        stream.write('p.add_argument("--requirement")\n')
+    requirements = skill / 'extra.txt'
+    requirements.write_text('new-unpinned-package\n')
+    findings = json.loads(run(skill).stdout)
+    assert any(f['check'] == 5 and f['file'].endswith('extra.txt')
+               and 'new-unpinned-package' in f['message'] for f in findings)
+    requirements.write_text('new-package==1.0\n')
+    assert run(skill).returncode == 0
+    requirements.unlink()
+    assert any(f['check'] == 5 for f in json.loads(run(skill).stdout))
+
+
+@pytest.mark.parametrize('method', ['Popen', 'run', 'call', 'check_call', 'check_output'])
+@pytest.mark.parametrize('shell', ['True', 'enabled', 'False'])
+def test_subprocess_positional_shell(tmp_path, method, shell):
+    skill = copy_green(tmp_path)
+    with (skill / 'main.py').open('a') as stream:
+        stream.write(f'import subprocess\nsubprocess.{method}("echo hi", -1, None, None, None, None, None, True, {shell})\n')
+    result = run(skill)
+    assert result.returncode == (0 if shell == 'False' else 1)
+    assert any(f['check'] == 6 for f in json.loads(result.stdout)) == (shell != 'False')
+
+
+def test_help_states_literal_audit_scope():
+    result = run('--help')
+    assert result.returncode == 0
+    for phrase in ('common patterns', 'not a sandbox', 'dynamic attribute',
+                   'getattr', 'built strings', 'human review', 'publish PRs'):
+        assert phrase in result.stdout
+
+
+def test_environment_item_assignment_preserves_module_alias(tmp_path):
+    skill = copy_green(tmp_path)
+    with (skill / 'main.py').open('a') as stream:
+        stream.write('os.environ["FIXTURE_KEY"] = "value"\n'
+                     'os.environ.get("MISSING_KEY")\n')
+    findings = json.loads(run(skill).stdout)
+    assert sum(f['check'] == 2 and 'MISSING_KEY is read' in f['message']
+               for f in findings) == 2

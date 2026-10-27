@@ -6,12 +6,15 @@ lists of findings with nonempty owner/reason fields. --check-baseline also rejec
 stale entries for the selected skills (run all skills to audit the whole file).
 Execution exceptions use compliance.allow: [{file, line, rule, reason}]; file is
 bundle-relative and rule is exec/eval/compile/shell=True/os.system/base64.
-This is a literal/AST audit, not a sandbox or proof about dynamically built code.
+This is a literal/AST audit of common patterns, not a sandbox. Deliberate
+obfuscation (dynamic attribute access, getattr strings, exec of built strings) is
+out of scope and covered by human review of publish PRs.
 """
 from __future__ import annotations
 
 import argparse
 import ast
+import ipaddress
 import json
 from pathlib import Path
 import re
@@ -120,6 +123,104 @@ def literal(node: ast.AST):
     return node.value if isinstance(node, ast.Constant) else None
 
 
+def scoped_nodes(tree: ast.AST, aliases: dict[str, str] | None = None):
+    """Visit in source order with a separate alias table for each lexical scope."""
+    aliases = {} if aliases is None else aliases
+    yield tree, aliases
+    if isinstance(tree, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)):
+        # Defaults/decorators/bases belong to the enclosing scope.
+        for field, value in ast.iter_fields(tree):
+            if field not in {'body', 'args'}:
+                for child in value if isinstance(value, list) else [value]:
+                    if isinstance(child, ast.AST):
+                        yield from scoped_nodes(child, aliases)
+        if hasattr(tree, 'args'):
+            yield from scoped_nodes(tree.args, aliases)
+        local = aliases.copy()
+
+        class Bindings(ast.NodeVisitor):
+            def visit_Name(self, node):
+                if isinstance(node.ctx, (ast.Store, ast.Del)):
+                    local[node.id] = ''
+
+            def visit_arg(self, node):
+                local[node.arg] = ''
+
+            def visit_Import(self, node):
+                for item in node.names:
+                    local[item.asname or item.name.split('.')[0]] = ''
+
+            def visit_ImportFrom(self, node):
+                for item in node.names:
+                    local[item.asname or item.name] = ''
+
+            def visit_FunctionDef(self, node):
+                local[node.name] = ''
+
+            visit_AsyncFunctionDef = visit_FunctionDef
+            visit_ClassDef = visit_FunctionDef
+
+            def visit_Lambda(self, node):
+                pass
+
+        bindings = Bindings()
+        if hasattr(tree, 'args'):
+            bindings.visit(tree.args)
+        body = tree.body if isinstance(tree.body, list) else [tree.body]
+        for child in body:
+            bindings.visit(child)
+        for child in body:
+            yield from scoped_nodes(child, local)
+        if hasattr(tree, 'name'):
+            aliases[tree.name] = ''
+        return
+    for child in ast.iter_child_nodes(tree):
+        yield from scoped_nodes(child, aliases)
+    if isinstance(tree, ast.Import):
+        for item in tree.names:
+            aliases[item.asname or item.name.split('.')[0]] = item.name if item.asname else item.name.split('.')[0]
+    elif isinstance(tree, ast.ImportFrom):
+        for item in tree.names:
+            aliases[item.asname or item.name] = f'{tree.module}.{item.name}'
+    elif isinstance(tree, (ast.Assign, ast.AnnAssign, ast.NamedExpr)):
+        name = qualified(tree.value, aliases)
+        for target in tree.targets if isinstance(tree, ast.Assign) else [tree.target]:
+            for node in ast.walk(target):
+                if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+                    aliases[node.id] = name if isinstance(target, ast.Name) else ''
+    elif isinstance(tree, (ast.AugAssign, ast.Delete)):
+        for target in tree.targets if isinstance(tree, ast.Delete) else [tree.target]:
+            for node in ast.walk(target):
+                if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
+                    aliases[node.id] = ''
+
+
+def normalize_host(value: str) -> str:
+    try:
+        host = ipaddress.ip_address(value).compressed
+    except ValueError:
+        try:
+            host = urlsplit(value if '://' in value else '//' + value).hostname or ''
+        except ValueError:
+            return value.lower()
+    try:
+        return ipaddress.ip_address(host).compressed
+    except ValueError:
+        return host.lower()
+
+
+def inline_recipes(value: str) -> str:
+    """Keep executable inline spans, excluding prohibitions in their sentence."""
+    recipes = []
+    for match in re.finditer(r'`+([^`]+)`+', value):
+        before = value[:match.start()]
+        after = value[match.end():]
+        sentence = re.split(r'[.!?]\s+', before)[-1] + match[0] + re.split(r'[.!?](?:\s+|$)', after)[0]
+        if not re.search(r"\b(?:don['’]t|do not|never|avoid|no need to)\b", sentence, re.I):
+            recipes.append(match[1])
+    return ' '.join(recipes)
+
+
 def check_skill(source: Path) -> list[dict]:
     findings = []
 
@@ -181,7 +282,13 @@ def check_skill(source: Path) -> list[dict]:
 
         env_reads = {}
         trees = {}
-        hosts = {host.lower() for host in HOST.findall(doc)}
+        hosts = {normalize_host(host) for host in HOST.findall(doc)}
+        hosts.update(normalize_host(match[0]) for match in URL.finditer(doc))
+        for candidate in re.findall(r'[0-9a-fA-F:.]+', doc):
+            try:
+                hosts.add(ipaddress.ip_address(candidate.rstrip('.')).compressed)
+            except ValueError:
+                pass
         for path in files:
             file = path.relative_to(bundle).as_posix()
             parts = path.relative_to(bundle).parts
@@ -207,8 +314,8 @@ def check_skill(source: Path) -> list[dict]:
                         execution(file, line, 'eval' if re.search(r'\beval\b', value) else 'exec')
                     for match in URL.finditer(value):
                         host = urlsplit(match[0]).hostname
-                        if host and host.lower() not in hosts:
-                            add(7, file, line, f'undeclared network host: {host.lower()}')
+                        if host and normalize_host(host) not in hosts:
+                            add(7, file, line, f'undeclared network host: {normalize_host(host)}')
             if path.suffix != '.py':
                 continue
             try:
@@ -217,22 +324,10 @@ def check_skill(source: Path) -> list[dict]:
                 add(1, file, exc.lineno or 1, 'cannot parse bundled Python')
                 continue
             trees[file] = tree
-            aliases = {}
+            # Keep reporting order stable while resolving aliases in source order.
+            scopes = {node: aliases.copy() for node, aliases in scoped_nodes(tree)}
             for node in ast.walk(tree):
-                if isinstance(node, ast.Import):
-                    for alias in node.names:
-                        aliases[alias.asname or alias.name.split('.')[0]] = alias.name if alias.asname else alias.name.split('.')[0]
-                elif isinstance(node, ast.ImportFrom):
-                    for alias in node.names:
-                        aliases[alias.asname or alias.name] = f'{node.module}.{alias.name}'
-            for node in ast.walk(tree):
-                if isinstance(node, ast.Assign):
-                    name = qualified(node.value, aliases)
-                    if name in {'os.environ', 'os.getenv'}:
-                        for target in node.targets:
-                            if isinstance(target, ast.Name):
-                                aliases[target.id] = name
-            for node in ast.walk(tree):
+                aliases = scopes[node]
                 if isinstance(node, ast.Call):
                     name = qualified(node.func, aliases)
                     if name in {'os.getenv', 'os.environ.get', 'os.environ.__getitem__'}:
@@ -246,6 +341,9 @@ def check_skill(source: Path) -> list[dict]:
                         execution(file, node.lineno, name.removeprefix('builtins.'))
                     if name.startswith('subprocess.'):
                         keywords = list(node.keywords)
+                        if name in {'subprocess.Popen', 'subprocess.run', 'subprocess.call',
+                                    'subprocess.check_call', 'subprocess.check_output'} and len(node.args) > 8:
+                            keywords.append(ast.keyword(arg='shell', value=node.args[8]))
                         while keywords:
                             keyword = keywords.pop()
                             if keyword.arg is None:
@@ -272,10 +370,10 @@ def check_skill(source: Path) -> list[dict]:
                         if isinstance(address, (ast.Tuple, ast.List)) and address.elts:
                             host_arg = address.elts[0]
                     host = literal(host_arg)
-                    if isinstance(host, str) and host.lower() not in hosts:
-                        add(7, file, node.lineno, f'undeclared network host: {host.lower()}')
+                    if isinstance(host, str) and normalize_host(host) not in hosts:
+                        add(7, file, node.lineno, f'undeclared network host: {normalize_host(host)}')
                     destination = None
-                    if isinstance(node.func, ast.Attribute) and node.func.attr in {'write_text', 'write_bytes', 'open'}:
+                    if name not in {'open', 'io.open'} and isinstance(node.func, ast.Attribute) and node.func.attr in {'write_text', 'write_bytes', 'open'}:
                         receiver = node.func.value
                         mode = node.args[0] if node.args else next(
                             (k.value for k in node.keywords if k.arg == 'mode'), None)
@@ -288,8 +386,12 @@ def check_skill(source: Path) -> list[dict]:
                         if isinstance(literal(mode), str) and any(c in literal(mode) for c in 'wax+'):
                             destination = literal(node.args[0]) if node.args else next(
                                 (literal(k.value) for k in node.keywords if k.arg == 'file'), None)
-                    if isinstance(destination, str) and Path(destination).is_absolute() and not Path(destination).resolve().is_relative_to(source.resolve()):
-                        add(8, file, node.lineno, f'absolute write destination needs review: {destination}')
+                    if isinstance(destination, str):
+                        target = Path(destination)
+                        resolved = (source / file).parent / target
+                        if not resolved.resolve().is_relative_to(source.resolve()):
+                            kind = 'absolute' if target.is_absolute() else 'escaping'
+                            add(8, file, node.lineno, f'{kind} write destination needs review: {destination}')
                 elif isinstance(node, ast.Subscript) and isinstance(node.ctx, ast.Load) and qualified(node.value, aliases) == 'os.environ':
                     if isinstance(literal(node.slice), str):
                         env_reads.setdefault(literal(node.slice), (file, node.lineno))
@@ -302,8 +404,8 @@ def check_skill(source: Path) -> list[dict]:
                             host = urlsplit(match[0]).hostname
                         except ValueError:
                             continue
-                        if host and host.lower() not in hosts:
-                            add(7, file, node.lineno, f'undeclared network host: {host.lower()}')
+                        if host and normalize_host(host) not in hosts:
+                            add(7, file, node.lineno, f'undeclared network host: {normalize_host(host)}')
                     if re.search(r'\bsudo\b', node.value) or PERSIST.search(node.value):
                         add(8, file, node.lineno, 'persistence or privilege command/path')
 
@@ -345,7 +447,7 @@ def check_skill(source: Path) -> list[dict]:
             marker = re.match(r'^\s*(`{3,}|~{3,})', value)
             if marker:
                 fence = None if fence and marker[1].startswith(fence) else marker[1]
-            code = value if fence else ' '.join(re.findall(r'`+([^`]+)`+', value))
+            code = value if fence else inline_recipes(value)
             if re.search(r'\bsudo\b', code) or PERSIST.search(code):
                 add(8, doc_path, line, 'documented persistence or privilege recipe needs review')
             for flag in sorted(set(re.findall(r'(?<![\w-])--[a-zA-Z][a-zA-Z0-9_-]*', value)) - flags):
@@ -367,20 +469,46 @@ def check_skill(source: Path) -> list[dict]:
         for line, value in enumerate(logical_doc.splitlines(), 1):
             if re.search(r'\bcurl\b[^\n|]*\|\s*(?:(?:/[^\s|]+/)?env\s+(?:[^|\n]*\s+)?)?(?:/[^\s|]+/)?(?:sh|bash|zsh|dash|ksh)\b', value) or 'git+' in value:
                 add(5, doc_path, line, 'unsafe install source or curl piped to shell')
-            match = re.search(r'\bpip(?:3)?\s+(?:[^\n`]*?\s+)?install\s+(.+)', value)
+            match = re.search(r'\bpip(?:3(?:\.\d+)?)?\s+(?:[^\n`]*?\s+)?install\s+(.+)', value)
             if match:
                 try:
                     tokens = shlex.split(match[1].split('#', 1)[0].replace('`', ''))
                 except ValueError:
                     tokens = []
-                if tokens in (['-r', 'requirements.txt'], ['--requirement', 'requirements.txt']):
-                    pinned = bool(requirement_lines) and all(
-                        PIN.fullmatch(package) for _, package in requirement_lines)
-                else:
-                    packages = [t for t in tokens if not t.startswith('-')]
-                    pinned = bool(packages) and all(PIN.fullmatch(t) for t in packages)
+                packages = []
+                manifests = []
+                index = 0
+                while index < len(tokens):
+                    token = tokens[index]
+                    if token in {'-r', '--requirement'}:
+                        index += 1
+                        manifests.append(tokens[index] if index < len(tokens) else '')
+                    elif token.startswith('--requirement='):
+                        manifests.append(token.partition('=')[2])
+                    elif token.startswith('-r'):
+                        manifests.append(token[2:])
+                    elif not token.startswith('-'):
+                        packages.append(token)
+                    index += 1
+                pinned = bool(packages or manifests) and all(PIN.fullmatch(t) for t in packages)
+                for requirement in manifests:
+                    target = bundle / requirement
+                    if (not requirement or not target.resolve().is_relative_to(bundle.resolve())
+                            or not target.is_file() or target.is_symlink()):
+                        add(5, doc_path, line, f'requirement manifest cannot be audited: {requirement}')
+                        pinned = False
+                        continue
+                    entries = [(n, v.split(' #', 1)[0].strip()) for n, v in
+                               enumerate(target.read_text().splitlines(), 1)
+                               if v.strip() and not v.lstrip().startswith('#')]
+                    pinned = pinned and bool(entries)
+                    for number, package in entries:
+                        if not PIN.fullmatch(package):
+                            add(5, requirement, number, f'dependency must use an exact == pin: {package}')
+                            pinned = False
                 if not pinned:
-                    add(5, doc_path, line, 'pip install must use exact == pins')
+                    add(5, doc_path, line, 'pip install must use exact == pins: ' + shlex.join(tokens))
+
     return sorted([dict(zip(FIELDS, key)) for key in {tuple(f[k] for k in FIELDS) for f in findings}],
                   key=lambda f: (f['skill'], f['check'], f['file'], f['line'], f['message']))
 
