@@ -35,22 +35,24 @@ def stage_bundle(source: Path, destination: Path) -> None:
     Kept local until sdk #449 shares this with publishing. Do not additionally
     prune forbidden artifacts: check 1 must see anything publish.sh would ship.
     """
-    shutil.copytree(source, destination)
+    shutil.copytree(source, destination, symlinks=True)
     for path in sorted(destination.rglob('*'), key=lambda p: len(p.parts)):
-        if not path.exists():
+        if path.is_symlink() or not path.exists():
             continue
         if path.is_dir() and path.name in {'tests', '__pycache__'}:
             shutil.rmtree(path)
         elif path.is_file() and path.suffix in {'.pyc', '.pyo'}:
             path.unlink()
     for path in destination.glob('.*'):
-        if path.is_dir():
+        if path.is_symlink():
+            path.unlink()
+        elif path.is_dir():
             shutil.rmtree(path)
         else:
             path.unlink()
 
 
-def frontmatter_env(text: str) -> set[str]:
+def frontmatter_env(text: str) -> dict[str, dict]:
     """Read metadata.envVars using the governance checker's indentation convention.
 
     Supports the repo's list of name mappings, a scalar-name list, inline JSON
@@ -58,10 +60,11 @@ def frontmatter_env(text: str) -> set[str]:
     """
     lines = text.splitlines()
     if not lines or lines[0].strip() != '---':
-        return set()
+        return {}
     metadata = False
     env_indent = None
-    names = set()
+    names = {}
+    current = None
     for line in lines[1:]:
         value = line.strip()
         if value == '---':
@@ -79,7 +82,16 @@ def frontmatter_env(text: str) -> set[str]:
             env_indent = indent
             inline = value.partition(':')[2].strip()
             if inline:
-                names.update(re.findall(r'\b[A-Z][A-Z0-9_]+\b', inline))
+                try:
+                    entries = json.loads(inline)
+                except ValueError:
+                    entries = re.findall(r'\b[A-Z][A-Z0-9_]+\b', inline)
+                if isinstance(entries, list):
+                    for entry in entries:
+                        if isinstance(entry, str):
+                            names[entry] = {}
+                        elif isinstance(entry, dict) and isinstance(entry.get('name'), str):
+                            names[entry['name']] = entry
             continue
         if env_indent is not None:
             if indent <= env_indent:
@@ -87,7 +99,12 @@ def frontmatter_env(text: str) -> set[str]:
                 continue
             match = re.match(r'(?:-\s*(?:name:\s*)?|)[\"\x27]?([A-Z][A-Z0-9_]*)[\"\x27]?(?:\s*:|\s*$)', value.strip('"\x27'))
             if match:
-                names.add(match[1])
+                current = match[1]
+                names[current] = {}
+            elif current:
+                key, _, content = value.partition(':')
+                if key in {'purpose', 'description', 'required', 'optional'}:
+                    names[current][key] = content.strip().strip('"\x27')
     return names
 
 
@@ -120,18 +137,21 @@ def check_skill(source: Path) -> list[dict]:
         except (OSError, shutil.Error):
             add(1, 'SKILL.md', 1, 'cannot stage skill bundle')
             return findings
-        files = sorted(p for p in bundle.rglob('*') if p.is_file())
+        for path in bundle.rglob('*'):
+            if path.is_symlink():
+                add(1, path.relative_to(bundle).as_posix(), 1, 'published symlink needs review')
+        files = sorted(p for p in bundle.rglob('*') if p.is_file() and not p.is_symlink())
         doc_path = 'SKILL.md' if (bundle / 'SKILL.md').exists() else 'skill.md'
         doc = ''
         manifest = {}
         for required in (doc_path, 'clawhub.json'):
             if not (bundle / required).is_file():
                 add(1, required, 1, 'required bundle manifest is missing')
-        if (bundle / doc_path).is_file():
+        if (bundle / doc_path).is_file() and not (bundle / doc_path).is_symlink():
             doc = (bundle / doc_path).read_text(encoding='utf-8', errors='replace')
             if not doc.startswith('---\n') or '\n---' not in doc[4:]:
                 add(1, doc_path, 1, 'SKILL.md frontmatter is missing')
-        if (bundle / 'clawhub.json').is_file():
+        if (bundle / 'clawhub.json').is_file() and not (bundle / 'clawhub.json').is_symlink():
             try:
                 manifest = json.loads((bundle / 'clawhub.json').read_text())
                 if not isinstance(manifest, dict):
@@ -206,6 +226,13 @@ def check_skill(source: Path) -> list[dict]:
                     for alias in node.names:
                         aliases[alias.asname or alias.name] = f'{node.module}.{alias.name}'
             for node in ast.walk(tree):
+                if isinstance(node, ast.Assign):
+                    name = qualified(node.value, aliases)
+                    if name in {'os.environ', 'os.getenv'}:
+                        for target in node.targets:
+                            if isinstance(target, ast.Name):
+                                aliases[target.id] = name
+            for node in ast.walk(tree):
                 if isinstance(node, ast.Call):
                     name = qualified(node.func, aliases)
                     if name in {'os.getenv', 'os.environ.get', 'os.environ.__getitem__'}:
@@ -217,8 +244,52 @@ def check_skill(source: Path) -> list[dict]:
                             add(2, file, node.lineno, 'dynamic environment name cannot be audited')
                     if name in {'exec', 'eval', 'compile', 'builtins.exec', 'builtins.eval', 'builtins.compile', 'os.system'}:
                         execution(file, node.lineno, name.removeprefix('builtins.'))
-                    if name.startswith('subprocess.') and any(k.arg == 'shell' and literal(k.value) is True for k in node.keywords):
-                        execution(file, node.lineno, 'shell=True')
+                    if name.startswith('subprocess.'):
+                        keywords = list(node.keywords)
+                        while keywords:
+                            keyword = keywords.pop()
+                            if keyword.arg is None:
+                                if isinstance(keyword.value, ast.Dict):
+                                    for key, value in zip(keyword.value.keys, keyword.value.values):
+                                        if key is None or not isinstance(literal(key), str):
+                                            add(6, file, node.lineno, 'subprocess **kwargs need review')
+                                        else:
+                                            keywords.append(ast.keyword(arg=literal(key), value=value))
+                                else:
+                                    add(6, file, node.lineno, 'subprocess **kwargs need review')
+                            elif keyword.arg == 'shell':
+                                if literal(keyword.value) is True:
+                                    execution(file, node.lineno, 'shell=True')
+                                elif literal(keyword.value) is not False:
+                                    add(6, file, node.lineno, 'subprocess shell value needs review')
+                    host_arg = None
+                    if name in {'http.client.HTTPConnection', 'http.client.HTTPSConnection'}:
+                        host_arg = node.args[0] if node.args else next(
+                            (k.value for k in node.keywords if k.arg == 'host'), None)
+                    elif name == 'socket.create_connection' or isinstance(node.func, ast.Attribute) and node.func.attr in {'connect', 'connect_ex'}:
+                        address = node.args[0] if node.args else next(
+                            (k.value for k in node.keywords if k.arg == 'address'), None)
+                        if isinstance(address, (ast.Tuple, ast.List)) and address.elts:
+                            host_arg = address.elts[0]
+                    host = literal(host_arg)
+                    if isinstance(host, str) and host.lower() not in hosts:
+                        add(7, file, node.lineno, f'undeclared network host: {host.lower()}')
+                    destination = None
+                    if isinstance(node.func, ast.Attribute) and node.func.attr in {'write_text', 'write_bytes', 'open'}:
+                        receiver = node.func.value
+                        mode = node.args[0] if node.args else next(
+                            (k.value for k in node.keywords if k.arg == 'mode'), None)
+                        writes = node.func.attr != 'open' or isinstance(literal(mode), str) and any(c in literal(mode) for c in 'wax+')
+                        if writes and isinstance(receiver, ast.Call) and qualified(receiver.func, aliases) in {'Path', 'pathlib.Path'} and receiver.args:
+                            destination = literal(receiver.args[0])
+                    elif name in {'open', 'io.open'}:
+                        mode = node.args[1] if len(node.args) > 1 else next(
+                            (k.value for k in node.keywords if k.arg == 'mode'), None)
+                        if isinstance(literal(mode), str) and any(c in literal(mode) for c in 'wax+'):
+                            destination = literal(node.args[0]) if node.args else next(
+                                (literal(k.value) for k in node.keywords if k.arg == 'file'), None)
+                    if isinstance(destination, str) and Path(destination).is_absolute() and not Path(destination).resolve().is_relative_to(source.resolve()):
+                        add(8, file, node.lineno, f'absolute write destination needs review: {destination}')
                 elif isinstance(node, ast.Subscript) and isinstance(node.ctx, ast.Load) and qualified(node.value, aliases) == 'os.environ':
                     if isinstance(literal(node.slice), str):
                         env_reads.setdefault(literal(node.slice), (file, node.lineno))
@@ -237,12 +308,23 @@ def check_skill(source: Path) -> list[dict]:
                         add(8, file, node.lineno, 'persistence or privilege command/path')
 
         declared = {
-            doc_path: frontmatter_env(doc),
+            doc_path: set(frontmatter_env(doc)),
             'clawhub.json': {item['name'] if isinstance(item, dict) else item
                              for item in manifest.get('envVars', [])
                              if isinstance(item, str) or isinstance(item, dict) and isinstance(item.get('name'), str)},
         }
+        env_metadata = {
+            doc_path: frontmatter_env(doc),
+            'clawhub.json': {item['name']: item
+                             for item in manifest.get('envVars', [])
+                             if isinstance(item, dict) and isinstance(item.get('name'), str)},
+        }
         for location, names in declared.items():
+            for name in sorted(names):
+                entry = env_metadata[location].get(name, {})
+                if not any(isinstance(entry.get(key), str) and entry[key].strip()
+                           for key in ('purpose', 'description')):
+                    add(2, location, 1, f'{name} declaration missing purpose text; needs review')
             for name in sorted(env_reads.keys() - names):
                 file, line = env_reads[name]
                 add(2, file, line, f'{name} is read but absent from {location} envVars')
@@ -258,27 +340,34 @@ def check_skill(source: Path) -> list[dict]:
                 for node in ast.walk(trees[entrypoint]):
                     if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == 'add_argument':
                         flags.update(literal(arg) for arg in node.args if isinstance(literal(arg), str) and literal(arg).startswith('--'))
+        fence = None
         for line, value in enumerate(doc.splitlines(), 1):
+            marker = re.match(r'^\s*(`{3,}|~{3,})', value)
+            if marker:
+                fence = None if fence and marker[1].startswith(fence) else marker[1]
+            code = value if fence else ' '.join(re.findall(r'`+([^`]+)`+', value))
+            if re.search(r'\bsudo\b', code) or PERSIST.search(code):
+                add(8, doc_path, line, 'documented persistence or privilege recipe needs review')
             for flag in sorted(set(re.findall(r'(?<![\w-])--[a-zA-Z][a-zA-Z0-9_-]*', value)) - flags):
                 add(3, doc_path, line, f'documented flag absent from entrypoint argparse: {flag}')
 
         requirements = bundle / 'requirements.txt'
         pip = manifest.get('requires', {}).get('pip', [])
         requirement_lines = [(line, value.split(' #', 1)[0].strip()) for line, value in
-                             enumerate(requirements.read_text().splitlines(), 1)] if requirements.exists() else []
+                             enumerate(requirements.read_text().splitlines(), 1)] if requirements.is_file() and not requirements.is_symlink() else []
         requirement_lines = [(line, value) for line, value in requirement_lines if value and not value.startswith('#')]
         for file, entries in [('requirements.txt', requirement_lines), ('clawhub.json', [(1, p) for p in pip])]:
             for line, package in entries:
                 if not isinstance(package, str) or not PIN.fullmatch(package):
-                    add(5, file, line, 'dependency must use an exact == pin')
+                    add(5, file, line, f'dependency must use an exact == pin: {package}')
         normalize = lambda value: re.sub(r'[-_.]+', '-', value.split('==')[0]).lower() + '==' + value.partition('==')[2]
         if {normalize(p) for _, p in requirement_lines} != {normalize(p) for p in pip if isinstance(p, str)}:
             add(5, 'clawhub.json', 1, 'requires.pip and requirements.txt disagree')
         logical_doc = re.sub(r'\\\n\s*', ' ', doc)
         for line, value in enumerate(logical_doc.splitlines(), 1):
-            if re.search(r'\bcurl\b[^\n|]*\|\s*(?:sh|bash)\b', value) or 'git+' in value:
+            if re.search(r'\bcurl\b[^\n|]*\|\s*(?:(?:/[^\s|]+/)?env\s+(?:[^|\n]*\s+)?)?(?:/[^\s|]+/)?(?:sh|bash|zsh|dash|ksh)\b', value) or 'git+' in value:
                 add(5, doc_path, line, 'unsafe install source or curl piped to shell')
-            match = re.search(r'\bpip(?:3)?\s+install\s+(.+)', value)
+            match = re.search(r'\bpip(?:3)?\s+(?:[^\n`]*?\s+)?install\s+(.+)', value)
             if match:
                 try:
                     tokens = shlex.split(match[1].split('#', 1)[0].replace('`', ''))
@@ -315,13 +404,22 @@ def main() -> int:
     parser.add_argument('skills', nargs='+', type=Path)
     parser.add_argument('--baseline', type=Path)
     parser.add_argument('--check-baseline', action='store_true', help='fail on stale baseline entries for selected skills')
+    parser.add_argument('--write-baseline', type=Path, help='write only current findings with owner/reason')
+    parser.add_argument('--owner')
+    parser.add_argument('--reason')
     args = parser.parse_args()
+    if args.write_baseline and (not args.owner or not args.owner.strip() or not args.reason or not args.reason.strip()):
+        parser.error('--write-baseline requires nonempty --owner and --reason')
     if args.check_baseline and not args.baseline:
         parser.error('--check-baseline requires --baseline')
     findings = [f for skill in args.skills for f in check_skill(skill)]
     print(json.dumps(findings, indent=2))
     for finding in findings:
         annotate(finding)
+    if args.write_baseline:
+        args.write_baseline.write_text(json.dumps(
+            [dict(f, owner=args.owner, reason=args.reason) for f in findings], indent=2) + '\n')
+        return 0
     baseline = []
     if args.baseline:
         try:

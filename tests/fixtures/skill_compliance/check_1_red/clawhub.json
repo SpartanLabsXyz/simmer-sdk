@@ -1,7 +1,8 @@
 {
   "envVars": [
     {
-      "name": "FIXTURE_KEY"
+      "name": "FIXTURE_KEY",
+      "purpose": "Fixture authentication"
     }
   ],
   "requires": {
