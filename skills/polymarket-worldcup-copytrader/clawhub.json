@@ -1,4 +1,6 @@
 {
+  "publish": false,
+  "publish_reason": "Retired after the 2026 World Cup. Code stays in the repo; no new ClawHub versions.",
   "emoji": "🌍",
   "sensitivity": "sensitive",
   "sensitivity_reason": "Novel-risk automation: the skill executes trades without per-trade approval by mirroring a curated set of external wallets. Copyability screening reduces slippage risk; it does not remove market risk. Scope approved 2026-06-10.",
