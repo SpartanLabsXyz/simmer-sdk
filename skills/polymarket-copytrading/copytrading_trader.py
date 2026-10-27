@@ -5,13 +5,15 @@ Simmer Copytrading Skill
 Mirrors positions from target Polymarket wallets via Simmer SDK.
 Uses the existing copytrading_strategy.py logic server-side.
 
-By default, runs in "buy only" mode - only buys to match whale positions,
-never sells existing positions. This prevents conflicts with other strategies
-(weather, etc.) that may have opened positions.
+By default, polling buys to match the followed whales and also sells a copytrading
+position that is no longer in the whales' current target set (after --top-n and
+other filters). Pass --no-whale-exits to turn those exit sells off; pass --rebalance
+to also sell to match target allocations. SDK stop-loss/take-profit exits run
+independently of both flags and can still sell in --live.
 
 Exit handling:
-- Whale exit detection is ON by default (sell when whales exit)
-- --no-whale-exits: Disable whale exit detection (buy-only, never sell)
+- Whale exit detection is ON by default (sell copytrading positions outside the filtered target set)
+- --no-whale-exits: Disable whale-exit sells (without --rebalance, the polling plan is buys only)
 - SDK Risk Management: Stop-loss/take-profit (server-side, auto-set on every buy)
 
 Usage:
@@ -120,7 +122,7 @@ def get_client(venue: str = None, *, dry_run: bool = False):
         try:
             from simmer_sdk import SimmerClient
         except ImportError:
-            print("Error: simmer-sdk not installed. Run: pip install simmer-sdk")
+            print("Error: simmer-sdk not installed. Run: pip install -r requirements.txt")
             sys.exit(1)
         api_key = os.environ.get("SIMMER_API_KEY")
         if not api_key:
@@ -416,10 +418,14 @@ def run_copytrading(wallets: list, top_n: int = None, max_usd: float = 50.0, dry
     - Top N concentration (focus on highest-conviction positions)
     - Auto-import of missing markets
     - Rebalance trade calculation and execution
-    - Whale exit detection (sells positions whales no longer hold)
+    - Whale exit detection (sells copytrading positions outside the filtered target set)
 
-    By default, only BUY trades are executed (buy_only=True). This prevents
-    copytrading from selling positions opened by other strategies (weather, etc.)
+    By default, polling buys to match the followed whales and also sells a copytrading
+    position that is no longer in the whales' current target set (after --top-n and
+    other filters). Pass --no-whale-exits to turn those exit sells off; pass --rebalance
+    to also sell to match target allocations. SDK stop-loss/take-profit exits run
+    independently of both flags and can still sell in --live.
+    buy_only=True blocks rebalance sells; detect_whale_exits=True allows exit sells.
 
     Venue: 'sim' for $SIM paper trading, 'polymarket' for real USDC, None for auto-detect.
     """
@@ -442,8 +448,8 @@ def run_copytrading(wallets: list, top_n: int = None, max_usd: float = 50.0, dry
     print(f"  Max trades/run:  {MAX_TRADES_PER_RUN}  (cadence: {_cadence_mode})")
     venue_label = venue or "auto-detect"
     print(f"  Venue: {venue_label}")
-    print(f"  Mode: {'Buy only (accumulate)' if buy_only else 'Full rebalance (buy + sell)'}")
-    print(f"  Whale exits: {'Enabled (sell when whale exits)' if detect_whale_exits else 'Disabled'}")
+    print(f"  Mode: {('Buys + whale-exit sells' if detect_whale_exits else 'Buys only') if buy_only else 'Full rebalance'}")
+    print(f"  Whale exits: {'Enabled (sell copytrading positions outside the filtered target set)' if detect_whale_exits else 'Disabled'}")
 
     if dry_run:
         print("\n  [DRY RUN] Trades will be simulated server-side. Use --live for real trades.")
@@ -546,7 +552,7 @@ def run_copytrading(wallets: list, top_n: int = None, max_usd: float = 50.0, dry
     if not result.get('success'):
         print("\n❌ Copytrading failed. Check errors above.")
     elif dry_run:
-        print("\n💡 Remove --dry-run to execute trades")
+        print("\n💡 Add --live to execute trades")
     elif trades_executed > 0:
         print(f"\n✅ Successfully mirrored positions!")
 
@@ -941,9 +947,9 @@ def _poll_reactor_once(client) -> int:
 
 
 # Minimum SDK that supports the `signal_data` kwarg on client.trade().
-# The install hints below suggest >= 0.9.19 to nudge users to the latest
-# bugfix release (adds reactor retry + better error surfacing); the gate
-# itself only fails on < 0.9.17 so users on 0.9.17/0.9.18 keep working.
+# The install hints below use pip install -r requirements.txt for pinned
+# dependencies; the gate itself only fails on < 0.9.17 so users on
+# 0.9.17/0.9.18 keep working.
 REACTOR_MIN_SDK_VERSION = "0.9.17"
 
 
@@ -961,7 +967,7 @@ def _assert_reactor_sdk_version() -> None:
         import simmer_sdk
         from packaging.version import Version
     except ImportError as e:
-        print(f"[reactor] ERROR: missing dependency ({e}). Run: pip install -U 'simmer-sdk>=0.9.19' packaging")
+        print(f"[reactor] ERROR: missing dependency ({e}). Run: pip install -r requirements.txt")
         sys.exit(1)
 
     have_str = getattr(simmer_sdk, "__version__", "0.0.0")
@@ -973,7 +979,7 @@ def _assert_reactor_sdk_version() -> None:
     minimum = Version(REACTOR_MIN_SDK_VERSION)
     if have < minimum:
         print(f"[reactor] ERROR: simmer-sdk {have} is too old. Reactor mode requires >= {minimum}.")
-        print("[reactor] Run: pip install -U 'simmer-sdk>=0.9.19'")
+        print("[reactor] Run: pip install -r requirements.txt")
         sys.exit(1)
 
 
@@ -1106,7 +1112,13 @@ def show_positions():
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Simmer Copytrading - Mirror positions from Polymarket whales"
+        description="Simmer Copytrading - Mirror positions from Polymarket whales",
+        epilog="By default, polling buys to match the followed whales and also sells a "
+        "copytrading position that is no longer in the whales' current target set "
+        "(after --top-n and other filters). Pass --no-whale-exits to turn those exit "
+        "sells off; pass --rebalance to also sell to match target allocations. "
+        "SDK stop-loss/take-profit exits run independently of both flags and can "
+        "still sell in --live."
     )
     parser.add_argument(
         "--live",
@@ -1146,12 +1158,12 @@ def main():
     parser.add_argument(
         "--rebalance",
         action="store_true",
-        help="Full rebalance mode: buy AND sell to match targets (default: buy-only)"
+        help="Also trim/sell to match target allocations"
     )
     parser.add_argument(
         "--no-whale-exits",
         action="store_true",
-        help="Disable whale exit detection (default: whale exits are detected and sold)"
+        help="Disable whale-exit sells; without --rebalance the polling plan is buys only. SDK risk exits can still sell in --live"
     )
     parser.add_argument(
         "--venue",

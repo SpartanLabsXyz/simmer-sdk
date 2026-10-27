@@ -3,7 +3,7 @@ name: polymarket-copytrading
 description: Mirror Polymarket whale wallets, inspect wallet positions, follow specific trader addresses, or paper-trade copytrading with $SIM before using real money. Polling mode is free; Reactor mode is Pro for event-driven real-time mirroring via Simmer's on-chain signal infrastructure.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.12.8"
+  version: "1.12.9"
   displayName: Polymarket Copytrading
   difficulty: beginner
 ---
@@ -28,9 +28,9 @@ Mirror positions from successful Polymarket traders using the Simmer SDK. Two mo
 
 When user asks to install or configure this skill:
 
-1. **Install the Simmer SDK** (version 0.9.19 or newer — reactor mode requires it)
+1. **Install the pinned dependencies** (Simmer SDK 0.26.0 and packaging 26.3) from this skill's folder:
    ```bash
-   pip install -U 'simmer-sdk>=0.26.0'
+   pip install -r requirements.txt
    ```
 
 2. **Ask for Simmer API key**
@@ -143,7 +143,7 @@ Existing installs default to `polling` — **no behavior change** unless you exp
 
 ## How It Works
 
-> **By default, only buys execute.** Pass `--rebalance` to also sell positions the whales have exited, or `--whale-exits` to sell only on whale exits.
+> By default, polling buys to match the followed whales and also sells a copytrading position that is no longer in the whales' current target set (after `--top-n` and other filters). Pass `--no-whale-exits` to turn those exit sells off; pass `--rebalance` to also sell to match target allocations. SDK stop-loss/take-profit exits run independently of both flags and can still sell in `--live`.
 
 Each cycle the script:
 1. Fetches positions from all target wallets via Simmer API
@@ -347,10 +347,12 @@ python copytrading_trader.py --wallets 0x123...,0x456...
 python copytrading_trader.py --rebalance
 ```
 
-**Sell when whales exit positions:**
+**Disable default whale-exit sells (without `--rebalance`, the polling plan is buys only):**
 ```bash
-python copytrading_trader.py --whale-exits
+python copytrading_trader.py --no-whale-exits
 ```
+
+SDK stop-loss/take-profit exits can still sell in `--live`.
 
 ## Reporting Results
 
@@ -415,9 +417,9 @@ Next scan in 4 hours.
 → Run: `python copytrading_trader.py --config`
 → Display current settings
 
-**User: "Sell positions that whales have exited"**
-→ Run: `python copytrading_trader.py --whale-exits`
-→ Compares your positions to whales, sells any they've closed
+**User: "Sell copytrading positions outside the whales' current target set"**
+→ Run: `python copytrading_trader.py`
+→ Previews default buys and sells for copytrading positions no longer in the whales' target set after `--top-n` and other filters, even if a whale still holds them; add `--live` to execute
 
 **User: "Do a full rebalance to match the whales"**
 → Run: `python copytrading_trader.py --rebalance`
