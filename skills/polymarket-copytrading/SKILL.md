@@ -28,7 +28,7 @@ Mirror positions from successful Polymarket traders using the Simmer SDK. Two mo
 
 When user asks to install or configure this skill:
 
-1. **Install the pinned dependencies** (Simmer SDK 0.26.0 and packaging 26.3)
+1. **Install the pinned dependencies** (Simmer SDK 0.26.0 and packaging 26.3) from this skill's folder:
    ```bash
    pip install -r requirements.txt
    ```
@@ -143,7 +143,7 @@ Existing installs default to `polling` — **no behavior change** unless you exp
 
 ## How It Works
 
-> By default, polling buys to match whales and also sells a position when every followed whale has exited it. Pass `--no-whale-exits` for strict buy-only; pass `--rebalance` to also trim/sell to match target allocations.
+> By default, polling buys to match the followed whales and also sells a copytrading position that is no longer in the whales' current target set (after `--top-n` and other filters). Pass `--no-whale-exits` to turn those exit sells off; pass `--rebalance` to also sell to match target allocations. SDK stop-loss/take-profit exits run independently of both flags and can still sell in `--live`.
 
 Each cycle the script:
 1. Fetches positions from all target wallets via Simmer API
@@ -347,10 +347,12 @@ python copytrading_trader.py --wallets 0x123...,0x456...
 python copytrading_trader.py --rebalance
 ```
 
-**Strict buy-only (disable default whale-exit sells):**
+**Disable default whale-exit sells (without `--rebalance`, the polling plan is buys only):**
 ```bash
 python copytrading_trader.py --no-whale-exits
 ```
+
+SDK stop-loss/take-profit exits can still sell in `--live`.
 
 ## Reporting Results
 
@@ -415,9 +417,9 @@ Next scan in 4 hours.
 → Run: `python copytrading_trader.py --config`
 → Display current settings
 
-**User: "Sell positions that whales have exited"**
+**User: "Sell copytrading positions outside the whales' current target set"**
 → Run: `python copytrading_trader.py`
-→ Previews default buys and sells for positions every followed whale has exited; add `--live` to execute
+→ Previews default buys and sells for copytrading positions no longer in the whales' target set after `--top-n` and other filters, even if a whale still holds them; add `--live` to execute
 
 **User: "Do a full rebalance to match the whales"**
 → Run: `python copytrading_trader.py --rebalance`
