@@ -63,9 +63,9 @@ sys.exit(99)
         args = []
         if 'RECEIPT' in overrides:
             directory = tmp_path / 'receipts'
-            directory.mkdir(exist_ok=True)
             content = overrides.pop('RECEIPT')
             if content != 'missing':
+                directory.mkdir(exist_ok=True)
                 (directory / 'example-1.1.0.json').write_text(content)
             args += ['--receipt-dir', str(directory)]
         if overrides.pop('RECHECK', None):
@@ -153,9 +153,10 @@ def test_issue_failure_is_reported(runner, overrides):
     assert 'needs-human issue' in result.stdout
 
 
-def test_empty_plan_does_not_inspect(runner):
-    result, calls, _ = runner(inspection(), SKILLS_TO_PUBLISH='[]')
-    assert result.returncode == 0, result.stdout + result.stderr
+def test_empty_plan_fails_closed_with_missing_receipt_directory(runner):
+    result, calls, _ = runner(inspection(), SKILLS_TO_PUBLISH='[]', RECEIPT='missing')
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert '::error::Cannot read skill publish plan:' in result.stdout
     assert not calls
 
 
@@ -191,12 +192,30 @@ def receipt(status='pending-publication', publication='pending'):
             'status': status, 'publicationStatus': publication}
 
 
-def test_pending_receipt_defers_scan_without_assuming_404_is_pending(runner):
-    result, calls, _ = runner(inspection(), RECEIPT=json.dumps(receipt()))
-    assert result.returncode == 0, result.stdout + result.stderr
-    assert 'Security PENDING; not-yet' in result.stdout
-    assert 'submission' in result.stdout
-    assert calls == []
+@pytest.mark.parametrize('status,code,outcome', [
+    ('pending', 0, 'not-yet'),
+    ('clean', 0, 'ok'),
+    ('suspicious', 1, 'needs-human'),
+    ('malicious', 1, 'failure'),
+    ('error', 1, 'failure'),
+])
+def test_pending_receipt_checks_current_security_without_recheck(runner, status, code, outcome):
+    result, calls, body = runner(inspection(status), RECEIPT=json.dumps(receipt()))
+    assert result.returncode == code, result.stdout + result.stderr
+    assert f'Security {status.upper()}; {outcome}' in result.stdout
+    assert calls[0] == ['npx', '-y', 'clawhub@0.23.3', 'inspect', '@simmer/example', '--version', '1.1.0', '--json']
+    if status == 'suspicious':
+        assert '<!-- clawhub-security:example@1.1.0 -->' in body.read_text()
+        report = body.parent / 'audits/example-1.1.0.json'
+        assert json.loads(report.read_text()) == inspection(status)
+    else:
+        assert not body.exists()
+
+
+def test_pending_receipt_does_not_mask_inspection_failure(runner):
+    result, _, _ = runner(inspection(), RECEIPT=json.dumps(receipt()), INSPECT_EXIT='1')
+    assert result.returncode == 1
+    assert '::error::' in result.stdout
 
 
 def test_published_receipt_still_checks_security(runner):

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Verify exact planned ClawHub versions and escalate suspicious security results.
 
-Use --recheck to inspect current scans instead of deferring based on a pending
-submission receipt. SKILLS_TO_PUBLISH is the plan's JSON list of directories.
+Always inspect current scans. Use --recheck to skip submission receipt validation.
+SKILLS_TO_PUBLISH is the plan's non-empty JSON list of directories.
 """
 
 from __future__ import annotations
@@ -104,11 +104,7 @@ def verify(skill: check_publish_lag.Skill, report_dir: Path, receipt_dir: Path |
     try:
         if receipt_dir is not None:
             receipt = json.loads((receipt_dir / f'{skill.slug}-{skill.version}.json').read_text())
-            if validate_receipt(receipt, skill.slug, skill.version) == 'pending':
-                annotate('notice', f'{identity}: Security PENDING; not-yet '
-                         '(confirmed at submission; current scan not yet verified)')
-                print('Use --recheck after scans settle to inspect current Security status.')
-                return True
+            validate_receipt(receipt, skill.slug, skill.version)
         raw = command([
             'npx', '-y', f'clawhub@{CLAWHUB_VERSION}', 'inspect', f'@simmer/{skill.slug}',
             '--version', skill.version, '--json',
@@ -138,12 +134,14 @@ def main() -> int:
     parser.add_argument('--report-dir', type=Path, default=Path('audits'))
     parser.add_argument('--receipt-dir', type=Path)
     parser.add_argument('--recheck', action='store_true',
-                        help='Inspect current scans even if a receipt recorded pending submission.')
+                        help='Inspect current scans without validating submission receipts.')
     args = parser.parse_args()
     try:
         planned = json.loads(os.environ['SKILLS_TO_PUBLISH'])
         if not isinstance(planned, list) or any(not isinstance(path, str) for path in planned):
             raise ValueError('expected a list of planned skill directories')
+        if not planned:
+            raise ValueError('expected at least one planned skill directory')
         skills, errors = check_publish_lag.discover_skills(args.root)
         if errors:
             raise ValueError('; '.join(errors))
