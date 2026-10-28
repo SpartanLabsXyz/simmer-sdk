@@ -467,7 +467,89 @@ def test_nested_relative_write_stays_in_skill(tmp_path):
     skill = copy_green(tmp_path)
     (skill / 'nested').mkdir()
     (skill / 'nested/helper.py').write_text('import io\nio.open("../state.json", "w")\n')
-    assert run(skill).returncode == 0
+    # Python resolves relative writes from CWD; from the skill root this escapes.
+    assert any(f['check'] == 8 and 'escaping write' in f['message']
+               for f in json.loads(run(skill).stdout))
+
+
+def test_nested_helper_write_escapes_skill_cwd(tmp_path):
+    skill = copy_green(tmp_path)
+    (skill / 'nested').mkdir()
+    (skill / 'nested/helper.py').write_text('import io\nio.open("../outside-state.json", "w")\n')
+    assert any(f['check'] == 8 and '../outside-state.json' in f['message']
+               for f in json.loads(run(skill).stdout))
+
+
+@pytest.mark.parametrize('expression', [
+    'open(Path("/tmp/state.json"), "w")',
+    'open(pathlib.Path("../state.json"), "w")',
+    'io.open(Path("/tmp") / "state.json", "w")',
+    'open(Path("..") / "state.json", "w")',
+    '(Path("/tmp") / "state.json").write_text("{}")',
+    '(Path("..") / "state.json").open("w")',
+    'Path("/tmp/state.json").open("w")',
+    'open(file=Path("/tmp", "state.json"), mode="w")',
+])
+def test_literal_path_write(tmp_path, expression):
+    skill = copy_green(tmp_path)
+    with (skill / 'main.py').open('a') as stream:
+        stream.write('import io\nimport pathlib\nfrom pathlib import Path\n' + expression + '\n')
+    assert any(f['check'] == 8 and 'write destination' in f['message']
+               for f in json.loads(run(skill).stdout))
+
+
+def test_pinned_dependency_disagreement_identity_ratchets(tmp_path):
+    skill = copy_green(tmp_path)
+    path = skill / 'clawhub.json'
+    manifest = json.loads(path.read_text())
+    manifest['requires']['pip'] = ['example==2.0']
+    path.write_text(json.dumps(manifest))
+    baseline = tmp_path / 'baseline.json'
+    assert run('--write-baseline', baseline, '--owner', 'test', '--reason', 'debt', skill).returncode == 0
+    assert run('--baseline', baseline, '--check-baseline', skill).returncode == 0
+    manifest['requires']['pip'].append('new-package==1.0')
+    path.write_text(json.dumps(manifest))
+    result = run('--baseline', baseline, '--check-baseline', skill)
+    assert result.returncode == 1
+    known = json.loads(baseline.read_text())
+    assert any(f['check'] == 5 and 'new-package' in f['message'] and '1.0' in f['message']
+               and f['message'] not in {old['message'] for old in known}
+               for f in json.loads(result.stdout))
+
+
+@pytest.mark.parametrize('code', [
+    'ns = {"atom": "http://www.w3.org/2005/Atom"}\n'
+    'for entry in root.findall(".//atom:entry", ns):\n'
+    '    title = entry.findtext("atom:title", "", ns)\n'
+    '    link = entry.find("atom:link", ns)\n',
+    'ns = {"custom": "https://namespace.example.org/schema"}\nroot.findall("custom:entry", ns)',
+    'tag = "{https://namespace.example.org/schema}entry"',
+    'root.iterfind("{https://namespace.example.org/schema}entry")',
+    'ET.register_namespace("custom", "https://namespace.example.org/schema")',
+    'namespace = "http://purl.org/dc/elements/1.1/"',
+    'namespace = "http://schemas.xmlsoap.org/soap/envelope/"',
+])
+def test_xml_namespace_is_not_outbound_host(tmp_path, code):
+    skill = copy_green(tmp_path)
+    with (skill / 'main.py').open('a') as stream:
+        stream.write('import xml.etree.ElementTree as ET\n' + code + '\n')
+    result = run(skill)
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize('code', [
+    'requests.get("http://www.w3.org/2005/Atom")',
+    'urlopen("http://purl.org/dc/elements/1.1/")',
+    'requests.get("http://schemas.xmlsoap.org/soap/envelope/")',
+    'requests.post("https://other.example.org", json={"ns": "http://www.w3.org/2005/Atom"})',
+])
+def test_namespace_host_network_call_is_reported(tmp_path, code):
+    skill = copy_green(tmp_path)
+    with (skill / 'main.py').open('a') as stream:
+        stream.write(code + '\n')
+    assert any(f['check'] == 7 and any(host in f['message'] for host in
+               ('www.w3.org', 'purl.org', 'schemas.xmlsoap.org'))
+               for f in json.loads(run(skill).stdout))
 
 
 @pytest.mark.parametrize('option', ['-rextra.txt', '-r extra.txt',

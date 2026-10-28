@@ -139,7 +139,7 @@
     "check": 5,
     "file": "skills/kalshi-weather-trader/clawhub.json",
     "line": 1,
-    "message": "requires.pip and requirements.txt disagree",
+    "message": "requires.pip and requirements.txt disagree: requires.pip=['simmer-sdk']; requirements.txt=[]",
     "owner": "splabs-ci",
     "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
   },
@@ -418,7 +418,7 @@
     "check": 5,
     "file": "skills/polymarket-ai-divergence/clawhub.json",
     "line": 1,
-    "message": "requires.pip and requirements.txt disagree",
+    "message": "requires.pip and requirements.txt disagree: requires.pip=['simmer-sdk>=0.11.1']; requirements.txt=[]",
     "owner": "splabs-ci",
     "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
   },
@@ -607,7 +607,7 @@
     "check": 5,
     "file": "skills/polymarket-btc-up-down-trader/clawhub.json",
     "line": 1,
-    "message": "requires.pip and requirements.txt disagree",
+    "message": "requires.pip and requirements.txt disagree: requires.pip=['simmer-sdk>=0.25.8']; requirements.txt=[]",
     "owner": "splabs-ci",
     "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
   },
@@ -706,7 +706,7 @@
     "check": 5,
     "file": "skills/polymarket-combo-builder/clawhub.json",
     "line": 1,
-    "message": "requires.pip and requirements.txt disagree",
+    "message": "requires.pip and requirements.txt disagree: requires.pip=['simmer-sdk>=0.20.3']; requirements.txt=['simmer-sdk>=0.20.1']",
     "owner": "splabs-ci",
     "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
   },
@@ -985,7 +985,7 @@
     "check": 5,
     "file": "skills/polymarket-dca-eval-trader/clawhub.json",
     "line": 1,
-    "message": "requires.pip and requirements.txt disagree",
+    "message": "requires.pip and requirements.txt disagree: requires.pip=['simmer-sdk>=0.17.0']; requirements.txt=[]",
     "owner": "splabs-ci",
     "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
   },
@@ -1084,7 +1084,7 @@
     "check": 5,
     "file": "skills/polymarket-elon-tweets/clawhub.json",
     "line": 1,
-    "message": "requires.pip and requirements.txt disagree",
+    "message": "requires.pip and requirements.txt disagree: requires.pip=['simmer-sdk>=0.11.1']; requirements.txt=[]",
     "owner": "splabs-ci",
     "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
   },
@@ -1273,7 +1273,7 @@
     "check": 5,
     "file": "skills/polymarket-fast-loop/clawhub.json",
     "line": 1,
-    "message": "requires.pip and requirements.txt disagree",
+    "message": "requires.pip and requirements.txt disagree: requires.pip=['simmer-sdk>=0.17.32']; requirements.txt=[]",
     "owner": "splabs-ci",
     "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
   },
@@ -1426,7 +1426,7 @@
     "check": 5,
     "file": "skills/polymarket-fast-scaler/clawhub.json",
     "line": 1,
-    "message": "requires.pip and requirements.txt disagree",
+    "message": "requires.pip and requirements.txt disagree: requires.pip=['simmer-sdk>=0.17.32']; requirements.txt=[]",
     "owner": "splabs-ci",
     "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
   },
@@ -1651,7 +1651,7 @@
     "check": 5,
     "file": "skills/polymarket-mert-sniper/clawhub.json",
     "line": 1,
-    "message": "requires.pip and requirements.txt disagree",
+    "message": "requires.pip and requirements.txt disagree: requires.pip=['simmer-sdk>=0.17.25']; requirements.txt=[]",
     "owner": "splabs-ci",
     "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
   },
@@ -1741,7 +1741,7 @@
     "check": 5,
     "file": "skills/polymarket-mil-aircraft-tracker/clawhub.json",
     "line": 1,
-    "message": "requires.pip and requirements.txt disagree",
+    "message": "requires.pip and requirements.txt disagree: requires.pip=['simmer-sdk']; requirements.txt=[]",
     "owner": "splabs-ci",
     "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
   },
@@ -1876,7 +1876,7 @@
     "check": 5,
     "file": "skills/polymarket-nothing-ever-happens/clawhub.json",
     "line": 1,
-    "message": "requires.pip and requirements.txt disagree",
+    "message": "requires.pip and requirements.txt disagree: requires.pip=['simmer-sdk']; requirements.txt=[]",
     "owner": "splabs-ci",
     "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
   },
@@ -1975,7 +1975,7 @@
     "check": 5,
     "file": "skills/polymarket-research/clawhub.json",
     "line": 1,
-    "message": "requires.pip and requirements.txt disagree",
+    "message": "requires.pip and requirements.txt disagree: requires.pip=['simmer-sdk']; requirements.txt=[]",
     "owner": "splabs-ci",
     "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
   },
@@ -2047,7 +2047,7 @@
     "check": 5,
     "file": "skills/polymarket-signal-sniper/clawhub.json",
     "line": 1,
-    "message": "requires.pip and requirements.txt disagree",
+    "message": "requires.pip and requirements.txt disagree: requires.pip=['simmer-sdk>=0.24.0']; requirements.txt=[]",
     "owner": "splabs-ci",
     "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
   },
@@ -2066,15 +2066,6 @@
     "file": "skills/polymarket-signal-sniper/signal_sniper.py",
     "line": 150,
     "message": "undeclared network host: rss.example.com",
-    "owner": "splabs-ci",
-    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
-  },
-  {
-    "skill": "polymarket-signal-sniper",
-    "check": 7,
-    "file": "skills/polymarket-signal-sniper/signal_sniper.py",
-    "line": 297,
-    "message": "undeclared network host: www.w3.org",
     "owner": "splabs-ci",
     "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
   },
@@ -2425,7 +2416,7 @@
     "check": 5,
     "file": "skills/polymarket-wallet-xray/clawhub.json",
     "line": 1,
-    "message": "requires.pip and requirements.txt disagree",
+    "message": "requires.pip and requirements.txt disagree: requires.pip=['simmer-sdk']; requirements.txt=[]",
     "owner": "splabs-ci",
     "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
   },
@@ -2884,7 +2875,7 @@
     "check": 5,
     "file": "skills/polymarket-weather-trader/clawhub.json",
     "line": 1,
-    "message": "requires.pip and requirements.txt disagree",
+    "message": "requires.pip and requirements.txt disagree: requires.pip=['simmer-sdk>=0.25.8']; requirements.txt=[]",
     "owner": "splabs-ci",
     "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
   },
@@ -3244,7 +3235,7 @@
     "check": 5,
     "file": "skills/prediction-trade-journal/clawhub.json",
     "line": 1,
-    "message": "requires.pip and requirements.txt disagree",
+    "message": "requires.pip and requirements.txt disagree: requires.pip=['simmer-sdk']; requirements.txt=[]",
     "owner": "splabs-ci",
     "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
   },
@@ -3298,7 +3289,7 @@
     "check": 5,
     "file": "skills/preflight/clawhub.json",
     "line": 1,
-    "message": "requires.pip and requirements.txt disagree",
+    "message": "requires.pip and requirements.txt disagree: requires.pip=['simmer-sdk>=0.17.13']; requirements.txt=[]",
     "owner": "splabs-ci",
     "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
   },
@@ -3334,7 +3325,7 @@
     "check": 5,
     "file": "skills/simmer-briefing/clawhub.json",
     "line": 1,
-    "message": "requires.pip and requirements.txt disagree",
+    "message": "requires.pip and requirements.txt disagree: requires.pip=['simmer-sdk']; requirements.txt=[]",
     "owner": "splabs-ci",
     "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
   },
@@ -3865,7 +3856,7 @@
     "check": 5,
     "file": "skills/simmer-skill-builder/clawhub.json",
     "line": 1,
-    "message": "requires.pip and requirements.txt disagree",
+    "message": "requires.pip and requirements.txt disagree: requires.pip=['simmer-sdk']; requirements.txt=[]",
     "owner": "splabs-ci",
     "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
   },
@@ -3991,7 +3982,7 @@
     "check": 5,
     "file": "skills/simmer-wallet-setup/clawhub.json",
     "line": 1,
-    "message": "requires.pip and requirements.txt disagree",
+    "message": "requires.pip and requirements.txt disagree: requires.pip=['simmer-sdk']; requirements.txt=[]",
     "owner": "splabs-ci",
     "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
   },
@@ -4207,7 +4198,7 @@
     "check": 5,
     "file": "skills/simmer-x402/clawhub.json",
     "line": 1,
-    "message": "requires.pip and requirements.txt disagree",
+    "message": "requires.pip and requirements.txt disagree: requires.pip=['x402[httpx,evm]']; requirements.txt=['eth-account>=0.10.0', 'httpx>=0.25.0', 'x402[httpx,evm]>=1.0.0']",
     "owner": "splabs-ci",
     "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
   },
@@ -4342,7 +4333,7 @@
     "check": 5,
     "file": "skills/simmer/clawhub.json",
     "line": 1,
-    "message": "requires.pip and requirements.txt disagree",
+    "message": "requires.pip and requirements.txt disagree: requires.pip=['simmer-sdk']; requirements.txt=[]",
     "owner": "splabs-ci",
     "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
   }

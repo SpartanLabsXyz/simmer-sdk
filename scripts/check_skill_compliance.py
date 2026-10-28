@@ -123,6 +123,45 @@ def literal(node: ast.AST):
     return node.value if isinstance(node, ast.Constant) else None
 
 
+def literal_path(node: ast.AST, aliases: dict[str, str]):
+    if isinstance(literal(node), str):
+        return literal(node)
+    if isinstance(node, ast.Call) and qualified(node.func, aliases) in {'Path', 'pathlib.Path'}:
+        parts = [literal(arg) for arg in node.args]
+        if parts and all(isinstance(part, str) for part in parts) and not node.keywords:
+            return str(Path(*parts))
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
+        left = literal_path(node.left, aliases)
+        right = literal(node.right)
+        if left is not None and isinstance(right, str) and not isinstance(node.left, ast.Constant):
+            return str(Path(left) / right)
+    return None
+
+
+XML_METHODS = {'find', 'findall', 'iterfind', 'findtext', 'register_namespace'}
+XML_HOSTS = {'www.w3.org', 'w3.org', 'purl.org', 'schemas.xmlsoap.org'}
+
+
+def namespace_url(node, host, parents, namespace_names):
+    """Ignore XML identifiers; conservatively retain URLs passed to other calls."""
+    context = False
+    child = node
+    while child in parents:
+        parent = parents[child]
+        if isinstance(parent, ast.Call):
+            if isinstance(parent.func, ast.Attribute) and parent.func.attr in XML_METHODS:
+                context = True
+            else:
+                return False
+        if isinstance(parent, ast.Dict) and child in parent.values:
+            assignment = parents.get(parent)
+            targets = (assignment.targets if isinstance(assignment, ast.Assign) else
+                       [assignment.target] if isinstance(assignment, ast.AnnAssign) else [])
+            context |= any(isinstance(t, ast.Name) and t.id in namespace_names for t in targets)
+        child = parent
+    return context or host in XML_HOSTS or bool(re.search(r'\{https?://[^}]+\}', node.value))
+
+
 def scoped_nodes(tree: ast.AST, aliases: dict[str, str] | None = None):
     """Visit in source order with a separate alias table for each lexical scope."""
     aliases = {} if aliases is None else aliases
@@ -326,6 +365,12 @@ def check_skill(source: Path) -> list[dict]:
             trees[file] = tree
             # Keep reporting order stable while resolving aliases in source order.
             scopes = {node: aliases.copy() for node, aliases in scoped_nodes(tree)}
+            parents = {child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
+            namespace_names = {arg.id for call in ast.walk(tree)
+                               if isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute)
+                               and call.func.attr in XML_METHODS
+                               for arg in [*call.args[1:], *(k.value for k in call.keywords if k.arg == 'namespaces')]
+                               if isinstance(arg, ast.Name)}
             for node in ast.walk(tree):
                 aliases = scopes[node]
                 if isinstance(node, ast.Call):
@@ -378,18 +423,18 @@ def check_skill(source: Path) -> list[dict]:
                         mode = node.args[0] if node.args else next(
                             (k.value for k in node.keywords if k.arg == 'mode'), None)
                         writes = node.func.attr != 'open' or isinstance(literal(mode), str) and any(c in literal(mode) for c in 'wax+')
-                        if writes and isinstance(receiver, ast.Call) and qualified(receiver.func, aliases) in {'Path', 'pathlib.Path'} and receiver.args:
-                            destination = literal(receiver.args[0])
+                        if writes:
+                            destination = literal_path(receiver, aliases)
                     elif name in {'open', 'io.open'}:
                         mode = node.args[1] if len(node.args) > 1 else next(
                             (k.value for k in node.keywords if k.arg == 'mode'), None)
                         if isinstance(literal(mode), str) and any(c in literal(mode) for c in 'wax+'):
-                            destination = literal(node.args[0]) if node.args else next(
-                                (literal(k.value) for k in node.keywords if k.arg == 'file'), None)
+                            destination = literal_path(node.args[0], aliases) if node.args else next(
+                                (literal_path(k.value, aliases) for k in node.keywords if k.arg == 'file'), None)
                     if isinstance(destination, str):
                         target = Path(destination)
-                        resolved = (source / file).parent / target
-                        if not resolved.resolve().is_relative_to(source.resolve()):
+                        if any(not (base / target).resolve().is_relative_to(source.resolve())
+                               for base in (source, (source / file).parent)):
                             kind = 'absolute' if target.is_absolute() else 'escaping'
                             add(8, file, node.lineno, f'{kind} write destination needs review: {destination}')
                 elif isinstance(node, ast.Subscript) and isinstance(node.ctx, ast.Load) and qualified(node.value, aliases) == 'os.environ':
@@ -404,7 +449,8 @@ def check_skill(source: Path) -> list[dict]:
                             host = urlsplit(match[0]).hostname
                         except ValueError:
                             continue
-                        if host and normalize_host(host) not in hosts:
+                        if (host and normalize_host(host) not in hosts
+                                and not namespace_url(node, normalize_host(host), parents, namespace_names)):
                             add(7, file, node.lineno, f'undeclared network host: {normalize_host(host)}')
                     if re.search(r'\bsudo\b', node.value) or PERSIST.search(node.value):
                         add(8, file, node.lineno, 'persistence or privilege command/path')
@@ -463,8 +509,13 @@ def check_skill(source: Path) -> list[dict]:
                 if not isinstance(package, str) or not PIN.fullmatch(package):
                     add(5, file, line, f'dependency must use an exact == pin: {package}')
         normalize = lambda value: re.sub(r'[-_.]+', '-', value.split('==')[0]).lower() + '==' + value.partition('==')[2]
-        if {normalize(p) for _, p in requirement_lines} != {normalize(p) for p in pip if isinstance(p, str)}:
-            add(5, 'clawhub.json', 1, 'requires.pip and requirements.txt disagree')
+        required_pins = {normalize(p) for _, p in requirement_lines}
+        manifest_pins = {normalize(p) for p in pip if isinstance(p, str)}
+        if required_pins != manifest_pins:
+            required = sorted(p for _, p in requirement_lines if normalize(p) not in manifest_pins)
+            declared = sorted(p for p in pip if isinstance(p, str) and normalize(p) not in required_pins)
+            add(5, 'clawhub.json', 1, 'requires.pip and requirements.txt disagree: '
+                f'requires.pip={declared}; requirements.txt={required}')
         logical_doc = re.sub(r'\\\n\s*', ' ', doc)
         for line, value in enumerate(logical_doc.splitlines(), 1):
             if re.search(r'\bcurl\b[^\n|]*\|\s*(?:(?:/[^\s|]+/)?env\s+(?:[^|\n]*\s+)?)?(?:/[^\s|]+/)?(?:sh|bash|zsh|dash|ksh)\b', value) or 'git+' in value:
