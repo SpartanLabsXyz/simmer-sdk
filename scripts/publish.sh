@@ -137,15 +137,24 @@ echo "   Files: $FILE_COUNT"
     echo "   - ${f#./} ($size bytes)"
   done )
 
+python3 "$(dirname "$0")/check_clawhub_preflight.py" "$TMP_DIR" "$NAME" "$VERSION" "$CLAWHUB_VERSION"
+
 # Publish
 echo "   Publishing..."
 # `|| EXIT_CODE=$?` keeps set -e from killing the script before the
 # error report below prints (a bare `clawhub` binary missing from PATH died
 # silently at exactly this line on 2026-06-12).
 EXIT_CODE=0
-OUTPUT=$(npx "clawhub@$CLAWHUB_VERSION" publish "$TMP_DIR" --version "$VERSION" --owner simmer --slug "$NAME" 2>&1) || EXIT_CODE=$?
+if [ -n "${CLAWHUB_RECEIPT_DIR:-}" ]; then
+  OUTPUT=$(npx "clawhub@$CLAWHUB_VERSION" publish "$TMP_DIR" --version "$VERSION" --owner simmer --slug "$NAME" --json) || EXIT_CODE=$?
+else
+  OUTPUT=$(npx "clawhub@$CLAWHUB_VERSION" publish "$TMP_DIR" --version "$VERSION" --owner simmer --slug "$NAME" 2>&1) || EXIT_CODE=$?
+fi
 
 if [ $EXIT_CODE -eq 0 ]; then
+  if [ -n "${CLAWHUB_RECEIPT_DIR:-}" ]; then
+    printf '%s\n' "$OUTPUT" | python3 "$(dirname "$0")/clawhub_publish_receipt.py" "$CLAWHUB_RECEIPT_DIR" "$NAME" "$VERSION"
+  fi
   echo "✅ Published $NAME@$VERSION"
   echo "   $OUTPUT"
 

@@ -78,6 +78,9 @@ def block_network(monkeypatch):
 
 
 def write_skill(root, name="example", frontmatter="", config=None, version="1.2.0"):
+    baseline = root / "scripts" / "skill-compliance-baseline.json"
+    baseline.parent.mkdir(exist_ok=True)
+    baseline.write_text("[]")
     directory = root / "skills" / name
     directory.mkdir(parents=True)
     (directory / "SKILL.md").write_text(

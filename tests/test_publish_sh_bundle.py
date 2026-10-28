@@ -60,6 +60,8 @@ def test_publish_bundle_excludes_tests_and_bytecode(tmp_path):
     npx = bin_dir / "npx"
     npx.write_text(
         '#!/bin/sh\n'
+        'case " $* " in *" --dry-run "*)\n'
+        '  echo \'{"ok":true,"status":"would-publish","slug":"bundle-test","version":"1.0.0"}\'; exit 0;; esac\n'
         'case "$2" in\n'
         '  inspect) exit 0;;\n'
         '  publish) cp -R "$3" "$BUNDLE_COPY" && cd "$3" && find . -type f > "$BUNDLE_FILES";;\n'
