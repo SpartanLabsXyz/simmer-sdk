@@ -1,3 +1,4 @@
+import importlib.util
 import os
 from pathlib import Path
 import shutil
@@ -5,11 +6,12 @@ import subprocess
 
 import pytest
 
-from scripts.check_skill_compliance import stage_bundle
-
-
 BASH = shutil.which("bash")
 ROOT = Path(__file__).resolve().parents[1]
+spec = importlib.util.spec_from_file_location("skill_bundle", ROOT / "scripts" / "skill_bundle.py")
+skill_bundle = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(skill_bundle)
+stage_bundle = skill_bundle.stage_bundle
 pytestmark = pytest.mark.skipif(BASH is None, reason="bash is required")
 
 
