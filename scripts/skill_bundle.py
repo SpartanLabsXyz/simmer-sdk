@@ -13,7 +13,7 @@ def stage_bundle(source: Path, destination: Path) -> None:
             continue
         if path.is_dir() and path.name in {'tests', '__pycache__'}:
             shutil.rmtree(path)
-        elif path.is_file() and path.suffix in {'.pyc', '.pyo'}:
+        elif path.is_file() and path.name.endswith(('.pyc', '.pyo')):
             path.unlink()
     for path in destination.glob('.*'):
         if path.is_symlink():

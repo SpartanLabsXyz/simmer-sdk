@@ -34,6 +34,8 @@ def test_publish_bundle_excludes_tests_and_bytecode(tmp_path):
         "sub/__pycache__/helper.pyc": "bytecode",
         "loose.pyc": "bytecode",
         "loose.pyo": "bytecode",
+        "sub/.pyc": "bytecode",
+        "sub/.pyo": "bytecode",
         "sub/tests/test_nested.py": "def test_nested(): pass\n",
         ".env": "fixture",
         ".hidden/config": "fixture",
@@ -84,7 +86,9 @@ def test_publish_bundle_excludes_tests_and_bytecode(tmp_path):
     assert Path("sub/helper.py") in bundled
     assert not any("tests" in path.parts for path in bundled), bundled
     assert not any("__pycache__" in path.parts for path in bundled), bundled
-    assert not any(path.suffix in {".pyc", ".pyo"} for path in bundled), bundled
+    assert Path("sub/.pyc") not in bundled
+    assert Path("sub/.pyo") not in bundled
+    assert not any(path.name.endswith((".pyc", ".pyo")) for path in bundled), bundled
     assert all((skill / name).exists() for name in files)
     assert bundle_contents(bundle_copy) == bundle_contents(expected_bundle)
     assert Path("sub/.kept") in bundled
