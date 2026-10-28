@@ -24,35 +24,17 @@ import sys
 import tempfile
 from urllib.parse import urlsplit
 
+if __package__:
+    from .skill_bundle import stage_bundle
+else:
+    from skill_bundle import stage_bundle
+
 
 FIELDS = ('skill', 'check', 'file', 'line', 'message')
 PIN = re.compile(r'[A-Za-z0-9][A-Za-z0-9_.-]*(?:\[[A-Za-z0-9_,.-]+\])?==[A-Za-z0-9][A-Za-z0-9_.+!-]*(?:\s*;.*)?$')
 URL = re.compile(r'(?:https?|wss?)://[^\s<>\[\]{}()"\x27`,;]+')
 HOST = re.compile(r'(?<![\w.-])(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}(?![\w.-])')
 PERSIST = re.compile(r'(?i)(?:\bcrontab\b|/etc/cron|\.config/systemd|/systemd/system|\blaunchctl\b|\bsystemctl\b|\blaunchd\b|LaunchAgents|LaunchDaemons|(?:^|/)(?:\.bashrc|\.bash_profile|\.bash_login|\.zshrc|\.zprofile|\.zshenv|\.profile)(?:\b|$))')
-
-
-def stage_bundle(source: Path, destination: Path) -> None:
-    """Mirror publish.sh: copy, prune tests/caches/bytecode, remove root dotfiles.
-
-    Kept local until sdk #449 shares this with publishing. Do not additionally
-    prune forbidden artifacts: check 1 must see anything publish.sh would ship.
-    """
-    shutil.copytree(source, destination, symlinks=True)
-    for path in sorted(destination.rglob('*'), key=lambda p: len(p.parts)):
-        if path.is_symlink() or not path.exists():
-            continue
-        if path.is_dir() and path.name in {'tests', '__pycache__'}:
-            shutil.rmtree(path)
-        elif path.is_file() and path.suffix in {'.pyc', '.pyo'}:
-            path.unlink()
-    for path in destination.glob('.*'):
-        if path.is_symlink():
-            path.unlink()
-        elif path.is_dir():
-            shutil.rmtree(path)
-        else:
-            path.unlink()
 
 
 def frontmatter_env(text: str) -> dict[str, dict]:
