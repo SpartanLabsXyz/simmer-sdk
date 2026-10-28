@@ -1,6 +1,6 @@
 {
   "name": "simmer-mcp",
-  "version": "3.5.12",
+  "version": "3.5.13",
   "description": "MCP server for Simmer — skill discovery, execution, autoresearch, and AI market tools",
   "type": "module",
   "repository": {
@@ -42,7 +42,7 @@
     "node": ">=22.6.0"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "zod": "^4.4.3"
   },
   "devDependencies": {
