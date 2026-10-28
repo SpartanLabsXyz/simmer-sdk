@@ -1,0 +1,16 @@
+{
+  "envVars": [
+    {
+      "name": "FIXTURE_KEY",
+      "purpose": "Fixture authentication"
+    }
+  ],
+  "requires": {
+    "pip": [
+      "example==1.2.3"
+    ]
+  },
+  "automaton": {
+    "entrypoint": "main.py"
+  }
+}

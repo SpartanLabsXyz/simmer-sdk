@@ -67,6 +67,61 @@ jobs:
           SIMMER_WEBSITE_SYNC_GITHUB_TOKEN: ${{ secrets.SIMMER_WEBSITE_SYNC_GITHUB_TOKEN }}
         run: python3 scripts/check-skill-governance.py
 
+  skill-compliance:
+    # Week-one rollout: annotations are visible, but findings do not block PRs.
+    if: github.event_name == 'pull_request'
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Report compliance for changed skills and ratchet baseline
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          python - <<'PYCODE'
+          import json
+          import os
+          from pathlib import Path
+          import subprocess
+          import sys
+
+          baseline = "scripts/skill-compliance-baseline.json"
+          base = os.environ["BASE_SHA"]
+          changed = subprocess.check_output(
+              ["git", "diff", "--name-only", "-z", base, "HEAD", "--", "skills/"]
+          ).decode().split("\0")
+          skills = sorted({str(Path(*Path(p).parts[:2])) for p in changed
+                           if len(Path(p).parts) >= 3
+                           and Path(*Path(p).parts[:2]).is_dir()})
+          # Baseline entries may be removed, never added after introduction.
+          previous = subprocess.run(["git", "show", f"{base}:{baseline}"],
+                                    capture_output=True, text=True)
+          status = 0
+          if previous.returncode == 0:
+              fields = ("skill", "check", "file", "line", "message")
+              keys = lambda entries: {tuple(f[k] for k in fields) for f in entries}
+              if keys(json.loads(Path(baseline).read_text())) - keys(json.loads(previous.stdout)):
+                  print("::error::Compliance baseline may only shrink")
+                  status = 1
+          if skills:
+              result = subprocess.run([sys.executable, "scripts/check_skill_compliance.py",
+                                       "--baseline", baseline, "--check-baseline", *skills])
+              status = max(status, result.returncode)
+          else:
+              print("No changed skill directories to scan")
+          sys.exit(status)
+          PYCODE
+
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 10

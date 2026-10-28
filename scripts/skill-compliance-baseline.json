@@ -1,0 +1,4340 @@
+[
+  {
+    "skill": "kalshi-weather-trader",
+    "check": 2,
+    "file": "skills/kalshi-weather-trader/SKILL.md",
+    "line": 1,
+    "message": "SOLANA_PRIVATE_KEY is declared but unused by bundled code",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "kalshi-weather-trader",
+    "check": 2,
+    "file": "skills/kalshi-weather-trader/clawhub.json",
+    "line": 1,
+    "message": "SIMMER_WEATHER_ENTRY_THRESHOLD is declared but unused by bundled code",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "kalshi-weather-trader",
+    "check": 2,
+    "file": "skills/kalshi-weather-trader/clawhub.json",
+    "line": 1,
+    "message": "SIMMER_WEATHER_EXIT_THRESHOLD is declared but unused by bundled code",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "kalshi-weather-trader",
+    "check": 2,
+    "file": "skills/kalshi-weather-trader/clawhub.json",
+    "line": 1,
+    "message": "SIMMER_WEATHER_MIN_ENTRY_PRICE is declared but unused by bundled code",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "kalshi-weather-trader",
+    "check": 2,
+    "file": "skills/kalshi-weather-trader/clawhub.json",
+    "line": 1,
+    "message": "SIMMER_WEATHER_MIN_HOURS_TO_RESOLVE is declared but unused by bundled code",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "kalshi-weather-trader",
+    "check": 2,
+    "file": "skills/kalshi-weather-trader/clawhub.json",
+    "line": 1,
+    "message": "SOLANA_PRIVATE_KEY is declared but unused by bundled code",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "kalshi-weather-trader",
+    "check": 2,
+    "file": "skills/kalshi-weather-trader/weather_trader.py",
+    "line": 80,
+    "message": "dynamic environment name cannot be audited",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "kalshi-weather-trader",
+    "check": 2,
+    "file": "skills/kalshi-weather-trader/weather_trader.py",
+    "line": 104,
+    "message": "TRADING_VENUE is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "kalshi-weather-trader",
+    "check": 2,
+    "file": "skills/kalshi-weather-trader/weather_trader.py",
+    "line": 104,
+    "message": "TRADING_VENUE is read but absent from clawhub.json envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "kalshi-weather-trader",
+    "check": 2,
+    "file": "skills/kalshi-weather-trader/weather_trader.py",
+    "line": 122,
+    "message": "AUTOMATON_MAX_BET is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "kalshi-weather-trader",
+    "check": 2,
+    "file": "skills/kalshi-weather-trader/weather_trader.py",
+    "line": 122,
+    "message": "AUTOMATON_MAX_BET is read but absent from clawhub.json envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "kalshi-weather-trader",
+    "check": 2,
+    "file": "skills/kalshi-weather-trader/weather_trader.py",
+    "line": 1070,
+    "message": "AUTOMATON_MANAGED is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "kalshi-weather-trader",
+    "check": 2,
+    "file": "skills/kalshi-weather-trader/weather_trader.py",
+    "line": 1070,
+    "message": "AUTOMATON_MANAGED is read but absent from clawhub.json envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "kalshi-weather-trader",
+    "check": 5,
+    "file": "skills/kalshi-weather-trader/SKILL.md",
+    "line": 35,
+    "message": "pip install must use exact == pins: simmer-sdk",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "kalshi-weather-trader",
+    "check": 5,
+    "file": "skills/kalshi-weather-trader/clawhub.json",
+    "line": 1,
+    "message": "dependency must use an exact == pin: simmer-sdk",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "kalshi-weather-trader",
+    "check": 5,
+    "file": "skills/kalshi-weather-trader/clawhub.json",
+    "line": 1,
+    "message": "requires.pip and requirements.txt disagree: requires.pip=['simmer-sdk']; requirements.txt=[]",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "kalshi-weather-trader",
+    "check": 7,
+    "file": "skills/kalshi-weather-trader/weather_trader.py",
+    "line": 85,
+    "message": "undeclared network host: api.weather.gov",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "nansen-copytrader-overlay",
+    "check": 2,
+    "file": "skills/nansen-copytrader-overlay/nansen_adapter.py",
+    "line": 54,
+    "message": "NANSEN_API_BASE is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "nansen-copytrader-overlay",
+    "check": 2,
+    "file": "skills/nansen-copytrader-overlay/nansen_adapter.py",
+    "line": 141,
+    "message": "NANSEN_API_KEY is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "nansen-copytrader-overlay",
+    "check": 2,
+    "file": "skills/nansen-copytrader-overlay/nansen_adapter.py",
+    "line": 293,
+    "message": "NANSEN_USER_AGENT is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "nansen-copytrader-overlay",
+    "check": 3,
+    "file": "skills/nansen-copytrader-overlay/SKILL.md",
+    "line": 37,
+    "message": "documented flag absent from entrypoint argparse: --live",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "nansen-copytrader-overlay",
+    "check": 3,
+    "file": "skills/nansen-copytrader-overlay/SKILL.md",
+    "line": 61,
+    "message": "documented flag absent from entrypoint argparse: --max-credits",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "nansen-copytrader-overlay",
+    "check": 3,
+    "file": "skills/nansen-copytrader-overlay/SKILL.md",
+    "line": 61,
+    "message": "documented flag absent from entrypoint argparse: --max-wallets",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "nansen-copytrader-overlay",
+    "check": 3,
+    "file": "skills/nansen-copytrader-overlay/SKILL.md",
+    "line": 93,
+    "message": "documented flag absent from entrypoint argparse: --market-id",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "nansen-copytrader-overlay",
+    "check": 3,
+    "file": "skills/nansen-copytrader-overlay/SKILL.md",
+    "line": 94,
+    "message": "documented flag absent from entrypoint argparse: --leaders",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "nansen-copytrader-overlay",
+    "check": 3,
+    "file": "skills/nansen-copytrader-overlay/SKILL.md",
+    "line": 95,
+    "message": "documented flag absent from entrypoint argparse: --top-n",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "nansen-copytrader-overlay",
+    "check": 3,
+    "file": "skills/nansen-copytrader-overlay/SKILL.md",
+    "line": 110,
+    "message": "documented flag absent from entrypoint argparse: --leaders",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "nansen-copytrader-overlay",
+    "check": 3,
+    "file": "skills/nansen-copytrader-overlay/SKILL.md",
+    "line": 110,
+    "message": "documented flag absent from entrypoint argparse: --market-id",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "nansen-copytrader-overlay",
+    "check": 3,
+    "file": "skills/nansen-copytrader-overlay/SKILL.md",
+    "line": 110,
+    "message": "documented flag absent from entrypoint argparse: --worldcup",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "nansen-copytrader-overlay",
+    "check": 3,
+    "file": "skills/nansen-copytrader-overlay/SKILL.md",
+    "line": 116,
+    "message": "documented flag absent from entrypoint argparse: --market-id",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "nansen-copytrader-overlay",
+    "check": 3,
+    "file": "skills/nansen-copytrader-overlay/SKILL.md",
+    "line": 211,
+    "message": "documented flag absent from entrypoint argparse: --max-credits",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "nansen-copytrader-overlay",
+    "check": 3,
+    "file": "skills/nansen-copytrader-overlay/SKILL.md",
+    "line": 211,
+    "message": "documented flag absent from entrypoint argparse: --max-wallets",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "nansen-copytrader-overlay",
+    "check": 3,
+    "file": "skills/nansen-copytrader-overlay/SKILL.md",
+    "line": 217,
+    "message": "documented flag absent from entrypoint argparse: --live",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "nansen-copytrader-overlay",
+    "check": 5,
+    "file": "skills/nansen-copytrader-overlay/SKILL.md",
+    "line": 55,
+    "message": "pip install must use exact == pins: pytest",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-ai-divergence",
+    "check": 2,
+    "file": "skills/polymarket-ai-divergence/ai_divergence.py",
+    "line": 49,
+    "message": "AUTOMATON_MAX_BET is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-ai-divergence",
+    "check": 2,
+    "file": "skills/polymarket-ai-divergence/ai_divergence.py",
+    "line": 49,
+    "message": "AUTOMATON_MAX_BET is read but absent from clawhub.json envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-ai-divergence",
+    "check": 2,
+    "file": "skills/polymarket-ai-divergence/ai_divergence.py",
+    "line": 79,
+    "message": "SIMMER_API_KEY is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-ai-divergence",
+    "check": 2,
+    "file": "skills/polymarket-ai-divergence/ai_divergence.py",
+    "line": 84,
+    "message": "TRADING_VENUE is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-ai-divergence",
+    "check": 2,
+    "file": "skills/polymarket-ai-divergence/ai_divergence.py",
+    "line": 84,
+    "message": "TRADING_VENUE is read but absent from clawhub.json envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-ai-divergence",
+    "check": 2,
+    "file": "skills/polymarket-ai-divergence/ai_divergence.py",
+    "line": 630,
+    "message": "AUTOMATON_MANAGED is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-ai-divergence",
+    "check": 2,
+    "file": "skills/polymarket-ai-divergence/ai_divergence.py",
+    "line": 630,
+    "message": "AUTOMATON_MANAGED is read but absent from clawhub.json envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-ai-divergence",
+    "check": 2,
+    "file": "skills/polymarket-ai-divergence/clawhub.json",
+    "line": 1,
+    "message": "WALLET_PRIVATE_KEY is declared but unused by bundled code",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-ai-divergence",
+    "check": 2,
+    "file": "skills/polymarket-ai-divergence/scripts/status.py",
+    "line": 18,
+    "message": "SIMMER_API_URL is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-ai-divergence",
+    "check": 2,
+    "file": "skills/polymarket-ai-divergence/scripts/status.py",
+    "line": 18,
+    "message": "SIMMER_API_URL is read but absent from clawhub.json envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-ai-divergence",
+    "check": 5,
+    "file": "skills/polymarket-ai-divergence/SKILL.md",
+    "line": 32,
+    "message": "pip install must use exact == pins: simmer-sdk",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-ai-divergence",
+    "check": 5,
+    "file": "skills/polymarket-ai-divergence/clawhub.json",
+    "line": 1,
+    "message": "dependency must use an exact == pin: simmer-sdk>=0.11.1",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-ai-divergence",
+    "check": 5,
+    "file": "skills/polymarket-ai-divergence/clawhub.json",
+    "line": 1,
+    "message": "requires.pip and requirements.txt disagree: requires.pip=['simmer-sdk>=0.11.1']; requirements.txt=[]",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-ai-divergence",
+    "check": 7,
+    "file": "skills/polymarket-ai-divergence/gamma_api.py",
+    "line": 36,
+    "message": "undeclared network host: gamma-api.polymarket.com",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-ai-divergence",
+    "check": 7,
+    "file": "skills/polymarket-ai-divergence/scripts/status.py",
+    "line": 18,
+    "message": "undeclared network host: api.simmer.markets",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-btc-up-down-trader",
+    "check": 2,
+    "file": "skills/polymarket-btc-up-down-trader/clawhub.json",
+    "line": 1,
+    "message": "WALLET_PRIVATE_KEY is declared but unused by bundled code",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-btc-up-down-trader",
+    "check": 2,
+    "file": "skills/polymarket-btc-up-down-trader/strategy.py",
+    "line": 162,
+    "message": "AUTOMATON_MAX_BET is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-btc-up-down-trader",
+    "check": 2,
+    "file": "skills/polymarket-btc-up-down-trader/strategy.py",
+    "line": 162,
+    "message": "AUTOMATON_MAX_BET is read but absent from clawhub.json envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-btc-up-down-trader",
+    "check": 2,
+    "file": "skills/polymarket-btc-up-down-trader/strategy.py",
+    "line": 255,
+    "message": "SIMMER_REPLAY is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-btc-up-down-trader",
+    "check": 2,
+    "file": "skills/polymarket-btc-up-down-trader/strategy.py",
+    "line": 255,
+    "message": "SIMMER_REPLAY is read but absent from clawhub.json envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-btc-up-down-trader",
+    "check": 2,
+    "file": "skills/polymarket-btc-up-down-trader/strategy.py",
+    "line": 267,
+    "message": "SIMMER_REPLAY_NOW is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-btc-up-down-trader",
+    "check": 2,
+    "file": "skills/polymarket-btc-up-down-trader/strategy.py",
+    "line": 267,
+    "message": "SIMMER_REPLAY_NOW is read but absent from clawhub.json envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-btc-up-down-trader",
+    "check": 2,
+    "file": "skills/polymarket-btc-up-down-trader/strategy.py",
+    "line": 482,
+    "message": "SIMMER_API_KEY is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-btc-up-down-trader",
+    "check": 2,
+    "file": "skills/polymarket-btc-up-down-trader/strategy.py",
+    "line": 1222,
+    "message": "AUTOMATON_MANAGED is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-btc-up-down-trader",
+    "check": 2,
+    "file": "skills/polymarket-btc-up-down-trader/strategy.py",
+    "line": 1222,
+    "message": "AUTOMATON_MANAGED is read but absent from clawhub.json envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-btc-up-down-trader",
+    "check": 3,
+    "file": "skills/polymarket-btc-up-down-trader/SKILL.md",
+    "line": 86,
+    "message": "documented flag absent from entrypoint argparse: --name",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-btc-up-down-trader",
+    "check": 3,
+    "file": "skills/polymarket-btc-up-down-trader/SKILL.md",
+    "line": 87,
+    "message": "documented flag absent from entrypoint argparse: --cron",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-btc-up-down-trader",
+    "check": 3,
+    "file": "skills/polymarket-btc-up-down-trader/SKILL.md",
+    "line": 88,
+    "message": "documented flag absent from entrypoint argparse: --session",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-btc-up-down-trader",
+    "check": 3,
+    "file": "skills/polymarket-btc-up-down-trader/SKILL.md",
+    "line": 89,
+    "message": "documented flag absent from entrypoint argparse: --message",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-btc-up-down-trader",
+    "check": 3,
+    "file": "skills/polymarket-btc-up-down-trader/SKILL.md",
+    "line": 209,
+    "message": "documented flag absent from entrypoint argparse: --min-volume",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-btc-up-down-trader",
+    "check": 3,
+    "file": "skills/polymarket-btc-up-down-trader/SKILL.md",
+    "line": 209,
+    "message": "documented flag absent from entrypoint argparse: --q",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-btc-up-down-trader",
+    "check": 5,
+    "file": "skills/polymarket-btc-up-down-trader/SKILL.md",
+    "line": 43,
+    "message": "pip install must use exact == pins: simmer-sdk",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-btc-up-down-trader",
+    "check": 5,
+    "file": "skills/polymarket-btc-up-down-trader/clawhub.json",
+    "line": 1,
+    "message": "dependency must use an exact == pin: simmer-sdk>=0.25.8",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-btc-up-down-trader",
+    "check": 5,
+    "file": "skills/polymarket-btc-up-down-trader/clawhub.json",
+    "line": 1,
+    "message": "requires.pip and requirements.txt disagree: requires.pip=['simmer-sdk>=0.25.8']; requirements.txt=[]",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-btc-up-down-trader",
+    "check": 7,
+    "file": "skills/polymarket-btc-up-down-trader/strategy.py",
+    "line": 142,
+    "message": "undeclared network host: clob.polymarket.com",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-btc-up-down-trader",
+    "check": 7,
+    "file": "skills/polymarket-btc-up-down-trader/strategy.py",
+    "line": 143,
+    "message": "undeclared network host: gamma-api.polymarket.com",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-btc-up-down-trader",
+    "check": 7,
+    "file": "skills/polymarket-btc-up-down-trader/strategy.py",
+    "line": 504,
+    "message": "undeclared network host: api.binance.com",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-combo-builder",
+    "check": 2,
+    "file": "skills/polymarket-combo-builder/clawhub.json",
+    "line": 1,
+    "message": "WALLET_PRIVATE_KEY is declared but unused by bundled code",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-combo-builder",
+    "check": 2,
+    "file": "skills/polymarket-combo-builder/combo_builder.py",
+    "line": 30,
+    "message": "COMBO_CONFIG is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-combo-builder",
+    "check": 2,
+    "file": "skills/polymarket-combo-builder/combo_builder.py",
+    "line": 30,
+    "message": "COMBO_CONFIG is read but absent from clawhub.json envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-combo-builder",
+    "check": 2,
+    "file": "skills/polymarket-combo-builder/combo_builder.py",
+    "line": 92,
+    "message": "SIMMER_API_KEY is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-combo-builder",
+    "check": 5,
+    "file": "skills/polymarket-combo-builder/clawhub.json",
+    "line": 1,
+    "message": "dependency must use an exact == pin: requests>=2.28",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-combo-builder",
+    "check": 5,
+    "file": "skills/polymarket-combo-builder/clawhub.json",
+    "line": 1,
+    "message": "dependency must use an exact == pin: simmer-sdk>=0.20.3",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-combo-builder",
+    "check": 5,
+    "file": "skills/polymarket-combo-builder/clawhub.json",
+    "line": 1,
+    "message": "dependency must use an exact == pin: websockets>=12.0",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-combo-builder",
+    "check": 5,
+    "file": "skills/polymarket-combo-builder/clawhub.json",
+    "line": 1,
+    "message": "requires.pip and requirements.txt disagree: requires.pip=['simmer-sdk>=0.20.3']; requirements.txt=['simmer-sdk>=0.20.1']",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-combo-builder",
+    "check": 5,
+    "file": "skills/polymarket-combo-builder/requirements.txt",
+    "line": 1,
+    "message": "dependency must use an exact == pin: simmer-sdk>=0.20.1",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-combo-builder",
+    "check": 5,
+    "file": "skills/polymarket-combo-builder/requirements.txt",
+    "line": 2,
+    "message": "dependency must use an exact == pin: requests>=2.28",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-combo-builder",
+    "check": 5,
+    "file": "skills/polymarket-combo-builder/requirements.txt",
+    "line": 3,
+    "message": "dependency must use an exact == pin: websockets>=12.0",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-combo-builder",
+    "check": 7,
+    "file": "skills/polymarket-combo-builder/combo_builder.py",
+    "line": 135,
+    "message": "undeclared network host: polygonscan.com",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-copytrading",
+    "check": 2,
+    "file": "skills/polymarket-copytrading/clawhub.json",
+    "line": 1,
+    "message": "WALLET_PRIVATE_KEY is declared but unused by bundled code",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-copytrading",
+    "check": 2,
+    "file": "skills/polymarket-copytrading/copytrading_trader.py",
+    "line": 96,
+    "message": "COPYTRADING_FORCE_SIMMER_VENUE is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-copytrading",
+    "check": 2,
+    "file": "skills/polymarket-copytrading/copytrading_trader.py",
+    "line": 96,
+    "message": "COPYTRADING_FORCE_SIMMER_VENUE is read but absent from clawhub.json envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-copytrading",
+    "check": 2,
+    "file": "skills/polymarket-copytrading/copytrading_trader.py",
+    "line": 109,
+    "message": "TRADING_VENUE is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-copytrading",
+    "check": 2,
+    "file": "skills/polymarket-copytrading/copytrading_trader.py",
+    "line": 109,
+    "message": "TRADING_VENUE is read but absent from clawhub.json envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-copytrading",
+    "check": 2,
+    "file": "skills/polymarket-copytrading/copytrading_trader.py",
+    "line": 127,
+    "message": "SIMMER_API_KEY is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-copytrading",
+    "check": 2,
+    "file": "skills/polymarket-copytrading/copytrading_trader.py",
+    "line": 145,
+    "message": "AUTOMATON_MAX_BET is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-copytrading",
+    "check": 2,
+    "file": "skills/polymarket-copytrading/copytrading_trader.py",
+    "line": 145,
+    "message": "AUTOMATON_MAX_BET is read but absent from clawhub.json envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-copytrading",
+    "check": 2,
+    "file": "skills/polymarket-copytrading/copytrading_trader.py",
+    "line": 176,
+    "message": "REACTOR_POLL_INTERVAL_SECONDS is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-copytrading",
+    "check": 2,
+    "file": "skills/polymarket-copytrading/copytrading_trader.py",
+    "line": 176,
+    "message": "REACTOR_POLL_INTERVAL_SECONDS is read but absent from clawhub.json envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-copytrading",
+    "check": 2,
+    "file": "skills/polymarket-copytrading/copytrading_trader.py",
+    "line": 195,
+    "message": "REACTOR_PRICE_BUFFER is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-copytrading",
+    "check": 2,
+    "file": "skills/polymarket-copytrading/copytrading_trader.py",
+    "line": 195,
+    "message": "REACTOR_PRICE_BUFFER is read but absent from clawhub.json envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-copytrading",
+    "check": 2,
+    "file": "skills/polymarket-copytrading/copytrading_trader.py",
+    "line": 583,
+    "message": "AUTOMATON_MANAGED is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-copytrading",
+    "check": 2,
+    "file": "skills/polymarket-copytrading/copytrading_trader.py",
+    "line": 583,
+    "message": "AUTOMATON_MANAGED is read but absent from clawhub.json envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-copytrading",
+    "check": 3,
+    "file": "skills/polymarket-copytrading/SKILL.md",
+    "line": 220,
+    "message": "documented flag absent from entrypoint argparse: --cron",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-copytrading",
+    "check": 3,
+    "file": "skills/polymarket-copytrading/SKILL.md",
+    "line": 220,
+    "message": "documented flag absent from entrypoint argparse: --name",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-copytrading",
+    "check": 3,
+    "file": "skills/polymarket-copytrading/SKILL.md",
+    "line": 220,
+    "message": "documented flag absent from entrypoint argparse: --session",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-copytrading",
+    "check": 3,
+    "file": "skills/polymarket-copytrading/SKILL.md",
+    "line": 220,
+    "message": "documented flag absent from entrypoint argparse: --tz",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-copytrading",
+    "check": 3,
+    "file": "skills/polymarket-copytrading/SKILL.md",
+    "line": 221,
+    "message": "documented flag absent from entrypoint argparse: --message",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-copytrading",
+    "check": 8,
+    "file": "skills/polymarket-copytrading/SKILL.md",
+    "line": 216,
+    "message": "documented persistence or privilege recipe needs review",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-copytrading",
+    "check": 8,
+    "file": "skills/polymarket-copytrading/SKILL.md",
+    "line": 232,
+    "message": "documented persistence or privilege recipe needs review",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-dca-eval-trader",
+    "check": 2,
+    "file": "skills/polymarket-dca-eval-trader/clawhub.json",
+    "line": 1,
+    "message": "WALLET_PRIVATE_KEY is declared but unused by bundled code",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-dca-eval-trader",
+    "check": 2,
+    "file": "skills/polymarket-dca-eval-trader/dca_eval_trader.py",
+    "line": 319,
+    "message": "SIMMER_API_KEY is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-dca-eval-trader",
+    "check": 2,
+    "file": "skills/polymarket-dca-eval-trader/dca_eval_trader.py",
+    "line": 324,
+    "message": "TRADING_VENUE is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-dca-eval-trader",
+    "check": 2,
+    "file": "skills/polymarket-dca-eval-trader/dca_eval_trader.py",
+    "line": 324,
+    "message": "TRADING_VENUE is read but absent from clawhub.json envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-dca-eval-trader",
+    "check": 5,
+    "file": "skills/polymarket-dca-eval-trader/clawhub.json",
+    "line": 1,
+    "message": "dependency must use an exact == pin: simmer-sdk>=0.17.0",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-dca-eval-trader",
+    "check": 5,
+    "file": "skills/polymarket-dca-eval-trader/clawhub.json",
+    "line": 1,
+    "message": "requires.pip and requirements.txt disagree: requires.pip=['simmer-sdk>=0.17.0']; requirements.txt=[]",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-elon-tweets",
+    "check": 2,
+    "file": "skills/polymarket-elon-tweets/clawhub.json",
+    "line": 1,
+    "message": "WALLET_PRIVATE_KEY is declared but unused by bundled code",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-elon-tweets",
+    "check": 2,
+    "file": "skills/polymarket-elon-tweets/elon_tweets.py",
+    "line": 174,
+    "message": "AUTOMATON_MAX_BET is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-elon-tweets",
+    "check": 2,
+    "file": "skills/polymarket-elon-tweets/elon_tweets.py",
+    "line": 174,
+    "message": "AUTOMATON_MAX_BET is read but absent from clawhub.json envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-elon-tweets",
+    "check": 2,
+    "file": "skills/polymarket-elon-tweets/elon_tweets.py",
+    "line": 204,
+    "message": "SIMMER_API_KEY is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-elon-tweets",
+    "check": 2,
+    "file": "skills/polymarket-elon-tweets/elon_tweets.py",
+    "line": 209,
+    "message": "TRADING_VENUE is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-elon-tweets",
+    "check": 2,
+    "file": "skills/polymarket-elon-tweets/elon_tweets.py",
+    "line": 209,
+    "message": "TRADING_VENUE is read but absent from clawhub.json envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-elon-tweets",
+    "check": 2,
+    "file": "skills/polymarket-elon-tweets/elon_tweets.py",
+    "line": 975,
+    "message": "AUTOMATON_MANAGED is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-elon-tweets",
+    "check": 2,
+    "file": "skills/polymarket-elon-tweets/elon_tweets.py",
+    "line": 975,
+    "message": "AUTOMATON_MANAGED is read but absent from clawhub.json envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-elon-tweets",
+    "check": 5,
+    "file": "skills/polymarket-elon-tweets/SKILL.md",
+    "line": 34,
+    "message": "pip install must use exact == pins: simmer-sdk",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-elon-tweets",
+    "check": 5,
+    "file": "skills/polymarket-elon-tweets/clawhub.json",
+    "line": 1,
+    "message": "dependency must use an exact == pin: simmer-sdk>=0.11.1",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-elon-tweets",
+    "check": 5,
+    "file": "skills/polymarket-elon-tweets/clawhub.json",
+    "line": 1,
+    "message": "requires.pip and requirements.txt disagree: requires.pip=['simmer-sdk>=0.11.1']; requirements.txt=[]",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-elon-tweets",
+    "check": 7,
+    "file": "skills/polymarket-elon-tweets/elon_tweets.py",
+    "line": 160,
+    "message": "undeclared network host: xtracker.polymarket.com",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-elon-tweets",
+    "check": 7,
+    "file": "skills/polymarket-elon-tweets/elon_tweets.py",
+    "line": 766,
+    "message": "undeclared network host: polymarket.com",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-fast-loop",
+    "check": 2,
+    "file": "skills/polymarket-fast-loop/clawhub.json",
+    "line": 1,
+    "message": "WALLET_PRIVATE_KEY is declared but unused by bundled code",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-fast-loop",
+    "check": 2,
+    "file": "skills/polymarket-fast-loop/fastloop_trader.py",
+    "line": 115,
+    "message": "AUTOMATON_MAX_BET is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-fast-loop",
+    "check": 2,
+    "file": "skills/polymarket-fast-loop/fastloop_trader.py",
+    "line": 115,
+    "message": "AUTOMATON_MAX_BET is read but absent from clawhub.json envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-fast-loop",
+    "check": 2,
+    "file": "skills/polymarket-fast-loop/fastloop_trader.py",
+    "line": 202,
+    "message": "TRADING_VENUE is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-fast-loop",
+    "check": 2,
+    "file": "skills/polymarket-fast-loop/fastloop_trader.py",
+    "line": 202,
+    "message": "TRADING_VENUE is read but absent from clawhub.json envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-fast-loop",
+    "check": 2,
+    "file": "skills/polymarket-fast-loop/fastloop_trader.py",
+    "line": 542,
+    "message": "SIMMER_REPLAY is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-fast-loop",
+    "check": 2,
+    "file": "skills/polymarket-fast-loop/fastloop_trader.py",
+    "line": 542,
+    "message": "SIMMER_REPLAY is read but absent from clawhub.json envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-fast-loop",
+    "check": 2,
+    "file": "skills/polymarket-fast-loop/fastloop_trader.py",
+    "line": 744,
+    "message": "SIMMER_API_KEY is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-fast-loop",
+    "check": 2,
+    "file": "skills/polymarket-fast-loop/fastloop_trader.py",
+    "line": 1449,
+    "message": "AUTOMATON_MANAGED is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-fast-loop",
+    "check": 2,
+    "file": "skills/polymarket-fast-loop/fastloop_trader.py",
+    "line": 1449,
+    "message": "AUTOMATON_MANAGED is read but absent from clawhub.json envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-fast-loop",
+    "check": 3,
+    "file": "skills/polymarket-fast-loop/SKILL.md",
+    "line": 96,
+    "message": "documented flag absent from entrypoint argparse: --name",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-fast-loop",
+    "check": 3,
+    "file": "skills/polymarket-fast-loop/SKILL.md",
+    "line": 97,
+    "message": "documented flag absent from entrypoint argparse: --cron",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-fast-loop",
+    "check": 3,
+    "file": "skills/polymarket-fast-loop/SKILL.md",
+    "line": 98,
+    "message": "documented flag absent from entrypoint argparse: --tz",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-fast-loop",
+    "check": 3,
+    "file": "skills/polymarket-fast-loop/SKILL.md",
+    "line": 99,
+    "message": "documented flag absent from entrypoint argparse: --session",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-fast-loop",
+    "check": 3,
+    "file": "skills/polymarket-fast-loop/SKILL.md",
+    "line": 100,
+    "message": "documented flag absent from entrypoint argparse: --message",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-fast-loop",
+    "check": 3,
+    "file": "skills/polymarket-fast-loop/SKILL.md",
+    "line": 101,
+    "message": "documented flag absent from entrypoint argparse: --announce",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-fast-loop",
+    "check": 5,
+    "file": "skills/polymarket-fast-loop/SKILL.md",
+    "line": 41,
+    "message": "pip install must use exact == pins: simmer-sdk",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-fast-loop",
+    "check": 5,
+    "file": "skills/polymarket-fast-loop/clawhub.json",
+    "line": 1,
+    "message": "dependency must use an exact == pin: simmer-sdk>=0.17.32",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-fast-loop",
+    "check": 5,
+    "file": "skills/polymarket-fast-loop/clawhub.json",
+    "line": 1,
+    "message": "requires.pip and requirements.txt disagree: requires.pip=['simmer-sdk>=0.17.32']; requirements.txt=[]",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-fast-loop",
+    "check": 7,
+    "file": "skills/polymarket-fast-loop/fastloop_trader.py",
+    "line": 95,
+    "message": "undeclared network host: api.binance.com",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-fast-loop",
+    "check": 7,
+    "file": "skills/polymarket-fast-loop/fastloop_trader.py",
+    "line": 96,
+    "message": "undeclared network host: api.binance.us",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-fast-loop",
+    "check": 7,
+    "file": "skills/polymarket-fast-loop/fastloop_trader.py",
+    "line": 232,
+    "message": "undeclared network host: clob.polymarket.com",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-fast-loop",
+    "check": 7,
+    "file": "skills/polymarket-fast-loop/fastloop_trader.py",
+    "line": 427,
+    "message": "undeclared network host: gamma-api.polymarket.com",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-fast-loop",
+    "check": 7,
+    "file": "skills/polymarket-fast-loop/fastloop_trader.py",
+    "line": 756,
+    "message": "undeclared network host: api.binance.com",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-fast-loop",
+    "check": 7,
+    "file": "skills/polymarket-fast-loop/fastloop_trader.py",
+    "line": 771,
+    "message": "undeclared network host: polymarket.com",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-fast-scaler",
+    "check": 2,
+    "file": "skills/polymarket-fast-scaler/clawhub.json",
+    "line": 1,
+    "message": "WALLET_PRIVATE_KEY is declared but unused by bundled code",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-fast-scaler",
+    "check": 2,
+    "file": "skills/polymarket-fast-scaler/fast_scaler.py",
+    "line": 284,
+    "message": "TRADING_VENUE is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-fast-scaler",
+    "check": 2,
+    "file": "skills/polymarket-fast-scaler/fast_scaler.py",
+    "line": 284,
+    "message": "TRADING_VENUE is read but absent from clawhub.json envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-fast-scaler",
+    "check": 2,
+    "file": "skills/polymarket-fast-scaler/fast_scaler.py",
+    "line": 504,
+    "message": "SIMMER_REPLAY is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-fast-scaler",
+    "check": 2,
+    "file": "skills/polymarket-fast-scaler/fast_scaler.py",
+    "line": 504,
+    "message": "SIMMER_REPLAY is read but absent from clawhub.json envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-fast-scaler",
+    "check": 2,
+    "file": "skills/polymarket-fast-scaler/fast_scaler.py",
+    "line": 550,
+    "message": "SIMMER_API_KEY is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-fast-scaler",
+    "check": 2,
+    "file": "skills/polymarket-fast-scaler/fast_scaler.py",
+    "line": 984,
+    "message": "AUTOMATON_MANAGED is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-fast-scaler",
+    "check": 2,
+    "file": "skills/polymarket-fast-scaler/fast_scaler.py",
+    "line": 984,
+    "message": "AUTOMATON_MANAGED is read but absent from clawhub.json envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-fast-scaler",
+    "check": 5,
+    "file": "skills/polymarket-fast-scaler/SKILL.md",
+    "line": 49,
+    "message": "pip install must use exact == pins: simmer-sdk",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-fast-scaler",
+    "check": 5,
+    "file": "skills/polymarket-fast-scaler/clawhub.json",
+    "line": 1,
+    "message": "dependency must use an exact == pin: simmer-sdk>=0.17.32",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-fast-scaler",
+    "check": 5,
+    "file": "skills/polymarket-fast-scaler/clawhub.json",
+    "line": 1,
+    "message": "requires.pip and requirements.txt disagree: requires.pip=['simmer-sdk>=0.17.32']; requirements.txt=[]",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-fast-scaler",
+    "check": 7,
+    "file": "skills/polymarket-fast-scaler/fast_scaler.py",
+    "line": 305,
+    "message": "undeclared network host: clob.polymarket.com",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-fast-scaler",
+    "check": 7,
+    "file": "skills/polymarket-fast-scaler/fast_scaler.py",
+    "line": 414,
+    "message": "undeclared network host: gamma-api.polymarket.com",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-fast-scaler",
+    "check": 7,
+    "file": "skills/polymarket-fast-scaler/fast_scaler.py",
+    "line": 638,
+    "message": "undeclared network host: polymarket.com",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-fast-scaler",
+    "check": 8,
+    "file": "skills/polymarket-fast-scaler/SKILL.md",
+    "line": 65,
+    "message": "documented persistence or privilege recipe needs review",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-market-maker",
+    "check": 2,
+    "file": "skills/polymarket-market-maker/clawhub.json",
+    "line": 1,
+    "message": "MM_MARKETS is declared but unused by bundled code",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-market-maker",
+    "check": 2,
+    "file": "skills/polymarket-market-maker/clawhub.json",
+    "line": 1,
+    "message": "WALLET_PRIVATE_KEY is declared but unused by bundled code",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-market-maker",
+    "check": 2,
+    "file": "skills/polymarket-market-maker/market_maker.py",
+    "line": 70,
+    "message": "AUTOMATON_MAX_BET is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-market-maker",
+    "check": 2,
+    "file": "skills/polymarket-market-maker/market_maker.py",
+    "line": 70,
+    "message": "AUTOMATON_MAX_BET is read but absent from clawhub.json envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-market-maker",
+    "check": 2,
+    "file": "skills/polymarket-market-maker/market_maker.py",
+    "line": 88,
+    "message": "SIMMER_API_KEY is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-market-maker",
+    "check": 2,
+    "file": "skills/polymarket-market-maker/market_maker.py",
+    "line": 609,
+    "message": "AUTOMATON_MANAGED is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-market-maker",
+    "check": 2,
+    "file": "skills/polymarket-market-maker/market_maker.py",
+    "line": 609,
+    "message": "AUTOMATON_MANAGED is read but absent from clawhub.json envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-market-maker",
+    "check": 5,
+    "file": "skills/polymarket-market-maker/SKILL.md",
+    "line": 63,
+    "message": "pip install must use exact == pins: -U 'simmer-sdk>=0.26.0'",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-market-maker",
+    "check": 5,
+    "file": "skills/polymarket-market-maker/clawhub.json",
+    "line": 1,
+    "message": "dependency must use an exact == pin: simmer-sdk>=0.26.0",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-market-maker",
+    "check": 5,
+    "file": "skills/polymarket-market-maker/requirements.txt",
+    "line": 1,
+    "message": "dependency must use an exact == pin: simmer-sdk>=0.26.0",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-mert-sniper",
+    "check": 2,
+    "file": "skills/polymarket-mert-sniper/clawhub.json",
+    "line": 1,
+    "message": "WALLET_PRIVATE_KEY is declared but unused by bundled code",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-mert-sniper",
+    "check": 2,
+    "file": "skills/polymarket-mert-sniper/mert_sniper.py",
+    "line": 67,
+    "message": "AUTOMATON_MAX_BET is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-mert-sniper",
+    "check": 2,
+    "file": "skills/polymarket-mert-sniper/mert_sniper.py",
+    "line": 67,
+    "message": "AUTOMATON_MAX_BET is read but absent from clawhub.json envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-mert-sniper",
+    "check": 2,
+    "file": "skills/polymarket-mert-sniper/mert_sniper.py",
+    "line": 106,
+    "message": "SIMMER_API_KEY is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-mert-sniper",
+    "check": 2,
+    "file": "skills/polymarket-mert-sniper/mert_sniper.py",
+    "line": 111,
+    "message": "TRADING_VENUE is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-mert-sniper",
+    "check": 2,
+    "file": "skills/polymarket-mert-sniper/mert_sniper.py",
+    "line": 111,
+    "message": "TRADING_VENUE is read but absent from clawhub.json envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-mert-sniper",
+    "check": 2,
+    "file": "skills/polymarket-mert-sniper/mert_sniper.py",
+    "line": 725,
+    "message": "AUTOMATON_MANAGED is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-mert-sniper",
+    "check": 2,
+    "file": "skills/polymarket-mert-sniper/mert_sniper.py",
+    "line": 725,
+    "message": "AUTOMATON_MANAGED is read but absent from clawhub.json envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-mert-sniper",
+    "check": 5,
+    "file": "skills/polymarket-mert-sniper/SKILL.md",
+    "line": 27,
+    "message": "pip install must use exact == pins: simmer-sdk",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-mert-sniper",
+    "check": 5,
+    "file": "skills/polymarket-mert-sniper/clawhub.json",
+    "line": 1,
+    "message": "dependency must use an exact == pin: simmer-sdk>=0.17.25",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-mert-sniper",
+    "check": 5,
+    "file": "skills/polymarket-mert-sniper/clawhub.json",
+    "line": 1,
+    "message": "requires.pip and requirements.txt disagree: requires.pip=['simmer-sdk>=0.17.25']; requirements.txt=[]",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-mert-sniper",
+    "check": 7,
+    "file": "skills/polymarket-mert-sniper/mert_sniper.py",
+    "line": 89,
+    "message": "undeclared network host: clob.polymarket.com",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-mil-aircraft-tracker",
+    "check": 2,
+    "file": "skills/polymarket-mil-aircraft-tracker/milaircraft_tracker.py",
+    "line": 90,
+    "message": "TRADING_VENUE is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-mil-aircraft-tracker",
+    "check": 2,
+    "file": "skills/polymarket-mil-aircraft-tracker/milaircraft_tracker.py",
+    "line": 90,
+    "message": "TRADING_VENUE is read but absent from clawhub.json envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-mil-aircraft-tracker",
+    "check": 2,
+    "file": "skills/polymarket-mil-aircraft-tracker/milaircraft_tracker.py",
+    "line": 625,
+    "message": "AUTOMATON_MANAGED is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-mil-aircraft-tracker",
+    "check": 2,
+    "file": "skills/polymarket-mil-aircraft-tracker/milaircraft_tracker.py",
+    "line": 625,
+    "message": "AUTOMATON_MANAGED is read but absent from clawhub.json envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-mil-aircraft-tracker",
+    "check": 2,
+    "file": "skills/polymarket-mil-aircraft-tracker/pref_client.py",
+    "line": 32,
+    "message": "dynamic environment name cannot be audited",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-mil-aircraft-tracker",
+    "check": 3,
+    "file": "skills/polymarket-mil-aircraft-tracker/SKILL.md",
+    "line": 121,
+    "message": "documented flag absent from entrypoint argparse: --upgrade",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-mil-aircraft-tracker",
+    "check": 5,
+    "file": "skills/polymarket-mil-aircraft-tracker/SKILL.md",
+    "line": 121,
+    "message": "pip install must use exact == pins: --upgrade simmer-sdk",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-mil-aircraft-tracker",
+    "check": 5,
+    "file": "skills/polymarket-mil-aircraft-tracker/clawhub.json",
+    "line": 1,
+    "message": "dependency must use an exact == pin: simmer-sdk",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-mil-aircraft-tracker",
+    "check": 5,
+    "file": "skills/polymarket-mil-aircraft-tracker/clawhub.json",
+    "line": 1,
+    "message": "requires.pip and requirements.txt disagree: requires.pip=['simmer-sdk']; requirements.txt=[]",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-nothing-ever-happens",
+    "check": 2,
+    "file": "skills/polymarket-nothing-ever-happens/clawhub.json",
+    "line": 1,
+    "message": "WALLET_PRIVATE_KEY is declared but unused by bundled code",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-nothing-ever-happens",
+    "check": 2,
+    "file": "skills/polymarket-nothing-ever-happens/nothing_ever_happens.py",
+    "line": 88,
+    "message": "AUTOMATON_MAX_BET is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-nothing-ever-happens",
+    "check": 2,
+    "file": "skills/polymarket-nothing-ever-happens/nothing_ever_happens.py",
+    "line": 88,
+    "message": "AUTOMATON_MAX_BET is read but absent from clawhub.json envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-nothing-ever-happens",
+    "check": 2,
+    "file": "skills/polymarket-nothing-ever-happens/nothing_ever_happens.py",
+    "line": 146,
+    "message": "SIMMER_REPLAY is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-nothing-ever-happens",
+    "check": 2,
+    "file": "skills/polymarket-nothing-ever-happens/nothing_ever_happens.py",
+    "line": 146,
+    "message": "SIMMER_REPLAY is read but absent from clawhub.json envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-nothing-ever-happens",
+    "check": 2,
+    "file": "skills/polymarket-nothing-ever-happens/nothing_ever_happens.py",
+    "line": 157,
+    "message": "SIMMER_REPLAY_NOW is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-nothing-ever-happens",
+    "check": 2,
+    "file": "skills/polymarket-nothing-ever-happens/nothing_ever_happens.py",
+    "line": 157,
+    "message": "SIMMER_REPLAY_NOW is read but absent from clawhub.json envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-nothing-ever-happens",
+    "check": 2,
+    "file": "skills/polymarket-nothing-ever-happens/nothing_ever_happens.py",
+    "line": 181,
+    "message": "TRADING_VENUE is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-nothing-ever-happens",
+    "check": 2,
+    "file": "skills/polymarket-nothing-ever-happens/nothing_ever_happens.py",
+    "line": 181,
+    "message": "TRADING_VENUE is read but absent from clawhub.json envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-nothing-ever-happens",
+    "check": 2,
+    "file": "skills/polymarket-nothing-ever-happens/nothing_ever_happens.py",
+    "line": 193,
+    "message": "SIMMER_API_KEY is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-nothing-ever-happens",
+    "check": 2,
+    "file": "skills/polymarket-nothing-ever-happens/nothing_ever_happens.py",
+    "line": 954,
+    "message": "AUTOMATON_MANAGED is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-nothing-ever-happens",
+    "check": 2,
+    "file": "skills/polymarket-nothing-ever-happens/nothing_ever_happens.py",
+    "line": 954,
+    "message": "AUTOMATON_MANAGED is read but absent from clawhub.json envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-nothing-ever-happens",
+    "check": 5,
+    "file": "skills/polymarket-nothing-ever-happens/SKILL.md",
+    "line": 61,
+    "message": "pip install must use exact == pins: simmer-sdk",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-nothing-ever-happens",
+    "check": 5,
+    "file": "skills/polymarket-nothing-ever-happens/clawhub.json",
+    "line": 1,
+    "message": "dependency must use an exact == pin: simmer-sdk",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-nothing-ever-happens",
+    "check": 5,
+    "file": "skills/polymarket-nothing-ever-happens/clawhub.json",
+    "line": 1,
+    "message": "requires.pip and requirements.txt disagree: requires.pip=['simmer-sdk']; requirements.txt=[]",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-nothing-ever-happens",
+    "check": 7,
+    "file": "skills/polymarket-nothing-ever-happens/nothing_ever_happens.py",
+    "line": 583,
+    "message": "undeclared network host: polymarket.com",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-research",
+    "check": 2,
+    "file": "skills/polymarket-research/research.py",
+    "line": 36,
+    "message": "SIMMER_API_KEY is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-research",
+    "check": 2,
+    "file": "skills/polymarket-research/research.py",
+    "line": 111,
+    "message": "SIMMER_RESEARCH_MIN_VOLUME is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-research",
+    "check": 2,
+    "file": "skills/polymarket-research/research.py",
+    "line": 111,
+    "message": "SIMMER_RESEARCH_MIN_VOLUME is read but absent from clawhub.json envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-research",
+    "check": 2,
+    "file": "skills/polymarket-research/research.py",
+    "line": 113,
+    "message": "SIMMER_RESEARCH_MAX_RESULTS is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-research",
+    "check": 2,
+    "file": "skills/polymarket-research/research.py",
+    "line": 113,
+    "message": "SIMMER_RESEARCH_MAX_RESULTS is read but absent from clawhub.json envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-research",
+    "check": 2,
+    "file": "skills/polymarket-research/research.py",
+    "line": 115,
+    "message": "SIMMER_RESEARCH_TOP_HOLDERS is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-research",
+    "check": 2,
+    "file": "skills/polymarket-research/research.py",
+    "line": 115,
+    "message": "SIMMER_RESEARCH_TOP_HOLDERS is read but absent from clawhub.json envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-research",
+    "check": 5,
+    "file": "skills/polymarket-research/SKILL.md",
+    "line": 20,
+    "message": "pip install must use exact == pins: simmer-sdk",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-research",
+    "check": 5,
+    "file": "skills/polymarket-research/clawhub.json",
+    "line": 1,
+    "message": "dependency must use an exact == pin: simmer-sdk",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-research",
+    "check": 5,
+    "file": "skills/polymarket-research/clawhub.json",
+    "line": 1,
+    "message": "requires.pip and requirements.txt disagree: requires.pip=['simmer-sdk']; requirements.txt=[]",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-signal-sniper",
+    "check": 2,
+    "file": "skills/polymarket-signal-sniper/scripts/status.py",
+    "line": 59,
+    "message": "SIMMER_API_KEY is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-signal-sniper",
+    "check": 2,
+    "file": "skills/polymarket-signal-sniper/signal_sniper.py",
+    "line": 83,
+    "message": "TRADING_VENUE is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-signal-sniper",
+    "check": 2,
+    "file": "skills/polymarket-signal-sniper/signal_sniper.py",
+    "line": 83,
+    "message": "TRADING_VENUE is read but absent from clawhub.json envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-signal-sniper",
+    "check": 2,
+    "file": "skills/polymarket-signal-sniper/signal_sniper.py",
+    "line": 680,
+    "message": "AUTOMATON_MANAGED is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-signal-sniper",
+    "check": 2,
+    "file": "skills/polymarket-signal-sniper/signal_sniper.py",
+    "line": 680,
+    "message": "AUTOMATON_MANAGED is read but absent from clawhub.json envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-signal-sniper",
+    "check": 5,
+    "file": "skills/polymarket-signal-sniper/SKILL.md",
+    "line": 26,
+    "message": "pip install must use exact == pins: simmer-sdk",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-signal-sniper",
+    "check": 5,
+    "file": "skills/polymarket-signal-sniper/clawhub.json",
+    "line": 1,
+    "message": "dependency must use an exact == pin: simmer-sdk>=0.24.0",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-signal-sniper",
+    "check": 5,
+    "file": "skills/polymarket-signal-sniper/clawhub.json",
+    "line": 1,
+    "message": "requires.pip and requirements.txt disagree: requires.pip=['simmer-sdk>=0.24.0']; requirements.txt=[]",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-signal-sniper",
+    "check": 7,
+    "file": "skills/polymarket-signal-sniper/scripts/status.py",
+    "line": 22,
+    "message": "undeclared network host: api.simmer.markets",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-signal-sniper",
+    "check": 7,
+    "file": "skills/polymarket-signal-sniper/signal_sniper.py",
+    "line": 150,
+    "message": "undeclared network host: rss.example.com",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-signal-sniper",
+    "check": 7,
+    "file": "skills/polymarket-signal-sniper/signal_sniper.py",
+    "line": 517,
+    "message": "undeclared network host: feeds.feedburner.com",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-signal-sniper",
+    "check": 7,
+    "file": "skills/polymarket-signal-sniper/signal_sniper.py",
+    "line": 518,
+    "message": "undeclared network host: cointelegraph.com",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-signal-sniper",
+    "check": 7,
+    "file": "skills/polymarket-signal-sniper/signal_sniper.py",
+    "line": 518,
+    "message": "undeclared network host: decrypt.co",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-signal-sniper",
+    "check": 7,
+    "file": "skills/polymarket-signal-sniper/signal_sniper.py",
+    "line": 524,
+    "message": "undeclared network host: docs.simmer.markets",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-soccer-shock-ladder",
+    "check": 2,
+    "file": "skills/polymarket-soccer-shock-ladder/clawhub.json",
+    "line": 1,
+    "message": "WALLET_PRIVATE_KEY is declared but unused by bundled code",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-soccer-shock-ladder",
+    "check": 2,
+    "file": "skills/polymarket-soccer-shock-ladder/shock_ladder_trader.py",
+    "line": 53,
+    "message": "SHOCK_LADDER_STAKE_USD is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-soccer-shock-ladder",
+    "check": 2,
+    "file": "skills/polymarket-soccer-shock-ladder/shock_ladder_trader.py",
+    "line": 53,
+    "message": "SHOCK_LADDER_STAKE_USD is read but absent from clawhub.json envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-soccer-shock-ladder",
+    "check": 2,
+    "file": "skills/polymarket-soccer-shock-ladder/shock_ladder_trader.py",
+    "line": 54,
+    "message": "SHOCK_LADDER_POLL_INTERVAL_S is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-soccer-shock-ladder",
+    "check": 2,
+    "file": "skills/polymarket-soccer-shock-ladder/shock_ladder_trader.py",
+    "line": 54,
+    "message": "SHOCK_LADDER_POLL_INTERVAL_S is read but absent from clawhub.json envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-soccer-shock-ladder",
+    "check": 2,
+    "file": "skills/polymarket-soccer-shock-ladder/shock_ladder_trader.py",
+    "line": 81,
+    "message": "SIMMER_API_KEY is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-soccer-shock-ladder",
+    "check": 2,
+    "file": "skills/polymarket-soccer-shock-ladder/shock_ladder_trader.py",
+    "line": 265,
+    "message": "SHOCK_LADDER_VENUE is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-soccer-shock-ladder",
+    "check": 2,
+    "file": "skills/polymarket-soccer-shock-ladder/shock_ladder_trader.py",
+    "line": 265,
+    "message": "SHOCK_LADDER_VENUE is read but absent from clawhub.json envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-soccer-shock-ladder",
+    "check": 3,
+    "file": "skills/polymarket-soccer-shock-ladder/SKILL.md",
+    "line": 124,
+    "message": "documented flag absent from entrypoint argparse: --cron",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-soccer-shock-ladder",
+    "check": 3,
+    "file": "skills/polymarket-soccer-shock-ladder/SKILL.md",
+    "line": 124,
+    "message": "documented flag absent from entrypoint argparse: --name",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-soccer-shock-ladder",
+    "check": 3,
+    "file": "skills/polymarket-soccer-shock-ladder/SKILL.md",
+    "line": 124,
+    "message": "documented flag absent from entrypoint argparse: --session",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-soccer-shock-ladder",
+    "check": 3,
+    "file": "skills/polymarket-soccer-shock-ladder/SKILL.md",
+    "line": 124,
+    "message": "documented flag absent from entrypoint argparse: --tz",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-soccer-shock-ladder",
+    "check": 3,
+    "file": "skills/polymarket-soccer-shock-ladder/SKILL.md",
+    "line": 125,
+    "message": "documented flag absent from entrypoint argparse: --message",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-soccer-shock-ladder",
+    "check": 5,
+    "file": "skills/polymarket-soccer-shock-ladder/SKILL.md",
+    "line": 68,
+    "message": "pip install must use exact == pins: -U 'simmer-sdk>=0.26.0'",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-soccer-shock-ladder",
+    "check": 5,
+    "file": "skills/polymarket-soccer-shock-ladder/clawhub.json",
+    "line": 1,
+    "message": "dependency must use an exact == pin: simmer-sdk>=0.26.0",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-soccer-shock-ladder",
+    "check": 5,
+    "file": "skills/polymarket-soccer-shock-ladder/requirements.txt",
+    "line": 1,
+    "message": "dependency must use an exact == pin: simmer-sdk>=0.26.0",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-soccer-shock-ladder",
+    "check": 8,
+    "file": "skills/polymarket-soccer-shock-ladder/SKILL.md",
+    "line": 120,
+    "message": "documented persistence or privilege recipe needs review",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-soccer-shock-ladder",
+    "check": 8,
+    "file": "skills/polymarket-soccer-shock-ladder/SKILL.md",
+    "line": 147,
+    "message": "documented persistence or privilege recipe needs review",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-wallet-xray",
+    "check": 2,
+    "file": "skills/polymarket-wallet-xray/scripts/status.py",
+    "line": 59,
+    "message": "SIMMER_API_KEY is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-wallet-xray",
+    "check": 2,
+    "file": "skills/polymarket-wallet-xray/scripts/status.py",
+    "line": 59,
+    "message": "SIMMER_API_KEY is read but absent from clawhub.json envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-wallet-xray",
+    "check": 3,
+    "file": "skills/polymarket-wallet-xray/SKILL.md",
+    "line": 73,
+    "message": "documented flag absent from entrypoint argparse: --compare",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-wallet-xray",
+    "check": 3,
+    "file": "skills/polymarket-wallet-xray/SKILL.md",
+    "line": 76,
+    "message": "documented flag absent from entrypoint argparse: --dry-run",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-wallet-xray",
+    "check": 3,
+    "file": "skills/polymarket-wallet-xray/SKILL.md",
+    "line": 76,
+    "message": "documented flag absent from entrypoint argparse: --top-wallets",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-wallet-xray",
+    "check": 3,
+    "file": "skills/polymarket-wallet-xray/SKILL.md",
+    "line": 180,
+    "message": "documented flag absent from entrypoint argparse: --json",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-wallet-xray",
+    "check": 3,
+    "file": "skills/polymarket-wallet-xray/SKILL.md",
+    "line": 210,
+    "message": "documented flag absent from entrypoint argparse: --json",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-wallet-xray",
+    "check": 3,
+    "file": "skills/polymarket-wallet-xray/SKILL.md",
+    "line": 230,
+    "message": "documented flag absent from entrypoint argparse: --json",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-wallet-xray",
+    "check": 3,
+    "file": "skills/polymarket-wallet-xray/SKILL.md",
+    "line": 267,
+    "message": "documented flag absent from entrypoint argparse: --json",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-wallet-xray",
+    "check": 3,
+    "file": "skills/polymarket-wallet-xray/SKILL.md",
+    "line": 272,
+    "message": "documented flag absent from entrypoint argparse: --compare",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-wallet-xray",
+    "check": 3,
+    "file": "skills/polymarket-wallet-xray/SKILL.md",
+    "line": 277,
+    "message": "documented flag absent from entrypoint argparse: --limit",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-wallet-xray",
+    "check": 3,
+    "file": "skills/polymarket-wallet-xray/SKILL.md",
+    "line": 292,
+    "message": "documented flag absent from entrypoint argparse: --limit",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-wallet-xray",
+    "check": 3,
+    "file": "skills/polymarket-wallet-xray/SKILL.md",
+    "line": 296,
+    "message": "documented flag absent from entrypoint argparse: --limit",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-wallet-xray",
+    "check": 3,
+    "file": "skills/polymarket-wallet-xray/SKILL.md",
+    "line": 300,
+    "message": "documented flag absent from entrypoint argparse: --limit",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-wallet-xray",
+    "check": 5,
+    "file": "skills/polymarket-wallet-xray/SKILL.md",
+    "line": 56,
+    "message": "pip install must use exact == pins: simmer-sdk",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-wallet-xray",
+    "check": 5,
+    "file": "skills/polymarket-wallet-xray/clawhub.json",
+    "line": 1,
+    "message": "dependency must use an exact == pin: simmer-sdk",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-wallet-xray",
+    "check": 5,
+    "file": "skills/polymarket-wallet-xray/clawhub.json",
+    "line": 1,
+    "message": "requires.pip and requirements.txt disagree: requires.pip=['simmer-sdk']; requirements.txt=[]",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-wallet-xray",
+    "check": 7,
+    "file": "skills/polymarket-wallet-xray/scripts/status.py",
+    "line": 22,
+    "message": "undeclared network host: api.simmer.markets",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-wallet-xray",
+    "check": 7,
+    "file": "skills/polymarket-wallet-xray/wallet_xray.py",
+    "line": 34,
+    "message": "undeclared network host: data-api.polymarket.com",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-weather-trader",
+    "check": 1,
+    "file": "skills/polymarket-weather-trader/fixtures/replay_forecasts.sample.json",
+    "line": 1,
+    "message": "forbidden artifact in published bundle",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-weather-trader",
+    "check": 2,
+    "file": "skills/polymarket-weather-trader/clawhub.json",
+    "line": 1,
+    "message": "SIMMER_API_KEY is declared but unused by bundled code",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-weather-trader",
+    "check": 2,
+    "file": "skills/polymarket-weather-trader/clawhub.json",
+    "line": 1,
+    "message": "SIMMER_REPLAY_FORECASTS is declared but unused by bundled code",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-weather-trader",
+    "check": 2,
+    "file": "skills/polymarket-weather-trader/clawhub.json",
+    "line": 1,
+    "message": "SIMMER_WEATHER_BINARY_ONLY is declared but unused by bundled code",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-weather-trader",
+    "check": 2,
+    "file": "skills/polymarket-weather-trader/clawhub.json",
+    "line": 1,
+    "message": "SIMMER_WEATHER_CANARY_ON_ADJACENT_DISAGREEMENT is declared but unused by bundled code",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-weather-trader",
+    "check": 2,
+    "file": "skills/polymarket-weather-trader/clawhub.json",
+    "line": 1,
+    "message": "SIMMER_WEATHER_ENTRY_THRESHOLD is declared but unused by bundled code",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-weather-trader",
+    "check": 2,
+    "file": "skills/polymarket-weather-trader/clawhub.json",
+    "line": 1,
+    "message": "SIMMER_WEATHER_EXIT_THRESHOLD is declared but unused by bundled code",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-weather-trader",
+    "check": 2,
+    "file": "skills/polymarket-weather-trader/clawhub.json",
+    "line": 1,
+    "message": "SIMMER_WEATHER_LOCATIONS is declared but unused by bundled code",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-weather-trader",
+    "check": 2,
+    "file": "skills/polymarket-weather-trader/clawhub.json",
+    "line": 1,
+    "message": "SIMMER_WEATHER_MAX_CANARY_USD is declared but unused by bundled code",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-weather-trader",
+    "check": 2,
+    "file": "skills/polymarket-weather-trader/clawhub.json",
+    "line": 1,
+    "message": "SIMMER_WEATHER_MAX_POSITION_USD is declared but unused by bundled code",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-weather-trader",
+    "check": 2,
+    "file": "skills/polymarket-weather-trader/clawhub.json",
+    "line": 1,
+    "message": "SIMMER_WEATHER_MAX_SOURCE_SPREAD_F is declared but unused by bundled code",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-weather-trader",
+    "check": 2,
+    "file": "skills/polymarket-weather-trader/clawhub.json",
+    "line": 1,
+    "message": "SIMMER_WEATHER_MAX_TRADES_PER_RUN is declared but unused by bundled code",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-weather-trader",
+    "check": 2,
+    "file": "skills/polymarket-weather-trader/clawhub.json",
+    "line": 1,
+    "message": "SIMMER_WEATHER_MIN_ENTRY_PRICE is declared but unused by bundled code",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-weather-trader",
+    "check": 2,
+    "file": "skills/polymarket-weather-trader/clawhub.json",
+    "line": 1,
+    "message": "SIMMER_WEATHER_MIN_HOURS_TO_RESOLVE is declared but unused by bundled code",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-weather-trader",
+    "check": 2,
+    "file": "skills/polymarket-weather-trader/clawhub.json",
+    "line": 1,
+    "message": "SIMMER_WEATHER_MIN_LIQUIDITY is declared but unused by bundled code",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-weather-trader",
+    "check": 2,
+    "file": "skills/polymarket-weather-trader/clawhub.json",
+    "line": 1,
+    "message": "SIMMER_WEATHER_ORDER_TYPE is declared but unused by bundled code",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-weather-trader",
+    "check": 2,
+    "file": "skills/polymarket-weather-trader/clawhub.json",
+    "line": 1,
+    "message": "SIMMER_WEATHER_REQUIRE_SOURCE_AGREEMENT is declared but unused by bundled code",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-weather-trader",
+    "check": 2,
+    "file": "skills/polymarket-weather-trader/clawhub.json",
+    "line": 1,
+    "message": "SIMMER_WEATHER_SIZING_PCT is declared but unused by bundled code",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-weather-trader",
+    "check": 2,
+    "file": "skills/polymarket-weather-trader/clawhub.json",
+    "line": 1,
+    "message": "SIMMER_WEATHER_SLIPPAGE_MAX is declared but unused by bundled code",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-weather-trader",
+    "check": 2,
+    "file": "skills/polymarket-weather-trader/clawhub.json",
+    "line": 1,
+    "message": "SIMMER_WEATHER_TARGET_VOL is declared but unused by bundled code",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-weather-trader",
+    "check": 2,
+    "file": "skills/polymarket-weather-trader/clawhub.json",
+    "line": 1,
+    "message": "SIMMER_WEATHER_VOL_MAX_LEVERAGE is declared but unused by bundled code",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-weather-trader",
+    "check": 2,
+    "file": "skills/polymarket-weather-trader/clawhub.json",
+    "line": 1,
+    "message": "SIMMER_WEATHER_VOL_MIN_ALLOC is declared but unused by bundled code",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-weather-trader",
+    "check": 2,
+    "file": "skills/polymarket-weather-trader/clawhub.json",
+    "line": 1,
+    "message": "SIMMER_WEATHER_VOL_SPAN is declared but unused by bundled code",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-weather-trader",
+    "check": 2,
+    "file": "skills/polymarket-weather-trader/clawhub.json",
+    "line": 1,
+    "message": "SIMMER_WEATHER_VOL_TARGETING is declared but unused by bundled code",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-weather-trader",
+    "check": 2,
+    "file": "skills/polymarket-weather-trader/clawhub.json",
+    "line": 1,
+    "message": "TRADING_VENUE is declared but unused by bundled code",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-weather-trader",
+    "check": 2,
+    "file": "skills/polymarket-weather-trader/clawhub.json",
+    "line": 1,
+    "message": "WALLET_PRIVATE_KEY is declared but unused by bundled code",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-weather-trader",
+    "check": 2,
+    "file": "skills/polymarket-weather-trader/weather_trader.py",
+    "line": 1371,
+    "message": "SIMMER_REPLAY is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-weather-trader",
+    "check": 2,
+    "file": "skills/polymarket-weather-trader/weather_trader.py",
+    "line": 1371,
+    "message": "SIMMER_REPLAY is read but absent from clawhub.json envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-weather-trader",
+    "check": 2,
+    "file": "skills/polymarket-weather-trader/weather_trader.py",
+    "line": 1383,
+    "message": "SIMMER_REPLAY_NOW is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-weather-trader",
+    "check": 2,
+    "file": "skills/polymarket-weather-trader/weather_trader.py",
+    "line": 1383,
+    "message": "SIMMER_REPLAY_NOW is read but absent from clawhub.json envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-weather-trader",
+    "check": 2,
+    "file": "skills/polymarket-weather-trader/weather_trader.py",
+    "line": 1463,
+    "message": "dynamic environment name cannot be audited",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-weather-trader",
+    "check": 3,
+    "file": "skills/polymarket-weather-trader/SKILL.md",
+    "line": 54,
+    "message": "documented flag absent from entrypoint argparse: --upgrade",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-weather-trader",
+    "check": 3,
+    "file": "skills/polymarket-weather-trader/SKILL.md",
+    "line": 163,
+    "message": "documented flag absent from entrypoint argparse: --end",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-weather-trader",
+    "check": 3,
+    "file": "skills/polymarket-weather-trader/SKILL.md",
+    "line": 163,
+    "message": "documented flag absent from entrypoint argparse: --out",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-weather-trader",
+    "check": 3,
+    "file": "skills/polymarket-weather-trader/SKILL.md",
+    "line": 163,
+    "message": "documented flag absent from entrypoint argparse: --start",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-weather-trader",
+    "check": 3,
+    "file": "skills/polymarket-weather-trader/SKILL.md",
+    "line": 184,
+    "message": "documented flag absent from entrypoint argparse: --entrypoint",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-weather-trader",
+    "check": 3,
+    "file": "skills/polymarket-weather-trader/SKILL.md",
+    "line": 184,
+    "message": "documented flag absent from entrypoint argparse: --t0",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-weather-trader",
+    "check": 3,
+    "file": "skills/polymarket-weather-trader/SKILL.md",
+    "line": 184,
+    "message": "documented flag absent from entrypoint argparse: --t1",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-weather-trader",
+    "check": 3,
+    "file": "skills/polymarket-weather-trader/SKILL.md",
+    "line": 185,
+    "message": "documented flag absent from entrypoint argparse: --cadence",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-weather-trader",
+    "check": 3,
+    "file": "skills/polymarket-weather-trader/SKILL.md",
+    "line": 185,
+    "message": "documented flag absent from entrypoint argparse: --min-volume",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-weather-trader",
+    "check": 3,
+    "file": "skills/polymarket-weather-trader/SKILL.md",
+    "line": 185,
+    "message": "documented flag absent from entrypoint argparse: --q",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-weather-trader",
+    "check": 3,
+    "file": "skills/polymarket-weather-trader/SKILL.md",
+    "line": 186,
+    "message": "documented flag absent from entrypoint argparse: --args",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-weather-trader",
+    "check": 3,
+    "file": "skills/polymarket-weather-trader/SKILL.md",
+    "line": 195,
+    "message": "documented flag absent from entrypoint argparse: --min-volume",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-weather-trader",
+    "check": 3,
+    "file": "skills/polymarket-weather-trader/SKILL.md",
+    "line": 195,
+    "message": "documented flag absent from entrypoint argparse: --q",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-weather-trader",
+    "check": 3,
+    "file": "skills/polymarket-weather-trader/SKILL.md",
+    "line": 198,
+    "message": "documented flag absent from entrypoint argparse: --q",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-weather-trader",
+    "check": 3,
+    "file": "skills/polymarket-weather-trader/SKILL.md",
+    "line": 266,
+    "message": "documented flag absent from entrypoint argparse: --min-volume",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-weather-trader",
+    "check": 5,
+    "file": "skills/polymarket-weather-trader/SKILL.md",
+    "line": 54,
+    "message": "pip install must use exact == pins: --upgrade simmer-sdk '(>=0.13.0)' and configure tunables below.",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-weather-trader",
+    "check": 5,
+    "file": "skills/polymarket-weather-trader/clawhub.json",
+    "line": 1,
+    "message": "dependency must use an exact == pin: simmer-sdk>=0.25.8",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-weather-trader",
+    "check": 5,
+    "file": "skills/polymarket-weather-trader/clawhub.json",
+    "line": 1,
+    "message": "requires.pip and requirements.txt disagree: requires.pip=['simmer-sdk>=0.25.8']; requirements.txt=[]",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-weather-trader",
+    "check": 7,
+    "file": "skills/polymarket-weather-trader/scripts/build_replay_forecast_archive.py",
+    "line": 38,
+    "message": "undeclared network host: previous-runs-api.open-meteo.com",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-weather-trader",
+    "check": 7,
+    "file": "skills/polymarket-weather-trader/weather_trader.py",
+    "line": 108,
+    "message": "undeclared network host: api.weather.gov",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-weather-trader",
+    "check": 7,
+    "file": "skills/polymarket-weather-trader/weather_trader.py",
+    "line": 533,
+    "message": "undeclared network host: api.open-meteo.com",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-weather-trader",
+    "check": 7,
+    "file": "skills/polymarket-weather-trader/weather_trader.py",
+    "line": 1338,
+    "message": "undeclared network host: polymarket.com",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-worldcup-copytrader",
+    "check": 2,
+    "file": "skills/polymarket-worldcup-copytrader/clawhub.json",
+    "line": 1,
+    "message": "WALLET_PRIVATE_KEY is declared but unused by bundled code",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-worldcup-copytrader",
+    "check": 2,
+    "file": "skills/polymarket-worldcup-copytrader/copytrader.py",
+    "line": 58,
+    "message": "AUTOMATON_MAX_BET is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-worldcup-copytrader",
+    "check": 2,
+    "file": "skills/polymarket-worldcup-copytrader/copytrader.py",
+    "line": 58,
+    "message": "AUTOMATON_MAX_BET is read but absent from clawhub.json envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-worldcup-copytrader",
+    "check": 2,
+    "file": "skills/polymarket-worldcup-copytrader/copytrader.py",
+    "line": 199,
+    "message": "SIMMER_API_KEY is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-worldcup-copytrader",
+    "check": 2,
+    "file": "skills/polymarket-worldcup-copytrader/copytrader.py",
+    "line": 375,
+    "message": "AUTOMATON_MANAGED is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-worldcup-copytrader",
+    "check": 2,
+    "file": "skills/polymarket-worldcup-copytrader/copytrader.py",
+    "line": 375,
+    "message": "AUTOMATON_MANAGED is read but absent from clawhub.json envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-worldcup-copytrader",
+    "check": 3,
+    "file": "skills/polymarket-worldcup-copytrader/SKILL.md",
+    "line": 102,
+    "message": "documented flag absent from entrypoint argparse: --cron",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-worldcup-copytrader",
+    "check": 3,
+    "file": "skills/polymarket-worldcup-copytrader/SKILL.md",
+    "line": 102,
+    "message": "documented flag absent from entrypoint argparse: --name",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-worldcup-copytrader",
+    "check": 3,
+    "file": "skills/polymarket-worldcup-copytrader/SKILL.md",
+    "line": 102,
+    "message": "documented flag absent from entrypoint argparse: --tz",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-worldcup-copytrader",
+    "check": 3,
+    "file": "skills/polymarket-worldcup-copytrader/SKILL.md",
+    "line": 103,
+    "message": "documented flag absent from entrypoint argparse: --message",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-worldcup-copytrader",
+    "check": 5,
+    "file": "skills/polymarket-worldcup-copytrader/SKILL.md",
+    "line": 58,
+    "message": "pip install must use exact == pins: -U 'simmer-sdk>=0.26.0'",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-worldcup-copytrader",
+    "check": 5,
+    "file": "skills/polymarket-worldcup-copytrader/clawhub.json",
+    "line": 1,
+    "message": "dependency must use an exact == pin: simmer-sdk>=0.26.0",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-worldcup-copytrader",
+    "check": 5,
+    "file": "skills/polymarket-worldcup-copytrader/requirements.txt",
+    "line": 1,
+    "message": "dependency must use an exact == pin: simmer-sdk>=0.26.0",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "polymarket-worldcup-copytrader",
+    "check": 8,
+    "file": "skills/polymarket-worldcup-copytrader/SKILL.md",
+    "line": 98,
+    "message": "documented persistence or privilege recipe needs review",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "prediction-trade-journal",
+    "check": 2,
+    "file": "skills/prediction-trade-journal/tradejournal.py",
+    "line": 55,
+    "message": "dynamic environment name cannot be audited",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "prediction-trade-journal",
+    "check": 2,
+    "file": "skills/prediction-trade-journal/tradejournal.py",
+    "line": 56,
+    "message": "dynamic environment name cannot be audited",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "prediction-trade-journal",
+    "check": 2,
+    "file": "skills/prediction-trade-journal/tradejournal.py",
+    "line": 100,
+    "message": "SIMMER_API_KEY is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "prediction-trade-journal",
+    "check": 2,
+    "file": "skills/prediction-trade-journal/tradejournal.py",
+    "line": 100,
+    "message": "SIMMER_API_KEY is read but absent from clawhub.json envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "prediction-trade-journal",
+    "check": 2,
+    "file": "skills/prediction-trade-journal/tradejournal.py",
+    "line": 101,
+    "message": "SIMMER_API_URL is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "prediction-trade-journal",
+    "check": 2,
+    "file": "skills/prediction-trade-journal/tradejournal.py",
+    "line": 101,
+    "message": "SIMMER_API_URL is read but absent from clawhub.json envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "prediction-trade-journal",
+    "check": 3,
+    "file": "skills/prediction-trade-journal/SKILL.md",
+    "line": 31,
+    "message": "documented flag absent from entrypoint argparse: --sync",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "prediction-trade-journal",
+    "check": 3,
+    "file": "skills/prediction-trade-journal/SKILL.md",
+    "line": 34,
+    "message": "documented flag absent from entrypoint argparse: --history",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "prediction-trade-journal",
+    "check": 3,
+    "file": "skills/prediction-trade-journal/SKILL.md",
+    "line": 37,
+    "message": "documented flag absent from entrypoint argparse: --report",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "prediction-trade-journal",
+    "check": 3,
+    "file": "skills/prediction-trade-journal/SKILL.md",
+    "line": 40,
+    "message": "documented flag absent from entrypoint argparse: --export",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "prediction-trade-journal",
+    "check": 3,
+    "file": "skills/prediction-trade-journal/SKILL.md",
+    "line": 59,
+    "message": "documented flag absent from entrypoint argparse: --sync",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "prediction-trade-journal",
+    "check": 3,
+    "file": "skills/prediction-trade-journal/SKILL.md",
+    "line": 60,
+    "message": "documented flag absent from entrypoint argparse: --history",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "prediction-trade-journal",
+    "check": 3,
+    "file": "skills/prediction-trade-journal/SKILL.md",
+    "line": 61,
+    "message": "documented flag absent from entrypoint argparse: --sync-outcomes",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "prediction-trade-journal",
+    "check": 3,
+    "file": "skills/prediction-trade-journal/SKILL.md",
+    "line": 62,
+    "message": "documented flag absent from entrypoint argparse: --report",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "prediction-trade-journal",
+    "check": 3,
+    "file": "skills/prediction-trade-journal/SKILL.md",
+    "line": 63,
+    "message": "documented flag absent from entrypoint argparse: --config",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "prediction-trade-journal",
+    "check": 3,
+    "file": "skills/prediction-trade-journal/SKILL.md",
+    "line": 64,
+    "message": "documented flag absent from entrypoint argparse: --export",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "prediction-trade-journal",
+    "check": 3,
+    "file": "skills/prediction-trade-journal/SKILL.md",
+    "line": 65,
+    "message": "documented flag absent from entrypoint argparse: --dry-run",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "prediction-trade-journal",
+    "check": 3,
+    "file": "skills/prediction-trade-journal/SKILL.md",
+    "line": 137,
+    "message": "documented flag absent from entrypoint argparse: --sync",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "prediction-trade-journal",
+    "check": 3,
+    "file": "skills/prediction-trade-journal/SKILL.md",
+    "line": 140,
+    "message": "documented flag absent from entrypoint argparse: --sync-outcomes",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "prediction-trade-journal",
+    "check": 5,
+    "file": "skills/prediction-trade-journal/SKILL.md",
+    "line": 20,
+    "message": "pip install must use exact == pins: simmer-sdk",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "prediction-trade-journal",
+    "check": 5,
+    "file": "skills/prediction-trade-journal/clawhub.json",
+    "line": 1,
+    "message": "dependency must use an exact == pin: simmer-sdk",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "prediction-trade-journal",
+    "check": 5,
+    "file": "skills/prediction-trade-journal/clawhub.json",
+    "line": 1,
+    "message": "requires.pip and requirements.txt disagree: requires.pip=['simmer-sdk']; requirements.txt=[]",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "preflight",
+    "check": 2,
+    "file": "skills/preflight/preflight.py",
+    "line": 49,
+    "message": "AUTOMATON_MANAGED is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "preflight",
+    "check": 2,
+    "file": "skills/preflight/preflight.py",
+    "line": 49,
+    "message": "AUTOMATON_MANAGED is read but absent from clawhub.json envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "preflight",
+    "check": 2,
+    "file": "skills/preflight/preflight.py",
+    "line": 71,
+    "message": "EXPOSURE_CAP_USD is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "preflight",
+    "check": 2,
+    "file": "skills/preflight/preflight.py",
+    "line": 73,
+    "message": "TRADING_VENUE is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "preflight",
+    "check": 5,
+    "file": "skills/preflight/clawhub.json",
+    "line": 1,
+    "message": "dependency must use an exact == pin: simmer-sdk>=0.17.13",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "preflight",
+    "check": 5,
+    "file": "skills/preflight/clawhub.json",
+    "line": 1,
+    "message": "requires.pip and requirements.txt disagree: requires.pip=['simmer-sdk>=0.17.13']; requirements.txt=[]",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-briefing",
+    "check": 2,
+    "file": "skills/simmer-briefing/SKILL.md",
+    "line": 1,
+    "message": "SIMMER_API_KEY is declared but unused by bundled code",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-briefing",
+    "check": 2,
+    "file": "skills/simmer-briefing/clawhub.json",
+    "line": 1,
+    "message": "SIMMER_API_KEY is declared but unused by bundled code",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-briefing",
+    "check": 5,
+    "file": "skills/simmer-briefing/clawhub.json",
+    "line": 1,
+    "message": "dependency must use an exact == pin: simmer-sdk",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-briefing",
+    "check": 5,
+    "file": "skills/simmer-briefing/clawhub.json",
+    "line": 1,
+    "message": "requires.pip and requirements.txt disagree: requires.pip=['simmer-sdk']; requirements.txt=[]",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-mcp-setup",
+    "check": 2,
+    "file": "skills/simmer-mcp-setup/SKILL.md",
+    "line": 1,
+    "message": "SIMMER_API_KEY is declared but unused by bundled code",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-mcp-setup",
+    "check": 2,
+    "file": "skills/simmer-mcp-setup/clawhub.json",
+    "line": 1,
+    "message": "SIMMER_API_KEY is declared but unused by bundled code",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-mcp-setup",
+    "check": 3,
+    "file": "skills/simmer-mcp-setup/SKILL.md",
+    "line": 76,
+    "message": "documented flag absent from entrypoint argparse: --version",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-mcp-setup",
+    "check": 3,
+    "file": "skills/simmer-mcp-setup/SKILL.md",
+    "line": 77,
+    "message": "documented flag absent from entrypoint argparse: --version",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-mcp-setup",
+    "check": 3,
+    "file": "skills/simmer-mcp-setup/SKILL.md",
+    "line": 105,
+    "message": "documented flag absent from entrypoint argparse: --version",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-mcp-setup",
+    "check": 3,
+    "file": "skills/simmer-mcp-setup/SKILL.md",
+    "line": 149,
+    "message": "documented flag absent from entrypoint argparse: --break-system-packages",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-mcp-setup",
+    "check": 3,
+    "file": "skills/simmer-mcp-setup/SKILL.md",
+    "line": 241,
+    "message": "documented flag absent from entrypoint argparse: --probe",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-mcp-setup",
+    "check": 3,
+    "file": "skills/simmer-mcp-setup/SKILL.md",
+    "line": 247,
+    "message": "documented flag absent from entrypoint argparse: --arg",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-mcp-setup",
+    "check": 3,
+    "file": "skills/simmer-mcp-setup/SKILL.md",
+    "line": 247,
+    "message": "documented flag absent from entrypoint argparse: --command",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-mcp-setup",
+    "check": 3,
+    "file": "skills/simmer-mcp-setup/SKILL.md",
+    "line": 248,
+    "message": "documented flag absent from entrypoint argparse: --env",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-mcp-setup",
+    "check": 3,
+    "file": "skills/simmer-mcp-setup/SKILL.md",
+    "line": 249,
+    "message": "documented flag absent from entrypoint argparse: --probe",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-mcp-setup",
+    "check": 3,
+    "file": "skills/simmer-mcp-setup/SKILL.md",
+    "line": 252,
+    "message": "documented flag absent from entrypoint argparse: --arg",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-mcp-setup",
+    "check": 3,
+    "file": "skills/simmer-mcp-setup/SKILL.md",
+    "line": 252,
+    "message": "documented flag absent from entrypoint argparse: --env",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-mcp-setup",
+    "check": 3,
+    "file": "skills/simmer-mcp-setup/SKILL.md",
+    "line": 260,
+    "message": "documented flag absent from entrypoint argparse: --local",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-mcp-setup",
+    "check": 3,
+    "file": "skills/simmer-mcp-setup/SKILL.md",
+    "line": 263,
+    "message": "documented flag absent from entrypoint argparse: --env",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-mcp-setup",
+    "check": 3,
+    "file": "skills/simmer-mcp-setup/SKILL.md",
+    "line": 264,
+    "message": "documented flag absent from entrypoint argparse: --local",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-mcp-setup",
+    "check": 3,
+    "file": "skills/simmer-mcp-setup/SKILL.md",
+    "line": 326,
+    "message": "documented flag absent from entrypoint argparse: --accept-risk",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-mcp-setup",
+    "check": 3,
+    "file": "skills/simmer-mcp-setup/SKILL.md",
+    "line": 326,
+    "message": "documented flag absent from entrypoint argparse: --non-interactive",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-mcp-setup",
+    "check": 3,
+    "file": "skills/simmer-mcp-setup/SKILL.md",
+    "line": 345,
+    "message": "documented flag absent from entrypoint argparse: --local",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-mcp-setup",
+    "check": 3,
+    "file": "skills/simmer-mcp-setup/SKILL.md",
+    "line": 351,
+    "message": "documented flag absent from entrypoint argparse: --local",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-mcp-setup",
+    "check": 3,
+    "file": "skills/simmer-mcp-setup/SKILL.md",
+    "line": 384,
+    "message": "documented flag absent from entrypoint argparse: --command",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-mcp-setup",
+    "check": 3,
+    "file": "skills/simmer-mcp-setup/SKILL.md",
+    "line": 385,
+    "message": "documented flag absent from entrypoint argparse: --env",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-mcp-setup",
+    "check": 3,
+    "file": "skills/simmer-mcp-setup/SKILL.md",
+    "line": 386,
+    "message": "documented flag absent from entrypoint argparse: --args",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-mcp-setup",
+    "check": 3,
+    "file": "skills/simmer-mcp-setup/SKILL.md",
+    "line": 391,
+    "message": "documented flag absent from entrypoint argparse: --args",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-mcp-setup",
+    "check": 3,
+    "file": "skills/simmer-mcp-setup/SKILL.md",
+    "line": 392,
+    "message": "documented flag absent from entrypoint argparse: --args",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-mcp-setup",
+    "check": 3,
+    "file": "skills/simmer-mcp-setup/SKILL.md",
+    "line": 392,
+    "message": "documented flag absent from entrypoint argparse: --env",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-mcp-setup",
+    "check": 3,
+    "file": "skills/simmer-mcp-setup/SKILL.md",
+    "line": 394,
+    "message": "documented flag absent from entrypoint argparse: --env",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-mcp-setup",
+    "check": 3,
+    "file": "skills/simmer-mcp-setup/SKILL.md",
+    "line": 454,
+    "message": "documented flag absent from entrypoint argparse: --env",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-mcp-setup",
+    "check": 3,
+    "file": "skills/simmer-mcp-setup/SKILL.md",
+    "line": 602,
+    "message": "documented flag absent from entrypoint argparse: --probe",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-mcp-setup",
+    "check": 3,
+    "file": "skills/simmer-mcp-setup/SKILL.md",
+    "line": 610,
+    "message": "documented flag absent from entrypoint argparse: --local",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-mcp-setup",
+    "check": 5,
+    "file": "skills/simmer-mcp-setup/SKILL.md",
+    "line": 80,
+    "message": "unsafe install source or curl piped to shell",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-mcp-setup",
+    "check": 5,
+    "file": "skills/simmer-mcp-setup/SKILL.md",
+    "line": 116,
+    "message": "pip install must use exact == pins: 'simmer-sdk>=0.17.13,' then set SIMMER_MCP_PYTHON to that",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-mcp-setup",
+    "check": 5,
+    "file": "skills/simmer-mcp-setup/SKILL.md",
+    "line": 132,
+    "message": "pip install must use exact == pins: 'simmer-sdk>=0.17.13'",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-mcp-setup",
+    "check": 5,
+    "file": "skills/simmer-mcp-setup/SKILL.md",
+    "line": 142,
+    "message": "pip install must use exact == pins: 'simmer-sdk>=0.17.13'",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-mcp-setup",
+    "check": 5,
+    "file": "skills/simmer-mcp-setup/SKILL.md",
+    "line": 147,
+    "message": "pip install must use exact == pins: --break-system-packages.",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-mcp-setup",
+    "check": 5,
+    "file": "skills/simmer-mcp-setup/SKILL.md",
+    "line": 581,
+    "message": "pip install must use exact == pins: 'simmer-sdk>=0.17.13'",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-mcp-setup",
+    "check": 5,
+    "file": "skills/simmer-mcp-setup/SKILL.md",
+    "line": 629,
+    "message": "unsafe install source or curl piped to shell",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-mcp-setup",
+    "check": 8,
+    "file": "skills/simmer-mcp-setup/SKILL.md",
+    "line": 88,
+    "message": "documented persistence or privilege recipe needs review",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-mcp-setup",
+    "check": 8,
+    "file": "skills/simmer-mcp-setup/SKILL.md",
+    "line": 89,
+    "message": "documented persistence or privilege recipe needs review",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-mcp-setup",
+    "check": 8,
+    "file": "skills/simmer-mcp-setup/SKILL.md",
+    "line": 148,
+    "message": "documented persistence or privilege recipe needs review",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-skill-builder",
+    "check": 2,
+    "file": "skills/simmer-skill-builder/scripts/status.py",
+    "line": 59,
+    "message": "SIMMER_API_KEY is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-skill-builder",
+    "check": 2,
+    "file": "skills/simmer-skill-builder/scripts/status.py",
+    "line": 59,
+    "message": "SIMMER_API_KEY is read but absent from clawhub.json envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-skill-builder",
+    "check": 3,
+    "file": "skills/simmer-skill-builder/SKILL.md",
+    "line": 264,
+    "message": "documented flag absent from entrypoint argparse: --config",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-skill-builder",
+    "check": 3,
+    "file": "skills/simmer-skill-builder/SKILL.md",
+    "line": 264,
+    "message": "documented flag absent from entrypoint argparse: --live",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-skill-builder",
+    "check": 3,
+    "file": "skills/simmer-skill-builder/SKILL.md",
+    "line": 264,
+    "message": "documented flag absent from entrypoint argparse: --no-safeguards",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-skill-builder",
+    "check": 3,
+    "file": "skills/simmer-skill-builder/SKILL.md",
+    "line": 264,
+    "message": "documented flag absent from entrypoint argparse: --positions",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-skill-builder",
+    "check": 3,
+    "file": "skills/simmer-skill-builder/SKILL.md",
+    "line": 264,
+    "message": "documented flag absent from entrypoint argparse: --quiet",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-skill-builder",
+    "check": 3,
+    "file": "skills/simmer-skill-builder/SKILL.md",
+    "line": 264,
+    "message": "documented flag absent from entrypoint argparse: --set",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-skill-builder",
+    "check": 3,
+    "file": "skills/simmer-skill-builder/SKILL.md",
+    "line": 297,
+    "message": "documented flag absent from entrypoint argparse: --slug",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-skill-builder",
+    "check": 3,
+    "file": "skills/simmer-skill-builder/SKILL.md",
+    "line": 297,
+    "message": "documented flag absent from entrypoint argparse: --version",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-skill-builder",
+    "check": 3,
+    "file": "skills/simmer-skill-builder/SKILL.md",
+    "line": 318,
+    "message": "documented flag absent from entrypoint argparse: --skill",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-skill-builder",
+    "check": 3,
+    "file": "skills/simmer-skill-builder/SKILL.md",
+    "line": 332,
+    "message": "documented flag absent from entrypoint argparse: --live",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-skill-builder",
+    "check": 3,
+    "file": "skills/simmer-skill-builder/SKILL.md",
+    "line": 334,
+    "message": "documented flag absent from entrypoint argparse: --no-safeguards",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-skill-builder",
+    "check": 3,
+    "file": "skills/simmer-skill-builder/SKILL.md",
+    "line": 366,
+    "message": "documented flag absent from entrypoint argparse: --slug",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-skill-builder",
+    "check": 3,
+    "file": "skills/simmer-skill-builder/SKILL.md",
+    "line": 366,
+    "message": "documented flag absent from entrypoint argparse: --version",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-skill-builder",
+    "check": 3,
+    "file": "skills/simmer-skill-builder/SKILL.md",
+    "line": 391,
+    "message": "documented flag absent from entrypoint argparse: --slug",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-skill-builder",
+    "check": 3,
+    "file": "skills/simmer-skill-builder/SKILL.md",
+    "line": 391,
+    "message": "documented flag absent from entrypoint argparse: --version",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-skill-builder",
+    "check": 5,
+    "file": "skills/simmer-skill-builder/clawhub.json",
+    "line": 1,
+    "message": "dependency must use an exact == pin: simmer-sdk",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-skill-builder",
+    "check": 5,
+    "file": "skills/simmer-skill-builder/clawhub.json",
+    "line": 1,
+    "message": "requires.pip and requirements.txt disagree: requires.pip=['simmer-sdk']; requirements.txt=[]",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-skill-builder",
+    "check": 7,
+    "file": "skills/simmer-skill-builder/scripts/status.py",
+    "line": 22,
+    "message": "undeclared network host: api.simmer.markets",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-wallet-setup",
+    "check": 2,
+    "file": "skills/simmer-wallet-setup/SKILL.md",
+    "line": 1,
+    "message": "OWS_WALLET is declared but unused by bundled code",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-wallet-setup",
+    "check": 2,
+    "file": "skills/simmer-wallet-setup/SKILL.md",
+    "line": 1,
+    "message": "SIMMER_API_KEY is declared but unused by bundled code",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-wallet-setup",
+    "check": 2,
+    "file": "skills/simmer-wallet-setup/SKILL.md",
+    "line": 1,
+    "message": "WALLET_PRIVATE_KEY is declared but unused by bundled code",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-wallet-setup",
+    "check": 2,
+    "file": "skills/simmer-wallet-setup/clawhub.json",
+    "line": 1,
+    "message": "OWS_WALLET is declared but unused by bundled code",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-wallet-setup",
+    "check": 2,
+    "file": "skills/simmer-wallet-setup/clawhub.json",
+    "line": 1,
+    "message": "SIMMER_API_KEY is declared but unused by bundled code",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-wallet-setup",
+    "check": 2,
+    "file": "skills/simmer-wallet-setup/clawhub.json",
+    "line": 1,
+    "message": "WALLET_PRIVATE_KEY is declared but unused by bundled code",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-wallet-setup",
+    "check": 3,
+    "file": "skills/simmer-wallet-setup/SKILL.md",
+    "line": 48,
+    "message": "documented flag absent from entrypoint argparse: --name",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-wallet-setup",
+    "check": 3,
+    "file": "skills/simmer-wallet-setup/SKILL.md",
+    "line": 48,
+    "message": "documented flag absent from entrypoint argparse: --private-key",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-wallet-setup",
+    "check": 5,
+    "file": "skills/simmer-wallet-setup/SKILL.md",
+    "line": 46,
+    "message": "unsafe install source or curl piped to shell",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-wallet-setup",
+    "check": 5,
+    "file": "skills/simmer-wallet-setup/SKILL.md",
+    "line": 47,
+    "message": "pip install must use exact == pins: 'simmer-sdk[ows]'",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-wallet-setup",
+    "check": 5,
+    "file": "skills/simmer-wallet-setup/SKILL.md",
+    "line": 138,
+    "message": "pip install must use exact == pins: simmer-sdk",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-wallet-setup",
+    "check": 5,
+    "file": "skills/simmer-wallet-setup/clawhub.json",
+    "line": 1,
+    "message": "dependency must use an exact == pin: simmer-sdk",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-wallet-setup",
+    "check": 5,
+    "file": "skills/simmer-wallet-setup/clawhub.json",
+    "line": 1,
+    "message": "requires.pip and requirements.txt disagree: requires.pip=['simmer-sdk']; requirements.txt=[]",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-x402",
+    "check": 2,
+    "file": "skills/simmer-x402/x402_cli.py",
+    "line": 48,
+    "message": "X402_MAX_PAYMENT_USD is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-x402",
+    "check": 2,
+    "file": "skills/simmer-x402/x402_cli.py",
+    "line": 48,
+    "message": "X402_MAX_PAYMENT_USD is read but absent from clawhub.json envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-x402",
+    "check": 2,
+    "file": "skills/simmer-x402/x402_cli.py",
+    "line": 50,
+    "message": "X402_NETWORK is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-x402",
+    "check": 2,
+    "file": "skills/simmer-x402/x402_cli.py",
+    "line": 50,
+    "message": "X402_NETWORK is read but absent from clawhub.json envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-x402",
+    "check": 2,
+    "file": "skills/simmer-x402/x402_cli.py",
+    "line": 73,
+    "message": "EVM_PRIVATE_KEY is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-x402",
+    "check": 2,
+    "file": "skills/simmer-x402/x402_cli.py",
+    "line": 73,
+    "message": "WALLET_PRIVATE_KEY is read but absent from SKILL.md envVars",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-x402",
+    "check": 3,
+    "file": "skills/simmer-x402/SKILL.md",
+    "line": 14,
+    "message": "documented flag absent from entrypoint argparse: --max",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-x402",
+    "check": 3,
+    "file": "skills/simmer-x402/SKILL.md",
+    "line": 47,
+    "message": "documented flag absent from entrypoint argparse: --json",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-x402",
+    "check": 3,
+    "file": "skills/simmer-x402/SKILL.md",
+    "line": 48,
+    "message": "documented flag absent from entrypoint argparse: --dry-run",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-x402",
+    "check": 3,
+    "file": "skills/simmer-x402/SKILL.md",
+    "line": 49,
+    "message": "documented flag absent from entrypoint argparse: --max",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-x402",
+    "check": 3,
+    "file": "skills/simmer-x402/SKILL.md",
+    "line": 70,
+    "message": "documented flag absent from entrypoint argparse: --json",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-x402",
+    "check": 3,
+    "file": "skills/simmer-x402/SKILL.md",
+    "line": 75,
+    "message": "documented flag absent from entrypoint argparse: --json",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-x402",
+    "check": 3,
+    "file": "skills/simmer-x402/SKILL.md",
+    "line": 80,
+    "message": "documented flag absent from entrypoint argparse: --json",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-x402",
+    "check": 3,
+    "file": "skills/simmer-x402/SKILL.md",
+    "line": 86,
+    "message": "documented flag absent from entrypoint argparse: --body",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-x402",
+    "check": 3,
+    "file": "skills/simmer-x402/SKILL.md",
+    "line": 86,
+    "message": "documented flag absent from entrypoint argparse: --json",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-x402",
+    "check": 3,
+    "file": "skills/simmer-x402/SKILL.md",
+    "line": 86,
+    "message": "documented flag absent from entrypoint argparse: --method",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-x402",
+    "check": 3,
+    "file": "skills/simmer-x402/SKILL.md",
+    "line": 91,
+    "message": "documented flag absent from entrypoint argparse: --json",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-x402",
+    "check": 3,
+    "file": "skills/simmer-x402/SKILL.md",
+    "line": 97,
+    "message": "documented flag absent from entrypoint argparse: --header",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-x402",
+    "check": 3,
+    "file": "skills/simmer-x402/SKILL.md",
+    "line": 97,
+    "message": "documented flag absent from entrypoint argparse: --json",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-x402",
+    "check": 3,
+    "file": "skills/simmer-x402/SKILL.md",
+    "line": 192,
+    "message": "documented flag absent from entrypoint argparse: --max",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-x402",
+    "check": 5,
+    "file": "skills/simmer-x402/SKILL.md",
+    "line": 23,
+    "message": "pip install must use exact == pins: simmer-sdk",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-x402",
+    "check": 5,
+    "file": "skills/simmer-x402/SKILL.md",
+    "line": 38,
+    "message": "pip install must use exact == pins: 'x402[httpx,evm]'",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-x402",
+    "check": 5,
+    "file": "skills/simmer-x402/clawhub.json",
+    "line": 1,
+    "message": "dependency must use an exact == pin: x402[httpx,evm]",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-x402",
+    "check": 5,
+    "file": "skills/simmer-x402/clawhub.json",
+    "line": 1,
+    "message": "requires.pip and requirements.txt disagree: requires.pip=['x402[httpx,evm]']; requirements.txt=['eth-account>=0.10.0', 'httpx>=0.25.0', 'x402[httpx,evm]>=1.0.0']",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-x402",
+    "check": 5,
+    "file": "skills/simmer-x402/requirements.txt",
+    "line": 1,
+    "message": "dependency must use an exact == pin: x402[httpx,evm]>=1.0.0",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-x402",
+    "check": 5,
+    "file": "skills/simmer-x402/requirements.txt",
+    "line": 2,
+    "message": "dependency must use an exact == pin: httpx>=0.25.0",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-x402",
+    "check": 5,
+    "file": "skills/simmer-x402/requirements.txt",
+    "line": 3,
+    "message": "dependency must use an exact == pin: eth-account>=0.10.0",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-x402",
+    "check": 7,
+    "file": "skills/simmer-x402/x402_cli.py",
+    "line": 57,
+    "message": "undeclared network host: mainnet.base.org",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer-x402",
+    "check": 7,
+    "file": "skills/simmer-x402/x402_cli.py",
+    "line": 58,
+    "message": "undeclared network host: sepolia.base.org",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer",
+    "check": 2,
+    "file": "skills/simmer/SKILL.md",
+    "line": 1,
+    "message": "SIMMER_API_KEY is declared but unused by bundled code",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer",
+    "check": 2,
+    "file": "skills/simmer/SKILL.md",
+    "line": 1,
+    "message": "TRADING_VENUE is declared but unused by bundled code",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer",
+    "check": 2,
+    "file": "skills/simmer/clawhub.json",
+    "line": 1,
+    "message": "SIMMER_API_KEY is declared but unused by bundled code",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer",
+    "check": 2,
+    "file": "skills/simmer/clawhub.json",
+    "line": 1,
+    "message": "TRADING_VENUE is declared but unused by bundled code",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer",
+    "check": 3,
+    "file": "skills/simmer/SKILL.md",
+    "line": 111,
+    "message": "documented flag absent from entrypoint argparse: --entrypoint",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer",
+    "check": 3,
+    "file": "skills/simmer/SKILL.md",
+    "line": 111,
+    "message": "documented flag absent from entrypoint argparse: --window",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer",
+    "check": 5,
+    "file": "skills/simmer/SKILL.md",
+    "line": 51,
+    "message": "pip install must use exact == pins: simmer-sdk",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer",
+    "check": 5,
+    "file": "skills/simmer/SKILL.md",
+    "line": 109,
+    "message": "pip install must use exact == pins: 'simmer-sdk[backtest]' then simmer backtest '<skill>' --entrypoint run.py --window 30d '|'",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer",
+    "check": 5,
+    "file": "skills/simmer/clawhub.json",
+    "line": 1,
+    "message": "dependency must use an exact == pin: simmer-sdk",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  },
+  {
+    "skill": "simmer",
+    "check": 5,
+    "file": "skills/simmer/clawhub.json",
+    "line": 1,
+    "message": "requires.pip and requirements.txt disagree: requires.pip=['simmer-sdk']; requirements.txt=[]",
+    "owner": "splabs-ci",
+    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
+  }
+]
