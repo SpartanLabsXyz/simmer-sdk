@@ -1933,20 +1933,26 @@ class SimmerClient:
             print(f"ERROR: Auto-link failed: {e}. Call client.link_wallet() manually.")
             raise RuntimeError(f"Wallet linking failed: {e}")
 
-    def _load_per_agent_dw_state(self) -> None:
-        """Populate DW routing flags from /api/sdk/agents/me for per-agent wallets.
+    def _load_per_agent_dw_state(self, *, require_known: bool = False) -> None:
+        """Populate account or per-agent DW routing flags from /api/sdk/agents/me.
 
         Registered per-agent wallets (OWS or raw-key) skip _ensure_wallet_linked()
         (to avoid the user-level re-link path), but _build_signed_order() needs
         _uses_deposit_wallet and _deposit_wallet_address for sig-type selection.
         Fetches from the same endpoint preflight() uses. Cached for the session.
+        require_known refreshes identity and propagates discovery errors so V2
+        approvals cannot treat unknown funding-wallet state as an EOA account.
         """
-        if getattr(self, "_per_agent_dw_loaded", False):
+        if not require_known and getattr(self, "_per_agent_dw_loaded", False):
             return
-        self._per_agent_dw_loaded = True
+        if not require_known:
+            self._per_agent_dw_loaded = True
         try:
             me = self._request("GET", "/api/sdk/agents/me")
             per_agent_wallet = me.get("per_agent_wallet_address")
+            active_field = "per_agent_dw_active" if per_agent_wallet else "wallet_uses_deposit_wallet"
+            if require_known and not isinstance(me.get(active_field), bool):
+                raise ValueError("Cannot resolve active funding wallet: missing DW activation status")
             if per_agent_wallet:
                 if "per_agent_dw_active" in me and me.get("per_agent_dw_active") is not None:
                     self._uses_deposit_wallet = bool(me["per_agent_dw_active"])
@@ -1956,6 +1962,8 @@ class SimmerClient:
                     self._uses_deposit_wallet = bool(me["wallet_uses_deposit_wallet"])
                     self._deposit_wallet_address = me.get("deposit_wallet_address")
         except Exception as e:
+            if require_known:
+                raise
             logger.debug("Could not load per-agent DW state: %s", e)
 
     def _ensure_clob_credentials(self) -> None:
@@ -6428,6 +6436,8 @@ class SimmerClient:
                 print("Please set approvals in your Polymarket wallet")
                 print(f"Missing: {approvals}")
         """
+        if protocol_v2 and address is None:
+            self._load_per_agent_dw_state(require_known=True)
         check_address = address or self._wallet_address
         if protocol_v2 and address is None and self._uses_deposit_wallet:
             check_address = self._deposit_wallet_address
@@ -6656,6 +6666,9 @@ class SimmerClient:
                 "or configure an OWS wallet (OWS_WALLET env var or ows_wallet constructor arg)."
             )
 
+        if protocol_v2:
+            self._load_per_agent_dw_state(require_known=True)
+
         # SIM-1613: deposit-wallet users must set approvals via the dashboard's
         # "Activate Trading" EIP-712 flow — EOA approvals have no effect because
         # collateral lives in the deposit wallet, not the EOA.
@@ -6747,7 +6760,7 @@ class SimmerClient:
 
         print("Step 1/3: Checking which approvals are needed...")
         options = {"protocol_v2": True} if protocol_v2 else {}
-        status = self.check_approvals(no_cache=True, include_tx_params=True, **options)
+        status = self.check_approvals(address=self._wallet_address, no_cache=True, include_tx_params=True, **options)
         all_txs = get_approval_transactions(**options)
         missing_txs = get_missing_approval_transactions(status, **options)
 

@@ -114,15 +114,14 @@ class MarketProtocol:
         if self.version == "v1":
             if self.position_id is not None:
                 raise ValueError("Protocol V1 forbids position_id")
-        elif not (
-            isinstance(self.position_id, str)
-            and 0 < len(self.position_id) <= 78
-            and self.position_id.isascii()
-            and self.position_id.isdecimal()
-            and str(int(self.position_id)) == self.position_id
-            and int(self.position_id) < 2**256
-        ):
+            return
+
+        from polynode.market_protocol import is_token_id, protocol_v2_outcome_index
+
+        if not (is_token_id(self.position_id) and int(self.position_id) < 2**256):
             raise ValueError("Protocol V2 requires a canonical decimal uint256 position_id")
+        if protocol_v2_outcome_index(self.position_id) not in (0, 1):
+            raise ValueError("Protocol V2 position_id has an unsupported outcome byte")
 
     @classmethod
     def from_market_data(cls, data: Mapping[str, Any], side: Literal["yes", "no"]) -> MarketProtocol:
@@ -130,7 +129,28 @@ class MarketProtocol:
         if side not in ("yes", "no"):
             raise ValueError("market outcome must be 'yes' or 'no'")
         field = "polymarket_position_id" if side == "yes" else "polymarket_no_position_id"
-        return cls(data.get("polymarket_protocol_version", "v1"), data.get(field))
+        protocol = cls(data.get("polymarket_protocol_version", "v1"), data.get(field))
+        if protocol.version == "v2":
+            from polynode.market_protocol import (
+                protocol_v2_condition_of_position,
+                protocol_v2_outcome_index,
+            )
+
+            outcome = 0 if side == "yes" else 1
+            if protocol_v2_outcome_index(protocol.position_id) != outcome:
+                raise ValueError(f"Protocol V2 position_id does not encode the {side} outcome")
+            other_field = "polymarket_no_position_id" if side == "yes" else "polymarket_position_id"
+            other_id = data.get(other_field)
+            if other_id is not None:
+                other = cls("v2", other_id)
+                if protocol_v2_outcome_index(other.position_id) != 1 - outcome:
+                    raise ValueError("Protocol V2 position IDs must encode opposite outcomes")
+                if (
+                    protocol_v2_condition_of_position(protocol.position_id)
+                    != protocol_v2_condition_of_position(other.position_id)
+                ):
+                    raise ValueError("Protocol V2 position IDs must share the same condition")
+        return protocol
 
 
 @dataclass(frozen=True)
