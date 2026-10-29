@@ -176,9 +176,30 @@ pUSD allowance and PositionManager operator approval for ExchangeV3.
 `GET /api/polymarket/allowances/{address}?protocol_v2=1`. The server must return
 boolean entries in `allowances` named `pusd_<exchange_address>` and
 `position_manager_<exchange_address>`, using the full lowercase ExchangeV3
-address. It must check pUSD `allowance(owner, ExchangeV3)` and PositionManager
-`isApprovedForAll(owner, ExchangeV3)`. Missing entries mean unapproved, even if
-an older server reports `all_set=true`.
+address:
+
+- `pusd_0xe3333700ca9d93003f00f0f71f8515005f6c00aa` is true when pUSD
+  `allowance(owner, ExchangeV3) >= (2**256 - 1) // 2`, PolyNode's readiness threshold.
+- `position_manager_0xe3333700ca9d93003f00f0f71f8515005f6c00aa` is the result of
+  PositionManager `isApprovedForAll(owner, ExchangeV3)`.
+
+Missing entries mean unapproved, even if an older server reports `all_set=true`.
+
+With `protocol_v2=True` and a locally configured wallet, default-address
+`check_approvals()`, `ensure_approvals()`, and `set_approvals()` require activation
+status from `GET /api/sdk/agents/me`:
+
+- If `per_agent_wallet_address` is present, `per_agent_dw_active` must be a boolean.
+  When true, approval checks use `per_agent_deposit_wallet_address`.
+- Otherwise, `wallet_uses_deposit_wallet` must be a boolean.
+  When true, approval checks use `deposit_wallet_address`.
+
+When the applicable flag is false, approval checks use the configured EOA address.
+These calls fail closed: missing, null, or non-boolean activation status raises,
+and identity lookup errors propagate. An active DW without its address also
+causes approval checks to raise. Passing an explicit `address` to
+`check_approvals()` skips activation discovery and checks that address directly,
+including with `protocol_v2=True`.
 
 For an EOA, `client.set_approvals(protocol_v2=True)` can submit the missing
 approvals. Deposit-wallet users must use the dashboard's **Activate Trading**
