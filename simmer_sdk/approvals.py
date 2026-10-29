@@ -35,6 +35,8 @@ from typing import List, Dict, Any
 
 from simmer_sdk.polymarket_contracts import (
     POLYGON_CHAIN_ID,
+    COMBO_EXCHANGE,
+    COMBO_POSITION_MANAGER,
     USDC_E,
     USDC_NATIVE,
     PUSD,
@@ -143,6 +145,7 @@ def _build_approval_info(spender_info: Dict[str, str], token: str) -> Dict[str, 
     - "USDC" — native USDC (V1 only)
     - "pUSD" — V2 collateral
     - "CTF" — ERC1155 outcome tokens (both versions)
+    - "PositionManager" — Protocol V2 ERC1155 outcome positions
     """
     token_map = {
         "USDC.e": (USDC_E, "Allow {name} to spend USDC.e"),
@@ -159,19 +162,27 @@ def _build_approval_info(spender_info: Dict[str, str], token: str) -> Dict[str, 
             "type": "ERC20",
             "description": desc_tpl.format(name=spender_info["name"]),
         }
-    # CTF ERC1155
+    # Protocol V2 positions live on PositionManager, not the legacy CTF.
     return {
-        "token": "CTF",
-        "token_address": CTF_TOKEN,
+        "token": token,
+        "token_address": COMBO_POSITION_MANAGER if token == "PositionManager" else CTF_TOKEN,
         "spender": spender_info["name"],
         "spender_address": spender_info["address"],
         "type": "ERC1155",
-        "description": f"Allow {spender_info['name']} to transfer CTF tokens",
+        "description": f"Allow {spender_info['name']} to transfer {token} tokens",
     }
 
 
-def get_required_approvals() -> List[Dict[str, Any]]:
+def _protocol_v2_approvals() -> List[Dict[str, Any]]:
+    # PolyNode 0.15.1 trading/onboarding.py:640-653; constants.py:27-29.
+    spender = {"name": "ExchangeV3", "address": COMBO_EXCHANGE}
+    return [_build_approval_info(spender, token) for token in ("pUSD", "PositionManager")]
+
+
+def get_required_approvals(*, protocol_v2: bool = False) -> List[Dict[str, Any]]:
     """Get list of all required approvals for the active exchange version.
+
+    protocol_v2=True adds the two ExchangeV3 approvals.
 
     V1 (flag off): USDC + USDC.e + CTF per 3 spenders = 9 approvals.
     V2 (flag on, default on 0.10.0+): pUSD + CTF per 3 trading spenders (6)
@@ -204,11 +215,15 @@ def get_required_approvals() -> List[Dict[str, Any]]:
             {"name": "CTF Collateral Adapter", "address": CTF_COLLATERAL_ADAPTER}, "pUSD"
         ))
 
+    if protocol_v2:
+        approvals.extend(_protocol_v2_approvals())
     return approvals
 
 
-def get_approval_transactions() -> List[Dict[str, Any]]:
+def get_approval_transactions(*, protocol_v2: bool = False) -> List[Dict[str, Any]]:
     """Get transaction data for all required Polymarket approvals.
+
+    protocol_v2=True adds pUSD and PositionManager approvals for ExchangeV3.
 
     These transactions can be executed by a wallet or agent runtime to set up
     all necessary approvals for trading. Selected token set + spender
@@ -353,11 +368,28 @@ def get_approval_transactions() -> List[Dict[str, Any]]:
             "spender_address": CTF_COLLATERAL_ADAPTER,
         })
 
+    if protocol_v2:
+        for approval in _protocol_v2_approvals():
+            erc20 = approval["type"] == "ERC20"
+            transactions.append({
+                "to": approval["token_address"],
+                "data": (
+                    (ERC20_APPROVE_SELECTOR if erc20 else ERC1155_SET_APPROVAL_SELECTOR)
+                    + approval["spender_address"][2:].lower().zfill(EVM_WORD_SIZE_HEX)
+                    + (MAX_UINT256[2:] if erc20 else BOOL_TRUE_ENCODED)
+                ),
+                "value": "0x0",
+                "chainId": POLYGON_CHAIN_ID,
+                "description": approval["description"],
+                "token": approval["token"],
+                "spender": approval["spender"],
+                "spender_address": approval["spender_address"],
+            })
     return transactions
 
 
 def get_missing_approval_transactions(
-    approval_status: Dict[str, Any]
+    approval_status: Dict[str, Any], *, protocol_v2: bool = False
 ) -> List[Dict[str, Any]]:
     """Get transaction data only for missing approvals.
 
@@ -368,10 +400,10 @@ def get_missing_approval_transactions(
     Returns:
         List of transaction objects for missing approvals only.
     """
-    if approval_status.get("all_set", False):
+    if approval_status.get("all_set", False) and not protocol_v2:
         return []
 
-    all_txs = get_approval_transactions()
+    all_txs = get_approval_transactions(protocol_v2=protocol_v2)
     allowances = approval_status.get("allowances", {})
 
     missing_txs = []
@@ -388,6 +420,8 @@ def get_missing_approval_transactions(
             key = f"usdc_bridged_{spender_key}"
         elif token == "pUSD":
             key = f"pusd_{spender_key}"
+        elif token == "PositionManager":
+            key = f"position_manager_{spender_key}"
         else:
             key = f"ctf_{spender_key}"
 
@@ -397,12 +431,16 @@ def get_missing_approval_transactions(
     return missing_txs
 
 
-def format_approval_guide(approval_status: Dict[str, Any]) -> str:
+def format_approval_guide(approval_status: Dict[str, Any], *, protocol_v2: bool = False) -> str:
     """Format a human-readable approval status guide.
 
     Returns:
         Formatted string showing what approvals are missing.
     """
+    if protocol_v2:
+        missing = get_missing_approval_transactions(approval_status, protocol_v2=True)
+        if missing:
+            return "Missing Polymarket approvals:\n" + "\n".join(tx["description"] for tx in missing)
     if approval_status.get("all_set", False):
         return "✅ All Polymarket approvals are set. You're ready to trade!"
 

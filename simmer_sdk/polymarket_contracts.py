@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from typing import Literal, Mapping, Any
 from datetime import datetime, timezone
 
 # Polymarket V2 cutover timestamp. Before this instant the SDK signs V1;
@@ -77,8 +78,9 @@ NEG_RISK_CTF_COLLATERAL_ADAPTER = "0xadA2005600Dec949baf300f4C6120000bDB6eAab"  
 # ============================================================
 # Combo (parlay) infrastructure
 # ============================================================
-# Combos settle on their own exchange + position-token contract, distinct
-# from the V2 CLOB spenders. A deposit wallet must approve COMBO_EXCHANGE to
+# Combos and Protocol V2 CLOB markets share this exchange and position ledger,
+# distinct from the April CLOB spenders. Keep the COMBO_* names for compatibility.
+# A deposit wallet must approve COMBO_EXCHANGE to
 # spend its pUSD (ERC20) AND its combo position tokens (ERC1155 on
 # COMBO_POSITION_MANAGER — NOT the CTF; combo position tokens live there,
 # Polymarket-confirmed 2026-06-18). Mirrors the server
@@ -93,6 +95,42 @@ COMBO_POSITION_MANAGER = "0x006F54F7f9A22e0000CC2AB60031000000ae9fEF"
 USDC_E = V1_COLLATERAL_TOKEN    # same address, named by role
 PUSD = V2_COLLATERAL_TOKEN
 USDC_NATIVE = "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359"
+
+
+@dataclass(frozen=True)
+class MarketProtocol:
+    """Protocol of one outcome, independent of the April exchange-format flag.
+
+    Protocol V2 signs a PositionManager position ID on ExchangeV3. Current
+    (v1) markets sign their existing CTF token ID and must not carry a position ID.
+    """
+
+    version: Literal["v1", "v2"] = "v1"
+    position_id: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.version not in ("v1", "v2"):
+            raise ValueError("market protocol version must be 'v1' or 'v2'")
+        if self.version == "v1":
+            if self.position_id is not None:
+                raise ValueError("Protocol V1 forbids position_id")
+        elif not (
+            isinstance(self.position_id, str)
+            and 0 < len(self.position_id) <= 78
+            and self.position_id.isascii()
+            and self.position_id.isdecimal()
+            and str(int(self.position_id)) == self.position_id
+            and int(self.position_id) < 2**256
+        ):
+            raise ValueError("Protocol V2 requires a canonical decimal uint256 position_id")
+
+    @classmethod
+    def from_market_data(cls, data: Mapping[str, Any], side: Literal["yes", "no"]) -> MarketProtocol:
+        """Parse explicit Simmer market metadata; absent marker means current protocol."""
+        if side not in ("yes", "no"):
+            raise ValueError("market outcome must be 'yes' or 'no'")
+        field = "polymarket_position_id" if side == "yes" else "polymarket_no_position_id"
+        return cls(data.get("polymarket_protocol_version", "v1"), data.get(field))
 
 
 @dataclass(frozen=True)

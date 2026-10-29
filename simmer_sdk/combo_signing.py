@@ -35,6 +35,8 @@ import time
 import secrets
 from typing import Optional
 
+from simmer_sdk.polymarket_contracts import COMBO_EXCHANGE
+
 from simmer_sdk.signing import (
     SignedOrder,
     ZERO_BYTES32,
@@ -44,7 +46,7 @@ from simmer_sdk.signing import (
 
 # ── Combo Exchange v3 (verified on-chain via COMBO_EXCHANGE.eip712Domain()
 #    and by recovering a captured order's signer — gist §1, 2026-06-13). ──
-COMBO_EXCHANGE_V3 = "0xe3333700cA9d93003F00f0F71f8515005F6c00Aa"
+COMBO_EXCHANGE_V3 = COMBO_EXCHANGE
 COMBO_DOMAIN_NAME = "Polymarket CTF Exchange"
 COMBO_DOMAIN_VERSION = "3"
 
