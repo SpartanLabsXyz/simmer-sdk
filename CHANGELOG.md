@@ -3,6 +3,10 @@
 All notable changes to `simmer-sdk` are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.26.1 (2026-10-29)
+
+- **PolyNode dependency range lifted to `>=0.15.1,<0.16.0` (#463).** Simmer can now be installed next to PolyNode 0.15.x, which adds Polymarket Protocol V2 order signing. Order payloads Simmer signs today are unchanged: an offline money-trace snapshot over 16 order shapes (GTC/FAK, BUY/SELL, EOA/deposit wallet, ordinary/neg-risk) is byte-identical under PolyNode 0.10.8 and 0.15.1. This release does not route orders to Protocol V2 markets; that needs separate SDK work.
+
 ## 0.26.0 (2026-10-20)
 
 This is a minor (not patch) release because #414’s breaking `live=` change ships here: real-venue clients now require explicit `live=True`/`live=False`.
