@@ -166,10 +166,13 @@ def test_invalid_exact_inspection_fails_without_upload_or_receipt(tmp_path, insp
 
 
 @pytest.mark.parametrize("stream", ["stdout", "stderr"])
-def test_duplicate_publish_error_hands_exact_version_to_verification(tmp_path, stream):
+@pytest.mark.parametrize("suffix", ["", " (reset in 43s)", " (reset in 2s)"],
+                         ids=["plain", "reset-43", "reset-2"])
+def test_duplicate_publish_error_hands_exact_version_to_verification(tmp_path, stream, suffix):
+    diagnostic = DUPLICATE + suffix
     result, calls, receipt_dir = publish(
-        tmp_path, DUPLICATE if stream == "stdout" else "", 1,
-        diagnostic=DUPLICATE if stream == "stderr" else "publish diagnostic",
+        tmp_path, diagnostic if stream == "stdout" else "", 1,
+        diagnostic=diagnostic if stream == "stderr" else "publish diagnostic",
     )
     assert result.returncode == 0, result.stdout + result.stderr
     assert "already submitted; skipping upload" in result.stdout
@@ -183,6 +186,14 @@ def test_duplicate_publish_error_hands_exact_version_to_verification(tmp_path, s
     DUPLICATE.replace("1.0.0", "1.0.01"),
     DUPLICATE.replace("1.0.0", "1x0x0"),
     "Additional error: " + DUPLICATE,
+    DUPLICATE.replace("1.0.0", "1.0.01") + " (reset in 43s)",
+    DUPLICATE.replace("1.0.0", "1x0x0") + " (reset in 43s)",
+    DUPLICATE + " (unrelated)",
+    DUPLICATE + " (reset in 43s) extra",
+    DUPLICATE + " extra (reset in 43s)",
+    DUPLICATE + " (reset in 43s) (reset in 2s)",
+    DUPLICATE + " (reset in xs)",
+    DUPLICATE + " (reset in s)",
 ])
 def test_other_publish_errors_still_fail(tmp_path, diagnostic):
     result, _, receipt_dir = publish(tmp_path, "", 1, diagnostic=diagnostic)
