@@ -137,6 +137,56 @@ client.trade(market_id, side="yes", amount=10.0, venue="polymarket")
 
 > **Polymarket order types:** omit `order_type` for the SDK/server smart default: buys use `FAK` (fill what is available immediately), sells use `GTC` (rest on the book to improve fill rate on thin books). For structurally thin markets or maker-style limit entries, pass `order_type="GTC"` and an explicit `price`.
 
+### Polymarket Protocol V2 orders
+
+Protocol V2 markets use PositionManager positions and the ExchangeV3 signing
+domain, version `"3"`. This is separate from the April V2 order format selected
+by `SIMMER_POLYMARKET_EXCHANGE_VERSION`. Raw-key EOA signing and both raw-key
+and OWS deposit-wallet signing support these markets. OWS EOA signing remains
+legacy-only and rejects Protocol V2 metadata.
+
+`trade()` reads the selected outcome's protocol from the Simmer market detail
+response. The server must return these fields on market detail and discovery
+responses before routing Protocol V2 markets through this SDK:
+
+| Field | Current markets | Protocol V2 markets |
+| --- | --- | --- |
+| `polymarket_protocol_version` | Absent or `"v1"` | `"v2"` |
+| `polymarket_position_id` | Absent or null | YES position ID as a decimal uint256 string |
+| `polymarket_no_position_id` | Absent or null | NO position ID as a decimal uint256 string |
+| `polymarket_neg_risk` | Existing boolean | `true` for the neg-risk module, `false` for binary |
+
+For current markets, `polymarket_token_id` and `polymarket_no_token_id` remain
+the signing IDs. For Protocol V2, the position ID becomes the signed `tokenId`;
+legacy token IDs are not required. The server must obtain the protocol and IDs
+from authoritative market metadata. The SDK does not infer them from dates,
+IDs, or the neg-risk flag. Unknown or null protocol markers and incomplete V2
+metadata raise `ValueError`. The SDK caches market detail for the client session.
+
+`Market.polymarket_yes_protocol` and `Market.polymarket_no_protocol` expose
+validated `MarketProtocol` values. Direct signing callers can pass
+`market_protocol=MarketProtocol("v2", position_id)` to `build_and_sign_order`,
+importing `MarketProtocol` from `simmer_sdk.polymarket_contracts`. The frozen
+value requires a position ID for V2 and forbids one for V1. Both signing paths
+consume the same value. `build_and_sign_order` rejects Protocol V2 with the legacy exchange flag.
+
+`client.ensure_approvals(protocol_v2=True)` checks the existing approvals plus
+pUSD allowance and PositionManager operator approval for ExchangeV3.
+`client.check_approvals(protocol_v2=True)` requests
+`GET /api/polymarket/allowances/{address}?protocol_v2=1`. The server must return
+boolean entries in `allowances` named `pusd_<exchange_address>` and
+`position_manager_<exchange_address>`, using the full lowercase ExchangeV3
+address. It must check pUSD `allowance(owner, ExchangeV3)` and PositionManager
+`isApprovedForAll(owner, ExchangeV3)`. Missing entries mean unapproved, even if
+an older server reports `all_set=true`.
+
+For an EOA, `client.set_approvals(protocol_v2=True)` can submit the missing
+approvals. Deposit-wallet users must use the dashboard's **Activate Trading**
+flow, whose server implementation must also grant both approvals from the
+deposit wallet. The SDK does not submit EOA approvals for a deposit wallet.
+The default approval methods retain their existing scope. Managed wallets
+without a local address cannot confirm Protocol V2 readiness through this SDK.
+
 ### Paper trading on real venues
 
 Pass `live=False` to simulate trades with real market prices — no wallet or USDC required. For Polymarket, fills model the CLOB bid-ask spread for realistic P&L. Resolved markets auto-settle (winning shares pay $1, losers $0).

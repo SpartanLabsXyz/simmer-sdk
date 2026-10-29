@@ -3,6 +3,14 @@
 All notable changes to `simmer-sdk` are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.27.0 (2026-10-29)
+
+This is a minor release. It adds a feature and raises the `py-clob-client-v2` floor to 1.2.0.
+
+- **Polymarket Protocol V2 (ExchangeV3) routing for ordinary CLOB orders (#465).** When the server marks an outcome `polymarket_protocol_version="v2"` and sends its PositionManager position id (`polymarket_position_id` / `polymarket_no_position_id`), the SDK signs for ExchangeV3 (domain version "3"). This covers both EOA and deposit-wallet (POLY_1271) orders. Markets without the marker keep signing exactly as before: the 16 current-market rows of the offline money-trace snapshot are byte-identical. `MarketProtocol` rejects a V2 outcome without a position id, and a V1 outcome with one.
+- **Opt-in Protocol V2 approvals.** `check_approvals(protocol_v2=True)`, `ensure_approvals(protocol_v2=True)` and EOA `set_approvals(protocol_v2=True)` also cover the pUSD allowance and the PositionManager operator approval for ExchangeV3. Default behaviour is unchanged.
+- `py-clob-client-v2` requirement raised to `>=1.2.0,<2.0.0` (position-id routing).
+
 ## 0.26.1 (2026-10-29)
 
 - **PolyNode dependency range lifted to `>=0.15.1,<0.16.0` (#463).** Simmer can now be installed next to PolyNode 0.15.x, which adds Polymarket Protocol V2 order signing. Order payloads Simmer signs today are unchanged: an offline money-trace snapshot over 16 order shapes (GTC/FAK, BUY/SELL, EOA/deposit wallet, ordinary/neg-risk) is byte-identical under PolyNode 0.10.8 and 0.15.1. This release does not add Protocol V2 routing for ordinary CLOB orders; that needs separate SDK work. Existing combo signing, which already uses ExchangeV3, is unchanged.

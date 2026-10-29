@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 
 from simmer_sdk.polymarket_contracts import (
     POLYGON_CHAIN_ID,
+    MarketProtocol,
     is_v2_enabled,
 )
 
@@ -158,6 +159,7 @@ def build_and_sign_order(
     metadata: Optional[str] = None,
     amount_usdc: Optional[float] = None,
     deposit_wallet_address: Optional[str] = None,
+    market_protocol: MarketProtocol = MarketProtocol(),
 ) -> SignedOrder:
     """
     Build and sign a Polymarket order.
@@ -170,6 +172,9 @@ def build_and_sign_order(
         price: Order price (0-1)
         size: Number of shares to trade
         neg_risk: Whether this is a neg-risk market
+        market_protocol: Validated per-outcome protocol. Defaults to current
+            markets; Protocol V2 requires MarketProtocol("v2", position_id).
+            Its position ID replaces token_id in both EOA and DW signed orders.
         signature_type: Signature type (0=EOA default)
         tick_size: Market tick size (e.g., 0.01 or 0.001)
         fee_rate_bps: V1 only. Ignored on V2 (fees are match-time, not signed).
@@ -203,6 +208,9 @@ def build_and_sign_order(
     # orders whose price is not an exact multiple of tick_size (SIM-1666).
     price = round_price_to_tick(price, tick_size)
 
+    if market_protocol.version == "v2" and not is_v2_enabled():
+        raise ValueError("Protocol V2 markets require the V2 exchange order format")
+
     if is_v2_enabled():
         return _build_and_sign_order_v2(
             private_key=private_key,
@@ -219,6 +227,7 @@ def build_and_sign_order(
             metadata=metadata,
             amount_usdc=amount_usdc,
             deposit_wallet_address=deposit_wallet_address,
+            market_protocol=market_protocol,
         )
     return _build_and_sign_order_v1(
         private_key=private_key,
@@ -365,6 +374,7 @@ def _build_and_sign_order_v2(
     metadata: Optional[str],
     amount_usdc: Optional[float] = None,
     deposit_wallet_address: Optional[str] = None,
+    market_protocol: MarketProtocol = MarketProtocol(),
 ) -> SignedOrder:
     """V2 signing path. Uses `py_clob_client_v2.OrderBuilder` directly.
 
@@ -452,6 +462,7 @@ def _build_and_sign_order_v2(
             builder_code=builder_code,
             metadata=metadata,
             amount_usdc=amount_usdc,
+            market_protocol=market_protocol,
         )
     if order_type not in ("FAK", "FOK", "GTC", "GTD"):
         raise ValueError(
@@ -482,6 +493,10 @@ def _build_and_sign_order_v2(
         funder=wallet_address,
     )
 
+    asset = (
+        {"position_id": market_protocol.position_id}
+        if market_protocol.version == "v2" else {"token_id": token_id}
+    )
     is_market = order_type in ("FAK", "FOK")
     if is_market:
         # FAK/FOK: amount in USDC for BUY, shares for SELL.
@@ -494,7 +509,7 @@ def _build_and_sign_order_v2(
         else:
             market_amount = float(size)
         market_args = MarketOrderArgsV2(
-            token_id=token_id,
+            **asset,
             amount=market_amount,
             side=side.upper(),
             price=price,
@@ -506,7 +521,7 @@ def _build_and_sign_order_v2(
     else:
         # GTC/GTD: size in shares; library preserves price × size = amount.
         order_args = OrderArgsV2(
-            token_id=token_id,
+            **asset,
             price=price,
             size=size,
             side=side.upper(),
@@ -794,6 +809,7 @@ def _build_v2_dw_signed_order_core(
     metadata: Optional[str],
     sign_typed_data_fn: Callable[[dict], bytes],
     amount_usdc: Optional[float] = None,
+    market_protocol: MarketProtocol = MarketProtocol(),
 ) -> SignedOrder:
     """Shared core for V2 sig-type-3 (POLY_1271) deposit-wallet order signing.
 
@@ -1018,12 +1034,13 @@ def _build_v2_dw_signed_order_core(
     payload = build_order_payload_v2(
         maker=funder_checksum,
         signer=funder_checksum,  # CRITICAL: signer == maker == DW for POLY_1271
-        token_id=token_id,
+        token_id=market_protocol.position_id if market_protocol.version == "v2" else token_id,
         maker_amount=maker_amount,
         taker_amount=taker_amount,
         side=side_upper,
         signature_type=SignatureType.POLY_1271,
         neg_risk=neg_risk,
+        protocol_version=market_protocol.version,
         metadata=_metadata,
         builder=_builder_code,
     )
@@ -1160,6 +1177,7 @@ def _build_and_sign_order_v2_dw(
     builder_code: Optional[str],
     metadata: Optional[str],
     amount_usdc: Optional[float] = None,
+    market_protocol: MarketProtocol = MarketProtocol(),
 ) -> SignedOrder:
     """V2 sig-type-3 (POLY_1271) signing for raw-private-key deposit-wallet users.
 
@@ -1217,6 +1235,7 @@ def _build_and_sign_order_v2_dw(
         metadata=metadata,
         sign_typed_data_fn=_sign_fn,
         amount_usdc=amount_usdc,
+        market_protocol=market_protocol,
     )
 
 
@@ -1234,6 +1253,7 @@ def build_and_sign_order_v2_dw_ows(
     builder_code: Optional[str],
     metadata: Optional[str],
     amount_usdc: Optional[float] = None,
+    market_protocol: MarketProtocol = MarketProtocol(),
 ) -> SignedOrder:
     """V2 sig-type-3 (POLY_1271) signing for OWS + deposit-wallet users.
 
@@ -1305,4 +1325,5 @@ def build_and_sign_order_v2_dw_ows(
         metadata=metadata,
         sign_typed_data_fn=_sign_fn,
         amount_usdc=amount_usdc,
+        market_protocol=market_protocol,
     )

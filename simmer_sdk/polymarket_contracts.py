@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from typing import Literal, Mapping, Any
 from datetime import datetime, timezone
 
 # Polymarket V2 cutover timestamp. Before this instant the SDK signs V1;
@@ -77,8 +78,9 @@ NEG_RISK_CTF_COLLATERAL_ADAPTER = "0xadA2005600Dec949baf300f4C6120000bDB6eAab"  
 # ============================================================
 # Combo (parlay) infrastructure
 # ============================================================
-# Combos settle on their own exchange + position-token contract, distinct
-# from the V2 CLOB spenders. A deposit wallet must approve COMBO_EXCHANGE to
+# Combos and Protocol V2 CLOB markets share this exchange and position ledger,
+# distinct from the April CLOB spenders. Keep the COMBO_* names for compatibility.
+# A deposit wallet must approve COMBO_EXCHANGE to
 # spend its pUSD (ERC20) AND its combo position tokens (ERC1155 on
 # COMBO_POSITION_MANAGER — NOT the CTF; combo position tokens live there,
 # Polymarket-confirmed 2026-06-18). Mirrors the server
@@ -93,6 +95,62 @@ COMBO_POSITION_MANAGER = "0x006F54F7f9A22e0000CC2AB60031000000ae9fEF"
 USDC_E = V1_COLLATERAL_TOKEN    # same address, named by role
 PUSD = V2_COLLATERAL_TOKEN
 USDC_NATIVE = "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359"
+
+
+@dataclass(frozen=True)
+class MarketProtocol:
+    """Protocol of one outcome, independent of the April exchange-format flag.
+
+    Protocol V2 signs a PositionManager position ID on ExchangeV3. Current
+    (v1) markets sign their existing CTF token ID and must not carry a position ID.
+    """
+
+    version: Literal["v1", "v2"] = "v1"
+    position_id: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.version not in ("v1", "v2"):
+            raise ValueError("market protocol version must be 'v1' or 'v2'")
+        if self.version == "v1":
+            if self.position_id is not None:
+                raise ValueError("Protocol V1 forbids position_id")
+            return
+
+        from polynode.market_protocol import is_token_id, protocol_v2_outcome_index
+
+        if not (is_token_id(self.position_id) and int(self.position_id) < 2**256):
+            raise ValueError("Protocol V2 requires a canonical decimal uint256 position_id")
+        if protocol_v2_outcome_index(self.position_id) not in (0, 1):
+            raise ValueError("Protocol V2 position_id has an unsupported outcome byte")
+
+    @classmethod
+    def from_market_data(cls, data: Mapping[str, Any], side: Literal["yes", "no"]) -> MarketProtocol:
+        """Parse explicit Simmer market metadata; absent marker means current protocol."""
+        if side not in ("yes", "no"):
+            raise ValueError("market outcome must be 'yes' or 'no'")
+        field = "polymarket_position_id" if side == "yes" else "polymarket_no_position_id"
+        protocol = cls(data.get("polymarket_protocol_version", "v1"), data.get(field))
+        if protocol.version == "v2":
+            from polynode.market_protocol import (
+                protocol_v2_condition_of_position,
+                protocol_v2_outcome_index,
+            )
+
+            outcome = 0 if side == "yes" else 1
+            if protocol_v2_outcome_index(protocol.position_id) != outcome:
+                raise ValueError(f"Protocol V2 position_id does not encode the {side} outcome")
+            other_field = "polymarket_no_position_id" if side == "yes" else "polymarket_position_id"
+            other_id = data.get(other_field)
+            if other_id is not None:
+                other = cls("v2", other_id)
+                if protocol_v2_outcome_index(other.position_id) != 1 - outcome:
+                    raise ValueError("Protocol V2 position IDs must encode opposite outcomes")
+                if (
+                    protocol_v2_condition_of_position(protocol.position_id)
+                    != protocol_v2_condition_of_position(other.position_id)
+                ):
+                    raise ValueError("Protocol V2 position IDs must share the same condition")
+        return protocol
 
 
 @dataclass(frozen=True)

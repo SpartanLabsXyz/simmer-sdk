@@ -17,6 +17,8 @@ from dataclasses import dataclass
 from urllib.parse import quote, urlparse
 from datetime import datetime, timezone
 
+from .polymarket_contracts import MarketProtocol
+
 logger = logging.getLogger(__name__)
 
 
@@ -66,6 +68,8 @@ class Market:
     spread: Optional[float] = None  # best_ask - best_bid; null if either side null
     quote_ts: Optional[float] = None  # Epoch-second snapshot time (~30s freshness)
     quote_age_seconds: Optional[float] = None  # Age of quote_ts at server response time
+    polymarket_yes_protocol: MarketProtocol = MarketProtocol()
+    polymarket_no_protocol: MarketProtocol = MarketProtocol()
 
 
 class MarketList(list):
@@ -1929,20 +1933,26 @@ class SimmerClient:
             print(f"ERROR: Auto-link failed: {e}. Call client.link_wallet() manually.")
             raise RuntimeError(f"Wallet linking failed: {e}")
 
-    def _load_per_agent_dw_state(self) -> None:
-        """Populate DW routing flags from /api/sdk/agents/me for per-agent wallets.
+    def _load_per_agent_dw_state(self, *, require_known: bool = False) -> None:
+        """Populate account or per-agent DW routing flags from /api/sdk/agents/me.
 
         Registered per-agent wallets (OWS or raw-key) skip _ensure_wallet_linked()
         (to avoid the user-level re-link path), but _build_signed_order() needs
         _uses_deposit_wallet and _deposit_wallet_address for sig-type selection.
         Fetches from the same endpoint preflight() uses. Cached for the session.
+        require_known refreshes identity and propagates discovery errors so V2
+        approvals cannot treat unknown funding-wallet state as an EOA account.
         """
-        if getattr(self, "_per_agent_dw_loaded", False):
+        if not require_known and getattr(self, "_per_agent_dw_loaded", False):
             return
-        self._per_agent_dw_loaded = True
+        if not require_known:
+            self._per_agent_dw_loaded = True
         try:
             me = self._request("GET", "/api/sdk/agents/me")
             per_agent_wallet = me.get("per_agent_wallet_address")
+            active_field = "per_agent_dw_active" if per_agent_wallet else "wallet_uses_deposit_wallet"
+            if require_known and not isinstance(me.get(active_field), bool):
+                raise ValueError("Cannot resolve active funding wallet: missing DW activation status")
             if per_agent_wallet:
                 if "per_agent_dw_active" in me and me.get("per_agent_dw_active") is not None:
                     self._uses_deposit_wallet = bool(me["per_agent_dw_active"])
@@ -1952,6 +1962,8 @@ class SimmerClient:
                     self._uses_deposit_wallet = bool(me["wallet_uses_deposit_wallet"])
                     self._deposit_wallet_address = me.get("deposit_wallet_address")
         except Exception as e:
+            if require_known:
+                raise
             logger.debug("Could not load per-agent DW state: %s", e)
 
     def _ensure_clob_credentials(self) -> None:
@@ -2704,6 +2716,8 @@ class SimmerClient:
             polymarket_no_token_id=m.get("polymarket_no_token_id"),
             polymarket_condition_id=m.get("polymarket_id"),
             polymarket_neg_risk=m.get("polymarket_neg_risk", False),
+            polymarket_yes_protocol=MarketProtocol.from_market_data(m, "yes"),
+            polymarket_no_protocol=MarketProtocol.from_market_data(m, "no"),
             spread_cents=m.get("spread_cents"),
             liquidity_tier=m.get("liquidity_tier"),
             resolution_criteria=m.get("resolution_criteria"),
@@ -5709,12 +5723,15 @@ class SimmerClient:
                 raise ValueError(f"Market {market_id} not found")
             self._market_data_cache[market_id] = market_data
 
+        market_protocol = MarketProtocol.from_market_data(market_data, side.lower())
         # Get token ID based on side
         if side.lower() == "yes":
             token_id = market_data.get("polymarket_token_id")
         else:
             token_id = market_data.get("polymarket_no_token_id")
 
+        if market_protocol.version == "v2":
+            token_id = market_protocol.position_id
         if not token_id:
             raise ValueError(f"Market {market_id} does not have Polymarket token IDs")
 
@@ -5850,10 +5867,16 @@ class SimmerClient:
                     builder_code=None,  # None -> POLY_BUILDER_CODE env -> Simmer default (see signing.py)
                     metadata=None,
                     amount_usdc=amount_usdc,
+                    market_protocol=market_protocol,
                 )
             else:
                 # Cohort A external (no DW) — existing V1 OWS path,
                 # sig-type-0 against the EOA.
+                if market_protocol.version == "v2":
+                    raise ValueError(
+                        "Protocol V2 requires a raw-key EOA or a deposit wallet; "
+                        "OWS EOA signing is legacy-only"
+                    )
                 signed = build_and_sign_order_ows(
                     ows_wallet=self._ows_wallet,
                     token_id=token_id,
@@ -5881,6 +5904,7 @@ class SimmerClient:
                 order_type=order_type,
                 amount_usdc=amount_usdc,
                 deposit_wallet_address=dw_address,
+                market_protocol=market_protocol,
             )
 
         return signed.to_dict()
@@ -6385,12 +6409,14 @@ class SimmerClient:
         )
         return summary
 
-    def check_approvals(self, address: Optional[str] = None, no_cache: bool = False, include_tx_params: bool = False, timeout: Optional[int] = None) -> Dict[str, Any]:
+    def check_approvals(self, address: Optional[str] = None, no_cache: bool = False, include_tx_params: bool = False, timeout: Optional[int] = None, *, protocol_v2: bool = False) -> Dict[str, Any]:
         """
         Check Polymarket token approvals for a wallet.
 
         Polymarket requires several token approvals before trading.
         This method checks the status of all required approvals.
+        protocol_v2=True includes ExchangeV3 pUSD and PositionManager approvals;
+        missing allowance fields are treated as unapproved.
 
         Args:
             address: Wallet address to check. Defaults to the configured
@@ -6410,7 +6436,13 @@ class SimmerClient:
                 print("Please set approvals in your Polymarket wallet")
                 print(f"Missing: {approvals}")
         """
+        if protocol_v2 and address is None:
+            self._load_per_agent_dw_state(require_known=True)
         check_address = address or self._wallet_address
+        if protocol_v2 and address is None and self._uses_deposit_wallet:
+            check_address = self._deposit_wallet_address
+            if not check_address:
+                raise ValueError("Deposit-wallet approvals require deposit_wallet_address")
         if not check_address:
             raise ValueError(
                 "No wallet address provided. Either pass address parameter "
@@ -6422,10 +6454,17 @@ class SimmerClient:
             params["no_cache"] = "1"
         if include_tx_params:
             params["include_tx_params"] = "1"
+        if protocol_v2:
+            params["protocol_v2"] = "1"
         path = f"/api/polymarket/allowances/{check_address}"
         if params:
             path += "?" + "&".join(f"{k}={v}" for k, v in params.items())
-        return self._request("GET", path, timeout=timeout)
+        status = self._request("GET", path, timeout=timeout)
+        if protocol_v2:
+            from .approvals import get_missing_approval_transactions
+            missing = get_missing_approval_transactions(status, protocol_v2=True)
+            status = {**status, "all_set": bool(status.get("all_set")) and not missing}
+        return status
 
     def _probe_managed_wallet(self) -> Optional[Dict[str, Any]]:
         """Probe the server for a managed-wallet account on this API key.
@@ -6499,12 +6538,14 @@ class SimmerClient:
             "details": [],
         }
 
-    def ensure_approvals(self) -> Dict[str, Any]:
+    def ensure_approvals(self, *, protocol_v2: bool = False) -> Dict[str, Any]:
         """
         Check approvals and return transaction data for any missing ones.
 
         Convenience method that combines check_approvals() with
         get_missing_approval_transactions() from the approvals module.
+        Pass protocol_v2=True to also require pUSD and PositionManager approvals
+        for ExchangeV3. Deposit-wallet users must activate through the dashboard.
 
         Returns:
             Dict containing:
@@ -6537,16 +6578,26 @@ class SimmerClient:
             # of a misleading "configure private_key" error.
             probe = self._probe_managed_wallet()
             if probe and probe.get("wallet_ownership") == "native":
-                return self._managed_approvals_response(probe, "ensure_approvals")
+                result = self._managed_approvals_response(probe, "ensure_approvals")
+                if protocol_v2:
+                    result.update(
+                        ready=False,
+                        guide="Confirm Protocol V2 activation in the dashboard; "
+                              "SDK approval status is unavailable for this managed wallet.",
+                    )
+                return result
             raise ValueError(
                 "No wallet configured. Initialize client with private_key."
             )
 
         from .approvals import get_missing_approval_transactions, format_approval_guide
 
-        status = self.check_approvals()
-        missing_txs = get_missing_approval_transactions(status)
-        guide = format_approval_guide(status)
+        options = {"protocol_v2": True} if protocol_v2 else {}
+        status = self.check_approvals(**options)
+        missing_txs = get_missing_approval_transactions(status, **options)
+        guide = format_approval_guide(status, **options)
+        if protocol_v2 and self._uses_deposit_wallet and missing_txs:
+            guide += "\nDeposit-wallet approvals must be set through the dashboard Activate Trading flow."
 
         return {
             "ready": status.get("all_set", False),
@@ -6555,9 +6606,10 @@ class SimmerClient:
             "raw_status": status,
         }
 
-    def set_approvals(self) -> Dict[str, Any]:
+    def set_approvals(self, *, protocol_v2: bool = False) -> Dict[str, Any]:
         """
         Set all required Polymarket token approvals for trading.
+        Pass protocol_v2=True to include ExchangeV3 pUSD and PositionManager approvals.
 
         Checks which approvals are missing, constructs and signs approval
         transactions locally, then relays them through Simmer's backend
@@ -6613,6 +6665,9 @@ class SimmerClient:
                 "No signing key available. Set WALLET_PRIVATE_KEY env var, pass private_key to constructor, "
                 "or configure an OWS wallet (OWS_WALLET env var or ows_wallet constructor arg)."
             )
+
+        if protocol_v2:
+            self._load_per_agent_dw_state(require_known=True)
 
         # SIM-1613: deposit-wallet users must set approvals via the dashboard's
         # "Activate Trading" EIP-712 flow — EOA approvals have no effect because
@@ -6704,9 +6759,10 @@ class SimmerClient:
         print(f"{'='*50}\n")
 
         print("Step 1/3: Checking which approvals are needed...")
-        status = self.check_approvals(no_cache=True, include_tx_params=True)
-        all_txs = get_approval_transactions()
-        missing_txs = get_missing_approval_transactions(status)
+        options = {"protocol_v2": True} if protocol_v2 else {}
+        status = self.check_approvals(address=self._wallet_address, no_cache=True, include_tx_params=True, **options)
+        all_txs = get_approval_transactions(**options)
+        missing_txs = get_missing_approval_transactions(status, **options)
 
         total = len(all_txs)
         skipped = total - len(missing_txs)
