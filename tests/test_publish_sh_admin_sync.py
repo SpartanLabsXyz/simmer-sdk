@@ -29,7 +29,12 @@ def test_admin_sync(tmp_path, has_key, http_code, curl_exit, expected_exit):
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     stubs = {
-        "npx": '#!/bin/sh\ncase "$2" in inspect|publish) exit 0;; *) exit 99;; esac\n',
+        "npx": (
+            '#!/bin/sh\n'
+            'case " $* " in *" --dry-run "*)\n'
+            '  echo \'{"ok":true,"status":"would-publish","slug":"sync-test","version":"1.0.0"}\'; exit 0;; esac\n'
+            'case "$2" in inspect|publish) exit 0;; *) exit 99;; esac\n'
+        ),
         "curl": '#!/bin/sh\ntouch "$CURL_CALLED"\nprintf "%s" "$HTTP_CODE"\nexit "$CURL_EXIT"\n',
     }
     for name, source in stubs.items():

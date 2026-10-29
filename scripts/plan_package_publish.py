@@ -12,6 +12,8 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import subprocess
+import sys
 import urllib.error
 from pathlib import Path
 
@@ -44,6 +46,18 @@ def plan_package(label: str, repo_version: str, published_version: str) -> bool:
     return False
 
 
+def skill_is_compliant(root: Path, path: str) -> bool:
+    result = subprocess.run(
+        [sys.executable, str(Path(__file__).with_name("check_skill_compliance.py")),
+         path, "--baseline", "scripts/skill-compliance-baseline.json"],
+        cwd=root, check=False,
+    )
+    if result.returncode:
+        print(f"::warning::{path}: dropped from publish plan; compliance check failed")
+        return False
+    return True
+
+
 def plan_skills(root: Path, versions: dict[str, str | None] | None = None) -> list[str]:
     skills, discovery_errors = check_publish_lag.discover_skills(root)
     errors = [f"Malformed skill metadata: {error}" for error in discovery_errors]
@@ -74,7 +88,7 @@ def plan_skills(root: Path, versions: dict[str, str | None] | None = None) -> li
                     else f"already published (ClawHub {latest}, repo {skill.version})"
                 )
             print(f"{skill.path}: {status}")
-            if needed:
+            if needed and skill_is_compliant(root, skill.path):
                 paths.append(skill.path)
         except (OSError, ValueError, KeyError, TypeError, check_publish_lag.PublishLagError) as exc:
             errors.append(f"{skill.path}: could not plan ClawHub publish: {exc}")
