@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import tempfile
 
@@ -33,8 +34,45 @@ def annotate(level: str, message: str) -> None:
     print(f'::{level}::{escaped}')
 
 
+# Same shapes as ClawHub CLI redactSensitiveText (openclaw/clawhub 5f3b6e9),
+# plus CLAWHUB_TOKEN= assignments. Applied to the full stderr before the
+# 300-character cut so a sliced token tail cannot reach the annotation.
+_SENSITIVE_TEXT = (
+    (re.compile(
+        r'(["\']?(?:authorization|set-cookie|cookie|api[_-]?key|secret|token)["\']?'
+        r'\s*:\s*["\'])[^"\'\n\r]+',
+        re.IGNORECASE,
+    ), r'\1[redacted]'),
+    (re.compile(r'(authorization:\s*bearer\s+)[^\s,;]+', re.IGNORECASE), r'\1[redacted]'),
+    (re.compile(
+        r'(authorization:\s*)(?!bearer\s+)(?:[^\s,;]+\s+)?[^\s,;]+',
+        re.IGNORECASE,
+    ), r'\1[redacted]'),
+    (re.compile(r'(cookie:\s*)[^\n\r]+', re.IGNORECASE), r'\1[redacted]'),
+    (re.compile(r'((?:api[_-]?key|secret|token):\s*)[^\s,;]+', re.IGNORECASE), r'\1[redacted]'),
+    (re.compile(
+        r'(CLAWHUB_TOKEN\s*=\s*)(?:"[^"\n\r]*"|\'[^\'\n\r]*\'|\S+)',
+        re.IGNORECASE,
+    ), r'\1[redacted]'),
+    (re.compile(r'clh_[A-Za-z0-9._-]+'), '[redacted]'),
+    (re.compile(
+        r'([?&](?:access_token|api[_-]?key|auth|authorization|callback|callback_url|'
+        r'code|key|redirect_uri|return_to|secret|state|token)=)[^&#\s]+',
+        re.IGNORECASE,
+    ), r'\1[redacted]'),
+    (re.compile(r'://[^/\s@]+@'), '://[redacted]@'),
+)
+
+
+def redact_sensitive(value: str) -> str:
+    for pattern, replacement in _SENSITIVE_TEXT:
+        value = pattern.sub(replacement, value)
+    return value
+
+
 def stderr_excerpt(stderr: str | None) -> str:
-    excerpt = ' '.join((stderr or '').splitlines())[-300:]
+    redacted = redact_sensitive(stderr or '')
+    excerpt = ' '.join(redacted.splitlines())[-300:]
     return excerpt if excerpt.strip() else ''
 
 
@@ -193,10 +231,10 @@ def verify(skill: check_publish_lag.Skill, report_dir: Path, receipt_dir: Path |
         ])
         status, outcome = classify(skill, json.loads(raw))
     except subprocess.CalledProcessError as exc:
-        detail = str(exc)
+        detail = redact_sensitive(str(exc))
         excerpt = stderr_excerpt(exc.stderr)
         if excerpt:
-            detail = f'{detail} {excerpt}'
+            detail = redact_sensitive(f'{detail} {excerpt}')
         annotate('error', f'{identity}: cannot verify ClawHub Security: {detail}')
         return False
     except (OSError, ValueError, KeyError, TypeError, AttributeError,

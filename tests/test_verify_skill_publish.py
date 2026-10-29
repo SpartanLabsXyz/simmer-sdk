@@ -441,8 +441,39 @@ def test_cli_failure_stderr_excerpt_is_bounded(runner):
     stderr = f'{head}\npending publication still held\n{tail}'
     result, _, _ = runner(inspection(), INSPECT_EXIT='1', INSPECT_STDERR=stderr)
     assert result.returncode == 1, result.stdout + result.stderr
-    excerpt = ' '.join(stderr.splitlines())[-300:]
-    assert 'HEADMARKER' not in excerpt
-    assert 'TAILMARKER' in excerpt
-    assert excerpt in result.stdout
+    collapsed = ' '.join(stderr.splitlines())
+    assert 'HEADMARKER' not in collapsed[-300:]
+    assert 'TAILMARKER' in collapsed[-300:]
+    assert 'TAILMARKER' in result.stdout
+    assert 'pending publication still held' in result.stdout
     assert 'HEADMARKER' not in result.stdout
+
+
+def test_cli_failure_redacts_secrets_before_error_annotation(runner):
+    body = 's' * 400
+    clh = 'clh_' + body
+    env_secret = 'envsecrettokenvalue'
+    bearer_secret = 'bearersecrettokenvalue'
+    colon_secret = 'colonsecrettokenvalue'
+    stderr = '\n'.join([
+        'Error: version is pending publication',
+        clh,
+        f'CLAWHUB_TOKEN={env_secret}',
+        f'Authorization: Bearer {bearer_secret}',
+        f'token: {colon_secret}',
+    ])
+    raw_window = ' '.join(stderr.splitlines())[-300:]
+    assert 'clh_' not in raw_window
+    assert body[-40:] in raw_window
+    assert env_secret in raw_window
+    assert bearer_secret in raw_window
+    assert colon_secret in raw_window
+    result, _, _ = runner(inspection(), INSPECT_EXIT='1', INSPECT_STDERR=stderr)
+    assert result.returncode == 1, result.stdout + result.stderr
+    visible = result.stdout + result.stderr
+    for secret in (clh, body[-40:], env_secret, bearer_secret, colon_secret):
+        assert secret not in visible
+    line = next(line for line in result.stdout.splitlines() if line.startswith('::error::'))
+    assert 'cannot verify ClawHub Security' in line
+    assert 'Error: version is pending publication' in line
+    assert '[redacted]' in line
