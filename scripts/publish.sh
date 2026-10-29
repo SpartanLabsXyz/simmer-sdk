@@ -110,14 +110,24 @@ echo "   Source: $SKILL_DIR"
 # Stage the same bundle that the compliance gate checks.
 TMP_BASE="${PAPERCLIP_RUN_SCRATCH_DIR:-${TMPDIR:-/tmp}}"
 TMP_DIR="$TMP_BASE/$NAME"
-trap 'rm -rf "$TMP_DIR"' EXIT
+trap 'rm -rf "$TMP_DIR"; rm -f "${PUBLISH_STDERR:-}"' EXIT
 mkdir -p "$TMP_BASE"
 rm -rf "$TMP_DIR"
 python3 "$(dirname "$0")/skill_bundle.py" "$SKILL_DIR" "$TMP_DIR"
 
 # Check if version already exists
 echo "   Checking ClawHub for existing version..."
-if npx "clawhub@$CLAWHUB_VERSION" inspect "$NAME" --owner simmer 2>&1 | grep -q "Latest: $VERSION"; then
+already_submitted() {
+  python3 "$(dirname "$0")/clawhub_publish_receipt.py" "$CLAWHUB_RECEIPT_DIR" "$NAME" "$VERSION" "$@"
+  echo "::notice::$NAME@$VERSION already submitted; skipping upload, verification will inspect its scan"
+  exit 0
+}
+
+if [ -n "${CLAWHUB_RECEIPT_DIR:-}" ]; then
+  if INSPECTION=$(npx "clawhub@$CLAWHUB_VERSION" inspect "@simmer/$NAME" --version "$VERSION" --json); then
+    already_submitted --inspection <<< "$INSPECTION"
+  fi
+elif npx "clawhub@$CLAWHUB_VERSION" inspect "$NAME" --owner simmer 2>&1 | grep -q "Latest: $VERSION"; then
   echo "❌ Version $VERSION already exists on ClawHub"
   echo "   Bump the version in $SKILL_MD and try again"
   exit 1
@@ -146,7 +156,14 @@ echo "   Publishing..."
 # silently at exactly this line on 2026-06-12).
 EXIT_CODE=0
 if [ -n "${CLAWHUB_RECEIPT_DIR:-}" ]; then
-  OUTPUT=$(npx "clawhub@$CLAWHUB_VERSION" publish "$TMP_DIR" --version "$VERSION" --owner simmer --slug "$NAME" --json) || EXIT_CODE=$?
+  PUBLISH_STDERR=$(mktemp "$TMP_BASE/clawhub-publish-stderr.XXXXXX")
+  OUTPUT=$(npx "clawhub@$CLAWHUB_VERSION" publish "$TMP_DIR" --version "$VERSION" --owner simmer --slug "$NAME" --json 2>"$PUBLISH_STDERR") || EXIT_CODE=$?
+  cat "$PUBLISH_STDERR" >&2
+  if [ "$EXIT_CODE" -ne 0 ] && { printf '%s\n' "$OUTPUT"; cat "$PUBLISH_STDERR"; } \
+      | sed -E 's/ \(reset in [0-9]+s\)$//' \
+      | grep -Fx "Error: Version $VERSION already exists. Increment the version number and try again." > /dev/null; then
+    already_submitted --already-submitted
+  fi
 else
   OUTPUT=$(npx "clawhub@$CLAWHUB_VERSION" publish "$TMP_DIR" --version "$VERSION" --owner simmer --slug "$NAME" 2>&1) || EXIT_CODE=$?
 fi

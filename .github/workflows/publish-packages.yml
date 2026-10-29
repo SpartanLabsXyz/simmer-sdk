@@ -311,15 +311,35 @@ jobs:
           name: clawhub-publish-receipts
           path: ${{ runner.temp }}/clawhub-receipts
 
-      - name: Verify per-version ClawHub Security
+      - name: Authenticate ClawHub for verification
+        id: clawhub-auth
         if: always() && steps.receipts.outcome == 'success'
+        env:
+          CLAWHUB_TOKEN: ${{ secrets.CLAWHUB_TOKEN }}
+          CLAWHUB_CONFIG_PATH: ${{ runner.temp }}/clawhub/config.json
+        run: |
+          if [ -z "$CLAWHUB_TOKEN" ]; then
+            echo "::error::CLAWHUB_TOKEN is required to verify pending skills on ClawHub"
+            exit 1
+          fi
+          npx -y "clawhub@0.23.3" login --token "$CLAWHUB_TOKEN" --no-browser --label "simmer-sdk verify" > /dev/null
+
+      - name: Verify per-version ClawHub Security
+        if: always() && steps.receipts.outcome == 'success' && steps.clawhub-auth.outcome == 'success'
         env:
           SKILLS_TO_PUBLISH: ${{ needs.plan.outputs.skills_to_publish }}
           GH_TOKEN: ${{ github.token }}
+          CLAWHUB_CONFIG_PATH: ${{ runner.temp }}/clawhub/config.json
         run: >-
           python3 scripts/verify_skill_publish.py
           --receipt-dir "${{ runner.temp }}/clawhub-receipts"
           --report-dir "${{ runner.temp }}/clawhub-audits"
+
+      - name: Remove ClawHub verification config
+        if: always() && needs.plan.outputs.skills_publish_needed == 'true'
+        env:
+          CLAWHUB_CONFIG_PATH: ${{ runner.temp }}/clawhub/config.json
+        run: rm -f -- "$CLAWHUB_CONFIG_PATH"
 
       - name: Save ClawHub security reports
         if: always() && needs.plan.outputs.skills_publish_needed == 'true'

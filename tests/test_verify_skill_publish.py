@@ -192,28 +192,32 @@ def receipt(status='pending-publication', publication='pending'):
             'status': status, 'publicationStatus': publication}
 
 
-@pytest.mark.parametrize('status,code,outcome', [
-    ('pending', 0, 'not-yet'),
-    ('clean', 0, 'ok'),
-    ('suspicious', 1, 'needs-human'),
-    ('malicious', 1, 'failure'),
-    ('error', 1, 'failure'),
+@pytest.mark.parametrize('receipt_status', ['pending-publication', 'already-submitted'])
+@pytest.mark.parametrize('status,latest,code,outcome', [
+    ('pending', '1.0.0', 0, 'not-yet'),
+    ('pending', None, 0, 'not-yet'),
+    ('clean', '1.1.0', 0, 'ok'),
+    ('clean', '1.0.0', 1, 'drift'),
+    ('suspicious', '1.1.0', 1, 'needs-human'),
+    ('malicious', '1.1.0', 1, 'failure'),
+    ('error', '1.1.0', 1, 'failure'),
 ])
-def test_pending_receipt_checks_current_security_without_recheck(runner, status, code, outcome):
-    result, calls, body = runner(inspection(status), RECEIPT=json.dumps(receipt()))
+def test_pending_receipt_checks_current_security_without_recheck(runner, status, latest, code, outcome, receipt_status):
+    result, calls, body = runner(inspection(status, latest=latest), RECEIPT=json.dumps(receipt(receipt_status)))
     assert result.returncode == code, result.stdout + result.stderr
     assert f'Security {status.upper()}; {outcome}' in result.stdout
     assert calls[0] == ['npx', '-y', 'clawhub@0.23.3', 'inspect', '@simmer/example', '--version', '1.1.0', '--json']
     if status == 'suspicious':
         assert '<!-- clawhub-security:example@1.1.0 -->' in body.read_text()
         report = body.parent / 'audits/example-1.1.0.json'
-        assert json.loads(report.read_text()) == inspection(status)
+        assert json.loads(report.read_text()) == inspection(status, latest=latest)
     else:
         assert not body.exists()
 
 
-def test_pending_receipt_does_not_mask_inspection_failure(runner):
-    result, _, _ = runner(inspection(), RECEIPT=json.dumps(receipt()), INSPECT_EXIT='1')
+@pytest.mark.parametrize('receipt_status', ['pending-publication', 'already-submitted'])
+def test_pending_receipt_does_not_mask_inspection_failure(runner, receipt_status):
+    result, _, _ = runner(inspection(), RECEIPT=json.dumps(receipt(receipt_status)), INSPECT_EXIT='1')
     assert result.returncode == 1
     assert '::error::' in result.stdout
 
@@ -229,6 +233,9 @@ def test_published_receipt_still_checks_security(runner):
 @pytest.mark.parametrize('value', ['{', '{}', 'null',
     json.dumps({**receipt(), 'version': '1.0.0'}),
     json.dumps({**receipt(), 'publicationStatus': 'published'}),
+    json.dumps({**receipt('already-submitted'), 'slug': 'other'}),
+    json.dumps({**receipt('already-submitted'), 'version': '1.0.0'}),
+    json.dumps({**receipt('already-submitted'), 'publicationStatus': 'published'}),
 ])
 def test_bad_receipt_fails_closed_before_inspect(runner, value):
     result, calls, _ = runner(inspection(), RECEIPT=value)
