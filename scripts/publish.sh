@@ -17,7 +17,7 @@
 
 set -euo pipefail
 
-readonly CLAWHUB_VERSION="0.23.3"
+readonly CLAWHUB_VERSION="0.24.1"
 
 if [ $# -lt 1 ]; then
   echo "Usage: $0 <skill-folder>"

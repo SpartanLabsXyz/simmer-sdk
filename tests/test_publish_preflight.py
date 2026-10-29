@@ -73,7 +73,7 @@ def test_preflight_validates_same_bundle_before_publish(tmp_path):
     preview, publish = publishes
     assert preview == publish + ["--dry-run", "--json"]
     assert publish == [
-        "clawhub@0.23.3", "publish", str(tmp_path / "scratch" / "preflight-test"),
+        "clawhub@0.24.1", "publish", str(tmp_path / "scratch" / "preflight-test"),
         "--version", "1.0.0", "--owner", "simmer", "--slug", "preflight-test",
     ]
     assert (tmp_path / "published").exists()
