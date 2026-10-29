@@ -5,7 +5,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## 0.26.1 (2026-10-29)
 
-- **PolyNode dependency range lifted to `>=0.15.1,<0.16.0` (#463).** Simmer can now be installed next to PolyNode 0.15.x, which adds Polymarket Protocol V2 order signing. Order payloads Simmer signs today are unchanged: an offline money-trace snapshot over 16 order shapes (GTC/FAK, BUY/SELL, EOA/deposit wallet, ordinary/neg-risk) is byte-identical under PolyNode 0.10.8 and 0.15.1. This release does not route orders to Protocol V2 markets; that needs separate SDK work.
+- **PolyNode dependency range lifted to `>=0.15.1,<0.16.0` (#463).** Simmer can now be installed next to PolyNode 0.15.x, which adds Polymarket Protocol V2 order signing. Order payloads Simmer signs today are unchanged: an offline money-trace snapshot over 16 order shapes (GTC/FAK, BUY/SELL, EOA/deposit wallet, ordinary/neg-risk) is byte-identical under PolyNode 0.10.8 and 0.15.1. This release does not add Protocol V2 routing for ordinary CLOB orders; that needs separate SDK work. Existing combo signing, which already uses ExchangeV3, is unchanged.
 
 ## 0.26.0 (2026-10-20)
 
