@@ -18,7 +18,7 @@ Confirmation source:
     `printf 'slug\n' | python confirm_publish.py ...`) is rejected outright, since
     an agent can supply that without a human ever reading the prompt.
 
---clawhub-version must be an exact three-part version (e.g. 0.23.3). Mutable
+--clawhub-version must be an exact three-part version (e.g. 0.24.1). Mutable
 tags like "latest", "next", or "beta" are rejected, since accepting them would
 recreate the unpinned-npx hole this script exists to close.
 
@@ -32,7 +32,7 @@ import re
 import subprocess
 import sys
 
-DEFAULT_CLAWHUB_VERSION = "0.23.3"
+DEFAULT_CLAWHUB_VERSION = "0.24.1"
 PINNED_VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
 
 

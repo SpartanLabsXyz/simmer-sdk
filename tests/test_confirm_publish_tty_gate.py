@@ -43,3 +43,9 @@ def test_get_confirmation_returns_none_when_stdin_not_a_tty(monkeypatch):
     module = _load_module()
     monkeypatch.setattr(module.sys.stdin, "isatty", lambda: False)
     assert module.get_confirmation("example-skill") is None
+
+
+def test_default_clawhub_pin_is_0241():
+    module = _load_module()
+    assert module.DEFAULT_CLAWHUB_VERSION == "0.24.1"
+    assert "0.24.1" in module.__doc__

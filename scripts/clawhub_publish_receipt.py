@@ -8,6 +8,26 @@ import sys
 import tempfile
 
 
+def accept_inspection(inspection, slug: str, version: str) -> None:
+    if not isinstance(inspection, dict):
+        raise ValueError("ClawHub inspection slug, owner, or version mismatch")
+    skill = inspection.get("skill")
+    if not isinstance(skill, dict) or skill.get("slug") != slug:
+        raise ValueError("ClawHub inspection slug, owner, or version mismatch")
+    owner = inspection.get("owner")
+    if owner is not None and (not isinstance(owner, dict) or owner.get("handle") != "simmer"):
+        raise ValueError("ClawHub inspection slug, owner, or version mismatch")
+    inspected = inspection.get("version")
+    if inspected is None:
+        publication = inspection.get("publication")
+        if not isinstance(publication, dict) or publication.get("version") != version:
+            raise ValueError("ClawHub inspection slug, owner, or version mismatch")
+        return
+    if (not isinstance(inspected, dict) or inspected.get("version") != version
+            or not isinstance(owner, dict) or owner.get("handle") != "simmer"):
+        raise ValueError("ClawHub inspection slug, owner, or version mismatch")
+
+
 def validate_receipt(payload, slug: str, version: str) -> str:
     if (not isinstance(payload, dict) or payload.get("ok") is not True
             or payload.get("slug") != slug or payload.get("version") != version):
@@ -34,11 +54,7 @@ def main() -> int:
     temporary = None
     try:
         if args.inspection:
-            inspection = json.load(sys.stdin)
-            if (inspection["skill"]["slug"] != args.slug
-                    or inspection["owner"]["handle"] != "simmer"
-                    or inspection["version"]["version"] != args.version):
-                raise ValueError("ClawHub inspection slug, owner, or version mismatch")
+            accept_inspection(json.load(sys.stdin), args.slug, args.version)
         if args.inspection or args.already_submitted:
             # This records existence only; verification must inspect the current scan.
             payload = {"ok": True, "slug": args.slug, "version": args.version,

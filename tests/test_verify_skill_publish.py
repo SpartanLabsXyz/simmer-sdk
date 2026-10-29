@@ -33,6 +33,9 @@ from pathlib import Path
 with open(os.environ['CALLS'], 'a') as log:
     log.write(json.dumps([Path(sys.argv[0]).name, *sys.argv[1:]]) + '\\n')
 if Path(sys.argv[0]).name == 'npx':
+    diagnostic = os.environ.get('INSPECT_STDERR', '')
+    if diagnostic:
+        print(diagnostic, file=sys.stderr)
     print(os.environ['INSPECT_RESULT'])
     sys.exit(int(os.environ.get('INSPECT_EXIT', '0')))
 if sys.argv[1:3] == ['issue', 'list']:
@@ -98,7 +101,7 @@ def test_security_states(runner, status, latest, code, clip):
     result, calls, body = runner(inspection(status, latest=latest))
     assert result.returncode == code, result.stdout + result.stderr
     assert clip in result.stdout
-    assert calls[0] == ['npx', '-y', 'clawhub@0.23.3', 'inspect', '@simmer/example', '--version', '1.1.0', '--json']
+    assert calls[0] == ['npx', '-y', 'clawhub@0.24.1', 'inspect', '@simmer/example', '--version', '1.1.0', '--json']
     if status == 'suspicious':
         assert [call[1:3] for call in calls[1:]] == [
             ['issue', 'list'], ['label', 'list'], ['issue', 'create'],
@@ -206,7 +209,7 @@ def test_pending_receipt_checks_current_security_without_recheck(runner, status,
     result, calls, body = runner(inspection(status, latest=latest), RECEIPT=json.dumps(receipt(receipt_status)))
     assert result.returncode == code, result.stdout + result.stderr
     assert f'Security {status.upper()}; {outcome}' in result.stdout
-    assert calls[0] == ['npx', '-y', 'clawhub@0.23.3', 'inspect', '@simmer/example', '--version', '1.1.0', '--json']
+    assert calls[0] == ['npx', '-y', 'clawhub@0.24.1', 'inspect', '@simmer/example', '--version', '1.1.0', '--json']
     if status == 'suspicious':
         assert '<!-- clawhub-security:example@1.1.0 -->' in body.read_text()
         report = body.parent / 'audits/example-1.1.0.json'
@@ -256,3 +259,221 @@ def test_recheck_ignores_submission_receipt_and_reads_current_security(runner):
     assert result.returncode == 1
     assert calls[0][0] == 'npx'
     assert body.exists()
+
+
+HELD_UPDATED_AT = 1761600000000
+HELD_UPDATED_ISO = '2025-10-27T21:20:00.000Z'
+HELD_SCAN = 'clawhub scan download @simmer/example --version 1.1.0'
+HELD_SUPPORT = 'https://github.com/openclaw/clawhub/issues/new'
+DEFAULT_CHECKS = {'trufflehog': 'pending', 'clawscan': 'clean'}
+
+
+def held_inspection(stage='pending_checks', *, retrying=False, checks='default',
+                    slug='example', owner='simmer', latest='1.0.0',
+                    publication_version='1.1.0', updated_at=HELD_UPDATED_AT,
+                    next_steps=True):
+    payload = {
+        'skill': {'slug': slug},
+        'owner': None if owner is None else {'handle': owner},
+        'latestVersion': None if latest is None else {'version': latest},
+        'version': None,
+        'versions': None,
+        'file': None,
+        'publication': {
+            'version': publication_version,
+            'stage': stage,
+            'retrying': retrying,
+            'updatedAt': updated_at,
+        },
+    }
+    if checks == 'default':
+        checks = dict(DEFAULT_CHECKS)
+    if checks is not None:
+        payload['publication']['checks'] = checks
+    if next_steps:
+        payload['nextSteps'] = {'scanReport': HELD_SCAN, 'supportUrl': HELD_SUPPORT}
+    return payload
+
+
+def assert_held_log(stdout, stage, retrying, checks=None, latest='1.0.0'):
+    shown = dict(DEFAULT_CHECKS if checks is None else checks)
+    assert f'publication stage: {stage}' in stdout
+    assert f'publication retrying: {str(retrying).lower()}' in stdout
+    assert f'publication updatedAt: {HELD_UPDATED_ISO}' in stdout
+    assert f'publication trufflehog: {shown.get("trufflehog", "absent")}' in stdout
+    assert f'publication clawscan: {shown.get("clawscan", "absent")}' in stdout
+    assert f'publication latestVersion: {"none" if latest is None else latest}' in stdout
+    assert f'publication scanReport: {HELD_SCAN}' in stdout
+    assert f'publication supportUrl: {HELD_SUPPORT}' in stdout
+
+
+@pytest.mark.parametrize('stage', ['pending_checks', 'ready_to_finalize', 'finalizing'])
+@pytest.mark.parametrize('owner', ['simmer', None])
+def test_held_open_stage_is_not_yet(runner, stage, owner):
+    result, calls, body = runner(held_inspection(stage, owner=owner))
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert f'::notice::example@1.1.0: publication {stage}; not-yet' in result.stdout
+    assert 'Security' not in result.stdout
+    assert_held_log(result.stdout, stage, False)
+    assert calls[0][2] == 'clawhub@0.24.1'
+    assert len(calls) == 1
+    assert not body.exists()
+
+
+@pytest.mark.parametrize('stage', ['checks_failed', 'checks_incomplete'])
+@pytest.mark.parametrize('checks', [None, {'trufflehog': 'failed', 'clawscan': 'clean'}])
+def test_held_retrying_check_stage_is_not_yet(runner, stage, checks):
+    result, calls, body = runner(held_inspection(stage, retrying=True, checks=checks))
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert f'::notice::example@1.1.0: publication {stage}; not-yet' in result.stdout
+    assert_held_log(result.stdout, stage, True, {} if checks is None else checks)
+    assert len(calls) == 1
+    assert not body.exists()
+
+
+@pytest.mark.parametrize('stage', ['checks_failed', 'checks_incomplete'])
+def test_held_check_stage_without_retry_fails(runner, stage):
+    checks = {'trufflehog': 'failed', 'clawscan': 'pending'}
+    result, calls, body = runner(held_inspection(stage, retrying=False, checks=checks))
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert f'::error::example@1.1.0: publication {stage}; failure' in result.stdout
+    assert 'needs-human' not in result.stdout
+    assert 'Security' not in result.stdout
+    assert_held_log(result.stdout, stage, False, checks)
+    assert len(calls) == 1
+    assert not body.exists()
+
+
+@pytest.mark.parametrize('stage', ['blocked', 'failed', 'expired', 'unavailable'])
+@pytest.mark.parametrize('retrying', [False, True])
+def test_held_terminal_stage_fails(runner, stage, retrying):
+    result, calls, body = runner(held_inspection(stage, retrying=retrying, owner=None))
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert f'::error::example@1.1.0: publication {stage}; failure' in result.stdout
+    assert 'needs-human' not in result.stdout
+    assert 'mismatch' not in result.stdout
+    assert_held_log(result.stdout, stage, retrying)
+    assert len(calls) == 1
+    assert not body.exists()
+
+
+@pytest.mark.parametrize('stage,retrying,checks', [
+    ('pending_checks', False, {'trufflehog': 'blocked'}),
+    ('ready_to_finalize', False, {'clawscan': 'blocked'}),
+    ('finalizing', True, {'trufflehog': 'clean', 'clawscan': 'blocked'}),
+    ('checks_failed', True, {'trufflehog': 'blocked', 'clawscan': 'failed'}),
+    ('checks_incomplete', True, {'clawscan': 'blocked'}),
+])
+def test_held_blocked_check_fails_without_needs_human(runner, stage, retrying, checks):
+    result, calls, body = runner(held_inspection(stage, retrying=retrying, checks=checks))
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert f'::error::example@1.1.0: publication {stage}; failure' in result.stdout
+    assert 'needs-human' not in result.stdout
+    assert_held_log(result.stdout, stage, retrying, checks)
+    assert len(calls) == 1
+    assert not body.exists()
+
+
+def test_held_logs_absent_checks_and_no_public_latest(runner):
+    result, calls, _ = runner(held_inspection(checks=None, latest=None))
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert_held_log(result.stdout, 'pending_checks', False, {}, latest=None)
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize('payload', [
+    held_inspection(slug='other'),
+    held_inspection(publication_version='9.9.9'),
+    held_inspection(owner='someone-else'),
+    {**held_inspection(), 'owner': {}},
+    {**held_inspection(), 'owner': 'simmer'},
+])
+def test_held_identity_mismatch_fails_closed(runner, payload):
+    result, calls, body = runner(payload)
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert '::error::' in result.stdout
+    assert 'mismatch' in result.stdout
+    assert 'publication stage:' not in result.stdout
+    assert 'needs-human' not in result.stdout
+    assert len(calls) == 1
+    assert not body.exists()
+
+
+def test_held_published_without_version_object_is_a_contract_error(runner):
+    result, calls, body = runner(held_inspection('published'))
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert '::error::' in result.stdout
+    assert 'published without a version object' in result.stdout
+    assert 'publication stage: published' in result.stdout
+    assert 'needs-human' not in result.stdout
+    assert len(calls) == 1
+    assert not body.exists()
+
+
+@pytest.mark.parametrize('payload,clip', [
+    (held_inspection(stage='queued'), 'unrecognized publication stage'),
+    (held_inspection(checks={'trufflehog': 'warn'}), 'unrecognized publication check'),
+    (held_inspection(checks={'other': 'blocked'}), 'unrecognized publication check'),
+    (held_inspection(next_steps=False), 'invalid publication nextSteps'),
+])
+def test_held_contract_violations_fail_closed(runner, payload, clip):
+    result, calls, _ = runner(payload)
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert '::error::' in result.stdout
+    assert clip in result.stdout
+    assert len(calls) == 1
+
+
+def test_cli_failure_includes_stderr_excerpt(runner):
+    stderr = 'Error: version is pending publication\nretry later'
+    result, calls, _ = runner(inspection(), INSPECT_EXIT='1', INSPECT_STDERR=stderr)
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert len(calls) == 1
+    line = next(line for line in result.stdout.splitlines() if line.startswith('::error::'))
+    assert 'cannot verify ClawHub Security' in line
+    assert 'Error: version is pending publication retry later' in line
+    assert '\n' not in line
+
+
+def test_cli_failure_stderr_excerpt_is_bounded(runner):
+    head = 'HEADMARKER' + ('h' * 250)
+    tail = 'TAILMARKER' + ('t' * 80)
+    stderr = f'{head}\npending publication still held\n{tail}'
+    result, _, _ = runner(inspection(), INSPECT_EXIT='1', INSPECT_STDERR=stderr)
+    assert result.returncode == 1, result.stdout + result.stderr
+    collapsed = ' '.join(stderr.splitlines())
+    assert 'HEADMARKER' not in collapsed[-300:]
+    assert 'TAILMARKER' in collapsed[-300:]
+    assert 'TAILMARKER' in result.stdout
+    assert 'pending publication still held' in result.stdout
+    assert 'HEADMARKER' not in result.stdout
+
+
+def test_cli_failure_redacts_secrets_before_error_annotation(runner):
+    body = 's' * 400
+    clh = 'clh_' + body
+    env_secret = 'envsecrettokenvalue'
+    bearer_secret = 'bearersecrettokenvalue'
+    colon_secret = 'colonsecrettokenvalue'
+    stderr = '\n'.join([
+        'Error: version is pending publication',
+        clh,
+        f'CLAWHUB_TOKEN={env_secret}',
+        f'Authorization: Bearer {bearer_secret}',
+        f'token: {colon_secret}',
+    ])
+    raw_window = ' '.join(stderr.splitlines())[-300:]
+    assert 'clh_' not in raw_window
+    assert body[-40:] in raw_window
+    assert env_secret in raw_window
+    assert bearer_secret in raw_window
+    assert colon_secret in raw_window
+    result, _, _ = runner(inspection(), INSPECT_EXIT='1', INSPECT_STDERR=stderr)
+    assert result.returncode == 1, result.stdout + result.stderr
+    visible = result.stdout + result.stderr
+    for secret in (clh, body[-40:], env_secret, bearer_secret, colon_secret):
+        assert secret not in visible
+    line = next(line for line in result.stdout.splitlines() if line.startswith('::error::'))
+    assert 'cannot verify ClawHub Security' in line
+    assert 'Error: version is pending publication' in line
+    assert '[redacted]' in line

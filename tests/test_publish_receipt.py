@@ -128,7 +128,7 @@ def test_already_submitted_exact_version_skips_upload_and_records_receipt(tmp_pa
     assert result.returncode == 0, result.stdout + result.stderr
     assert len(calls) == 1
     assert calls[0] == [
-        "clawhub@0.23.3", "inspect", "@simmer/receipt-test",
+        "clawhub@0.24.1", "inspect", "@simmer/receipt-test",
         "--version", "1.0.0", "--json",
     ]
     assert "::notice::receipt-test@1.0.0 already submitted; skipping upload" in result.stdout
@@ -199,5 +199,74 @@ def test_other_publish_errors_still_fail(tmp_path, diagnostic):
     result, _, receipt_dir = publish(tmp_path, "", 1, diagnostic=diagnostic)
     assert result.returncode != 0, result.stdout + result.stderr
     assert "already submitted; skipping upload" not in result.stdout
+    assert not (receipt_dir / "receipt-test-1.0.0.json").exists()
+    assert not (tmp_path / "sync-called").exists()
+
+
+HELD_INSPECTION = {
+    "skill": {"slug": "receipt-test"},
+    "owner": None,
+    "latestVersion": {"version": "0.9.0"},
+    "version": None,
+    "versions": None,
+    "file": None,
+    "publication": {
+        "version": "1.0.0",
+        "stage": "pending_checks",
+        "retrying": False,
+        "updatedAt": 1761600000000,
+        "checks": {"trufflehog": "pending", "clawscan": "clean"},
+    },
+    "nextSteps": {
+        "scanReport": "clawhub scan download @simmer/receipt-test --version 1.0.0",
+        "supportUrl": "https://github.com/openclaw/clawhub/issues/new",
+    },
+}
+
+
+@pytest.mark.parametrize("owner", [None, {"handle": "simmer"}])
+def test_held_inspection_skips_upload_and_records_receipt(tmp_path, owner):
+    inspection = dict(HELD_INSPECTION, owner=owner)
+    result, calls, receipt_dir = publish(
+        tmp_path, "", 1, inspection=inspection, inspect_exit=0,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert len(calls) == 1
+    assert calls[0] == [
+        "clawhub@0.24.1", "inspect", "@simmer/receipt-test",
+        "--version", "1.0.0", "--json",
+    ]
+    assert "::notice::receipt-test@1.0.0 already submitted; skipping upload" in result.stdout
+    assert json.loads((receipt_dir / "receipt-test-1.0.0.json").read_text()) == ALREADY_SUBMITTED
+    assert not (tmp_path / "sync-called").exists()
+    verification = subprocess.run(
+        [sys.executable, str(ROOT / "scripts" / "verify_skill_publish.py"),
+         "--root", str(tmp_path), "--receipt-dir", str(receipt_dir)],
+        env={
+            "PATH": f"{tmp_path / 'bin'}{os.pathsep}{os.defpath}", "HOME": str(tmp_path),
+            "SKILLS_TO_PUBLISH": '["skills/receipt-test"]',
+            "CALLS": str(tmp_path / "verify-calls"),
+            "INSPECT_RESPONSE": json.dumps(inspection), "INSPECT_EXIT": "0",
+        },
+        capture_output=True, text=True, timeout=10,
+    )
+    assert verification.returncode == 0, verification.stdout + verification.stderr
+    assert "::notice::receipt-test@1.0.0: publication pending_checks; not-yet" in verification.stdout
+    assert "publication stage: pending_checks" in verification.stdout
+
+
+@pytest.mark.parametrize("inspection", [
+    dict(HELD_INSPECTION, skill={"slug": "wrong"}),
+    dict(HELD_INSPECTION, owner={"handle": "wrong"}),
+    dict(HELD_INSPECTION, publication=dict(HELD_INSPECTION["publication"], version="0.9.0")),
+    dict(HELD_INSPECTION, publication=None),
+    {"skill": {"slug": "receipt-test"}, "owner": None, "version": None},
+])
+def test_mismatched_held_inspection_fails_without_upload_or_receipt(tmp_path, inspection):
+    result, calls, receipt_dir = publish(
+        tmp_path, json.dumps(PENDING), inspection=inspection, inspect_exit=0,
+    )
+    assert result.returncode != 0, result.stdout + result.stderr
+    assert all(call[1] == "inspect" for call in calls)
     assert not (receipt_dir / "receipt-test-1.0.0.json").exists()
     assert not (tmp_path / "sync-called").exists()
