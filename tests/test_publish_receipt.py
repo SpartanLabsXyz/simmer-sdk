@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 
 import pytest
 
@@ -15,11 +16,20 @@ PENDING = {
     "slug": "receipt-test", "version": "1.0.0",
 }
 PUBLISHED = dict(PENDING, status="published", publicationStatus="published")
+ALREADY_SUBMITTED = dict(PENDING, status="already-submitted")
+INSPECTION = {
+    "skill": {"slug": "receipt-test"}, "owner": {"handle": "simmer"},
+    "version": {"version": "1.0.0", "security": {"status": "pending", "hasWarnings": False}},
+    "latestVersion": {"version": "0.9.0"},
+}
+DUPLICATE = "Error: Version 1.0.0 already exists. Increment the version number and try again."
 
 
-def publish(tmp_path, response, exit_code=0):
-    skill = tmp_path / "skill"
-    skill.mkdir()
+def publish(tmp_path, response, exit_code=0, *, inspection=None, inspect_exit=1,
+            diagnostic="publish diagnostic"):
+    skill = tmp_path / "skills" / "receipt-test"
+    skill.mkdir(parents=True)
+    (skill / "clawhub.json").write_text("{}")
     (skill / "SKILL.md").write_text(
         "---\nname: receipt-test\nmetadata:\n  version: 1.0.0\n---\n"
     )
@@ -32,16 +42,19 @@ import os
 import sys
 
 args = sys.argv[1:]
+if args[0] == "-y":
+    args = args[1:]
 with open(os.environ["CALLS"], "a") as handle:
     handle.write(json.dumps(args) + "\\n")
 if args[1] == "inspect":
-    sys.exit(0)
+    print(os.environ["INSPECT_RESPONSE"])
+    sys.exit(int(os.environ["INSPECT_EXIT"]))
 if args[1] != "publish":
     sys.exit(99)
 if "--dry-run" in args:
     print(json.dumps({"ok": True, "status": "would-publish", "slug": "receipt-test", "version": "1.0.0"}))
     sys.exit(0)
-print("publish diagnostic", file=sys.stderr)
+print(os.environ["PUBLISH_DIAGNOSTIC"], file=sys.stderr)
 print(os.environ["PUBLISH_RESPONSE"])
 sys.exit(int(os.environ["PUBLISH_EXIT"]))
 ''')
@@ -61,6 +74,9 @@ sys.exit(int(os.environ["PUBLISH_EXIT"]))
             "CALLS": str(calls_file),
             "PUBLISH_RESPONSE": response,
             "PUBLISH_EXIT": str(exit_code),
+            "PUBLISH_DIAGNOSTIC": diagnostic,
+            "INSPECT_RESPONSE": json.dumps(inspection),
+            "INSPECT_EXIT": str(inspect_exit),
             "SIMMER_ADMIN_API_KEY": "test-placeholder",
             "SYNC_CALLED": str(tmp_path / "sync-called"),
         },
@@ -101,5 +117,76 @@ def test_invalid_publish_result_does_not_create_receipt_or_sync(tmp_path, respon
     result, calls, receipt_dir = publish(tmp_path, response, exit_code)
     assert result.returncode != 0, result.stdout + result.stderr
     assert calls[-1][-1] == "--json"
+    assert not (receipt_dir / "receipt-test-1.0.0.json").exists()
+    assert not (tmp_path / "sync-called").exists()
+
+
+def test_already_submitted_exact_version_skips_upload_and_records_receipt(tmp_path):
+    result, calls, receipt_dir = publish(
+        tmp_path, "", 1, inspection=INSPECTION, inspect_exit=0, diagnostic=DUPLICATE,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert len(calls) == 1
+    assert calls[0] == [
+        "clawhub@0.23.3", "inspect", "@simmer/receipt-test",
+        "--version", "1.0.0", "--json",
+    ]
+    assert "::notice::receipt-test@1.0.0 already submitted; skipping upload" in result.stdout
+    assert json.loads((receipt_dir / "receipt-test-1.0.0.json").read_text()) == ALREADY_SUBMITTED
+    assert not (tmp_path / "sync-called").exists()
+    verification = subprocess.run(
+        [sys.executable, str(ROOT / "scripts" / "verify_skill_publish.py"),
+         "--root", str(tmp_path), "--receipt-dir", str(receipt_dir)],
+        env={
+            "PATH": f"{tmp_path / 'bin'}{os.pathsep}{os.defpath}", "HOME": str(tmp_path),
+            "SKILLS_TO_PUBLISH": '["skills/receipt-test"]',
+            "CALLS": str(tmp_path / "calls"),
+            "INSPECT_RESPONSE": json.dumps(INSPECTION), "INSPECT_EXIT": "0",
+        },
+        capture_output=True, text=True, timeout=10,
+    )
+    assert verification.returncode == 0, verification.stdout + verification.stderr
+    assert "::notice::receipt-test@1.0.0: Security PENDING; not-yet" in verification.stdout
+
+
+@pytest.mark.parametrize("inspection", [
+    {**INSPECTION, "skill": {"slug": "wrong"}},
+    {**INSPECTION, "owner": {"handle": "wrong"}},
+    {**INSPECTION, "version": {"version": "0.9.0"}},
+    {}, None,
+])
+def test_invalid_exact_inspection_fails_without_upload_or_receipt(tmp_path, inspection):
+    result, calls, receipt_dir = publish(
+        tmp_path, json.dumps(PENDING), inspection=inspection, inspect_exit=0,
+    )
+    assert result.returncode != 0, result.stdout + result.stderr
+    assert all(call[1] == "inspect" for call in calls)
+    assert not (receipt_dir / "receipt-test-1.0.0.json").exists()
+    assert not (tmp_path / "sync-called").exists()
+
+
+@pytest.mark.parametrize("stream", ["stdout", "stderr"])
+def test_duplicate_publish_error_hands_exact_version_to_verification(tmp_path, stream):
+    result, calls, receipt_dir = publish(
+        tmp_path, DUPLICATE if stream == "stdout" else "", 1,
+        diagnostic=DUPLICATE if stream == "stderr" else "publish diagnostic",
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "already submitted; skipping upload" in result.stdout
+    assert json.loads((receipt_dir / "receipt-test-1.0.0.json").read_text()) == ALREADY_SUBMITTED
+    assert len([call for call in calls if call[1] == "publish" and "--dry-run" not in call]) == 1
+    assert not (tmp_path / "sync-called").exists()
+
+
+@pytest.mark.parametrize("diagnostic", [
+    "Error: Unauthorized", "Error: Upload failed",
+    DUPLICATE.replace("1.0.0", "1.0.01"),
+    DUPLICATE.replace("1.0.0", "1x0x0"),
+    "Additional error: " + DUPLICATE,
+])
+def test_other_publish_errors_still_fail(tmp_path, diagnostic):
+    result, _, receipt_dir = publish(tmp_path, "", 1, diagnostic=diagnostic)
+    assert result.returncode != 0, result.stdout + result.stderr
+    assert "already submitted; skipping upload" not in result.stdout
     assert not (receipt_dir / "receipt-test-1.0.0.json").exists()
     assert not (tmp_path / "sync-called").exists()
