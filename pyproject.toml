@@ -39,11 +39,10 @@ dependencies = [
     # V2 CLOB client for Polymarket V2 (2026-04-28 cutover). V1 deps
     # retained for users who pin SIMMER_POLYMARKET_EXCHANGE_VERSION=v1.
     "py-clob-client-v2>=1.0.0,<2.0.0",
-    # POLY_1271 (sig type 3) signing for Polymarket deposit-wallet users
-    # (SIM-1521). Provides ERC-7739 TypedDataSign wrapping via
-    # `polynode.trading.eip712.create_signed_order_v2`. Pinned to a known-
-    # working release; the helper API is stable.
-    "polynode>=0.10.3,<0.11.0",
+    # PolyNode 0.15.1 adds Protocol V2 order signing. Simmer's deposit-wallet
+    # payload builder still defaults to current markets; Protocol V2 routing
+    # requires separate integration. Keep upgrades within the validated minor.
+    "polynode>=0.15.1,<0.16.0",
 ]
 
 [project.optional-dependencies]
