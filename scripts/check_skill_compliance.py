@@ -16,6 +16,7 @@ import argparse
 import ast
 import ipaddress
 import json
+import os
 from pathlib import Path
 import re
 import shlex
@@ -140,8 +141,12 @@ def namespace_url(node, host, parents, namespace_names):
             targets = (assignment.targets if isinstance(assignment, ast.Assign) else
                        [assignment.target] if isinstance(assignment, ast.AnnAssign) else [])
             context |= any(isinstance(t, ast.Name) and t.id in namespace_names for t in targets)
+        if isinstance(parent, (ast.Assign, ast.AnnAssign)) and parent.value is node:
+            targets = parent.targets if isinstance(parent, ast.Assign) else [parent.target]
+            context |= host in XML_HOSTS and any(
+                isinstance(t, ast.Name) and t.id == 'namespace' for t in targets)
         child = parent
-    return context or host in XML_HOSTS or bool(re.search(r'\{https?://[^}]+\}', node.value))
+    return context or bool(re.fullmatch(r'\{https?://[^}]+\}[^\s{}]*', node.value))
 
 
 def scoped_nodes(tree: ast.AST, aliases: dict[str, str] | None = None):
@@ -400,19 +405,31 @@ def check_skill(source: Path) -> list[dict]:
                     if isinstance(host, str) and normalize_host(host) not in hosts:
                         add(7, file, node.lineno, f'undeclared network host: {normalize_host(host)}')
                     destination = None
-                    if name not in {'open', 'io.open'} and isinstance(node.func, ast.Attribute) and node.func.attr in {'write_text', 'write_bytes', 'open'}:
+                    if name == 'os.open':
+                        flags = node.args[1] if len(node.args) > 1 else next(
+                            (k.value for k in node.keywords if k.arg == 'flags'), None)
+                        write_flags = {'os.O_WRONLY', 'os.O_RDWR', 'os.O_CREAT', 'os.O_TRUNC', 'os.O_APPEND'}
+                        write_mask = os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_APPEND
+                        if flags is not None and any(
+                            qualified(flag, aliases) in write_flags
+                            or isinstance(literal(flag), int) and literal(flag) & write_mask
+                            for flag in ast.walk(flags)
+                        ):
+                            destination = literal_path(node.args[0], aliases) if node.args else next(
+                                (literal_path(k.value, aliases) for k in node.keywords if k.arg == 'path'), None)
+                    elif name in {'open', 'io.open', 'builtins.open'}:
+                        mode = node.args[1] if len(node.args) > 1 else next(
+                            (k.value for k in node.keywords if k.arg == 'mode'), None)
+                        if isinstance(literal(mode), str) and any(c in literal(mode) for c in 'wax+'):
+                            destination = literal_path(node.args[0], aliases) if node.args else next(
+                                (literal_path(k.value, aliases) for k in node.keywords if k.arg == 'file'), None)
+                    elif isinstance(node.func, ast.Attribute) and node.func.attr in {'write_text', 'write_bytes', 'open'}:
                         receiver = node.func.value
                         mode = node.args[0] if node.args else next(
                             (k.value for k in node.keywords if k.arg == 'mode'), None)
                         writes = node.func.attr != 'open' or isinstance(literal(mode), str) and any(c in literal(mode) for c in 'wax+')
                         if writes:
                             destination = literal_path(receiver, aliases)
-                    elif name in {'open', 'io.open'}:
-                        mode = node.args[1] if len(node.args) > 1 else next(
-                            (k.value for k in node.keywords if k.arg == 'mode'), None)
-                        if isinstance(literal(mode), str) and any(c in literal(mode) for c in 'wax+'):
-                            destination = literal_path(node.args[0], aliases) if node.args else next(
-                                (literal_path(k.value, aliases) for k in node.keywords if k.arg == 'file'), None)
                     if isinstance(destination, str):
                         target = Path(destination)
                         if any(not (base / target).resolve().is_relative_to(source.resolve())

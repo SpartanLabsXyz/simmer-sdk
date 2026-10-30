@@ -599,3 +599,37 @@ def test_environment_item_assignment_preserves_module_alias(tmp_path):
     findings = json.loads(run(skill).stdout)
     assert sum(f['check'] == 2 and 'MISSING_KEY is read' in f['message']
                for f in findings) == 2
+
+
+@pytest.mark.parametrize('fixture,check,messages', [
+    ('namespace_network_red', 7, ['undeclared network host: www.w3.org']),
+    ('qualified_open_red', 8, ['absolute write destination', 'escaping write destination']),
+    ('qualified_open_green', None, []),
+])
+def test_namespace_and_qualified_open_fixtures(fixture, check, messages):
+    result = run(FIXTURES / fixture)
+    assert result.returncode == (1 if check else 0), result.stderr
+    findings = json.loads(result.stdout)
+    assert len(findings) == len(messages)
+    assert all(f['check'] == check for f in findings)
+    for message in messages:
+        assert any(message in f['message'] for f in findings)
+
+
+@pytest.mark.parametrize('code', [
+    'import builtins as b; b.open(file="/tmp/state.json", mode="a")',
+    'from builtins import open as write; write("../state.json", "r+")',
+    'import os as o; o.open(path="/tmp/state.json", flags=o.O_RDWR)',
+    'from os import open as write, O_TRUNC; write("../state.json", O_TRUNC)',
+    'import os; os.open("/tmp/state.json", os.O_RDONLY | os.O_CREAT)',
+    'import os; os.open("/tmp/state.json", os.O_RDONLY | os.O_APPEND)',
+    'import os; os.open("/tmp/state.json", 1)',
+])
+def test_qualified_open_write_is_reported(tmp_path, code):
+    skill = copy_green(tmp_path)
+    with (skill / 'main.py').open('a') as stream:
+        stream.write(code + '\n')
+    result = run(skill)
+    assert result.returncode == 1, result.stderr
+    assert any(f['check'] == 8 and 'write destination' in f['message']
+               for f in json.loads(result.stdout))
