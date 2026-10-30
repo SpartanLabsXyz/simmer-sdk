@@ -25,11 +25,15 @@ SKIP = re.compile(
     r"|\bunittest\.skip(?:If|Unless)?\b|\bself\.skipTest\s*\("
 )
 JS_SKIP = re.compile(r"\b(?:it|describe|test)\s*\.\s*(?:skip|todo|only)\b")
-PY_TEST = re.compile(r"^\s*(?:async\s+)?def\s+(test_\w+)\s*\(")
+PY_TEST = re.compile(r"^[ \t]*(?:async\s+)?def\s+(test_\w+)\s*\(", re.M)
 JS_TEST = re.compile(r"\b(?:it|test)\s*\(\s*(['\"`])(.*?)\1")
 ASSERT = re.compile(r"^\s*(?:assert\b|self\.assert\w*\s*\(|expect\s*\(|assert[.(])")
 NUMBER = r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?"
-CALL = re.compile(r"\b(pytest\.approx|(?:self\.)?assertAlmostEqual)\s*\(([^)]*)", re.S)
+CALL = re.compile(r"\b(pytest\.approx|(?:self\.)?assertAlmostEqual)\s*\(")
+CALL_TOKEN = re.compile(
+    r"'''(?:\\.|(?!''').)*'''|\"\"\"(?:\\.|(?!\"\"\").)*\"\"\""
+    r"|'(?:\\.|[^'\\])*'|\"(?:\\.|[^\"\\])*\"|\#[^\n]*|[()]", re.S,
+)
 TOLERANCE = re.compile(rf"\b(abs|rel|places|delta)\s*=\s*({NUMBER})(?=\s*[,)]|\s*$)")
 CI_TEST = re.compile(r"\b(?:pytest|tests?|run_skill_tests)\b|(?:^|[/_])test[_./]", re.I)
 
@@ -91,35 +95,69 @@ def is_test_file(path: str) -> bool:
     )
 
 
-def test_name(text: str, python: bool) -> str | None:
-    match = (PY_TEST if python else JS_TEST).search(text)
-    return (match[1] if python else match[2]) if match else None
-
-
-def tolerance_values(lines: list[Line]) -> list[tuple[str, str, float, Line]]:
+def indexed_text(lines: list[Line]) -> tuple[str, list[tuple[int, Line]]]:
     text = "\n".join(line.text for line in lines)
     offsets = []
     offset = 0
     for line in lines:
         offsets.append((offset, line))
         offset += len(line.text) + 1
-    values = []
+    return text, offsets
+
+
+def test_declarations(lines: list[Line], python: bool) -> list[tuple[str, Line]]:
+    text, offsets = indexed_text(lines)
+    return [
+        (match[1] if python else match[2],
+         next(line for start, line in reversed(offsets) if start <= match.start()))
+        for match in (PY_TEST if python else JS_TEST).finditer(text)
+    ]
+
+
+def call_arguments(text: str, start: int) -> str:
+    depth = 1
+    for token in CALL_TOKEN.finditer(text, start):
+        if token[0] == "(":
+            depth += 1
+        elif token[0] == ")":
+            depth -= 1
+            if depth == 0:
+                return text[start:token.start()]
+    # Diff hunks may end before the call's closing parenthesis.
+    return text[start:]
+
+
+def tolerance_values(lines: list[Line]) -> list[tuple[str, dict[str, tuple[float, Line]]]]:
+    text, offsets = indexed_text(lines)
+    calls = []
     for call in CALL.finditer(text):
-        for value in TOLERANCE.finditer(call[2]):
+        values = {}
+        for value in TOLERANCE.finditer(call_arguments(text, call.end())):
             key = value[1]
             if key not in ({"abs", "rel"} if call[1] == "pytest.approx" else {"places", "delta"}):
                 continue
-            position = call.start(2) + value.start()
+            position = call.end() + value.start()
             source = next(line for start, line in reversed(offsets) if start <= position)
-            values.append((call[1], key, float(value[2]), source))
-    return values
+            values[key] = (float(value[2]), source)
+        calls.append((call[1], values))
+    return calls
+
+
+def unmatched_removed(removed: list[Line], added: list[Line]) -> list[Line]:
+    readded = Counter(line.text.lstrip() for line in added)
+    unmatched = []
+    for line in removed:
+        text = line.text.lstrip()
+        if readded[text]:
+            readded[text] -= 1
+        else:
+            unmatched.append(line)
+    return unmatched
 
 
 def has_reason(body: str, path: str) -> bool:
-    return re.search(
-        rf"^\s*Test change reason:\s*`?{re.escape(path)}`?\s+-\s+\S.*$",
-        body, re.M,
-    ) is not None
+    pattern = rf"[ \t]*Test change reason:[ \t]*`?{re.escape(path)}`?[ \t]+-[ \t]+\S.*"
+    return any(re.fullmatch(pattern, line) for line in body.splitlines())
 
 
 def check_diff(patch: str, body: str) -> list[Finding]:
@@ -129,6 +167,7 @@ def check_diff(patch: str, body: str) -> list[Finding]:
             continue
         added = [line for line in file.lines if line.kind == "+"]
         removed = [line for line in file.lines if line.kind == "-"]
+        unmatched = unmatched_removed(removed, added)
         python = file.path.endswith(".py")
         test_file = is_test_file(file.path)
 
@@ -141,27 +180,30 @@ def check_diff(patch: str, body: str) -> list[Finding]:
             if (python and SKIP.search(line.text)) or (test_file and not python and JS_SKIP.search(line.text)):
                 flag(line, "added skip, xfail, todo or only")
         if test_file:
-            readded = Counter(test_name(line.text, python) for line in added)
-            for line in removed:
-                name = test_name(line.text, python)
-                if name:
-                    if readded[name]:
-                        readded[name] -= 1
-                    else:
-                        flag(line, f"removed test {name}")
+            old_lines = [line for line in file.lines if line.kind != "+"]
+            new_lines = [line for line in file.lines if line.kind != "-"]
+            readded = Counter(name for name, _ in test_declarations(new_lines, python))
+            for name, line in test_declarations(old_lines, python):
+                if readded[name]:
+                    readded[name] -= 1
+                else:
+                    flag(line, f"removed test {name}")
+            for line in unmatched:
                 if ASSERT.search(line.text):
                     flag(line, "removed assertion")
-            old_values = tolerance_values([line for line in file.lines if line.kind != "+"])
-            new_values = tolerance_values([line for line in file.lines if line.kind != "-"])
-            for old, new in zip(old_values, new_values):
-                old_call, old_key, old_value, _ = old
-                new_call, key, value, line = new
-                if (old_call, old_key) != (new_call, key) or line.kind != "+":
+            old_values = tolerance_values(old_lines)
+            new_values = tolerance_values(new_lines)
+            for (old_call, old), (new_call, new) in zip(old_values, new_values):
+                if old_call != new_call:
                     continue
-                if (value < old_value if key == "places" else value > old_value):
-                    flag(line, f"widened tolerance {key} from {old_value:g} to {value:g}")
+                for key, (old_value, _) in old.items():
+                    if key not in new:
+                        continue
+                    value, line = new[key]
+                    if line.kind == "+" and (value < old_value if key == "places" else value > old_value):
+                        flag(line, f"widened tolerance {key} from {old_value:g} to {value:g}")
         if file.path.startswith(".github/workflows/") and file.path.endswith((".yml", ".yaml")):
-            for line in removed:
+            for line in unmatched:
                 if not line.text.lstrip().startswith("#") and CI_TEST.search(line.text):
                     flag(line, "removed CI test step or command")
     return findings

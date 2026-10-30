@@ -204,3 +204,76 @@ def test_default_git_command_and_event_body(monkeypatch, capsys, tmp_path):
     assert commands == [["git", "-c", "core.quotePath=false", "diff", "--no-ext-diff",
                          "--no-renames", "origin/release...HEAD"]]
     assert "not mergeable" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("argument", ["float(1)", "max(float(1), 2)", "len(')')"])
+def test_nested_argument_does_not_hide_widened_tolerance(argument):
+    patch = diff("tests/test_demo.py",
+                 [f"value = pytest.approx({argument}, abs=0.01)"],
+                 [f"value = pytest.approx({argument}, abs=0.1)"])
+    assert [(f.line, f.reason) for f in check_diff(patch, "")] == [
+        (10, "widened tolerance abs from 0.01 to 0.1"),
+    ]
+
+
+def test_reordered_keywords_compare_each_tolerance_with_its_old_value():
+    patch = diff("tests/test_demo.py",
+                 ["value = pytest.approx(1, abs=0.01, rel=1e-6)"],
+                 ["value = pytest.approx(1, rel=1e-3, abs=0.1)"])
+    assert {f.reason for f in check_diff(patch, "")} == {
+        "widened tolerance abs from 0.01 to 0.1",
+        "widened tolerance rel from 1e-06 to 0.001",
+    }
+
+
+@pytest.mark.parametrize("declaration", ["it", "test"])
+def test_deleted_multiline_js_test_reports_declaration_start(declaration):
+    patch = diff("mcp/src/demo.test.ts", removed=[
+        f"  {declaration}(", '    "deleted",', "    () => {},", "  );",
+    ])
+    assert [(f.line, f.reason) for f in check_diff(patch, "")] == [
+        (10, "removed test deleted"),
+    ]
+
+
+@pytest.mark.parametrize("path,command", [
+    ("tests/test_demo.py", "assert actual == expected"),
+    ("mcp/src/demo.test.ts", "expect(actual).toBe(expected);"),
+    (".github/workflows/ci.yml", "pytest tests/"),
+])
+def test_reindent_and_move_unchanged_checks_is_clean(path, command):
+    patch = diff(path, removed=[f"    {command}"])
+    patch += f"@@ -30,0 +29,1 @@\n+        {command}\n"
+    assert check_diff(patch, "") == []
+
+
+@pytest.mark.parametrize("path,command,reason", [
+    ("tests/test_demo.py", "assert actual == expected", "removed assertion"),
+    (".github/workflows/ci.yml", "pytest tests/", "removed CI test step or command"),
+])
+def test_only_readded_occurrences_cancel_removed_checks(path, command, reason):
+    patch = diff(path, removed=[f"    {command}", f"    {command}"],
+                 added=[f"        {command}"])
+    assert [(f.line, f.reason) for f in check_diff(patch, "")] == [(11, reason)]
+
+
+@pytest.mark.parametrize("ending", ["\n", "\r\n"])
+def test_reason_cannot_borrow_explanation_from_next_line(ending):
+    body = ("Test change reason: tests/test_demo.py -" + ending
+            + "Test change reason: tests/other.py - unrelated")
+    assert check_diff(diff("tests/test_demo.py", added=["@pytest.mark.skip"]), body)
+
+
+@pytest.mark.parametrize("patch", [
+    diff("tests/test_demo.py",
+         ["value = pytest.approx(float(1), abs=0.01, rel=1e-6)"],
+         ["value = pytest.approx(float(1), rel=1e-6, abs=0.01)"]),
+    diff("mcp/src/demo.test.ts", ["it(", '  "kept",', "  () => {},", ");"],
+         ['test("kept", () => {});']),
+    diff("tests/test_demo.py", ["    assert ok", "    assert ok"],
+         ["        assert ok", "        assert ok"]),
+    diff(".github/workflows/ci.yml", ["    pytest tests/", "    pytest tests/"],
+         ["        pytest tests/", "        pytest tests/"]),
+])
+def test_clean_refactors_produce_zero_findings(patch):
+    assert check_diff(patch, "") == []
