@@ -94,7 +94,7 @@ def frontmatter_env(text: str) -> dict[str, dict]:
     return names
 
 
-def qualified(node: ast.AST, aliases: dict[str, str | ast.Constant]) -> str:
+def qualified(node: ast.AST, aliases: dict[str, str | ast.expr]) -> str:
     if isinstance(node, ast.Name):
         name = aliases.get(node.id, node.id)
         return name if isinstance(name, str) else ''
@@ -107,7 +107,7 @@ def literal(node: ast.AST):
     return node.value if isinstance(node, ast.Constant) else None
 
 
-def literal_path(node: ast.AST, aliases: dict[str, str | ast.Constant]):
+def literal_path(node: ast.AST, aliases: dict[str, str | ast.expr]):
     if isinstance(literal(node), str):
         return literal(node)
     if isinstance(node, ast.Call) and qualified(node.func, aliases) in {'Path', 'pathlib.Path'}:
@@ -144,12 +144,12 @@ def namespace_url(node, match, parents, namespace_names):
                        [assignment.target] if isinstance(assignment, ast.AnnAssign) else [])
             context |= any(isinstance(t, ast.Name) and t.id in namespace_names for t in targets)
         child = parent
-    clark = re.fullmatch(r'\{(https?://[^}\s]+)\}[^\W\d][\w.-]*', node.value)
+    clark = re.finditer(r'(?:^|/)\{(https?://[^}\s]+)\}(?:\*|[^\W\d][\w.-]*)(?=$|/|\[)', node.value)
     return (context and len(list(URL.finditer(node.value))) == 1 or node.value in XML_NAMESPACES
-            or bool(clark and match.span() == clark.span(1)))
+            or any(match.span() == token.span(1) for token in clark))
 
 
-def scoped_nodes(tree: ast.AST, aliases: dict[str, str | ast.Constant] | None = None):
+def scoped_nodes(tree: ast.AST, aliases: dict[str, str | ast.expr] | None = None):
     """Visit in source order with a separate alias table for each lexical scope."""
     aliases = {} if aliases is None else aliases
     yield tree, aliases
@@ -209,7 +209,9 @@ def scoped_nodes(tree: ast.AST, aliases: dict[str, str | ast.Constant] | None = 
         for item in tree.names:
             aliases[item.asname or item.name] = f'{tree.module}.{item.name}'
     elif isinstance(tree, (ast.Assign, ast.AnnAssign, ast.NamedExpr)):
-        name = (tree.value if isinstance(literal(tree.value), str) else
+        name = (tree.value if (isinstance(literal(tree.value), str)
+                              or isinstance(tree.value, ast.JoinedStr)
+                              or isinstance(tree.value, ast.BinOp) and isinstance(tree.value.op, ast.Add)) else
                 aliases.get(tree.value.id, tree.value.id) if isinstance(tree.value, ast.Name) else
                 qualified(tree.value, aliases))
         for target in tree.targets if isinstance(tree, ast.Assign) else [tree.target]:
@@ -368,12 +370,25 @@ def check_skill(source: Path) -> list[dict]:
                     if (name in {'urlopen', 'urlretrieve', 'urllib.request.urlopen', 'urllib.request.urlretrieve'}
                             or name.startswith(('requests.', 'httpx.', 'aiohttp.'))
                             and name.rsplit('.', 1)[-1] in {'get', 'post', 'put', 'patch', 'delete', 'head', 'options', 'request'}):
-                        for argument in [*node.args, *(k.value for k in node.keywords)]:
-                            if not isinstance(argument, ast.Name):
+                        arguments = [*node.args, *(k.value for k in node.keywords)]
+                        seen = set()
+                        while arguments:
+                            argument = arguments.pop()
+                            if argument in seen:
                                 continue
-                            value = aliases.get(argument.id)
-                            if isinstance(literal(value), str):
-                                fetched_literals.add(value)
+                            seen.add(argument)
+                            if isinstance(literal(argument), str):
+                                fetched_literals.add(argument)
+                            elif isinstance(argument, ast.Name):
+                                value = scopes[argument].get(argument.id)
+                                if isinstance(value, ast.expr):
+                                    arguments.append(value)
+                            elif isinstance(argument, ast.JoinedStr):
+                                arguments.extend(argument.values)
+                            elif isinstance(argument, ast.FormattedValue):
+                                arguments.append(argument.value)
+                            elif isinstance(argument, ast.BinOp) and isinstance(argument.op, ast.Add):
+                                arguments.extend((argument.left, argument.right))
             for node in ast.walk(tree):
                 aliases = scopes[node]
                 if isinstance(node, ast.Call):

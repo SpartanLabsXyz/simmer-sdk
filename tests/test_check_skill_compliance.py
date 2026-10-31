@@ -664,3 +664,66 @@ def test_namespace_literals_and_rebound_fetch_targets_stay_green(tmp_path, code)
         stream.write(code + '\n')
     result = run(skill)
     assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize('code', [
+    'url = f"http://www.w3.org/2005/Atom"\nrequests.get(url)',
+    'namespace = "http://www.w3.org/2005/Atom"\nrequests.get(f"{namespace}")',
+    'url = "http://www.w3.org/2005/Atom" + "/network"\nrequests.get(url)',
+])
+def test_namespace_expression_fetch_targets_are_reported(tmp_path, code):
+    skill = copy_green(tmp_path)
+    with (skill / 'main.py').open('a') as stream:
+        stream.write(code + '\n')
+    result = run(skill)
+    assert result.returncode == 1, result.stderr
+    findings = json.loads(result.stdout)
+    assert len(findings) == 1
+    assert findings[0]['check'] == 7
+    assert findings[0]['message'] == 'undeclared network host: www.w3.org'
+
+
+@pytest.mark.parametrize('path', [
+    './/{http://www.w3.org/2005/Atom}entry',
+    '{http://www.w3.org/2005/Atom}*',
+])
+def test_namespace_xpath_expressions_stay_green(tmp_path, path):
+    skill = copy_green(tmp_path)
+    with (skill / 'main.py').open('a') as stream:
+        stream.write(f'path = {path!r}\nroot.findall(path)\n')
+    result = run(skill)
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == []
+
+
+@pytest.mark.parametrize('code', [
+    'namespace = "http://www.w3.org/2005/Atom"\nurl = f"{namespace}/network"\nrequests.get(url=url)',
+    'namespace = "http://www.w3.org/2005/Atom"\nurl = namespace + "/network"\nrequests.get(url)',
+    'namespace = "http://www.w3.org/2005/Atom"\nurl = f"{namespace}"\nnamespace = "https://api.example.com"\nrequests.get(url)',
+    'namespace = "http://www.w3.org/2005/Atom"\nurl = namespace + "/network"\nalias = url\nrequests.get(alias)',
+    'requests.get("http://www.w3.org/2005/Atom" + "/network")',
+])
+def test_namespace_expression_assignments_preserve_fetch_origins(tmp_path, code):
+    skill = copy_green(tmp_path)
+    with (skill / 'main.py').open('a') as stream:
+        stream.write(code + '\n')
+    result = run(skill)
+    assert result.returncode == 1, result.stderr
+    findings = json.loads(result.stdout)
+    assert len(findings) == 1
+    assert findings[0]['check'] == 7
+    assert findings[0]['message'] == 'undeclared network host: www.w3.org'
+
+
+@pytest.mark.parametrize('code', [
+    'namespace = "http://www.w3.org/2005/Atom"\nurl = f"{namespace}"\nurl = "https://api.example.com"\nrequests.get(url)',
+    'namespace = "http://www.w3.org/2005/Atom"\ndef fetch(namespace):\n    requests.get(f"{namespace}")',
+    'namespace = "http://www.w3.org/2005/Atom"\nnamespace = "https://api.example.com"\nrequests.get(f"{namespace}")',
+])
+def test_namespace_expression_rebinding_stays_green(tmp_path, code):
+    skill = copy_green(tmp_path)
+    with (skill / 'main.py').open('a') as stream:
+        stream.write(code + '\n')
+    result = run(skill)
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == []
