@@ -633,3 +633,34 @@ def test_qualified_open_write_is_reported(tmp_path, code):
     assert result.returncode == 1, result.stderr
     assert any(f['check'] == 8 and 'write destination' in f['message']
                for f in json.loads(result.stdout))
+
+
+@pytest.mark.parametrize('code,host', [
+    ('namespace = "http://www.w3.org/network"', 'www.w3.org'),
+    ('namespace = "http://www.w3.org/network"\nrequests.get(namespace)', 'www.w3.org'),
+    ('namespace = "http://www.w3.org/2005/Atom"\nrequests.get(namespace)', 'www.w3.org'),
+    ('namespace = "http://purl.org/dc/elements/1.1/"\nrequests.get(url=namespace)', 'purl.org'),
+    ('url = "{http://www.w3.org/2005/Atom}https://evil.example.com"', 'evil.example.com'),
+])
+def test_namespace_exemptions_do_not_hide_network_targets(tmp_path, code, host):
+    skill = copy_green(tmp_path)
+    with (skill / 'main.py').open('a') as stream:
+        stream.write(code + '\n')
+    result = run(skill)
+    assert result.returncode == 1, result.stderr
+    assert any(f['check'] == 7 and f['message'] == f'undeclared network host: {host}'
+               for f in json.loads(result.stdout))
+
+
+@pytest.mark.parametrize('code', [
+    'uri = "http://www.w3.org/2005/Atom"',
+    'namespace = "http://www.w3.org/2005/Atom"\nnamespace = "https://api.example.com/data"\nrequests.get(namespace)',
+    'namespace = "http://www.w3.org/2005/Atom"\ndef fetch(namespace):\n    requests.get(namespace)',
+    'namespace = "http://www.w3.org/2005/Atom"\ndef fetch():\n    namespace = "https://api.example.com/data"\n    requests.get(namespace)',
+])
+def test_namespace_literals_and_rebound_fetch_targets_stay_green(tmp_path, code):
+    skill = copy_green(tmp_path)
+    with (skill / 'main.py').open('a') as stream:
+        stream.write(code + '\n')
+    result = run(skill)
+    assert result.returncode == 0, result.stderr

@@ -94,9 +94,10 @@ def frontmatter_env(text: str) -> dict[str, dict]:
     return names
 
 
-def qualified(node: ast.AST, aliases: dict[str, str]) -> str:
+def qualified(node: ast.AST, aliases: dict[str, str | ast.Constant]) -> str:
     if isinstance(node, ast.Name):
-        return aliases.get(node.id, node.id)
+        name = aliases.get(node.id, node.id)
+        return name if isinstance(name, str) else ''
     if isinstance(node, ast.Attribute):
         return qualified(node.value, aliases) + '.' + node.attr
     return ''
@@ -106,7 +107,7 @@ def literal(node: ast.AST):
     return node.value if isinstance(node, ast.Constant) else None
 
 
-def literal_path(node: ast.AST, aliases: dict[str, str]):
+def literal_path(node: ast.AST, aliases: dict[str, str | ast.Constant]):
     if isinstance(literal(node), str):
         return literal(node)
     if isinstance(node, ast.Call) and qualified(node.func, aliases) in {'Path', 'pathlib.Path'}:
@@ -122,10 +123,11 @@ def literal_path(node: ast.AST, aliases: dict[str, str]):
 
 
 XML_METHODS = {'find', 'findall', 'iterfind', 'findtext', 'register_namespace'}
-XML_HOSTS = {'www.w3.org', 'w3.org', 'purl.org', 'schemas.xmlsoap.org'}
+XML_NAMESPACES = {'http://www.w3.org/2005/Atom', 'http://purl.org/dc/elements/1.1/',
+                  'http://schemas.xmlsoap.org/soap/envelope/'}
 
 
-def namespace_url(node, host, parents, namespace_names):
+def namespace_url(node, match, parents, namespace_names):
     """Ignore XML identifiers; conservatively retain URLs passed to other calls."""
     context = False
     child = node
@@ -141,15 +143,13 @@ def namespace_url(node, host, parents, namespace_names):
             targets = (assignment.targets if isinstance(assignment, ast.Assign) else
                        [assignment.target] if isinstance(assignment, ast.AnnAssign) else [])
             context |= any(isinstance(t, ast.Name) and t.id in namespace_names for t in targets)
-        if isinstance(parent, (ast.Assign, ast.AnnAssign)) and parent.value is node:
-            targets = parent.targets if isinstance(parent, ast.Assign) else [parent.target]
-            context |= host in XML_HOSTS and any(
-                isinstance(t, ast.Name) and t.id == 'namespace' for t in targets)
         child = parent
-    return context or bool(re.fullmatch(r'\{https?://[^}]+\}[^\s{}]*', node.value))
+    clark = re.fullmatch(r'\{(https?://[^}\s]+)\}[^\W\d][\w.-]*', node.value)
+    return (context and len(list(URL.finditer(node.value))) == 1 or node.value in XML_NAMESPACES
+            or bool(clark and match.span() == clark.span(1)))
 
 
-def scoped_nodes(tree: ast.AST, aliases: dict[str, str] | None = None):
+def scoped_nodes(tree: ast.AST, aliases: dict[str, str | ast.Constant] | None = None):
     """Visit in source order with a separate alias table for each lexical scope."""
     aliases = {} if aliases is None else aliases
     yield tree, aliases
@@ -209,7 +209,9 @@ def scoped_nodes(tree: ast.AST, aliases: dict[str, str] | None = None):
         for item in tree.names:
             aliases[item.asname or item.name] = f'{tree.module}.{item.name}'
     elif isinstance(tree, (ast.Assign, ast.AnnAssign, ast.NamedExpr)):
-        name = qualified(tree.value, aliases)
+        name = (tree.value if isinstance(literal(tree.value), str) else
+                aliases.get(tree.value.id, tree.value.id) if isinstance(tree.value, ast.Name) else
+                qualified(tree.value, aliases))
         for target in tree.targets if isinstance(tree, ast.Assign) else [tree.target]:
             for node in ast.walk(target):
                 if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
@@ -358,6 +360,20 @@ def check_skill(source: Path) -> list[dict]:
                                and call.func.attr in XML_METHODS
                                for arg in [*call.args[1:], *(k.value for k in call.keywords if k.arg == 'namespaces')]
                                if isinstance(arg, ast.Name)}
+            fetched_literals = set()
+            for node in ast.walk(tree):
+                aliases = scopes[node]
+                if isinstance(node, ast.Call):
+                    name = qualified(node.func, aliases)
+                    if (name in {'urlopen', 'urlretrieve', 'urllib.request.urlopen', 'urllib.request.urlretrieve'}
+                            or name.startswith(('requests.', 'httpx.', 'aiohttp.'))
+                            and name.rsplit('.', 1)[-1] in {'get', 'post', 'put', 'patch', 'delete', 'head', 'options', 'request'}):
+                        for argument in [*node.args, *(k.value for k in node.keywords)]:
+                            if not isinstance(argument, ast.Name):
+                                continue
+                            value = aliases.get(argument.id)
+                            if isinstance(literal(value), str):
+                                fetched_literals.add(value)
             for node in ast.walk(tree):
                 aliases = scopes[node]
                 if isinstance(node, ast.Call):
@@ -449,7 +465,8 @@ def check_skill(source: Path) -> list[dict]:
                         except ValueError:
                             continue
                         if (host and normalize_host(host) not in hosts
-                                and not namespace_url(node, normalize_host(host), parents, namespace_names)):
+                                and (node in fetched_literals
+                                     or not namespace_url(node, match, parents, namespace_names))):
                             add(7, file, node.lineno, f'undeclared network host: {normalize_host(host)}')
                     if re.search(r'\bsudo\b', node.value) or PERSIST.search(node.value):
                         add(8, file, node.lineno, 'persistence or privilege command/path')
