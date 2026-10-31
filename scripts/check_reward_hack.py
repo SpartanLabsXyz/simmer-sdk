@@ -32,9 +32,8 @@ NUMBER = r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?"
 CALL = re.compile(r"\b(pytest\.approx|(?:self\.)?assertAlmostEqual)\s*\(")
 CALL_TOKEN = re.compile(
     r"'''(?:\\.|(?!''').)*'''|\"\"\"(?:\\.|(?!\"\"\").)*\"\"\""
-    r"|'(?:\\.|[^'\\])*'|\"(?:\\.|[^\"\\])*\"|\#[^\n]*|[()]", re.S,
+    r"|'(?:\\.|[^'\\])*'|\"(?:\\.|[^\"\\])*\"|\#[^\n]*|[()\[\]{},]", re.S,
 )
-TOLERANCE = re.compile(rf"\b(abs|rel|places|delta)\s*=\s*({NUMBER})(?=\s*[,)]|\s*$)")
 CI_TEST = re.compile(r"\b(?:pytest|tests?|run_skill_tests)\b|(?:^|[/_])test[_./]", re.I)
 
 
@@ -114,33 +113,133 @@ def test_declarations(lines: list[Line], python: bool) -> list[tuple[str, Line]]
     ]
 
 
-def call_arguments(text: str, start: int) -> str:
+def call_arguments(text: str, start: int) -> list[tuple[int, str]]:
     depth = 1
+    arguments = []
+    argument_start = start
     for token in CALL_TOKEN.finditer(text, start):
-        if token[0] == "(":
+        if token[0] in ("(", "[", "{"):
             depth += 1
-        elif token[0] == ")":
+        elif token[0] in (")", "]", "}"):
             depth -= 1
             if depth == 0:
-                return text[start:token.start()]
+                arguments.append((argument_start, text[argument_start:token.start()]))
+                return arguments
+        elif token[0] == "," and depth == 1:
+            arguments.append((argument_start, text[argument_start:token.start()]))
+            argument_start = token.end()
     # Diff hunks may end before the call's closing parenthesis.
-    return text[start:]
+    arguments.append((argument_start, text[argument_start:]))
+    return arguments
 
 
-def tolerance_values(lines: list[Line]) -> list[tuple[str, dict[str, tuple[float, Line]]]]:
+def normalized_argument(text: str) -> str:
+    parts = []
+    start = 0
+    for token in CALL_TOKEN.finditer(text):
+        parts.append(re.sub(r"\s+", "", text[start:token.start()]))
+        if not token[0].startswith("#"):
+            parts.append(token[0])
+        start = token.end()
+    parts.append(re.sub(r"\s+", "", text[start:]))
+    return "".join(parts)
+
+
+def tolerance_values(lines: list[Line]) -> tuple[list[tuple[str, dict[str, tuple[float, Line]]]], set[int]]:
     text, offsets = indexed_text(lines)
+    code = CALL_TOKEN.sub(
+        lambda token: " " * len(token[0]) if token[0].startswith(("#", "'", '"')) else token[0], text,
+    )
     calls = []
-    for call in CALL.finditer(text):
+    covered = set()
+    for call in CALL.finditer(code):
         values = {}
-        for value in TOLERANCE.finditer(call_arguments(text, call.end())):
-            key = value[1]
-            if key not in ({"abs", "rel"} if call[1] == "pytest.approx" else {"places", "delta"}):
-                continue
-            position = call.end() + value.start()
-            source = next(line for start, line in reversed(offsets) if start <= position)
-            values[key] = (float(value[2]), source)
-        calls.append((call[1], values))
-    return calls
+        identity = []
+        arguments = call_arguments(text, call.end())
+        end = arguments[-1][0] + len(arguments[-1][1])
+        covered.update(line.number for start, line in offsets
+                       if start <= end and start + len(line.text) >= call.start())
+        for position, argument in arguments:
+            argument = CALL_TOKEN.sub(
+                lambda token: " " * len(token[0]) if token[0].startswith("#") else token[0], argument,
+            )
+            value = re.fullmatch(rf"\s*(abs|rel|places|delta)\s*=\s*({NUMBER})\s*", argument)
+            if value and value[1] in ({"abs", "rel"} if call[1] == "pytest.approx" else {"places", "delta"}):
+                source = next(line for start, line in reversed(offsets) if start <= position + value.start(1))
+                values[value[1]] = (float(value[2]), source)
+            elif argument.strip():
+                identity.append(normalized_argument(argument))
+        prefix = text[text.rfind("\n", 0, call.start()) + 1:call.start()]
+        calls.append((normalized_argument(prefix) + call[1] + "(" + ",".join(identity) + ")", values))
+    return calls, covered
+
+
+def tolerance_sources(file: FileDiff) -> tuple[list[Line], list[Line], bool]:
+    old_lines = [line for line in file.lines if line.kind != "+"]
+    new_lines = [line for line in file.lines if line.kind != "-"]
+    path = (ROOT / file.path).resolve()
+    if not path.is_relative_to(ROOT.resolve()):
+        return old_lines, new_lines, False
+    try:
+        head = path.read_text().splitlines()
+    except (OSError, UnicodeError):
+        return old_lines, new_lines, False
+    if any(line.number < 1 or line.number > len(head) or head[line.number - 1] != line.text
+           for line in new_lines):
+        return old_lines, new_lines, False
+    base = head.copy()
+    edits = []
+    delta = 0
+    for line in file.lines:
+        if line.kind == "-":
+            edits.append((line.number - 1 + delta, line))
+            delta -= 1
+        elif line.kind == "+":
+            edits.append((line.number - 1, line))
+            delta += 1
+    for index, line in reversed(edits):
+        if index < 0 or index > len(base):
+            return old_lines, new_lines, False
+        if line.kind == "+":
+            if index == len(base) or base[index] != line.text:
+                return old_lines, new_lines, False
+            del base[index]
+        else:
+            base.insert(index, line.text)
+    removed = {line.number for line in old_lines if line.kind == "-"}
+    added = {line.number for line in new_lines if line.kind == "+"}
+    return (
+        [Line("-" if number in removed else " ", number, text) for number, text in enumerate(base, 1)],
+        [Line("+" if number in added else " ", number, text) for number, text in enumerate(head, 1)],
+        True,
+    )
+
+
+def unchanged_step_command(name: Line, lines: list[Line]) -> bool:
+    match = re.match(r"^(\s*)-\s+name:", name.text)
+    if not match:
+        return False
+    indent = len(match[1])
+    for line in lines[lines.index(name) + 1:]:
+        if line.kind == "+" or not line.text.strip():
+            continue
+        if len(line.text) - len(line.text.lstrip()) <= indent:
+            break
+        if re.match(r"\s*run:\s*\S", line.text):
+            if line.kind != " ":
+                return False
+            if not line.text.rstrip().endswith(("|", ">")):
+                return True
+            run_indent = len(line.text) - len(line.text.lstrip())
+            for command in lines[lines.index(line) + 1:]:
+                if not command.text.strip():
+                    continue
+                if len(command.text) - len(command.text.lstrip()) <= run_indent:
+                    break
+                if command.kind != " ":
+                    return False
+            return True
+    return False
 
 
 def unmatched_removed(removed: list[Line], added: list[Line]) -> list[Line]:
@@ -191,20 +290,47 @@ def check_diff(patch: str, body: str) -> list[Finding]:
             for line in unmatched:
                 if ASSERT.search(line.text):
                     flag(line, "removed assertion")
-            old_values = tolerance_values(old_lines)
-            new_values = tolerance_values(new_lines)
-            for (old_call, old), (new_call, new) in zip(old_values, new_values):
-                if old_call != new_call:
-                    continue
-                for key, (old_value, _) in old.items():
-                    if key not in new:
+            old_sources, new_sources, recovered = tolerance_sources(file)
+            old_values, _ = tolerance_values(old_sources)
+            new_values, covered = tolerance_values(new_sources)
+            grouped_old = {}
+            grouped_new = {}
+            for call, values in old_values:
+                grouped_old.setdefault(call, []).append(values)
+            for call, values in new_values:
+                grouped_new.setdefault(call, []).append(values)
+            for call, olds in grouped_old.items():
+                news = grouped_new.get(call, []).copy()
+                changed_old = []
+                for old in olds:
+                    unchanged = next((new for new in news if
+                                      {key: value for key, (value, _) in old.items()} ==
+                                      {key: value for key, (value, _) in new.items()}), None)
+                    if unchanged is not None:
+                        news.remove(unchanged)
+                    else:
+                        changed_old.append(old)
+                for old in changed_old:
+                    candidates = [candidate for candidate in news if candidate.keys() & old.keys()]
+                    new = max(candidates, key=lambda candidate: len(candidate.keys() & old.keys()), default=None)
+                    if new is None:
                         continue
-                    value, line = new[key]
-                    if line.kind == "+" and (value < old_value if key == "places" else value > old_value):
-                        flag(line, f"widened tolerance {key} from {old_value:g} to {value:g}")
+                    news.remove(new)
+                    for key, (old_value, _) in old.items():
+                        if key not in new:
+                            continue
+                        value, line = new[key]
+                        if line.kind == "+" and (value < old_value if key == "places" else value > old_value):
+                            flag(line, f"widened tolerance {key} from {old_value:g} to {value:g}")
+            if not recovered:
+                for line in added:
+                    value = re.match(rf"^\s*(abs|rel|places|delta)\s*=\s*({NUMBER})(?=\s*(?:[,)]|#|$))", line.text)
+                    if value and line.number not in covered:
+                        flag(line, f"changed tolerance {value[1]} without enclosing call context")
         if file.path.startswith(".github/workflows/") and file.path.endswith((".yml", ".yaml")):
             for line in unmatched:
-                if not line.text.lstrip().startswith("#") and CI_TEST.search(line.text):
+                if (not line.text.lstrip().startswith("#") and CI_TEST.search(line.text)
+                        and not unchanged_step_command(line, file.lines)):
                     flag(line, "removed CI test step or command")
     return findings
 

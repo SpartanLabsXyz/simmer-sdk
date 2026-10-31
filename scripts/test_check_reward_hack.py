@@ -1,5 +1,6 @@
 """Behavior checks for the PR test-change gate."""
 
+import difflib
 import json
 import os
 from pathlib import Path
@@ -277,3 +278,133 @@ def test_reason_cannot_borrow_explanation_from_next_line(ending):
 ])
 def test_clean_refactors_produce_zero_findings(patch):
     assert check_diff(patch, "") == []
+
+
+@pytest.mark.parametrize("extra", ["1", "2", "1, abs=0.001"])
+def test_inserted_call_does_not_hide_existing_tolerance_widening(extra):
+    patch = diff("tests/test_demo.py",
+                 ["value = pytest.approx(1, abs=0.01)"],
+                 [f"extra = pytest.approx({extra})", "value = pytest.approx(1, abs=0.1)"])
+    assert [(f.line, f.reason) for f in check_diff(patch, "")] == [
+        (11, "widened tolerance abs from 0.01 to 0.1"),
+    ]
+
+
+def test_reordering_unchanged_calls_is_clean():
+    calls = ["first = pytest.approx(1, abs=0.01)",
+             "second = pytest.approx(2, abs=0.1)"]
+    assert check_diff(diff("tests/test_demo.py", calls, calls[::-1]), "") == []
+
+
+def test_nested_keyword_does_not_overwrite_outer_tolerance():
+    patch = diff("tests/test_demo.py",
+                 ["value = pytest.approx(abs=0.01, expected=calculate(abs=1))"],
+                 ["value = pytest.approx(abs=0.1, expected=calculate(abs=1))"])
+    assert [(f.line, f.reason) for f in check_diff(patch, "")] == [
+        (10, "widened tolerance abs from 0.01 to 0.1"),
+    ]
+
+
+@pytest.mark.parametrize("expected", [
+    '"abs=1"',
+    "calculate(abs=1)",
+    '{"abs": [calculate(abs=1)]}',
+])
+def test_only_outer_keyword_controls_tolerance(expected):
+    patch = diff("tests/test_demo.py",
+                 [f"value = pytest.approx(abs=0.01, expected={expected})"],
+                 [f"value = pytest.approx(abs=0.1, expected={expected})"])
+    assert [f.reason for f in check_diff(patch, "")] == [
+        "widened tolerance abs from 0.01 to 0.1",
+    ]
+
+
+def test_comment_cannot_overwrite_outer_tolerance():
+    patch = diff("tests/test_demo.py",
+                 ["value = pytest.approx(abs=0.01,  # abs=1", "    expected=1)"],
+                 ["value = pytest.approx(abs=0.1,  # abs=1", "    expected=1)"])
+    assert [f.reason for f in check_diff(patch, "")] == [
+        "widened tolerance abs from 0.01 to 0.1",
+    ]
+
+
+@pytest.mark.parametrize("checkout", [False, True])
+@pytest.mark.parametrize("ending", [",\n    )\n", ")\n"])
+def test_default_diff_context_cannot_hide_tolerance_change(tmp_path, monkeypatch, checkout, ending):
+    import check_reward_hack as checker
+
+    path = "tests/test_long.py"
+    old = ("def test_long():\n"
+           "    value = pytest.approx(\n"
+           "        [\n"
+           "            1,\n"
+           "            2,\n"
+           "            3,\n"
+           "            4,\n"
+           "        ],\n"
+           "        abs=0.01" + ending)
+    new = old.replace("abs=0.01", "abs=0.1")
+    patch = f"diff --git a/{path} b/{path}\n" + "".join(difflib.unified_diff(
+        old.splitlines(keepends=True), new.splitlines(keepends=True),
+        fromfile=f"a/{path}", tofile=f"b/{path}",
+    ))
+    assert "pytest.approx(" not in patch
+    monkeypatch.setattr(checker, "ROOT", tmp_path)
+    if checkout:
+        target = tmp_path / path
+        target.parent.mkdir()
+        target.write_text(new)
+    findings = check_diff(patch, "")
+    assert len(findings) == 1
+    assert findings[0].line == 9
+    assert "tolerance abs" in findings[0].reason
+    if checkout:
+        assert findings[0].reason == "widened tolerance abs from 0.01 to 0.1"
+
+
+@pytest.mark.parametrize("command", [
+    "pytest tests/",
+    "|\n      pytest tests/\n      npm test",
+    ">\n      pytest tests/",
+])
+def test_workflow_step_display_name_change_is_clean(command):
+    path = ".github/workflows/ci.yml"
+    old = f"steps:\n  - name: Run tests\n    run: {command}\n"
+    new = old.replace("Run tests", "Run unit tests")
+    patch = f"diff --git a/{path} b/{path}\n" + "".join(difflib.unified_diff(
+        old.splitlines(keepends=True), new.splitlines(keepends=True),
+        fromfile=f"a/{path}", tofile=f"b/{path}",
+    ))
+    assert check_diff(patch, "") == []
+
+
+@pytest.mark.parametrize("old_value,new_value,expected", [
+    ("0.01", "0.1", ["widened tolerance abs from 0.01 to 0.1"]),
+    ("0.1", "0.01", []),
+])
+def test_checkout_recovery_across_multiple_hunks(tmp_path, monkeypatch,
+                                              old_value, new_value, expected):
+    import check_reward_hack as checker
+
+    path = "tests/test_recovery.py"
+    old = ("import pytest\n\n" + "\n" * 10
+           + "def test_long():\n    value = pytest.approx(\n        [\n"
+           + "            1,\n" * 10
+           + f"        ],\n        abs={old_value},\n    )\n"
+           + "\n" * 10 + "obsolete = 1\n")
+    new = (old.replace("import pytest", "import pytest\nimport math")
+           .replace(f"abs={old_value}", f"abs={new_value}")
+           .replace("obsolete = 1\n", ""))
+    patch = f"diff --git a/{path} b/{path}\n" + "".join(difflib.unified_diff(
+        old.splitlines(keepends=True), new.splitlines(keepends=True),
+        fromfile=f"a/{path}", tofile=f"b/{path}",
+    ))
+    assert "pytest.approx(" not in patch
+    monkeypatch.setattr(checker, "ROOT", tmp_path)
+    target = tmp_path / path
+    target.parent.mkdir()
+    target.write_text(new)
+    findings = check_diff(patch, "")
+    assert [f.reason for f in findings] == expected
+    if findings:
+        assert new.splitlines()[findings[0].line - 1].strip() == f"abs={new_value},"
