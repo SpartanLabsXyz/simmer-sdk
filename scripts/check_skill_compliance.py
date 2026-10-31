@@ -16,6 +16,7 @@ import argparse
 import ast
 import ipaddress
 import json
+import os
 from pathlib import Path
 import re
 import shlex
@@ -93,9 +94,10 @@ def frontmatter_env(text: str) -> dict[str, dict]:
     return names
 
 
-def qualified(node: ast.AST, aliases: dict[str, str]) -> str:
+def qualified(node: ast.AST, aliases: dict[str, str | ast.expr]) -> str:
     if isinstance(node, ast.Name):
-        return aliases.get(node.id, node.id)
+        name = aliases.get(node.id, node.id)
+        return name if isinstance(name, str) else ''
     if isinstance(node, ast.Attribute):
         return qualified(node.value, aliases) + '.' + node.attr
     return ''
@@ -105,7 +107,7 @@ def literal(node: ast.AST):
     return node.value if isinstance(node, ast.Constant) else None
 
 
-def literal_path(node: ast.AST, aliases: dict[str, str]):
+def literal_path(node: ast.AST, aliases: dict[str, str | ast.expr]):
     if isinstance(literal(node), str):
         return literal(node)
     if isinstance(node, ast.Call) and qualified(node.func, aliases) in {'Path', 'pathlib.Path'}:
@@ -121,10 +123,11 @@ def literal_path(node: ast.AST, aliases: dict[str, str]):
 
 
 XML_METHODS = {'find', 'findall', 'iterfind', 'findtext', 'register_namespace'}
-XML_HOSTS = {'www.w3.org', 'w3.org', 'purl.org', 'schemas.xmlsoap.org'}
+XML_NAMESPACES = {'http://www.w3.org/2005/Atom', 'http://purl.org/dc/elements/1.1/',
+                  'http://schemas.xmlsoap.org/soap/envelope/'}
 
 
-def namespace_url(node, host, parents, namespace_names):
+def namespace_url(node, match, parents, namespace_names):
     """Ignore XML identifiers; conservatively retain URLs passed to other calls."""
     context = False
     child = node
@@ -141,10 +144,12 @@ def namespace_url(node, host, parents, namespace_names):
                        [assignment.target] if isinstance(assignment, ast.AnnAssign) else [])
             context |= any(isinstance(t, ast.Name) and t.id in namespace_names for t in targets)
         child = parent
-    return context or host in XML_HOSTS or bool(re.search(r'\{https?://[^}]+\}', node.value))
+    clark = re.finditer(r'(?:^|/)\{(https?://[^}\s]+)\}(?:\*|[^\W\d][\w.-]*)(?=$|/|\[)', node.value)
+    return (context and len(list(URL.finditer(node.value))) == 1 or node.value in XML_NAMESPACES
+            or any(match.span() == token.span(1) for token in clark))
 
 
-def scoped_nodes(tree: ast.AST, aliases: dict[str, str] | None = None):
+def scoped_nodes(tree: ast.AST, aliases: dict[str, str | ast.expr] | None = None):
     """Visit in source order with a separate alias table for each lexical scope."""
     aliases = {} if aliases is None else aliases
     yield tree, aliases
@@ -204,7 +209,11 @@ def scoped_nodes(tree: ast.AST, aliases: dict[str, str] | None = None):
         for item in tree.names:
             aliases[item.asname or item.name] = f'{tree.module}.{item.name}'
     elif isinstance(tree, (ast.Assign, ast.AnnAssign, ast.NamedExpr)):
-        name = qualified(tree.value, aliases)
+        name = (tree.value if (isinstance(literal(tree.value), str)
+                              or isinstance(tree.value, ast.JoinedStr)
+                              or isinstance(tree.value, ast.BinOp) and isinstance(tree.value.op, ast.Add)) else
+                aliases.get(tree.value.id, tree.value.id) if isinstance(tree.value, ast.Name) else
+                qualified(tree.value, aliases))
         for target in tree.targets if isinstance(tree, ast.Assign) else [tree.target]:
             for node in ast.walk(target):
                 if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
@@ -353,6 +362,33 @@ def check_skill(source: Path) -> list[dict]:
                                and call.func.attr in XML_METHODS
                                for arg in [*call.args[1:], *(k.value for k in call.keywords if k.arg == 'namespaces')]
                                if isinstance(arg, ast.Name)}
+            fetched_literals = set()
+            for node in ast.walk(tree):
+                aliases = scopes[node]
+                if isinstance(node, ast.Call):
+                    name = qualified(node.func, aliases)
+                    if (name in {'urlopen', 'urlretrieve', 'urllib.request.urlopen', 'urllib.request.urlretrieve'}
+                            or name.startswith(('requests.', 'httpx.', 'aiohttp.'))
+                            and name.rsplit('.', 1)[-1] in {'get', 'post', 'put', 'patch', 'delete', 'head', 'options', 'request'}):
+                        arguments = [*node.args, *(k.value for k in node.keywords)]
+                        seen = set()
+                        while arguments:
+                            argument = arguments.pop()
+                            if argument in seen:
+                                continue
+                            seen.add(argument)
+                            if isinstance(literal(argument), str):
+                                fetched_literals.add(argument)
+                            elif isinstance(argument, ast.Name):
+                                value = scopes[argument].get(argument.id)
+                                if isinstance(value, ast.expr):
+                                    arguments.append(value)
+                            elif isinstance(argument, ast.JoinedStr):
+                                arguments.extend(argument.values)
+                            elif isinstance(argument, ast.FormattedValue):
+                                arguments.append(argument.value)
+                            elif isinstance(argument, ast.BinOp) and isinstance(argument.op, ast.Add):
+                                arguments.extend((argument.left, argument.right))
             for node in ast.walk(tree):
                 aliases = scopes[node]
                 if isinstance(node, ast.Call):
@@ -400,19 +436,31 @@ def check_skill(source: Path) -> list[dict]:
                     if isinstance(host, str) and normalize_host(host) not in hosts:
                         add(7, file, node.lineno, f'undeclared network host: {normalize_host(host)}')
                     destination = None
-                    if name not in {'open', 'io.open'} and isinstance(node.func, ast.Attribute) and node.func.attr in {'write_text', 'write_bytes', 'open'}:
+                    if name == 'os.open':
+                        flags = node.args[1] if len(node.args) > 1 else next(
+                            (k.value for k in node.keywords if k.arg == 'flags'), None)
+                        write_flags = {'os.O_WRONLY', 'os.O_RDWR', 'os.O_CREAT', 'os.O_TRUNC', 'os.O_APPEND'}
+                        write_mask = os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_APPEND
+                        if flags is not None and any(
+                            qualified(flag, aliases) in write_flags
+                            or isinstance(literal(flag), int) and literal(flag) & write_mask
+                            for flag in ast.walk(flags)
+                        ):
+                            destination = literal_path(node.args[0], aliases) if node.args else next(
+                                (literal_path(k.value, aliases) for k in node.keywords if k.arg == 'path'), None)
+                    elif name in {'open', 'io.open', 'builtins.open'}:
+                        mode = node.args[1] if len(node.args) > 1 else next(
+                            (k.value for k in node.keywords if k.arg == 'mode'), None)
+                        if isinstance(literal(mode), str) and any(c in literal(mode) for c in 'wax+'):
+                            destination = literal_path(node.args[0], aliases) if node.args else next(
+                                (literal_path(k.value, aliases) for k in node.keywords if k.arg == 'file'), None)
+                    elif isinstance(node.func, ast.Attribute) and node.func.attr in {'write_text', 'write_bytes', 'open'}:
                         receiver = node.func.value
                         mode = node.args[0] if node.args else next(
                             (k.value for k in node.keywords if k.arg == 'mode'), None)
                         writes = node.func.attr != 'open' or isinstance(literal(mode), str) and any(c in literal(mode) for c in 'wax+')
                         if writes:
                             destination = literal_path(receiver, aliases)
-                    elif name in {'open', 'io.open'}:
-                        mode = node.args[1] if len(node.args) > 1 else next(
-                            (k.value for k in node.keywords if k.arg == 'mode'), None)
-                        if isinstance(literal(mode), str) and any(c in literal(mode) for c in 'wax+'):
-                            destination = literal_path(node.args[0], aliases) if node.args else next(
-                                (literal_path(k.value, aliases) for k in node.keywords if k.arg == 'file'), None)
                     if isinstance(destination, str):
                         target = Path(destination)
                         if any(not (base / target).resolve().is_relative_to(source.resolve())
@@ -432,7 +480,8 @@ def check_skill(source: Path) -> list[dict]:
                         except ValueError:
                             continue
                         if (host and normalize_host(host) not in hosts
-                                and not namespace_url(node, normalize_host(host), parents, namespace_names)):
+                                and (node in fetched_literals
+                                     or not namespace_url(node, match, parents, namespace_names))):
                             add(7, file, node.lineno, f'undeclared network host: {normalize_host(host)}')
                     if re.search(r'\bsudo\b', node.value) or PERSIST.search(node.value):
                         add(8, file, node.lineno, 'persistence or privilege command/path')

@@ -599,3 +599,131 @@ def test_environment_item_assignment_preserves_module_alias(tmp_path):
     findings = json.loads(run(skill).stdout)
     assert sum(f['check'] == 2 and 'MISSING_KEY is read' in f['message']
                for f in findings) == 2
+
+
+@pytest.mark.parametrize('fixture,check,messages', [
+    ('namespace_network_red', 7, ['undeclared network host: www.w3.org']),
+    ('qualified_open_red', 8, ['absolute write destination', 'escaping write destination']),
+    ('qualified_open_green', None, []),
+])
+def test_namespace_and_qualified_open_fixtures(fixture, check, messages):
+    result = run(FIXTURES / fixture)
+    assert result.returncode == (1 if check else 0), result.stderr
+    findings = json.loads(result.stdout)
+    assert len(findings) == len(messages)
+    assert all(f['check'] == check for f in findings)
+    for message in messages:
+        assert any(message in f['message'] for f in findings)
+
+
+@pytest.mark.parametrize('code', [
+    'import builtins as b; b.open(file="/tmp/state.json", mode="a")',
+    'from builtins import open as write; write("../state.json", "r+")',
+    'import os as o; o.open(path="/tmp/state.json", flags=o.O_RDWR)',
+    'from os import open as write, O_TRUNC; write("../state.json", O_TRUNC)',
+    'import os; os.open("/tmp/state.json", os.O_RDONLY | os.O_CREAT)',
+    'import os; os.open("/tmp/state.json", os.O_RDONLY | os.O_APPEND)',
+    'import os; os.open("/tmp/state.json", 1)',
+])
+def test_qualified_open_write_is_reported(tmp_path, code):
+    skill = copy_green(tmp_path)
+    with (skill / 'main.py').open('a') as stream:
+        stream.write(code + '\n')
+    result = run(skill)
+    assert result.returncode == 1, result.stderr
+    assert any(f['check'] == 8 and 'write destination' in f['message']
+               for f in json.loads(result.stdout))
+
+
+@pytest.mark.parametrize('code,host', [
+    ('namespace = "http://www.w3.org/network"', 'www.w3.org'),
+    ('namespace = "http://www.w3.org/network"\nrequests.get(namespace)', 'www.w3.org'),
+    ('namespace = "http://www.w3.org/2005/Atom"\nrequests.get(namespace)', 'www.w3.org'),
+    ('namespace = "http://purl.org/dc/elements/1.1/"\nrequests.get(url=namespace)', 'purl.org'),
+    ('url = "{http://www.w3.org/2005/Atom}https://evil.example.com"', 'evil.example.com'),
+])
+def test_namespace_exemptions_do_not_hide_network_targets(tmp_path, code, host):
+    skill = copy_green(tmp_path)
+    with (skill / 'main.py').open('a') as stream:
+        stream.write(code + '\n')
+    result = run(skill)
+    assert result.returncode == 1, result.stderr
+    assert any(f['check'] == 7 and f['message'] == f'undeclared network host: {host}'
+               for f in json.loads(result.stdout))
+
+
+@pytest.mark.parametrize('code', [
+    'uri = "http://www.w3.org/2005/Atom"',
+    'namespace = "http://www.w3.org/2005/Atom"\nnamespace = "https://api.example.com/data"\nrequests.get(namespace)',
+    'namespace = "http://www.w3.org/2005/Atom"\ndef fetch(namespace):\n    requests.get(namespace)',
+    'namespace = "http://www.w3.org/2005/Atom"\ndef fetch():\n    namespace = "https://api.example.com/data"\n    requests.get(namespace)',
+])
+def test_namespace_literals_and_rebound_fetch_targets_stay_green(tmp_path, code):
+    skill = copy_green(tmp_path)
+    with (skill / 'main.py').open('a') as stream:
+        stream.write(code + '\n')
+    result = run(skill)
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize('code', [
+    'url = f"http://www.w3.org/2005/Atom"\nrequests.get(url)',
+    'namespace = "http://www.w3.org/2005/Atom"\nrequests.get(f"{namespace}")',
+    'url = "http://www.w3.org/2005/Atom" + "/network"\nrequests.get(url)',
+])
+def test_namespace_expression_fetch_targets_are_reported(tmp_path, code):
+    skill = copy_green(tmp_path)
+    with (skill / 'main.py').open('a') as stream:
+        stream.write(code + '\n')
+    result = run(skill)
+    assert result.returncode == 1, result.stderr
+    findings = json.loads(result.stdout)
+    assert len(findings) == 1
+    assert findings[0]['check'] == 7
+    assert findings[0]['message'] == 'undeclared network host: www.w3.org'
+
+
+@pytest.mark.parametrize('path', [
+    './/{http://www.w3.org/2005/Atom}entry',
+    '{http://www.w3.org/2005/Atom}*',
+])
+def test_namespace_xpath_expressions_stay_green(tmp_path, path):
+    skill = copy_green(tmp_path)
+    with (skill / 'main.py').open('a') as stream:
+        stream.write(f'path = {path!r}\nroot.findall(path)\n')
+    result = run(skill)
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == []
+
+
+@pytest.mark.parametrize('code', [
+    'namespace = "http://www.w3.org/2005/Atom"\nurl = f"{namespace}/network"\nrequests.get(url=url)',
+    'namespace = "http://www.w3.org/2005/Atom"\nurl = namespace + "/network"\nrequests.get(url)',
+    'namespace = "http://www.w3.org/2005/Atom"\nurl = f"{namespace}"\nnamespace = "https://api.example.com"\nrequests.get(url)',
+    'namespace = "http://www.w3.org/2005/Atom"\nurl = namespace + "/network"\nalias = url\nrequests.get(alias)',
+    'requests.get("http://www.w3.org/2005/Atom" + "/network")',
+])
+def test_namespace_expression_assignments_preserve_fetch_origins(tmp_path, code):
+    skill = copy_green(tmp_path)
+    with (skill / 'main.py').open('a') as stream:
+        stream.write(code + '\n')
+    result = run(skill)
+    assert result.returncode == 1, result.stderr
+    findings = json.loads(result.stdout)
+    assert len(findings) == 1
+    assert findings[0]['check'] == 7
+    assert findings[0]['message'] == 'undeclared network host: www.w3.org'
+
+
+@pytest.mark.parametrize('code', [
+    'namespace = "http://www.w3.org/2005/Atom"\nurl = f"{namespace}"\nurl = "https://api.example.com"\nrequests.get(url)',
+    'namespace = "http://www.w3.org/2005/Atom"\ndef fetch(namespace):\n    requests.get(f"{namespace}")',
+    'namespace = "http://www.w3.org/2005/Atom"\nnamespace = "https://api.example.com"\nrequests.get(f"{namespace}")',
+])
+def test_namespace_expression_rebinding_stays_green(tmp_path, code):
+    skill = copy_green(tmp_path)
+    with (skill / 'main.py').open('a') as stream:
+        stream.write(code + '\n')
+    result = run(skill)
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == []
