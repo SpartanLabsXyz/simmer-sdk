@@ -181,6 +181,36 @@ def test_duplicate_publish_error_hands_exact_version_to_verification(tmp_path, s
     assert not (tmp_path / "sync-called").exists()
 
 
+@pytest.mark.parametrize("stream", ["stdout", "stderr"])
+@pytest.mark.parametrize("suffix", ["", " (reset in 43s)"])
+def test_short_duplicate_for_unchanged_version_records_receipt(tmp_path, stream, suffix):
+    diagnostic = "Error: Version 1.0.0 already exists" + suffix
+    result, calls, receipt_dir = publish(
+        tmp_path, diagnostic if stream == "stdout" else "", 1,
+        diagnostic=diagnostic if stream == "stderr" else "publish diagnostic",
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "already submitted; skipping upload" in result.stdout
+    assert json.loads((receipt_dir / "receipt-test-1.0.0.json").read_text()) == ALREADY_SUBMITTED
+    assert len([call for call in calls if call[1] == "publish" and "--dry-run" not in call]) == 1
+    assert not (tmp_path / "sync-called").exists()
+
+
+@pytest.mark.parametrize("diagnostic", [
+    "Error: Permission denied",
+    "Error: Version 1.0.01 already exists",
+    "Error: Version 1x0x0 already exists",
+    "Error: Version 1.0.0 already exists extra",
+    "Error: Version 1.0.0 already exists (unrelated)",
+])
+def test_short_duplicate_mismatch_or_different_error_still_fails(tmp_path, diagnostic):
+    result, _, receipt_dir = publish(tmp_path, "", 1, diagnostic=diagnostic)
+    assert result.returncode != 0, result.stdout + result.stderr
+    assert "already submitted; skipping upload" not in result.stdout
+    assert not (receipt_dir / "receipt-test-1.0.0.json").exists()
+    assert not (tmp_path / "sync-called").exists()
+
+
 @pytest.mark.parametrize("diagnostic", [
     "Error: Unauthorized", "Error: Upload failed",
     DUPLICATE.replace("1.0.0", "1.0.01"),

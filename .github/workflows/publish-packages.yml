@@ -194,6 +194,14 @@ jobs:
           sys.exit(1 if failures else 0)
           PYTHON
 
+      - name: Prepare ClawHub publish receipts
+        if: always()
+        env:
+          CLAWHUB_RECEIPT_DIR: ${{ runner.temp }}/clawhub-receipts
+        run: |
+          mkdir -p "$CLAWHUB_RECEIPT_DIR"
+          touch "$CLAWHUB_RECEIPT_DIR/receipt-artifact.txt"
+
       - name: Save ClawHub publish receipts
         if: always()
         uses: actions/upload-artifact@v4

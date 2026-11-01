@@ -161,7 +161,8 @@ if [ -n "${CLAWHUB_RECEIPT_DIR:-}" ]; then
   cat "$PUBLISH_STDERR" >&2
   if [ "$EXIT_CODE" -ne 0 ] && { printf '%s\n' "$OUTPUT"; cat "$PUBLISH_STDERR"; } \
       | sed -E 's/ \(reset in [0-9]+s\)$//' \
-      | grep -Fx "Error: Version $VERSION already exists. Increment the version number and try again." > /dev/null; then
+      | grep -Fx -e "Error: Version $VERSION already exists" \
+          -e "Error: Version $VERSION already exists. Increment the version number and try again." > /dev/null; then
     already_submitted --already-submitted
   fi
 else
