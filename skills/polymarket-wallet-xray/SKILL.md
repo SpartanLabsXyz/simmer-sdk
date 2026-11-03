@@ -3,7 +3,7 @@ name: polymarket-wallet-xray
 description: X-ray any Polymarket wallet for skill level, entry quality, bot detection, arbitrage research, trader-profile comparison, and edge analysis. Queries Polymarket's public APIs with no authentication; use for research, not blind copytrading, and never assume past returns predict future results.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.1.10"
+  version: "1.1.11"
   displayName: Polymarket Wallet X-Ray
   envVars:
     - name: SIMMER_API_KEY
@@ -49,7 +49,6 @@ Analyze **any** Polymarket wallet's trading patterns, skill level, and edge dete
 - ❌ Automatically copytrade wallets
 - ❌ Expect to replicate their returns
 - ❌ Trade on these metrics without understanding why
-- ❌ Risk significant capital on patterns you don't understand
 
 ## Setup Flow
 
@@ -80,24 +79,26 @@ python scripts/status.py
 
 ## What You Get Back
 
-Illustrative report excerpt (values and wallet address are placeholders):
+Illustrative report excerpt (`recommendation` omitted; values and wallet address are placeholders):
 
 ```json
 {
   "wallet": "0x1234...abcd",
   "total_trades": 156,
   "total_period_hours": 42.5,
+  "analysis_timestamp": "2026-11-03T00:00:00",
   "profitability": {
     "time_profitable_pct": 75.3,
     "win_rate_pct": 68.2,
     "avg_profit_per_win": 0.035,
     "avg_loss_per_loss": -0.018,
-    "realized_pnl_usd": 2450.00
+    "realized_pnl_usd": 2450.00,
+    "total_trades": 156
   },
   "entry_quality": {
-    "avg_slippage_bps": 28,
+    "avg_price_spread_bps": 128,
     "quality_rating": "B+",
-    "assessment": "Good entries, occasional FOMO"
+    "assessment": "Good consistency. Balanced speed/price."
   },
   "behavior": {
     "is_bot_detected": false,
@@ -108,59 +109,65 @@ Illustrative report excerpt (values and wallet address are placeholders):
   },
   "edge_detection": {
     "hedge_check_combined_avg": 0.98,
-    "has_arbitrage_edge": false,
-    "assessment": "No locked-in edge; relies on direction"
+    "has_arbitrage_edge": true,
+    "assessment": "Found arbitrage edge! Combined avg $0.98 < $1.00"
   },
   "risk_profile": {
     "max_drawdown_pct": 12.5,
     "volatility": "medium",
     "max_position_concentration": 0.22
-  },
-  "recommendation": "Good trader. Positive historical metrics; research only, not a signal to copy or size positions."
+  }
 }
 ```
 
 ## How It Works
 
-1. **Fetch trade history** — Download wallet activity from Data API v2, following cursors up to the requested limit
-2. **Compute profitability timeline** — When were they underwater vs. profitable?
-3. **Analyze entry quality** — Did they buy at optimal prices or chase?
-4. **Detect trading patterns** — Bot (inhuman speed) vs. human (deliberate timing)?
-5. **Check for arbitrage** — Combined YES+NO avg < $1.00? (Potential structural edge — depends on execution and fees)
-6. **Assess behavior** — FOMO accumulation? Disciplined sizing? Rotating positions?
-7. **Summarize historical metrics** — Which patterns merit further research? What are the data limitations?
+1. **Fetch wallet activity** — Download activity from Data API v2, following cursors up to the requested limit
+2. **Compute `profitability`** — Track realized P&L from sells/redeems with matching buys
+3. **Compute `entry_quality`** — Measure buy-price consistency within each market and outcome
+4. **Compute `behavior`** — Compare activity intervals, buy prices, and share counts
+5. **Compute `edge_detection`** — Average combined outcome buy prices for markets with exactly two outcomes bought
+6. **Compute `risk_profile`** — Estimate drawdown, activity-cost variation, and activity-share concentration
+7. **Generate `recommendation`** — Summarize a heuristic historical rating tier for research
 
 ## Understanding the Metrics
 
-### ⏱️ **Time Profitable** (e.g., 75.3%)
-Wallet was profitable (not underwater) for 75% of their trading period. This wallet endured only 25% painful drawdowns — that's discipline.
+Fields in a single-wallet JSON report (all metrics use only the fetched activity window):
 
-- **>80%** = Sniper-like (skilled entries, holds through drawdowns)
-- **50-80%** = Solid (good discipline)
-- **<50%** = Risky (likely panic-held losses)
+| Field | Meaning |
+| --- | --- |
+| `wallet` | Wallet address supplied to the analysis. |
+| `total_trades` | Number of fetched activity records, including non-trade activity. |
+| `total_period_hours` | Hours between the earliest and latest fetched activity timestamps. |
+| `analysis_timestamp` | UTC analysis timestamp in ISO format, without a timezone suffix. |
+| `profitability` | Realized P&L metrics from sells/redeems with matching buys in the window. |
+| `profitability.time_profitable_pct` | Percentage of realized outcomes after which cumulative realized P&L is positive, without elapsed-time weighting. |
+| `profitability.win_rate_pct` | Percentage of realized outcomes with P&L greater than $0.001, including breakeven outcomes in the denominator. |
+| `profitability.avg_profit_per_win` | Mean realized P&L in USD among outcomes above $0.001, or 0 if none. |
+| `profitability.avg_loss_per_loss` | Mean realized P&L in USD among outcomes below -$0.001, or 0 if none. |
+| `profitability.realized_pnl_usd` | Sum of realized P&L in USD from matched sells/redeems. |
+| `profitability.total_trades` | Number of fetched activity records, identical to top-level `total_trades`. |
+| `entry_quality` | Buy-price consistency metrics grouped by market and outcome. |
+| `entry_quality.avg_price_spread_bps` | Mean of `(max buy price - min buy price) / mean buy price * 10000` across groups with at least two buys and mean price above 0.01, or 0 if none. |
+| `entry_quality.quality_rating` | Spread tier: A below 50 bps, B+ below 150, B below 400, otherwise C; B for buys without eligible spreads, N/A for no buys. |
+| `entry_quality.assessment` | Heuristic text describing the spread tier or lack of eligible buys. |
+| `behavior` | Heuristics based on activity timing, buy prices, and share counts. |
+| `behavior.is_bot_detected` | True when the mean positive interval between activity records is below 5 seconds; false when no positive intervals exist. |
+| `behavior.trading_intensity` | Interval tier: very_high below 10 seconds, high below 60, medium below 300, otherwise low; very_low for fewer than two records, unknown for no positive intervals. |
+| `behavior.avg_seconds_between_trades` | Mean positive interval in seconds between consecutive activity timestamps, or 0 if none. |
+| `behavior.price_chasing` | Compares mean buy price in the later half with the earlier half across all markets: high above 105%, moderate above 100%, otherwise low; unknown with fewer than two buys. |
+| `behavior.accumulation_signal` | Compares mean shares per activity record in the later half with the earlier half: growing above 130%, stable above 100%, otherwise decreasing; unknown with fewer than two records. |
+| `edge_detection` | Heuristics for markets with buys in exactly two outcomes. |
+| `edge_detection.hedge_check_combined_avg` | Mean sum of the two share-weighted outcome buy prices across eligible markets, or 1.0 if none. |
+| `edge_detection.has_arbitrage_edge` | True when the unrounded combined average is below 0.99; does not account for fees or matched holdings. |
+| `edge_detection.assessment` | Heuristic text describing the combined average or absence of eligible markets. |
+| `risk_profile` | Estimates from activity prices, costs, and shares. |
+| `risk_profile.max_drawdown_pct` | Largest drop in open-position mark-to-market P&L, divided by the greater of total buy cost or $1, expressed as a percentage capped at 100. |
+| `risk_profile.volatility` | Sample standard deviation divided by mean of positive activity costs: low below 0.5, medium below 1.5, otherwise high; unknown with fewer than two positive costs. |
+| `risk_profile.max_position_concentration` | Largest single activity share count divided by total activity shares, or 0 if the total is nonpositive. |
+| `recommendation` | Heuristic historical rating tier and selected factors for research. |
 
-### 🎯 **Entry Quality** (e.g., 28 bps average slippage)
-They buy near the best available price. 28 basis points is normal for active traders. No evidence of FOMO market orders.
-
-- **<20 bps** = Expert. Limit orders, patience.
-- **20-40 bps** = Good. Balanced speed/price.
-- **>50 bps** = Weak. Chasing prices.
-
-### 🤖 **Bot Detection** (e.g., false)
-Average 45 seconds between trades. This is human. A bot would be <1 second.
-
-- **<5 sec** = Likely bot. Avoid unless you know it's a legitimate market maker.
-- **5-30 sec** = Possible bot.
-- **>30 sec** = Human.
-
-### 💰 **Hedge Check** (e.g., combined avg 0.98)
-If they bought YES at $0.70 and NO at $0.30, combined = $1.00. This wallet spent exactly what they should to be neutral.
-
-If combined < $1.00, they may have entered with a structural edge (lower combined cost than $1 payout). Actual profit depends on execution, fees, and spread.
-
-- **< $0.95** = Strong potential edge. Likely institutional/pro.
-- **$0.95-1.00** = Slight edge detected.
-- **> $1.00** = No edge; betting on direction.
+`--compare --json` returns `wallet1` and `wallet2`, each containing a report with these fields. Invalid wallet addresses or wallets with no fetched activity return `{}`.
 
 ## Usage Examples
 
@@ -170,7 +177,7 @@ If combined < $1.00, they may have entered with a structural edge (lower combine
 python wallet_xray.py 0x1234...abcd --json
 ```
 
-Review `profitability`, `entry_quality`, `behavior`, and `risk_profile` to describe historical patterns. The `recommendation` field summarizes a heuristic rating tier, not a trading or allocation recommendation. Test hypotheses against fresh data and consider fees, sample size, and missing activity.
+Review `profitability`, `entry_quality`, `behavior`, and `risk_profile` to describe historical patterns. The `recommendation` field summarizes a heuristic rating tier for research only. Test hypotheses against fresh data and consider fees, sample size, and missing activity.
 
 ### Compare historical profiles
 
@@ -178,7 +185,7 @@ Review `profitability`, `entry_quality`, `behavior`, and `risk_profile` to descr
 python wallet_xray.py 0x1111... 0x2222... --compare --json --limit 100
 ```
 
-Compare the two reports for differences in historical entries, drawdowns, and activity. Strong historical metrics do not establish future returns or justify copying or sizing positions.
+Compare the two reports for differences in historical entries, drawdowns, and activity. Strong historical metrics do not establish future returns or justify copying positions.
 
 ## Running the Skill
 
