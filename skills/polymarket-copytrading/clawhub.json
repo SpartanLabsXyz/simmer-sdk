@@ -1,4 +1,6 @@
 {
+  "publish": false,
+  "publish_reason": "Held: 1.12.9 failed ClawHub's publication checks; fix the scanner findings under simmer-sdk #445, bump the version, then remove this hold.",
   "emoji": "\ud83d\udc0b",
   "primaryEnv": "SIMMER_API_KEY",
   "requires": {
