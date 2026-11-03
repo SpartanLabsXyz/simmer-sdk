@@ -4,7 +4,7 @@ This skill provides read-only public Polymarket wallet analysis and optional rea
 
 ## No financial advice
 
-Reports describe historical activity using heuristic metrics. Rating tiers and the `recommendation` field are research summaries, not advice to copy wallets or allocate capital. Past performance does not guarantee future results.
+Reports describe historical activity using heuristic metrics. Rating tiers and the `recommendation` field summarize historical activity for research only and are not advice to copy wallets. Past performance does not guarantee future results.
 
 ## Data and metric limitations
 
