@@ -80,14 +80,14 @@ def research_topic(query, min_volume=10000, max_results=5, top_holders_count=10)
             print(f"   AI divergence: {market.divergence:+.1%} (Simmer AI vs Polymarket)")
 
         if top_holders_count > 0 and market.polymarket_condition_id:
-            holders = client.get_top_holders(
-                market.polymarket_condition_id,
-                limit=top_holders_count,
-            )
+            try:
+                holders = client.get_top_holders(market.polymarket_condition_id, limit=top_holders_count)
+            except RuntimeError as exc:
+                print(f"   Top holders unavailable: {exc}")
+                continue
             if holders:
                 yes_holders = [h for h in holders if h["outcome"] == "Yes"]
                 no_holders = [h for h in holders if h["outcome"] == "No"]
-
                 if yes_holders:
                     print(f"\n   Top holders (YES):")
                     for h in yes_holders[:5]:

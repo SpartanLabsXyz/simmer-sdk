@@ -3,7 +3,7 @@ name: polymarket-research
 description: Research any Polymarket topic — get market data, probabilities, volumes, and top holders in one snapshot. Read-only, no trading.
 metadata:
   author: "Simmer (@simmer_markets)"
-  version: "1.0.0"
+  version: "1.0.1"
   displayName: Polymarket Research
   difficulty: beginner
 ---
@@ -74,4 +74,5 @@ For each matching market:
 
 - **No markets found**: try broader search terms or lower `--min-volume`
 - **No top holders**: market may be new or have low participation; the holders endpoint returns empty for very new markets
+- **Holders API failure**: top holders are skipped with an unavailable note, and research continues to the next market
 - **Timeout on holders**: the Polymarket data API is occasionally slow; the skill retries once with a 10s timeout
