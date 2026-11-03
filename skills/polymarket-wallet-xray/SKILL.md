@@ -3,7 +3,7 @@ name: polymarket-wallet-xray
 description: X-ray any Polymarket wallet for skill level, entry quality, bot detection, arbitrage research, trader-profile comparison, and edge analysis. Queries Polymarket's public APIs with no authentication; use for research, not blind copytrading, and never assume past returns predict future results.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.1.7"
+  version: "1.1.8"
   displayName: Polymarket Wallet X-Ray
   difficulty: beginner
   attribution: Inspired by @thejayden's "Autopsy of a Polymarket Whale" analysis.
@@ -12,7 +12,7 @@ metadata:
 
 Analyze **any** Polymarket wallet's trading patterns, skill level, and edge detection.
 
-**No authentication needed.** Queries Polymarket's public CLOB API directly.
+**No authentication needed.** Queries Polymarket's public Data API v2 directly.
 
 **Inspired by:** [The Autopsy: How to Read the Mind of a Polymarket Whale](https://x.com/thejayden/status/2020891572389224878) by [@thejayden](https://x.com/thejayden)
 
@@ -79,9 +79,9 @@ python wallet_xray.py "Will BTC hit $100k?" --top-wallets 5 --dry-run
 python scripts/status.py
 ```
 
-**APIs Used (Public, No Auth Required):**
-- Gamma API: `https://gamma-api.polymarket.com/markets/keyset` — Market search (cursor-paginated)
-- CLOB API: `https://clob.polymarket.com` — Trade history and orderbook
+**APIs Used:**
+- Data API v2: `https://data-api.polymarket.com/v2/activity` — Wallet activity (cursor-paginated)
+- Simmer API: `https://api.simmer.markets` — Optional authenticated account status via `scripts/status.py`
 
 ## What You Get Back
 
@@ -127,7 +127,7 @@ The skill returns comprehensive forensic metrics:
 
 ## How It Works
 
-1. **Fetch trade history** — Download all trades this wallet made from Polymarket via Simmer API
+1. **Fetch trade history** — Download wallet activity from Data API v2, following cursors up to the requested limit
 2. **Compute profitability timeline** — When were they underwater vs. profitable?
 3. **Analyze entry quality** — Did they buy at optimal prices or chase?
 4. **Detect trading patterns** — Bot (inhuman speed) vs. human (deliberate timing)?
@@ -296,7 +296,7 @@ python wallet_xray.py 0x1234...abcd --limit 100
 - Wait a minute before trying again, or use `--limit` to speed up individual analyses
 
 **"Connection error"**
-- Check that Polymarket's CLOB API is reachable: `curl https://clob.polymarket.com/trades`
+- Check that Polymarket's Data API v2 is reachable: `curl 'https://data-api.polymarket.com/v2/activity?user=0xYOUR_WALLET&limit=1'`
 - If down, try again later or use `--limit 50` to reduce load
 
 ## Credits

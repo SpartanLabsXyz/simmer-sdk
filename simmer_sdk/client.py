@@ -4071,6 +4071,10 @@ class SimmerClient:
             List of dicts, each with: address, display_name, amount,
             outcome, profile_url
 
+        Raises:
+            RuntimeError: If the API returns a non-2xx status, the request
+                fails, or the response is malformed.
+
         Example:
             market = client.get_market_by_id("uuid")
             if market.polymarket_condition_id:
@@ -4080,29 +4084,44 @@ class SimmerClient:
         """
         from urllib.request import urlopen, Request
         from urllib.error import HTTPError, URLError
+        from urllib.parse import urlencode
         import json as _json
 
-        url = f"https://data-api.polymarket.com/holders?market={condition_id}"
+        url = "https://data-api.polymarket.com/v2/holders?" + urlencode({
+            "condition": condition_id, "limit": limit,
+        })
         try:
             req = Request(url, headers={"Accept": "application/json"})
             with urlopen(req, timeout=10) as resp:
                 data = _json.loads(resp.read().decode())
-        except (HTTPError, URLError, TimeoutError):
-            return []
+        except HTTPError as exc:
+            raise RuntimeError(f"Polymarket holders API HTTP {exc.code}") from exc
+        except (URLError, OSError) as exc:
+            raise RuntimeError(f"Polymarket holders API request failed: {exc}") from exc
+        except (ValueError, UnicodeError) as exc:
+            raise RuntimeError("Malformed Polymarket holders API response") from exc
 
         outcome_labels = {0: "Yes", 1: "No"}
         holders = []
-        for token_group in data:
-            for h in token_group.get("holders", [])[:limit]:
-                addr = h.get("proxyWallet", "")
-                name = h.get("name", "") or h.get("pseudonym", "")
-                holders.append({
-                    "address": addr,
-                    "display_name": name or (addr[:10] + "..." if addr else "unknown"),
-                    "amount": float(h.get("amount", 0)),
-                    "outcome": outcome_labels.get(h.get("outcomeIndex"), "Unknown"),
-                    "profile_url": f"https://polymarket.com/profile/{addr}" if addr else None,
-                })
+        try:
+            if not isinstance(data, dict) or not isinstance(data.get("data"), list):
+                raise ValueError("expected a data list")
+            for token_group in data["data"]:
+                if (not isinstance(token_group, dict)
+                        or not isinstance(token_group.get("holders"), list)):
+                    raise ValueError("expected a holders list")
+                for h in token_group["holders"][:limit]:
+                    addr = h["proxy_wallet"]
+                    name = h.get("name", "") or h.get("pseudonym", "")
+                    holders.append({
+                        "address": addr,
+                        "display_name": name or (addr[:10] + "..." if addr else "unknown"),
+                        "amount": float(h["amount"]),
+                        "outcome": outcome_labels.get(h["outcome_index"], "Unknown"),
+                        "profile_url": f"https://polymarket.com/profile/{addr}" if addr else None,
+                    })
+        except (KeyError, TypeError, ValueError) as exc:
+            raise RuntimeError("Malformed Polymarket holders API response") from exc
         holders.sort(key=lambda x: x["amount"], reverse=True)
         return holders[:limit]
 
