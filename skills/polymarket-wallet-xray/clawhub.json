@@ -1,13 +1,19 @@
 {
   "emoji": "🔍",
   "requires": {
-    "env": [
-      "SIMMER_API_KEY"
-    ],
-    "pip": [
-      "simmer-sdk"
-    ]
+    "env": [],
+    "pip": []
   },
   "cron": null,
-  "autostart": false
+  "autostart": false,
+  "envVars": [
+    {
+      "name": "SIMMER_API_KEY",
+      "required": false,
+      "description": "Optional, only for scripts/status.py to read your own Simmer account status. Public wallet analysis needs no key."
+    }
+  ],
+  "automaton": {
+    "entrypoint": "wallet_xray.py"
+  }
 }

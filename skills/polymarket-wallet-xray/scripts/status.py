@@ -2,7 +2,8 @@
 """
 Simmer Account Status
 
-Shows wallet balance, positions, and recent activity.
+Optional read-only helper for your own Simmer account balance and positions.
+Public wallet analysis does not need this helper or SIMMER_API_KEY.
 
 Usage:
     python scripts/status.py
@@ -58,8 +59,9 @@ def main():
 
     api_key = os.environ.get("SIMMER_API_KEY")
     if not api_key:
-        print("❌ SIMMER_API_KEY environment variable not set")
-        print("   Get your API key from: https://simmer.markets/dashboard")
+        print("Optional account status requires SIMMER_API_KEY; it is not set.")
+        print("Public wallet analysis needs no key. Configure a key outside chat only for your own account status.")
+        print("Get your API key from: https://simmer.markets/dashboard")
         sys.exit(1)
 
     # Get portfolio summary
