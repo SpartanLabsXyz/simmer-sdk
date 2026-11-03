@@ -4091,7 +4091,8 @@ class SimmerClient:
             "condition": condition_id, "limit": limit,
         })
         try:
-            req = Request(url, headers={"Accept": "application/json"})
+            # Polymarket rejects the default Python-urllib agent with 403.
+            req = Request(url, headers={"Accept": "application/json", "User-Agent": "simmer-sdk"})
             with urlopen(req, timeout=10) as resp:
                 data = _json.loads(resp.read().decode())
         except HTTPError as exc:
@@ -4108,10 +4109,21 @@ class SimmerClient:
                     or not isinstance(data.get("pagination"), dict)
                     or "next_cursor" not in data["pagination"]):
                 raise ValueError("expected data and pagination")
+            cursor = data["pagination"]["next_cursor"]
+            if cursor is not None and (not isinstance(cursor, str) or not cursor):
+                raise ValueError("invalid holders cursor")
+            if cursor is not None and not data["data"]:
+                raise ValueError("empty holders page advertises more pages")
+            # /v2/holders always advertises a next page; the first page holds the
+            # top holders per token because rows are sorted by amount descending,
+            # which is checked below so a top-N answer is never silently wrong.
             for token_group in data["data"]:
                 if (not isinstance(token_group, dict)
                         or not isinstance(token_group.get("holders"), list)):
                     raise ValueError("expected a holders list")
+                amounts = [h["amount"] for h in token_group["holders"]]
+                if amounts != sorted(amounts, reverse=True):
+                    raise ValueError("holders not sorted by amount")
                 for h in token_group["holders"][:limit]:
                     addr = h["proxy_wallet"]
                     name = h.get("name", "") or h.get("pseudonym", "")

@@ -50,6 +50,9 @@ def api_request(url: str, headers: Optional[Dict] = None, timeout: int = 30) -> 
     except (ValueError, UnicodeError) as exc:
         raise RuntimeError("Malformed Polymarket activity API response") from exc
 
+MARKET_ACTIVITY_TYPES = {"TRADE", "SPLIT", "MERGE", "REDEEM", "CONVERSION"}
+
+
 def get_wallet_trades(wallet: str, limit: Optional[int] = None) -> List[Dict]:
     """Fetch v2 activity with cursors; failed reads raise RuntimeError."""
     max_trades = limit or 1000
@@ -87,7 +90,9 @@ def get_wallet_trades(wallet: str, limit: Optional[int] = None) -> List[Dict]:
                             for key in ("timestamp", "size", "usdc_size", "price"))
                         or not all(isinstance(row[key], str) for key in (
                             "condition_id", "type", "side", "transaction_hash", "outcome"))
-                        or not row["condition_id"]):
+                        or (row["type"] == "TRADE" and row["side"] not in ("BUY", "SELL"))
+                        # REWARD/YIELD/rebate rows are not tied to a market and carry "".
+                        or (row["type"] in MARKET_ACTIVITY_TYPES and not row["condition_id"])):
                     raise ValueError("invalid activity values")
             except (ValueError, OverflowError) as exc:
                 raise RuntimeError("Malformed Polymarket activity API row") from exc

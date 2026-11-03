@@ -61,6 +61,50 @@ def test_empty_holders(monkeypatch):
     assert SimmerClient.__new__(SimmerClient).get_top_holders('0xcondition') == []
 
 
+@pytest.mark.parametrize('cursor', [123, '', False, [], {}])
+def test_invalid_holder_cursor_raises(monkeypatch, cursor):
+    sample = json.loads((FIXTURES / 'holders.json').read_text())
+    sample['pagination']['next_cursor'] = cursor
+    monkeypatch.setattr('urllib.request.urlopen', lambda *a, **kw: BytesIO(json.dumps(sample).encode()))
+    with pytest.raises(RuntimeError, match='Malformed Polymarket holders API response'):
+        SimmerClient.__new__(SimmerClient).get_top_holders('0xcondition')
+
+
+def test_live_shape_with_next_cursor_returns_first_page_top_holders(monkeypatch):
+    # The captured live response advertises a next page (/v2/holders always does).
+    sample = json.loads((FIXTURES / 'holders.json').read_text())
+    assert isinstance(sample['pagination']['next_cursor'], str) and sample['pagination']['next_cursor']
+    requests = []
+
+    def fetch(req, **kwargs):
+        requests.append(req.full_url)
+        return BytesIO(json.dumps(sample).encode())
+
+    monkeypatch.setattr('urllib.request.urlopen', fetch)
+    holders = SimmerClient.__new__(SimmerClient).get_top_holders('0xcondition', limit=3)
+    assert len(requests) == 1
+    assert len(holders) == 3
+    assert [h['amount'] for h in holders] == sorted((h['amount'] for h in holders), reverse=True)
+
+
+def test_empty_page_with_next_cursor_raises(monkeypatch):
+    sample = json.loads((FIXTURES / 'holders.json').read_text())
+    sample['pagination']['next_cursor'] = 'next'
+    sample['data'] = []
+    monkeypatch.setattr('urllib.request.urlopen', lambda *a, **kw: BytesIO(json.dumps(sample).encode()))
+    with pytest.raises(RuntimeError, match='Malformed Polymarket holders API response'):
+        SimmerClient.__new__(SimmerClient).get_top_holders('0xcondition')
+
+
+def test_unsorted_holder_group_raises(monkeypatch):
+    sample = json.loads((FIXTURES / 'holders.json').read_text())
+    group = sample['data'][0]['holders']
+    group[0]['amount'], group[-1]['amount'] = group[-1]['amount'], group[0]['amount']
+    monkeypatch.setattr('urllib.request.urlopen', lambda *a, **kw: BytesIO(json.dumps(sample).encode()))
+    with pytest.raises(RuntimeError, match='Malformed Polymarket holders API response'):
+        SimmerClient.__new__(SimmerClient).get_top_holders('0xcondition')
+
+
 def test_holder_name_fallbacks_and_unknown_outcome(monkeypatch):
     rows = [
         {'proxy_wallet': '0x123456789abcdef', 'pseudonym': 'alias', 'amount': 4, 'outcome_index': 0},

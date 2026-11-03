@@ -159,6 +159,15 @@ def test_malformed_activity_values_raise(xray, monkeypatch, field, value):
         xray.analyze_wallet(WALLET, 2)
 
 
+@pytest.mark.parametrize('side', ['', 'HOLD', 'buygarbage'])
+def test_invalid_trade_side_raises(xray, monkeypatch, side):
+    sample = json.loads((FIXTURES / 'activity.json').read_text())
+    sample['data'][0].update(type='TRADE', side=side)
+    monkeypatch.setattr(xray, 'api_request', lambda url: sample)
+    with pytest.raises(RuntimeError, match='^Malformed Polymarket activity API row$'):
+        xray.get_wallet_trades(WALLET, 1)
+
+
 def test_empty_page_with_cursor_raises_without_fetching_again(xray, monkeypatch):
     calls = []
     def fetch(url):
@@ -190,3 +199,23 @@ def test_distinct_events_in_same_transaction_are_preserved(xray, monkeypatch):
     assert len(trades) == 2
     assert trades[0]['transaction_hash'] == trades[1]['transaction_hash']
     assert trades[0]['shares'] != trades[1]['shares']
+
+
+@pytest.mark.parametrize('activity_type', ['REWARD', 'YIELD', 'MAKER_REBATE', 'TAKER_REBATE'])
+def test_non_market_rows_with_empty_condition_id_are_valid(xray, monkeypatch, activity_type):
+    # Live /v2/activity returns these account-level rows with condition_id "".
+    sample = json.loads((FIXTURES / 'activity.json').read_text())
+    sample['data'][0].update(type=activity_type, side='', condition_id='')
+    monkeypatch.setattr(xray, 'api_request', lambda url: sample)
+    trade = xray.get_wallet_trades(WALLET, 1)[0]
+    assert trade['activity_type'] == activity_type
+    assert trade['market_id'] == ''
+
+
+@pytest.mark.parametrize('activity_type', ['TRADE', 'SPLIT', 'MERGE', 'REDEEM', 'CONVERSION'])
+def test_market_rows_require_condition_id(xray, monkeypatch, activity_type):
+    sample = json.loads((FIXTURES / 'activity.json').read_text())
+    sample['data'][0].update(type=activity_type, side='BUY', condition_id='')
+    monkeypatch.setattr(xray, 'api_request', lambda url: sample)
+    with pytest.raises(RuntimeError, match='^Malformed Polymarket activity API row$'):
+        xray.get_wallet_trades(WALLET, 1)
