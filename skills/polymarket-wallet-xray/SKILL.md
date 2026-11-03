@@ -3,8 +3,12 @@ name: polymarket-wallet-xray
 description: X-ray any Polymarket wallet for skill level, entry quality, bot detection, arbitrage research, trader-profile comparison, and edge analysis. Queries Polymarket's public APIs with no authentication; use for research, not blind copytrading, and never assume past returns predict future results.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.1.9"
+  version: "1.1.10"
   displayName: Polymarket Wallet X-Ray
+  envVars:
+    - name: SIMMER_API_KEY
+      required: false
+      description: Optional, only for scripts/status.py to read your own Simmer account status. Public wallet analysis needs no key.
   difficulty: beginner
   attribution: Inspired by @thejayden's "Autopsy of a Polymarket Whale" analysis.
 ---
@@ -16,7 +20,7 @@ Analyze **any** Polymarket wallet's trading patterns, skill level, and edge dete
 
 **Inspired by:** [The Autopsy: How to Read the Mind of a Polymarket Whale](https://x.com/thejayden/status/2020891572389224878) by [@thejayden](https://x.com/thejayden)
 
-> 🚨 **Framework, not a production trading system.** Read [DISCLAIMER.md](./DISCLAIMER.md) before connecting to a wallet with real funds.
+> **Read-only research.** Public analysis reads wallet activity; the optional status helper reads your own Simmer account. Read [DISCLAIMER.md](./DISCLAIMER.md) before interpreting results.
 
 > This skill implements the forensic trading analysis framework developed by @thejayden. Read the original post to understand the philosophy behind Time Profitable, hedge checks, bot detection, and accumulation signals.
 
@@ -49,33 +53,24 @@ Analyze **any** Polymarket wallet's trading patterns, skill level, and edge dete
 
 ## Setup Flow
 
-When user asks to install or configure this skill:
+Public wallet analysis requires only Python's standard library. No package install, SDK, API key, or wallet connection is needed. Run `wallet_xray.py` with a public Polymarket wallet address.
 
-1. **Install the Simmer SDK**
-   ```bash
-   pip install simmer-sdk
-   ```
+Only if the user explicitly asks for their own Simmer account status, use `scripts/status.py`. `SIMMER_API_KEY` is optional for this skill and used only by that helper. Have the user configure it in their environment outside chat, using the SDK tab at https://simmer.markets/dashboard. Never ask them to paste a key into chat or print it.
 
-2. **Ask for Simmer API key**
-   - They can get it from simmer.markets/dashboard → SDK tab
-   - Store in environment as `SIMMER_API_KEY`
+The status helper sends the key as a Bearer header only to `https://api.simmer.markets` for read-only portfolio and position queries. It exits before making a request when the key is unset. Neither script places orders or changes account settings.
 
 ## Quick Commands
+
+All shortened `0x...` addresses below are placeholders. Replace them with complete public wallet addresses before running a command.
 
 ```bash
 # Analyze a single wallet
 python wallet_xray.py 0x1234...abcd
 
-# Analyze wallet + only look at specific market
-python wallet_xray.py 0x1234...abcd "Bitcoin"
-
 # Compare two wallets head-to-head
 python wallet_xray.py 0x1111... 0x2222... --compare
 
-# Find wallets matching criteria (top Time Profitable in market)
-python wallet_xray.py "Will BTC hit $100k?" --top-wallets 5 --dry-run
-
-# Check your account status
+# Optional: read your own Simmer account status (requires SIMMER_API_KEY)
 python scripts/status.py
 ```
 
@@ -85,7 +80,7 @@ python scripts/status.py
 
 ## What You Get Back
 
-The skill returns comprehensive forensic metrics:
+Illustrative report excerpt (values and wallet address are placeholders):
 
 ```json
 {
@@ -121,7 +116,7 @@ The skill returns comprehensive forensic metrics:
     "volatility": "medium",
     "max_position_concentration": 0.22
   },
-  "recommendation": "Good trader. Skilled entries, disciplined sizing. Good metrics for learning from. Not advice to copytrade."
+  "recommendation": "Good trader. Positive historical metrics; research only, not a signal to copy or size positions."
 }
 ```
 
@@ -133,7 +128,7 @@ The skill returns comprehensive forensic metrics:
 4. **Detect trading patterns** — Bot (inhuman speed) vs. human (deliberate timing)?
 5. **Check for arbitrage** — Combined YES+NO avg < $1.00? (Potential structural edge — depends on execution and fees)
 6. **Assess behavior** — FOMO accumulation? Disciplined sizing? Rotating positions?
-7. **Generate recommendation** — Is this wallet worth following? What's the risk?
+7. **Summarize historical metrics** — Which patterns merit further research? What are the data limitations?
 
 ## Understanding the Metrics
 
@@ -169,97 +164,27 @@ If combined < $1.00, they may have entered with a structural edge (lower combine
 
 ## Usage Examples
 
-### **Example 1: Learning from a skilled trader (Analysis)**
+### Research one wallet
 
-```python
-import subprocess
-import json
-
-# Analyze a wallet known for skilled trading
-result = subprocess.run(
-    ["python", "wallet_xray.py", "0x123...abc", "--json"],
-    capture_output=True,
-    text=True
-)
-data = json.loads(result.stdout)
-
-# LEARN from their profile, don't copy blindly
-time_prof = data["profitability"]["time_profitable_pct"]
-entry_qual = data["entry_quality"]["quality_rating"]
-
-print(f"📊 What this trader does well:")
-print(f"  • Time Profitable: {time_prof}% (disciplined)")
-print(f"  • Entry Quality: {entry_qual} (patient buyer)")
-print(f"  • Behavior: {data['behavior']['accumulation_signal']} (not FOMO)")
-
-# THEN: Ask yourself
-# - Why are they profitable? (skill or luck?)
-# - Can I replicate their decision-making process?
-# - Do I have their capital size, timing, or information?
+```bash
+python wallet_xray.py 0x1234...abcd --json
 ```
 
-### **Example 2: Research anomalies (Education)**
+Review `profitability`, `entry_quality`, `behavior`, and `risk_profile` to describe historical patterns. The `recommendation` field summarizes a heuristic rating tier, not a trading or allocation recommendation. Test hypotheses against fresh data and consider fees, sample size, and missing activity.
 
-```python
-# Analyze multiple wallets to understand patterns
-wallets = ["0x111...", "0x222...", "0x333..."]
+### Compare historical profiles
 
-print("Comparing trader profiles:")
-for wallet in wallets:
-    result = subprocess.run(
-        ["python", "wallet_xray.py", wallet, "--json"],
-        capture_output=True,
-        text=True
-    )
-    data = json.loads(result.stdout)
-
-    is_bot = "🤖 BOT" if data["behavior"]["is_bot_detected"] else "👤 HUMAN"
-    print(f"\n{wallet}: {is_bot}")
-    print(f"  Win Rate: {data['profitability']['win_rate_pct']}%")
-    print(f"  Time Profitable: {data['profitability']['time_profitable_pct']}%")
-
-# Use this data to understand what successful trading LOOKS LIKE
-# Then build your own strategy based on these insights
+```bash
+python wallet_xray.py 0x1111... 0x2222... --compare --json --limit 100
 ```
 
-### **Example 3: Informed decision-making (NOT blind copying)**
-
-```python
-# Analyze before you decide what to do
-result = subprocess.run(
-    ["python", "wallet_xray.py", "0x123...abc", "--json"],
-    capture_output=True,
-    text=True
-)
-data = json.loads(result.stdout)
-
-# Make an INFORMED decision based on analysis + YOUR OWN JUDGMENT
-if data["profitability"]["time_profitable_pct"] > 75 and \
-   data["entry_quality"]["quality_rating"] in ["A", "A+"]:
-
-    print(f"✅ This wallet shows skill (high Time Profitable, good entries)")
-    print(f"⚠️  But I will NOT copytrade blindly.")
-    print(f"📋 Instead, I'll:")
-    print(f"   1. Backtest their patterns on fresh data")
-    print(f"   2. Add my own market signals")
-    print(f"   3. Start with small position (1-2% of capital)")
-    print(f"   4. Monitor for next 30 days")
-    print(f"   5. Adjust if it stops working")
-else:
-    print(f"❌ This wallet doesn't show strong enough metrics.")
-    print(f"   Safer to avoid or research further before deciding.")
-```
+Compare the two reports for differences in historical entries, drawdowns, and activity. Strong historical metrics do not establish future returns or justify copying or sizing positions.
 
 ## Running the Skill
 
 **Analyze a single wallet (default):**
 ```bash
 python wallet_xray.py 0x1234...abcd
-```
-
-**Analyze wallet for a specific market:**
-```bash
-python wallet_xray.py 0x1234...abcd "Bitcoin"
 ```
 
 **Output as JSON (for scripts):**
@@ -282,10 +207,6 @@ python wallet_xray.py 0x1234...abcd --limit 100
 **"Wallet has no trades"**
 - This wallet hasn't traded yet, or all trades are too old
 - Try a wallet you know is active
-
-**"Market not found"**
-- The market query didn't match anything on Polymarket
-- Try a more specific market name or leave it blank to analyze all markets
 
 **"Analysis took too long"**
 - For wallets with >500 trades, analysis can take 30+ seconds

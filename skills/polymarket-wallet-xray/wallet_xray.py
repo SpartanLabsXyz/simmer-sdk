@@ -8,9 +8,8 @@ and edge detection. Inspired by @thejayden's "Autopsy of a Polymarket Whale".
 Queries Polymarket's public data API (data-api.polymarket.com) — no authentication needed.
 Analyzes ANY Polymarket wallet, not just Simmer users.
 
-Usage:
+Usage (replace placeholder addresses with complete public wallet addresses):
     python wallet_xray.py 0x1234...abcd
-    python wallet_xray.py 0x1234...abcd "Bitcoin"
     python wallet_xray.py 0x1111... 0x2222... --compare
     python wallet_xray.py 0x1234...abcd --json
     python wallet_xray.py 0x1234...abcd --limit 100
@@ -585,13 +584,13 @@ def generate_recommendation(data: Dict[str, Any]) -> str:
 
     # Generate text
     if score >= 90:
-        rec = f"Excellent trader. {'; '.join(factors[:3])} Safe to copytrade with 25-50% of capital."
+        rec = f"Excellent trader. {'; '.join(factors[:3])} Strong historical metrics; research only, not a signal to copy or size positions."
     elif score >= 75:
-        rec = f"Good trader. {'; '.join(factors[:3])} Safe to copytrade with 10-25% of capital."
+        rec = f"Good trader. {'; '.join(factors[:3])} Positive historical metrics; research only, not a signal to copy or size positions."
     elif score >= 60:
-        rec = f"Decent trader. {'; '.join(factors[:3])} Cautious copytrading with 5-10% of capital."
+        rec = f"Decent trader. {'; '.join(factors[:3])} Mixed historical metrics; research only, not a signal to copy or size positions."
     else:
-        rec = f"Risky trader. {'; '.join(factors[:2])} Avoid copytrading or limit to <5% of capital."
+        rec = f"Risky trader. {'; '.join(factors[:2])} Weak historical metrics; research only, not a signal to copy or size positions."
 
     return rec
 
@@ -702,7 +701,7 @@ def format_output(data: Dict[str, Any]) -> str:
 def main():
     parser = argparse.ArgumentParser(
         description="Polymarket Wallet Xray - Forensic trading analysis",
-        epilog="Example: python wallet_xray.py 0x1234...abcd"
+        epilog="Example: python wallet_xray.py 0x1234...abcd (replace placeholder with a full wallet address)"
     )
     parser.add_argument("wallet", nargs="?", help="Wallet address (0x...)")
     parser.add_argument("market", nargs="?", help="Second wallet address for --compare")

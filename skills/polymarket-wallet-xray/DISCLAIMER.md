@@ -1,48 +1,19 @@
 # Disclaimer
 
-This skill is a **framework**, not a production trading system. Read this
-in full before connecting it to a wallet with real funds.
+This skill provides read-only public Polymarket wallet analysis and optional read-only status for your own Simmer account. It does not connect to a signing wallet, execute trades, change account settings, or run scheduled monitors.
 
 ## No financial advice
 
-Nothing in this skill constitutes financial, investment, or trading
-advice. The default strategy implemented here is a starting point, not a
-tested edge. Suitability for any account size or risk tolerance is your
-responsibility to assess.
+Reports describe historical activity using heuristic metrics. Rating tiers and the `recommendation` field are research summaries, not advice to copy wallets or allocate capital. Past performance does not guarantee future results.
 
-## Default parameters are not validated
+## Data and metric limitations
 
-Default parameters are calibrated for testing the plumbing, not for live
-profit. They have not been validated to produce positive returns under
-current market conditions. Run paper mode for an extended period before
-scaling beyond default position sizes.
+Public activity can be incomplete or limited by pagination and the requested trade limit. Historical entry, profitability, bot, and arbitrage assessments are estimates. They do not establish a validated strategy or future returns. Check data quality, fees, and sample size before drawing conclusions.
 
-## Automated trading carries irreversible risk
+## Optional account status
 
-When this skill runs with `--live`, it places real on-chain orders.
-On-chain trades cannot be recalled. Strategy errors, signal lag, market
-regime shifts, and operator misconfiguration can produce losses
-exceeding any specific position size.
+Public analysis needs no credentials or SDK. Only `scripts/status.py` uses `SIMMER_API_KEY`, and only for read-only requests to `https://api.simmer.markets`. Configure it outside chat only when requesting your own account status. Never paste a key into chat. If it is unset, the helper exits without a network request.
 
-## Risk monitoring may not apply to all market types
+## Responsibility
 
-Stop-loss and take-profit monitors run on a fixed schedule. Markets that
-resolve faster than the monitor cycle cannot be exited automatically.
-Position sizing is the only risk control on these markets — set it
-conservatively.
-
-## Use of this skill is at your own risk
-
-By installing and running this skill you agree that the authors are not
-liable for any losses, direct or indirect, that arise from its use. This
-applies regardless of skill provenance — official Simmer skills,
-community skills, and skills imported from external repositories all
-carry this same disclaimer.
-
-## Where to learn more before going live
-
-- The skill's own `SKILL.md` documents the strategy and parameters
-- Your trading venue's documentation covers fee structure, order types,
-  and resolution rules
-- Simmer SDK documentation covers paper mode, dry-run flags, and
-  position monitoring
+You are responsible for how you interpret these reports. The authors are not liable for losses arising from their use. See `SKILL.md` for supported commands and data sources.

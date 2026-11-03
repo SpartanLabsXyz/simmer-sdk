@@ -98,7 +98,7 @@ def test_recommendation_from_empty_trades(xray):
     assert xray.generate_recommendation(metrics) == (
         "Risky trader. ❌ Low Time Profitable (<40%); "
         "⚠️ Insufficient data for entry quality "
-        "Avoid copytrading or limit to <5% of capital."
+        "Weak historical metrics; research only, not a signal to copy or size positions."
     )
 
 
@@ -113,5 +113,25 @@ def test_recommendation_excellent_trader(xray):
     assert xray.generate_recommendation(metrics) == (
         "Excellent trader. ✅ Strong Time Profitable (>80%); "
         "✅ Excellent entry quality; ✅ Human trader (not bot) "
-        "Safe to copytrade with 25-50% of capital."
+        "Strong historical metrics; research only, not a signal to copy or size positions."
     )
+
+
+@pytest.mark.parametrize(
+    ("time_profitable", "entry_rating", "has_edge", "tier"),
+    [(90, "A", True, "Excellent"), (90, "A", False, "Good"),
+     (70, "B", False, "Decent"), (0, "N/A", False, "Risky")],
+)
+def test_recommendations_are_research_only(xray, time_profitable, entry_rating, has_edge, tier):
+    metrics = {
+        "profitability": {"time_profitable_pct": time_profitable, "total_trades": 101},
+        "entry_quality": {"quality_rating": entry_rating},
+        "behavior": {"is_bot_detected": False},
+        "edge_detection": {"has_arbitrage_edge": has_edge},
+        "risk_profile": {"max_drawdown_pct": 10},
+    }
+    recommendation = xray.generate_recommendation(metrics)
+    assert recommendation.startswith(f"{tier} trader.")
+    assert "% of capital" not in recommendation
+    assert "Safe to copytrade" not in recommendation
+    assert "research only, not a signal to copy or size positions." in recommendation
