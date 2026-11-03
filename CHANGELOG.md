@@ -10,7 +10,7 @@ This is a patch release. It moves `get_top_holders` off Polymarket's retired Dat
 - **`get_top_holders` uses Polymarket Data API v2 (#479, closes #478).** It now calls `/v2/holders`. The v1 `/holders` endpoint returns 410, which the old code turned into a silent empty list.
 - **Behaviour change: `get_top_holders` now raises `RuntimeError` instead of returning `[]`.** It raises on a non-2xx status, a failed request or a malformed reply (bad envelope or cursor, unsorted rows, invalid values). An empty list now means the market has no holders. Callers that relied on `[]` for errors should catch `RuntimeError`.
 - Requests now send a `simmer-sdk` User-Agent, because Polymarket rejects the default Python-urllib agent with 403.
-- Skill `polymarket-wallet-xray` 1.1.8 (also from #479) moves to Data API v2 and is published to ClawHub with this release.
+- Skill `polymarket-wallet-xray` 1.1.9 is published to ClawHub with this release. It carries the Data API v2 move from #479 (prepared as 1.1.8, which was held and never published). The bump is needed because the skill-governance check requires a version change when a publish hold is lifted.
 
 ## 0.27.0 (2026-10-29)
 
