@@ -2421,24 +2421,6 @@
     "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
   },
   {
-    "skill": "polymarket-wallet-xray",
-    "check": 7,
-    "file": "skills/polymarket-wallet-xray/scripts/status.py",
-    "line": 22,
-    "message": "undeclared network host: api.simmer.markets",
-    "owner": "splabs-ci",
-    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
-  },
-  {
-    "skill": "polymarket-wallet-xray",
-    "check": 7,
-    "file": "skills/polymarket-wallet-xray/wallet_xray.py",
-    "line": 34,
-    "message": "undeclared network host: data-api.polymarket.com",
-    "owner": "splabs-ci",
-    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
-  },
-  {
     "skill": "polymarket-weather-trader",
     "check": 1,
     "file": "skills/polymarket-weather-trader/fixtures/replay_forecasts.sample.json",
