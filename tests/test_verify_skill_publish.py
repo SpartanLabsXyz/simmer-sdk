@@ -254,6 +254,17 @@ def test_missing_receipt_fails_closed(runner):
     assert calls == []
 
 
+def test_artifact_marker_cannot_hide_missing_publish(runner, tmp_path):
+    directory = tmp_path / 'receipts'
+    directory.mkdir()
+    (directory / 'receipt-artifact.txt').touch()
+    result, calls, _ = runner(inspection(), RECEIPT='missing')
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert '::error::example@1.1.0: cannot verify ClawHub Security:' in result.stdout
+    assert 'example-1.1.0.json' in result.stdout
+    assert calls == []
+
+
 def test_recheck_ignores_submission_receipt_and_reads_current_security(runner):
     result, calls, body = runner(inspection('suspicious'), RECEIPT=json.dumps(receipt()), RECHECK='1')
     assert result.returncode == 1
