@@ -19,6 +19,7 @@ Usage:
 import os
 import sys
 import json
+import math
 import argparse
 import statistics
 from datetime import datetime
@@ -74,11 +75,22 @@ def get_wallet_trades(wallet: str, limit: Optional[int] = None) -> List[Dict]:
         cursor = result["pagination"]["next_cursor"]
         if cursor is not None and (not isinstance(cursor, str) or not cursor):
             raise RuntimeError("Malformed Polymarket activity API cursor")
+        if not result["data"] and cursor is not None:
+            raise RuntimeError("No progress from Polymarket activity API cursor")
         for row in result["data"][:max_trades - len(raw)]:
             if not isinstance(row, dict) or not all(key in row for key in (
                     "timestamp", "condition_id", "type", "size", "usdc_size",
                     "transaction_hash", "price", "side", "outcome")):
                 raise RuntimeError("Malformed Polymarket activity API row")
+            try:
+                if (not all(type(row[key]) in (int, float) and math.isfinite(row[key])
+                            for key in ("timestamp", "size", "usdc_size", "price"))
+                        or not all(isinstance(row[key], str) for key in (
+                            "condition_id", "type", "side", "transaction_hash", "outcome"))
+                        or not row["condition_id"]):
+                    raise ValueError("invalid activity values")
+            except (ValueError, OverflowError) as exc:
+                raise RuntimeError("Malformed Polymarket activity API row") from exc
             raw.append({field_names.get(key, key): value for key, value in row.items()})
         if cursor is None:
             break
@@ -91,7 +103,10 @@ def get_wallet_trades(wallet: str, limit: Optional[int] = None) -> List[Dict]:
     for r in raw:
         activity_type = r.get("type", "TRADE")  # TRADE, REDEEM, MERGE
         ts = r.get("timestamp", 0)
-        created_at = datetime.utcfromtimestamp(ts).isoformat() + "Z" if ts else ""
+        try:
+            created_at = datetime.utcfromtimestamp(ts).isoformat() + "Z"
+        except (ValueError, OverflowError, OSError) as exc:
+            raise RuntimeError("Malformed Polymarket activity API timestamp") from exc
         outcome = r.get("outcome", "").lower()  # "yes", "no", "up", "down", etc.
         side_raw = r.get("side", "").upper()  # "BUY" or "SELL"
 

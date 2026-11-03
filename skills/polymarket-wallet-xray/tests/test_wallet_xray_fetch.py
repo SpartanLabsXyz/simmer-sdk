@@ -140,3 +140,53 @@ def test_cli_malformed_envelope_is_error(xray, monkeypatch, capsys, compare):
     assert 'Malformed' in output.err
     assert 'No trade history' not in output.err
     assert output.out == ''
+
+
+@pytest.mark.parametrize('field,value', [
+    (field, value)
+    for field in ('timestamp', 'size', 'usdc_size', 'price')
+    for value in (None, True, '123', [], {}, float('nan'), float('inf'), -float('inf'))
+] + [
+    (field, value)
+    for field in ('condition_id', 'type', 'side', 'transaction_hash', 'outcome')
+    for value in (None, 123, [], {})
+] + [('condition_id', '')])
+def test_malformed_activity_values_raise(xray, monkeypatch, field, value):
+    sample = json.loads((FIXTURES / 'activity.json').read_text())
+    sample['data'][0][field] = value
+    monkeypatch.setattr(xray, 'api_request', lambda url: sample)
+    with pytest.raises(RuntimeError, match='[Mm]alformed'):
+        xray.analyze_wallet(WALLET, 2)
+
+
+def test_empty_page_with_cursor_raises_without_fetching_again(xray, monkeypatch):
+    calls = []
+    def fetch(url):
+        calls.append(url)
+        assert len(calls) == 1, 'Empty page must fail before another request'
+        return {'data': [], 'pagination': {'next_cursor': 'next'}}
+    monkeypatch.setattr(xray, 'api_request', fetch)
+    with pytest.raises(RuntimeError, match='[Nn]o progress'):
+        xray.get_wallet_trades(WALLET, 1)
+
+
+@pytest.mark.parametrize('activity_type', ['REDEEM', 'MERGE', 'SPLIT'])
+def test_non_trade_empty_side_is_valid(xray, monkeypatch, activity_type):
+    sample = json.loads((FIXTURES / 'activity.json').read_text())
+    row = sample['data'][0]
+    row.update(type=activity_type, side='', timestamp=0)
+    monkeypatch.setattr(xray, 'api_request', lambda url: sample)
+    trade = xray.get_wallet_trades(WALLET, 1)[0]
+    assert trade['activity_type'] == activity_type
+    assert trade['created_at'] == '1970-01-01T00:00:00Z'
+    assert trade['action'] == ('sell_yes' if activity_type == 'REDEEM' else '_yes')
+
+
+def test_distinct_events_in_same_transaction_are_preserved(xray, monkeypatch):
+    sample = json.loads((FIXTURES / 'activity.json').read_text())
+    sample['data'][1]['transaction_hash'] = sample['data'][0]['transaction_hash']
+    monkeypatch.setattr(xray, 'api_request', lambda url: sample)
+    trades = xray.get_wallet_trades(WALLET, 2)
+    assert len(trades) == 2
+    assert trades[0]['transaction_hash'] == trades[1]['transaction_hash']
+    assert trades[0]['shares'] != trades[1]['shares']

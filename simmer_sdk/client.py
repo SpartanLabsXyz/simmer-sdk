@@ -4104,8 +4104,10 @@ class SimmerClient:
         outcome_labels = {0: "Yes", 1: "No"}
         holders = []
         try:
-            if not isinstance(data, dict) or not isinstance(data.get("data"), list):
-                raise ValueError("expected a data list")
+            if (not isinstance(data, dict) or not isinstance(data.get("data"), list)
+                    or not isinstance(data.get("pagination"), dict)
+                    or "next_cursor" not in data["pagination"]):
+                raise ValueError("expected data and pagination")
             for token_group in data["data"]:
                 if (not isinstance(token_group, dict)
                         or not isinstance(token_group.get("holders"), list)):
@@ -4113,14 +4115,20 @@ class SimmerClient:
                 for h in token_group["holders"][:limit]:
                     addr = h["proxy_wallet"]
                     name = h.get("name", "") or h.get("pseudonym", "")
+                    if (not isinstance(addr, str) or not addr
+                            or not isinstance(name, str)
+                            or type(h["amount"]) not in (int, float)
+                            or not math.isfinite(h["amount"])
+                            or type(h["outcome_index"]) is not int):
+                        raise ValueError("invalid holder values")
                     holders.append({
                         "address": addr,
-                        "display_name": name or (addr[:10] + "..." if addr else "unknown"),
+                        "display_name": name or addr[:10] + "...",
                         "amount": float(h["amount"]),
                         "outcome": outcome_labels.get(h["outcome_index"], "Unknown"),
-                        "profile_url": f"https://polymarket.com/profile/{addr}" if addr else None,
+                        "profile_url": f"https://polymarket.com/profile/{addr}",
                     })
-        except (KeyError, TypeError, ValueError) as exc:
+        except (KeyError, TypeError, ValueError, OverflowError) as exc:
             raise RuntimeError("Malformed Polymarket holders API response") from exc
         holders.sort(key=lambda x: x["amount"], reverse=True)
         return holders[:limit]
