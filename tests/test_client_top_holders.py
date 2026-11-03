@@ -138,3 +138,22 @@ def test_malformed_holder_values_raise(monkeypatch, field, value):
     monkeypatch.setattr('urllib.request.urlopen', lambda *a, **kw: BytesIO(json.dumps(sample).encode()))
     with pytest.raises(RuntimeError, match='[Mm]alformed'):
         SimmerClient.__new__(SimmerClient).get_top_holders('0xcondition')
+
+
+def test_continuation_page_with_only_empty_groups_raises(monkeypatch):
+    sample = json.loads((FIXTURES / 'holders.json').read_text())
+    assert sample['pagination']['next_cursor']
+    for group in sample['data']:
+        group['holders'] = []
+    monkeypatch.setattr('urllib.request.urlopen', lambda *a, **kw: BytesIO(json.dumps(sample).encode()))
+    with pytest.raises(RuntimeError, match='Malformed Polymarket holders API response'):
+        SimmerClient.__new__(SimmerClient).get_top_holders('0xcondition')
+
+
+def test_terminal_page_with_empty_groups_is_empty(monkeypatch):
+    sample = json.loads((FIXTURES / 'holders.json').read_text())
+    sample['pagination']['next_cursor'] = None
+    for group in sample['data']:
+        group['holders'] = []
+    monkeypatch.setattr('urllib.request.urlopen', lambda *a, **kw: BytesIO(json.dumps(sample).encode()))
+    assert SimmerClient.__new__(SimmerClient).get_top_holders('0xcondition') == []

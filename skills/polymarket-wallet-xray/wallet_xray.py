@@ -90,6 +90,7 @@ def get_wallet_trades(wallet: str, limit: Optional[int] = None) -> List[Dict]:
                             for key in ("timestamp", "size", "usdc_size", "price"))
                         or not all(isinstance(row[key], str) for key in (
                             "condition_id", "type", "side", "transaction_hash", "outcome"))
+                        or not row["type"]
                         or (row["type"] == "TRADE" and row["side"] not in ("BUY", "SELL"))
                         # REWARD/YIELD/rebate rows are not tied to a market and carry "".
                         or (row["type"] in MARKET_ACTIVITY_TYPES and not row["condition_id"])):

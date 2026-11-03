@@ -4112,8 +4112,10 @@ class SimmerClient:
             cursor = data["pagination"]["next_cursor"]
             if cursor is not None and (not isinstance(cursor, str) or not cursor):
                 raise ValueError("invalid holders cursor")
-            if cursor is not None and not data["data"]:
-                raise ValueError("empty holders page advertises more pages")
+            if cursor is not None and not any(
+                    isinstance(g, dict) and isinstance(g.get("holders"), list) and g["holders"]
+                    for g in data["data"]):
+                raise ValueError("holders page without rows advertises more pages")
             # /v2/holders always advertises a next page; the first page holds the
             # top holders per token because rows are sorted by amount descending,
             # which is checked below so a top-N answer is never silently wrong.

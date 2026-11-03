@@ -219,3 +219,11 @@ def test_market_rows_require_condition_id(xray, monkeypatch, activity_type):
     monkeypatch.setattr(xray, 'api_request', lambda url: sample)
     with pytest.raises(RuntimeError, match='^Malformed Polymarket activity API row$'):
         xray.get_wallet_trades(WALLET, 1)
+
+
+def test_empty_activity_type_raises(xray, monkeypatch):
+    sample = json.loads((FIXTURES / 'activity.json').read_text())
+    sample['data'][0].update(type='', side='', condition_id='')
+    monkeypatch.setattr(xray, 'api_request', lambda url: sample)
+    with pytest.raises(RuntimeError, match='^Malformed Polymarket activity API row$'):
+        xray.get_wallet_trades(WALLET, 1)
