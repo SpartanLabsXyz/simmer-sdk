@@ -11,9 +11,8 @@ on:
 jobs:
   publish-lag:
     name: Publish Lag Check
-    # Pushes are checked by Publish Packages' verify job after publishing finishes.
-    # Scheduled/manual checks still catch drift when no publish workflow runs.
-    if: github.event_name != 'push'
+    # Push registry checks wait for Publish Packages' verify job after publishing.
+    # Keep the MCP version-bump guard running even when no release is planned.
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
@@ -27,8 +26,12 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Check MCP version bump
+        if: github.event_name == 'push'
+        run: python3 scripts/check_publish_lag.py --bump-only
+
       - name: Check repo versions are published
-        if: github.event_name != 'schedule' && github.event_name != 'workflow_dispatch'
+        if: github.event_name == 'pull_request'
         run: python3 scripts/check_publish_lag.py
 
       - name: Check repo versions and ClawHub skill drift

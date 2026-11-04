@@ -1,4 +1,5 @@
 import importlib.util
+import shlex
 import sys
 import time
 import types
@@ -102,6 +103,7 @@ def make_args(**kwargs):
         "retry_npm": False,
         "retry_pypi": False,
         "check_clawhub": False,
+        "bump_only": False,
     }
     defaults.update(kwargs)
     return type("Args", (), defaults)()
@@ -312,13 +314,62 @@ def test_push_repo_ahead_of_registry_still_red(
     assert check_publish_lag.main() == 1
 
 
+def run_ci_push_lag_check(root: Path, monkeypatch: pytest.MonkeyPatch) -> int:
+    """Follow the CI push path, including the original job-level skip."""
+    ci = (ROOT / ".github/workflows/ci.yml").read_text()
+    lag_job = ci.split("  publish-lag:\n", 1)[1].split("\n  nansen-no-cli-guard:", 1)[0]
+    if "    if: github.event_name != 'push'\n" in lag_job:
+        return 0
+    push_step = next(
+        step for step in lag_job.split("      - ")
+        if "        if: github.event_name == 'push'\n" in step
+    )
+    command = next(line.strip()[5:] for line in push_step.splitlines() if line.strip().startswith("run: "))
+    argv = shlex.split(command)
+    assert argv[:2] == ["python3", "scripts/check_publish_lag.py"]
+    monkeypatch.setattr(sys, "argv", [*argv[1:], "--root", str(root)])
+    return check_publish_lag.main()
+
+
+@pytest.mark.parametrize("release_pending", [False, True], ids=["missing-bump", "release-pending"])
+def test_ci_push_mcp_bump_guard(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, release_pending: bool
+) -> None:
+    write_package_files(tmp_path, npm_version="3.5.1", pypi_version="0.20.0")
+    monkeypatch.setenv("GITHUB_EVENT_NAME", "push")
+    patch_git_for_mcp_bump_check(
+        monkeypatch,
+        changed="mcp/src/tool-registry.ts",
+        previous_npm_version="3.5.0" if release_pending else "3.5.1",
+    )
+    reads = []
+
+    def registry_version(package):
+        reads.append(package)
+        assert not release_pending, "CI must not read registries while publishing is pending"
+        return {"simmer-mcp": "3.5.1", "simmer-sdk": "0.20.0"}[package]
+
+    monkeypatch.setattr(check_publish_lag, "fetch_npm_latest", registry_version)
+    monkeypatch.setattr(check_publish_lag, "fetch_pypi_latest", registry_version)
+    monkeypatch.setattr(check_publish_lag, "fetch_clawhub_latest", registry_version)
+    assert run_ci_push_lag_check(tmp_path, monkeypatch) == (0 if release_pending else 1)
+    assert reads == []
+
+
 @pytest.mark.parametrize("publish_state", ["pending", "success", "success-lag", "failure"])
 def test_release_publish_lifecycle(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, publish_state: str
 ) -> None:
     ci = (ROOT / ".github/workflows/ci.yml").read_text()
     lag_job = ci.split("  publish-lag:\n", 1)[1].split("\n  nansen-no-cli-guard:", 1)[0]
-    assert "    if: github.event_name != 'push'\n" in lag_job
+    assert "    if:" not in lag_job.split("    steps:", 1)[0]
+    assert "          fetch-depth: 0\n" in lag_job
+    assert "        if: github.event_name == 'push'\n" in lag_job
+    assert "        run: python3 scripts/check_publish_lag.py --bump-only\n" in lag_job
+    assert "        if: github.event_name == 'pull_request'\n" in lag_job
+    assert "        run: python3 scripts/check_publish_lag.py\n" in lag_job
+    assert "        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'\n" in lag_job
+    assert "        run: python3 scripts/check_publish_lag.py --check-clawhub\n" in lag_job
 
     publish = (ROOT / ".github/workflows/publish-packages.yml").read_text()
     verify_job = publish.split("  verify:\n", 1)[1]
@@ -328,9 +379,20 @@ def test_release_publish_lifecycle(
     assert '[ "$PYPI_RESULT" = "success" ] && args="$args --retry-pypi"' in verify_job
     assert "python3 scripts/check_publish_lag.py $args" in verify_job
 
-    # CI defers push checks; the existing verify job waits for all publish jobs.
+    # CI runs the bump guard now; registry verification waits for publishing.
     if publish_state == "pending":
-        print("pending: CI lag job skipped; registry verification waits for publishing")
+        write_package_files(tmp_path, npm_version="3.4.10", pypi_version="0.27.0")
+        monkeypatch.setenv("GITHUB_EVENT_NAME", "push")
+        monkeypatch.setattr(check_publish_lag, "changed_paths", lambda root: [])
+
+        def unexpected_registry_read(*args):
+            pytest.fail("CI must defer registry reads until publishing finishes")
+
+        monkeypatch.setattr(check_publish_lag, "fetch_npm_latest", unexpected_registry_read)
+        monkeypatch.setattr(check_publish_lag, "fetch_pypi_latest", unexpected_registry_read)
+        monkeypatch.setattr(check_publish_lag, "fetch_clawhub_latest", unexpected_registry_read)
+        assert run_ci_push_lag_check(tmp_path, monkeypatch) == 0
+        print("pending: CI bump guard exit 0; no registry reads while publishing")
         return
 
     write_package_files(tmp_path, npm_version="3.4.10", pypi_version="0.27.0")

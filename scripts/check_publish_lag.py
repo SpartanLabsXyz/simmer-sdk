@@ -467,6 +467,11 @@ def check_clawhub_skills(root: Path) -> bool:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=ROOT)
+    parser.add_argument(
+        "--bump-only",
+        action="store_true",
+        help="Only validate the MCP version bump; do not read package registries.",
+    )
     parser.add_argument("--npm-published-version", help="Override npm latest version for tests.")
     parser.add_argument("--pypi-published-version", help="Override PyPI latest version for tests.")
     parser.add_argument(
@@ -503,6 +508,12 @@ def main() -> int:
     args = parse_args()
     root = args.root.resolve()
 
+    errors = validate_mcp_version_bump(root)
+    for error in errors:
+        print(f"::error::{error}")
+    if args.bump_only:
+        return 1 if errors else 0
+
     npm_repo_version = read_npm_repo_version(root)
     pypi_repo_version = read_pypi_repo_version(root)
 
@@ -535,10 +546,6 @@ def main() -> int:
             retry=retry_pypi,
             is_pull_request=is_pull_request,
         )
-
-    errors = validate_mcp_version_bump(root)
-    for error in errors:
-        print(f"::error::{error}")
 
     clawhub_ok = check_clawhub_skills(root) if args.check_clawhub else True
 
