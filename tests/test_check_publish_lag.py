@@ -312,6 +312,56 @@ def test_push_repo_ahead_of_registry_still_red(
     assert check_publish_lag.main() == 1
 
 
+@pytest.mark.parametrize("publish_state", ["pending", "success", "success-lag", "failure"])
+def test_release_publish_lifecycle(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, publish_state: str
+) -> None:
+    ci = (ROOT / ".github/workflows/ci.yml").read_text()
+    lag_job = ci.split("  publish-lag:\n", 1)[1].split("\n  nansen-no-cli-guard:", 1)[0]
+    assert "    if: github.event_name != 'push'\n" in lag_job
+
+    publish = (ROOT / ".github/workflows/publish-packages.yml").read_text()
+    verify_job = publish.split("  verify:\n", 1)[1]
+    assert "    needs: [plan, publish-mcp, publish-sdk, publish-skills]\n" in verify_job
+    assert "    if: always() && (" in verify_job
+    assert "needs.plan.outputs.pypi_publish_needed == 'true'" in verify_job
+    assert '[ "$PYPI_RESULT" = "success" ] && args="$args --retry-pypi"' in verify_job
+    assert "python3 scripts/check_publish_lag.py $args" in verify_job
+
+    # CI defers push checks; the existing verify job waits for all publish jobs.
+    if publish_state == "pending":
+        print("pending: CI lag job skipped; registry verification waits for publishing")
+        return
+
+    write_package_files(tmp_path, npm_version="3.4.10", pypi_version="0.27.0")
+    monkeypatch.setenv("GITHUB_EVENT_NAME", "push")
+    monkeypatch.setattr(check_publish_lag, "changed_paths", lambda root: [])
+    monkeypatch.setattr(check_publish_lag, "fetch_npm_latest", lambda pkg: "3.4.10")
+    versions = iter(["0.26.1", "0.27.0"] if publish_state == "success" else ["0.26.1"] * 2)
+    monkeypatch.setattr(check_publish_lag, "fetch_pypi_latest", lambda pkg: next(versions))
+    ticks = iter([0, 0, check_publish_lag.RETRY_MAX_SECS + 1])
+    monkeypatch.setattr(
+        check_publish_lag, "time",
+        types.SimpleNamespace(monotonic=lambda: next(ticks), sleep=lambda s: None),
+    )
+    monkeypatch.setattr(
+        check_publish_lag, "parse_args",
+        lambda: make_args(root=tmp_path, retry_pypi=publish_state != "failure"),
+    )
+    result = check_publish_lag.main()
+    assert result == (0 if publish_state == "success" else 1)
+    print(f"{publish_state}: lag-check exit {result}")
+
+
+@pytest.mark.parametrize("retry", [False, True])
+def test_registry_read_failure_is_not_a_pass(retry: bool) -> None:
+    def unavailable():
+        raise urllib.error.URLError("registry unavailable")
+
+    with pytest.raises(urllib.error.URLError, match="registry unavailable"):
+        check_publish_lag.check_package_with_retry("simmer-sdk", "0.27.0", unavailable, retry)
+
+
 def test_non_mcp_package_input_does_not_require_npm_version_bump(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

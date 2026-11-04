@@ -11,6 +11,9 @@ on:
 jobs:
   publish-lag:
     name: Publish Lag Check
+    # Pushes are checked by Publish Packages' verify job after publishing finishes.
+    # Scheduled/manual checks still catch drift when no publish workflow runs.
+    if: github.event_name != 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
