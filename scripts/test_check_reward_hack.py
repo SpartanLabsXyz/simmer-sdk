@@ -408,3 +408,42 @@ def test_checkout_recovery_across_multiple_hunks(tmp_path, monkeypatch,
     assert [f.reason for f in findings] == expected
     if findings:
         assert new.splitlines()[findings[0].line - 1].strip() == f"abs={new_value},"
+
+
+@pytest.mark.parametrize("change", ["rename", "remove", "command", "env", "shell", "directory", "with", "uses"])
+def test_workflow_rename_with_execution_outside_context(tmp_path, monkeypatch, change):
+    import check_reward_hack as checker
+
+    path = ".github/workflows/ci.yml"
+    old = ('steps:\n  - name: Run tests\n    working-directory: mcp\n'
+           '    shell: bash\n    env: {CI: true}\n    run: npm test\n')
+    new = old.replace("Run tests", "Run unit tests")
+    if change == "remove":
+        new = new.replace("    run: npm test\n", "")
+    elif change == "command":
+        new = new.replace("npm test", "echo done")
+    elif change == "env":
+        new = new.replace("CI: true", "CI: false")
+    elif change == "shell":
+        new = new.replace("shell: bash", "shell: sh")
+    elif change == "directory":
+        new = new.replace("directory: mcp", "directory: other")
+    elif change == "with":
+        new += "    with: {mode: skip}\n"
+    elif change == "uses":
+        new = new.replace("run: npm test", "uses: example/tests@v1")
+    patch = f"diff --git a/{path} b/{path}\n" + "".join(difflib.unified_diff(
+        old.splitlines(keepends=True), new.splitlines(keepends=True),
+        fromfile=f"a/{path}", tofile=f"b/{path}",
+    ))
+    if change == "rename":
+        assert "run: npm test" not in patch
+    monkeypatch.setattr(checker, "ROOT", tmp_path)
+    target = tmp_path / path
+    target.parent.mkdir(parents=True)
+    target.write_text(new)
+    findings = check_diff(patch, "")
+    if change == "rename":
+        assert findings == []
+    else:
+        assert any(f.reason == "removed CI test step or command" for f in findings)

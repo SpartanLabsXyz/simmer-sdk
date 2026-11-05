@@ -215,31 +215,34 @@ def tolerance_sources(file: FileDiff) -> tuple[list[Line], list[Line], bool]:
     )
 
 
-def unchanged_step_command(name: Line, lines: list[Line]) -> bool:
+def unchanged_step_command(name: Line, old_lines: list[Line], new_lines: list[Line]) -> bool:
     match = re.match(r"^(\s*)-\s+name:", name.text)
     if not match:
         return False
     indent = len(match[1])
-    for line in lines[lines.index(name) + 1:]:
-        if line.kind == "+" or not line.text.strip():
-            continue
-        if len(line.text) - len(line.text.lstrip()) <= indent:
-            break
-        if re.match(r"\s*run:\s*\S", line.text):
-            if line.kind != " ":
-                return False
-            if not line.text.rstrip().endswith(("|", ">")):
-                return True
-            run_indent = len(line.text) - len(line.text.lstrip())
-            for command in lines[lines.index(line) + 1:]:
-                if not command.text.strip():
-                    continue
-                if len(command.text) - len(command.text.lstrip()) <= run_indent:
-                    break
-                if command.kind != " ":
-                    return False
-            return True
-    return False
+
+    def execution_fields(start: Line, lines: list[Line]) -> list[str]:
+        fields = []
+        include = False
+        for line in lines[lines.index(start) + 1:]:
+            if not line.text.strip():
+                continue
+            depth = len(line.text) - len(line.text.lstrip())
+            if depth <= indent:
+                break
+            if depth == indent + 2:
+                include = bool(re.match(r"\s*(?:run|uses|with|working-directory|shell|env):", line.text))
+            if include:
+                fields.append(line.text)
+        return fields
+
+    old_fields = execution_fields(name, old_lines)
+    return bool(old_fields) and any(
+        line.kind == "+" and re.match(r"^\s*-\s+name:", line.text)
+        and len(line.text) - len(line.text.lstrip()) == indent
+        and execution_fields(line, new_lines) == old_fields
+        for line in new_lines
+    )
 
 
 def unmatched_removed(removed: list[Line], added: list[Line]) -> list[Line]:
@@ -328,9 +331,10 @@ def check_diff(patch: str, body: str) -> list[Finding]:
                     if value and line.number not in covered:
                         flag(line, f"changed tolerance {value[1]} without enclosing call context")
         if file.path.startswith(".github/workflows/") and file.path.endswith((".yml", ".yaml")):
+            old_sources, new_sources, _ = tolerance_sources(file)
             for line in unmatched:
                 if (not line.text.lstrip().startswith("#") and CI_TEST.search(line.text)
-                        and not unchanged_step_command(line, file.lines)):
+                        and not unchanged_step_command(line, old_sources, new_sources)):
                     flag(line, "removed CI test step or command")
     return findings
 
