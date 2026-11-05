@@ -637,6 +637,9 @@ def test_qualified_open_write_is_reported(tmp_path, code):
 
 @pytest.mark.parametrize('code,host', [
     ('namespace = "http://www.w3.org/network"', 'www.w3.org'),
+    ('requests.request("GET", "http://www.w3.org/2005/Atom")', 'www.w3.org'),
+    ('requests.request("GET", url="http://www.w3.org/2005/Atom")', 'www.w3.org'),
+    ('path = "entry[{http://www.w3.org/2005/Atom}title]/https://evil.example.com"', 'evil.example.com'),
     ('namespace = "http://www.w3.org/network"\nrequests.get(namespace)', 'www.w3.org'),
     ('namespace = "http://www.w3.org/2005/Atom"\nrequests.get(namespace)', 'www.w3.org'),
     ('namespace = "http://purl.org/dc/elements/1.1/"\nrequests.get(url=namespace)', 'purl.org'),
@@ -686,6 +689,8 @@ def test_namespace_expression_fetch_targets_are_reported(tmp_path, code):
 @pytest.mark.parametrize('path', [
     './/{http://www.w3.org/2005/Atom}entry',
     '{http://www.w3.org/2005/Atom}*',
+    './/{http://www.w3.org/2005/Atom}entry[@{http://www.w3.org/2005/Atom}id]',
+    './/{http://www.w3.org/2005/Atom}entry[{http://www.w3.org/2005/Atom}title]',
 ])
 def test_namespace_xpath_expressions_stay_green(tmp_path, path):
     skill = copy_green(tmp_path)
@@ -724,6 +729,22 @@ def test_namespace_expression_rebinding_stays_green(tmp_path, code):
     skill = copy_green(tmp_path)
     with (skill / 'main.py').open('a') as stream:
         stream.write(code + '\n')
+    result = run(skill)
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == []
+
+
+@pytest.mark.parametrize('call', [
+    'requests.post("https://api.example.com", data=body)',
+    'requests.request("POST", "https://api.example.com", data=body)',
+    'requests.post(url="https://api.example.com", json=body, params=body, headers=body)',
+    'requests.post("https://api.example.com", body)',
+])
+def test_namespace_request_payload_stays_green(tmp_path, call):
+    skill = copy_green(tmp_path)
+    with (skill / 'main.py').open('a') as stream:
+        stream.write('namespace = "http://www.w3.org/2005/Atom"\n'
+                     'body = f\'<feed xmlns="{namespace}"/>\'\n' + call + '\n')
     result = run(skill)
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout) == []

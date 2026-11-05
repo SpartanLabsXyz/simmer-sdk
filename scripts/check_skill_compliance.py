@@ -144,7 +144,7 @@ def namespace_url(node, match, parents, namespace_names):
                        [assignment.target] if isinstance(assignment, ast.AnnAssign) else [])
             context |= any(isinstance(t, ast.Name) and t.id in namespace_names for t in targets)
         child = parent
-    clark = re.finditer(r'(?:^|/)\{(https?://[^}\s]+)\}(?:\*|[^\W\d][\w.-]*)(?=$|/|\[)', node.value)
+    clark = re.finditer(r'(?:^|/|\[@?)\{(https?://[^}\s]+)\}(?:\*|[^\W\d][\w.-]*)(?=$|/|\[|\])', node.value)
     return (context and len(list(URL.finditer(node.value))) == 1 or node.value in XML_NAMESPACES
             or any(match.span() == token.span(1) for token in clark))
 
@@ -370,7 +370,9 @@ def check_skill(source: Path) -> list[dict]:
                     if (name in {'urlopen', 'urlretrieve', 'urllib.request.urlopen', 'urllib.request.urlretrieve'}
                             or name.startswith(('requests.', 'httpx.', 'aiohttp.'))
                             and name.rsplit('.', 1)[-1] in {'get', 'post', 'put', 'patch', 'delete', 'head', 'options', 'request'}):
-                        arguments = [*node.args, *(k.value for k in node.keywords)]
+                        url_index = 1 if name.rsplit('.', 1)[-1] == 'request' else 0
+                        arguments = [*node.args[url_index:url_index + 1],
+                                     *(k.value for k in node.keywords if k.arg == 'url')]
                         seen = set()
                         while arguments:
                             argument = arguments.pop()
