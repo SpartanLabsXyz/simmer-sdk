@@ -3,6 +3,12 @@
 All notable changes to `simmer-sdk` are documented here.
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.27.2 (2026-11-13)
+
+This is a patch release. It publishes the exact `py-clob-client-v2==1.2.1` pin already on main from #493.
+
+- **`py-clob-client-v2` pinned to `==1.2.1` (#493, from #487).** This replaces the `>=1.2.0,<2.0.0` range shipped in 0.27.1 and 0.27.0.
+
 ## 0.27.1 (2026-11-03)
 
 This is a patch release. It moves `get_top_holders` off Polymarket's retired Data API v1.
