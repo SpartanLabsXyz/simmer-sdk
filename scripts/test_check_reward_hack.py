@@ -142,3 +142,70 @@ def test_approx_tolerances_in_separate_hunks():
                  'pytest.approx(x, abs=0.001)')
     patch += '@@ -10 +10 @@\n-pytest.approx(y, abs=1)\n+pytest.approx(y, abs=0.1)\n'
     assert not findings(patch)
+
+
+def test_reordered_tolerance_keywords():
+    patch = diff('tests/test_demo.py',
+                 'assert x == pytest.approx(y, abs=.01, rel=1e-6)',
+                 'assert x == pytest.approx(y, rel=1e-6, abs=.1)')
+    assert [f.reason for f in findings(patch)] == ['widened abs tolerance']
+
+
+def test_tightened_assertions_across_calls():
+    patch = diff('tests/test_demo.py',
+                 'assert x == pytest.approx(y, abs=.1)\nassert z == pytest.approx(w, abs=1)',
+                 'assert x == pytest.approx(y, abs=.01)\nassert z == pytest.approx(w, abs=.1)')
+    assert not findings(patch)
+
+
+@pytest.mark.parametrize('path', ['README.md', 'src/demo.py'])
+def test_skip_prose_and_non_test_files(path):
+    assert not findings(diff(path, '', 'Use pytest.mark.skip to skip a test.'))
+
+
+def test_moved_skip_marker():
+    patch = diff('tests/test_demo.py', '@pytest.mark.skip', '')
+    patch += '@@ -10 +10 @@\n+@pytest.mark.skip\n'
+    assert not findings(patch)
+    assert len(findings(diff('tests/test_demo.py', '@pytest.mark.skip',
+                             '@pytest.mark.skip\n@pytest.mark.skip'))) == 1
+
+
+def test_workflow_skip_marker():
+    check_reason('.github/workflows/ci.yml', '', 'run: pytest.skip("reason")')
+
+
+@pytest.mark.parametrize('opener', ['assert (', 'assert x == pytest.approx('])
+def test_multiline_assert_continuation(opener):
+    patch = ('diff --git a/tests/test_demo.py b/tests/test_demo.py\n'
+             '--- a/tests/test_demo.py\n+++ b/tests/test_demo.py\n'
+             '@@ -1,3 +1,3 @@\n ' + opener + '\n'
+             '-    expected\n+    other\n )\n')
+    assert [f.reason for f in findings(patch)] == ['modified assertion']
+
+
+def test_multiline_tolerance_keyword_reordering():
+    patch = diff('tests/test_demo.py',
+                 'assert x == pytest.approx(\n    y,\n    abs=.01,\n    rel=1e-6,\n)',
+                 'assert x == pytest.approx(\n    y,\n    rel=1e-6,\n    abs=.1,\n)')
+    assert [f.reason for f in findings(patch)] == ['widened abs tolerance']
+
+
+@pytest.mark.parametrize('reason', ['', '—', '— <explain why this change is needed>',
+                                    '— rationale <EXPLAIN more>'])
+def test_empty_and_placeholder_reasons(reason):
+    patch = diff('tests/test_demo.py', 'assert True', '')
+    assert unexplained(patch, f'Test change reason: tests/test_demo.py {reason}')
+
+
+def test_multiple_approx_calls_on_one_line():
+    patch = diff('tests/test_demo.py',
+                 'assert (pytest.approx(x, abs=.1), pytest.approx(y, abs=1))',
+                 'assert (pytest.approx(x, abs=.01), pytest.approx(y, abs=.1))')
+    assert not findings(patch)
+
+
+def test_modified_assertion_with_another_removed():
+    patch = diff('tests/test_demo.py', 'assert x == y\nassert a == b',
+                 'assert x == z')
+    assert [f.reason for f in findings(patch)] == ['removed assertion']
