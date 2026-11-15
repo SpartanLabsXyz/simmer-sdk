@@ -150,13 +150,6 @@ def match_checks(before, after, key):
     return pairs, removed, remaining
 
 
-def exact_moves(before, after):
-    # Prefer the same owner before consuming equal checks elsewhere in the file.
-    _, before, after = match_checks(before, after, lambda item: (item[0], structure(item[1])))
-    _, before, after = match_checks(before, after, lambda item: structure(item[1]))
-    return before, after
-
-
 def numeric_literal(node):
     if isinstance(node, ast.Constant) and type(node.value) in {int, float}:
         return node.value
@@ -184,10 +177,18 @@ def python_findings(path, before, after):
     result.extend(Finding(path, node.lineno, 'added skip, xfail, todo, or only marker')
                   for _, node in added_markers)
 
-    assertions_before, assertions_after = exact_moves(old[1], new[1])
+    # Resolve same-owner checks before file-wide moves can hide tolerance changes.
+    _, assertions_before, assertions_after = match_checks(
+        old[1], new[1], lambda item: (item[0], structure(item[1])))
     matched, assertions_before, assertions_after = match_checks(
         assertions_before, assertions_after,
         lambda item: (item[0], structure(item[1], without_tolerances=True)))
+    _, assertions_before, assertions_after = match_checks(
+        assertions_before, assertions_after, lambda item: structure(item[1]))
+    moved, assertions_before, assertions_after = match_checks(
+        assertions_before, assertions_after,
+        lambda item: structure(item[1], without_tolerances=True))
+    matched.extend(moved)  # Moves must pass the same tolerance comparison.
     changed, removed, _ = match_checks(assertions_before, assertions_after, lambda item: item[0])
     result.extend(Finding(path, node.lineno, 'modified assertion') for _, (_, node) in changed)
     result.extend(Finding(path, node.lineno, 'removed assertion') for _, node in removed)

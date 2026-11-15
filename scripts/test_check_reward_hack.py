@@ -196,6 +196,37 @@ def test_tightened_assertions_across_calls():
     assert not check_findings(patch)
 
 
+def test_swapped_tolerances_between_tests():
+    before = ('def test_precise():\n'
+              '    x = 1.05\n'
+              '    assert x == pytest.approx(1, abs=.01)\n'
+              'def test_coarse():\n'
+              '    x = 1.0\n'
+              '    assert x == pytest.approx(1, abs=.1)\n')
+    after = before.replace('abs=.01', 'abs=TEMP').replace(
+        'abs=.1', 'abs=.01').replace('abs=TEMP', 'abs=.1')
+    assert check_findings(diff('tests/test_swap.py', before, after, full=True)) == [
+        checker.Finding('tests/test_swap.py', 3, 'widened abs tolerance')]
+
+
+@pytest.mark.parametrize('move', [False, True], ids=['same-owner', 'moved'])
+@pytest.mark.parametrize(('tolerance', 'expected'), [
+    ('.1', []),
+    ('.01', []),
+    ('1', ['widened abs tolerance']),
+], ids=['unchanged', 'tightened', 'widened'])
+def test_tolerance_changes_with_and_without_move(move, tolerance, expected):
+    before = ('def test_first():\n'
+              '    assert x == pytest.approx(1, abs=.1)\n'
+              'def test_second():\n'
+              '    pass\n')
+    assertion = f'    assert x == pytest.approx(1, abs={tolerance})\n'
+    after = ('def test_first():\n' + ('    pass\n' if move else assertion)
+             + 'def test_second():\n' + (assertion if move else '    pass\n'))
+    assert [f.reason for f in check_findings(
+        diff('tests/test_move.py', before, after, full=True))] == expected
+
+
 @pytest.mark.parametrize('path', ['README.md', 'src/demo.py'])
 def test_skip_prose_and_non_test_files(path):
     assert not check_findings(diff(path, '', 'Use pytest.mark.skip to skip a test.'))
