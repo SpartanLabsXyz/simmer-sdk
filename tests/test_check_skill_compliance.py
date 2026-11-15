@@ -526,8 +526,8 @@ def test_pinned_dependency_disagreement_identity_ratchets(tmp_path):
     'tag = "{https://namespace.example.org/schema}entry"',
     'root.iterfind("{https://namespace.example.org/schema}entry")',
     'ET.register_namespace("custom", "https://namespace.example.org/schema")',
-    'namespace = "http://purl.org/dc/elements/1.1/"',
-    'namespace = "http://schemas.xmlsoap.org/soap/envelope/"',
+    'namespace = "http://purl.org/dc/elements/1.1/"\nET.register_namespace("dc", namespace)',
+    'namespace = "http://schemas.xmlsoap.org/soap/envelope/"\nET.register_namespace("soap", namespace)',
 ])
 def test_xml_namespace_is_not_outbound_host(tmp_path, code):
     skill = copy_green(tmp_path)
@@ -599,3 +599,88 @@ def test_environment_item_assignment_preserves_module_alias(tmp_path):
     findings = json.loads(run(skill).stdout)
     assert sum(f['check'] == 2 and 'MISSING_KEY is read' in f['message']
                for f in findings) == 2
+
+
+@pytest.mark.parametrize('fixture,check,count', [
+    ('namespace_network_red', 7, 1),
+    ('qualified_open_red', 8, 2),
+    ('qualified_open_green', None, 0),
+])
+def test_namespace_and_qualified_open_fixtures(fixture, check, count):
+    result = run(FIXTURES / fixture)
+    assert result.returncode == (1 if count else 0), result.stderr
+    findings = json.loads(result.stdout)
+    assert len(findings) == count
+    assert {f['check'] for f in findings} == ({check} if count else set())
+
+
+@pytest.mark.parametrize('code,host', [
+    ('requests.get("https://other.example.org"); tag = "{http://www.w3.org/2005/Atom}entry"', 'other.example.org'),
+    ('namespace = "http://www.w3.org/network"\nrequests.get(namespace)', 'www.w3.org'),
+    ('url = f"http://www.w3.org/2005/Atom"\nrequests.get(url)', 'www.w3.org'),
+    ('url = "http://www.w3.org/" + "network"\nrequests.get(url)', 'www.w3.org'),
+    ('ns = {"atom": "http://www.w3.org/2005/Atom"}\nroot.findall("atom:entry", ns)\nrequests.get(ns["atom"])', 'www.w3.org'),
+    ('requests.get("{http://www.w3.org/2005/Atom}entry")', 'www.w3.org'),
+    ('root.findall("{http://www.w3.org/2005/Atom}entry", {"x": requests.get("https://other.example.org")})', 'other.example.org'),
+    ('''value = '<feed xmlns="http://www.w3.org/2005/Atom"/> https://other.example.org' ''', 'other.example.org'),
+])
+def test_xml_namespace_exemption_keeps_fetch_targets(tmp_path, code, host):
+    skill = copy_green(tmp_path)
+    with (skill / 'main.py').open('a') as stream:
+        stream.write(code + '\n')
+    result = run(skill)
+    assert result.returncode == 1
+    assert any(f['check'] == 7 and f['message'] == f'undeclared network host: {host}'
+               for f in json.loads(result.stdout))
+
+
+@pytest.mark.parametrize('code', [
+    '''namespace = "http://www.w3.org/2005/Atom"\nbody = f'<feed xmlns="{namespace}"/>'\nrequests.post("https://api.example.com", data=body)''',
+    '''requests.post("https://api.example.com", data='<feed xmlns="http://www.w3.org/2005/Atom"/>')''',
+    'path = ".//{http://www.w3.org/2005/Atom}entry[@{http://www.w3.org/2005/Atom}id=\'x\']"',
+    'path = ".//{http://www.w3.org/2005/Atom}entry[. = \'x\']"',
+])
+def test_xml_namespace_payloads_and_predicates_stay_green(tmp_path, code):
+    skill = copy_green(tmp_path)
+    with (skill / 'main.py').open('a') as stream:
+        stream.write(code + '\n')
+    result = run(skill)
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == []
+
+
+@pytest.mark.parametrize('code', [
+    'import builtins; builtins.open("/tmp/state.json", "w")',
+    'from builtins import open as write; write(file="../state.json", mode="a")',
+    'import builtins as b; b.open("/tmp/state.json", "r+")',
+    'import os; os.open("/tmp/state.json", os.O_WRONLY | os.O_CREAT)',
+    'import os as o; o.open(path="../state.json", flags=o.O_RDWR)',
+    'from os import open as write, O_WRONLY; write("/tmp/state.json", O_WRONLY)',
+    'import os; os.open("/tmp/state.json", os.O_RDONLY | os.O_TRUNC)',
+    'import os; os.open("/tmp/state.json", 1)',
+])
+def test_qualified_open_write_is_reported(tmp_path, code):
+    skill = copy_green(tmp_path)
+    with (skill / 'main.py').open('a') as stream:
+        stream.write(code + '\n')
+    result = run(skill)
+    assert result.returncode == 1
+    assert any(f['check'] == 8 and 'write destination needs review' in f['message']
+               for f in json.loads(result.stdout))
+
+
+@pytest.mark.parametrize('code', [
+    'import builtins; builtins.open("/tmp/state.json")',
+    'import builtins; builtins.open("/tmp/state.json", "r")',
+    'import os; os.open("/tmp/state.json", os.O_RDONLY)',
+    'import os; os.open("/tmp/state.json", 0)',
+    'import os; os.open("state.json", os.O_WRONLY | os.O_CREAT)',
+    'import builtins; builtins.open("state.json", "w")',
+])
+def test_qualified_open_safe_modes_and_paths_stay_green(tmp_path, code):
+    skill = copy_green(tmp_path)
+    with (skill / 'main.py').open('a') as stream:
+        stream.write(code + '\n')
+    result = run(skill)
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == []
