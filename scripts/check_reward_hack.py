@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Require file-specific PR explanations for potentially weakened tests."""
+from collections import Counter
 import json
 import os
 from pathlib import Path
@@ -20,7 +21,7 @@ class Finding:
         return f"Test change reason: {self.path} — <explain why this change is needed>"
 
 
-SKIP = re.compile(r"@pytest\.mark\.(?:skip|skipif|xfail)\b|pytest\.skip\s*\(|unittest\.skip\w*\b|self\.skipTest\b")
+SKIP = re.compile(r"pytest\.mark\.(?:skip|skipif|xfail)\b|pytest\.(?:skip|xfail)\s*\(|unittest\.skip\w*\b|self\.skipTest\b")
 JS_SKIP = re.compile(r"\b(?:it|describe|test)\.(?:skip|todo|only)\b")
 TEST_DEF = re.compile(r"\bdef\s+(test_\w+)\s*\(|\b(?:it|test)\s*\(\s*(['\"`].*?['\"`])")
 TOLERANCE = re.compile(r"\b(abs|rel|places|delta)\s*=\s*((?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?)")
@@ -35,6 +36,7 @@ def is_test(path: str) -> bool:
 
 def findings(diff: str) -> list[Finding]:
     changes: dict[str, dict[str, list[tuple[int, str]]]] = {}
+    hunks = []
     path = old_path = ''
     old = new = 0
     in_hunk = False
@@ -53,10 +55,14 @@ def findings(diff: str) -> list[Finding]:
             if match:
                 old, new = map(int, match.groups())
                 in_hunk = True
+                hunk = {'+': [], '-': []}
+                hunks.append((path, hunk))
         elif in_hunk and line[:1] in {'+', '-', ' '}:
             sign, content = line[0], line[1:]
             if sign in '+-':
-                changes[path][sign].append((new if sign == '+' else old, content))
+                entry = (new if sign == '+' else old, content)
+                changes[path][sign].append(entry)
+                hunk[sign].append(entry)
             old += sign != '+'
             new += sign != '-'
 
@@ -64,6 +70,7 @@ def findings(diff: str) -> list[Finding]:
     for path, lines in changes.items():
         added = lines['+']
         added_text = {text.strip() for _, text in added}
+        added_assertions = Counter(text.strip() for _, text in added)
         added_defs = {m.group(0) for _, text in added if (m := TEST_DEF.search(text))}
         for number, text in added:
             if SKIP.search(text) or (is_test(path) and path.startswith('mcp/') and JS_SKIP.search(text)):
@@ -73,17 +80,28 @@ def findings(diff: str) -> list[Finding]:
                 definition = TEST_DEF.search(text)
                 if definition and definition.group(0) not in added_defs:
                     result.append(Finding(path, number, 'removed test'))
-                if re.search(r'\bassert\b|\bself\.assert\w*\s*\(', text) and text.strip() not in added_text:
-                    result.append(Finding(path, number, 'removed assertion'))
-                if 'approx' in text or 'assertAlmostEqual' in text:
-                    for key, value in TOLERANCE.findall(text):
-                        for added_number, replacement in added:
-                            if ('approx' in replacement or 'assertAlmostEqual' in replacement):
-                                for new_key, new_value in TOLERANCE.findall(replacement):
-                                    if key == new_key and ((float(new_value) < float(value)) if key == 'places' else (float(new_value) > float(value))):
-                                        result.append(Finding(path, added_number, f'widened {key} tolerance'))
+                if re.search(r'\bassert\b|\bself\.assert\w*\s*\(', text):
+                    if added_assertions[text.strip()]:
+                        added_assertions[text.strip()] -= 1
+                    else:
+                        result.append(Finding(path, number, 'removed assertion'))
             if path.startswith('.github/workflows/') and re.search(r'\b(?:pytest|test|tests)\b', text, re.I) and text.strip() not in added_text:
                 result.append(Finding(path, number, 'removed test or pytest CI step'))
+    for path, hunk in hunks:
+        if not is_test(path):
+            continue
+        # Pair tolerance-bearing call lines (including keyword continuations) in order.
+        tolerances = {}
+        for sign in '+-':
+            tolerances[sign] = [
+                (number, TOLERANCE.findall(text)) for number, text in hunk[sign]
+                if 'approx' in text or 'assertAlmostEqual' in text
+                or re.match(r'\s*(?:abs|rel|places|delta)\s*=', text)
+            ]
+        for (_, before), (number, after) in zip(tolerances['-'], tolerances['+']):
+            for (key, value), (new_key, new_value) in zip(before, after):
+                if key == new_key and ((float(new_value) < float(value)) if key == 'places' else (float(new_value) > float(value))):
+                    result.append(Finding(path, number, f'widened {key} tolerance'))
     return list(dict.fromkeys(result))
 
 

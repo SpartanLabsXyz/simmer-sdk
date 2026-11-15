@@ -109,3 +109,36 @@ def test_tolerance_direction(kind, before, after):
                for f in findings(diff('tests/test_demo.py', old, new)))
     assert not any(f.reason.startswith('widened')
                    for f in findings(diff('tests/test_demo.py', new, old)))
+
+
+@pytest.mark.parametrize('marker', [
+    'pytest.xfail("reason")',
+    'pytestmark = pytest.mark.skip(reason="reason")',
+    'pytestmark = [pytest.mark.xfail(reason="reason")]',
+])
+def test_runtime_and_module_markers(marker):
+    check_reason('tests/test_demo.py', '', marker)
+
+
+def test_multiline_approx_tolerance():
+    patch = diff('tests/test_demo.py', '    abs=0.01,', '    abs=0.1,')
+    assert any(f.reason == 'widened abs tolerance' for f in findings(patch))
+
+
+def test_removed_duplicate_assertion():
+    patch = diff('tests/test_demo.py', 'assert x == y\nassert x == y', 'assert x == y')
+    assert sum(f.reason == 'removed assertion' for f in findings(patch)) == 1
+
+
+def test_unrelated_approx_tolerances():
+    patch = diff('tests/test_demo.py',
+                 'pytest.approx(x, abs=0.01)\npytest.approx(y, abs=0.1)',
+                 'pytest.approx(x, abs=0.001)\npytest.approx(y, abs=0.05)')
+    assert not findings(patch)
+
+
+def test_approx_tolerances_in_separate_hunks():
+    patch = diff('tests/test_demo.py', 'pytest.approx(x, abs=0.01)',
+                 'pytest.approx(x, abs=0.001)')
+    patch += '@@ -10 +10 @@\n-pytest.approx(y, abs=1)\n+pytest.approx(y, abs=0.1)\n'
+    assert not findings(patch)
