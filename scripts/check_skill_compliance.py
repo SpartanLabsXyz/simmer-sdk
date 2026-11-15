@@ -16,6 +16,7 @@ import argparse
 import ast
 import ipaddress
 import json
+import os
 from pathlib import Path
 import re
 import shlex
@@ -121,32 +122,86 @@ def literal_path(node: ast.AST, aliases: dict[str, str]):
 
 
 XML_METHODS = {'find', 'findall', 'iterfind', 'findtext', 'register_namespace'}
-XML_HOSTS = {'www.w3.org', 'w3.org', 'purl.org', 'schemas.xmlsoap.org'}
+XML_NAMESPACE = re.compile(r'xmlns(?::[\w.-]+)?\s*=\s*["\x27](?P<xmlns>https?://[^"\x27]+)["\x27]|\{(?P<clark>https?://[^}]+)\}[\w.-]+')
 
 
-def namespace_url(node, host, parents, namespace_names):
-    """Ignore XML identifiers; conservatively retain URLs passed to other calls."""
-    context = False
-    child = node
-    while child in parents:
-        parent = parents[child]
-        if isinstance(parent, ast.Call):
-            if isinstance(parent.func, ast.Attribute) and parent.func.attr in XML_METHODS:
-                context = True
-            else:
-                return False
-        if isinstance(parent, ast.Dict) and child in parent.values:
-            assignment = parents.get(parent)
-            targets = (assignment.targets if isinstance(assignment, ast.Assign) else
-                       [assignment.target] if isinstance(assignment, ast.AnnAssign) else [])
-            context |= any(isinstance(t, ast.Name) and t.id in namespace_names for t in targets)
-        child = parent
-    return context or host in XML_HOSTS or bool(re.search(r'\{https?://[^}]+\}', node.value))
+def string_literals(node, bindings):
+    """Resolve simple string expressions using bindings at their source location."""
+    if isinstance(node, ast.Name):
+        value = bindings[node].get(node.id)
+        return string_literals(value, bindings) if value is not None else set()
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return {node}
+    if isinstance(node, ast.Subscript):
+        value = node.value
+        if isinstance(value, ast.Name):
+            value = bindings[value].get(value.id)
+        if isinstance(value, ast.Dict):
+            return set().union(*(string_literals(v, bindings) for k, v in zip(value.keys, value.values)
+                                 if literal(k) == literal(node.slice)))
+    if isinstance(node, (ast.JoinedStr, ast.Dict)):
+        children = node.values
+    elif isinstance(node, ast.FormattedValue):
+        children = [node.value]
+    elif isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        children = [node.left, node.right]
+    else:
+        children = []
+    return set().union(*(string_literals(child, bindings) for child in children))
 
 
-def scoped_nodes(tree: ast.AST, aliases: dict[str, str] | None = None):
+def namespace_literals(tree, bindings):
+    """Find literal sources used in XML API namespace/selector arguments."""
+    namespaces = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+            method = node.func.attr
+            if method in XML_METHODS:
+                position = 2 if method == 'findtext' else 1
+                args = node.args[position:position + 1]
+                args = [*args, *(k.value for k in node.keywords
+                                  if k.arg in {'namespaces', 'uri'})]
+                for arg in args:
+                    namespaces.update(string_literals(arg, bindings))
+        elif isinstance(node, ast.JoinedStr):
+            for before, value, after in zip(node.values, node.values[1:], node.values[2:]):
+                if (isinstance(before, ast.Constant) and isinstance(before.value, str)
+                        and isinstance(value, ast.FormattedValue)
+                        and isinstance(after, ast.Constant) and isinstance(after.value, str)
+                        and re.search(r'xmlns(?::[\w.-]+)?\s*=\s*["\x27]$', before.value)
+                        and after.value.startswith(before.value[-1])):
+                    namespaces.update(string_literals(value.value, bindings))
+    return namespaces
+
+
+def namespace_url(node, match, namespaces):
+    """Exempt only the URL span used as an XML namespace or selector."""
+    if any(part.start(group) <= match.start() and match.end() <= part.end(group)
+           for part in XML_NAMESPACE.finditer(node.value)
+           for group in ('xmlns', 'clark') if part[group] is not None):
+        return True
+    return node in namespaces
+
+
+def open_flags(node, aliases):
+    """Evaluate literal os.open flags without executing fixture code."""
+    if isinstance(literal(node), int):
+        return literal(node)
+    name = qualified(node, aliases)
+    if name.startswith('os.O_'):
+        return getattr(os, name[3:], 0)
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
+        return open_flags(node.left, aliases) | open_flags(node.right, aliases)
+    return 0
+
+
+def scoped_nodes(tree: ast.AST, aliases: dict[str, str] | None = None,
+                 bindings=None, values=None):
     """Visit in source order with a separate alias table for each lexical scope."""
     aliases = {} if aliases is None else aliases
+    values = {} if values is None else values
+    if bindings is not None:
+        bindings[tree] = values.copy()
     yield tree, aliases
     if isinstance(tree, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)):
         # Defaults/decorators/bases belong to the enclosing scope.
@@ -154,29 +209,35 @@ def scoped_nodes(tree: ast.AST, aliases: dict[str, str] | None = None):
             if field not in {'body', 'args'}:
                 for child in value if isinstance(value, list) else [value]:
                     if isinstance(child, ast.AST):
-                        yield from scoped_nodes(child, aliases)
+                        yield from scoped_nodes(child, aliases, bindings, values)
         if hasattr(tree, 'args'):
-            yield from scoped_nodes(tree.args, aliases)
+            yield from scoped_nodes(tree.args, aliases, bindings, values)
         local = aliases.copy()
+        local_values = values.copy()
 
         class Bindings(ast.NodeVisitor):
             def visit_Name(self, node):
                 if isinstance(node.ctx, (ast.Store, ast.Del)):
                     local[node.id] = ''
+                    local_values.pop(node.id, None)
 
             def visit_arg(self, node):
                 local[node.arg] = ''
+                local_values.pop(node.arg, None)
 
             def visit_Import(self, node):
                 for item in node.names:
                     local[item.asname or item.name.split('.')[0]] = ''
+                    local_values.pop(item.asname or item.name.split('.')[0], None)
 
             def visit_ImportFrom(self, node):
                 for item in node.names:
                     local[item.asname or item.name] = ''
+                    local_values.pop(item.asname or item.name, None)
 
             def visit_FunctionDef(self, node):
                 local[node.name] = ''
+                local_values.pop(node.name, None)
 
             visit_AsyncFunctionDef = visit_FunctionDef
             visit_ClassDef = visit_FunctionDef
@@ -184,19 +245,19 @@ def scoped_nodes(tree: ast.AST, aliases: dict[str, str] | None = None):
             def visit_Lambda(self, node):
                 pass
 
-        bindings = Bindings()
+        bound_names = Bindings()
         if hasattr(tree, 'args'):
-            bindings.visit(tree.args)
+            bound_names.visit(tree.args)
         body = tree.body if isinstance(tree.body, list) else [tree.body]
         for child in body:
-            bindings.visit(child)
+            bound_names.visit(child)
         for child in body:
-            yield from scoped_nodes(child, local)
+            yield from scoped_nodes(child, local, bindings, local_values)
         if hasattr(tree, 'name'):
             aliases[tree.name] = ''
         return
     for child in ast.iter_child_nodes(tree):
-        yield from scoped_nodes(child, aliases)
+        yield from scoped_nodes(child, aliases, bindings, values)
     if isinstance(tree, ast.Import):
         for item in tree.names:
             aliases[item.asname or item.name.split('.')[0]] = item.name if item.asname else item.name.split('.')[0]
@@ -209,11 +270,13 @@ def scoped_nodes(tree: ast.AST, aliases: dict[str, str] | None = None):
             for node in ast.walk(target):
                 if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
                     aliases[node.id] = name if isinstance(target, ast.Name) else ''
+                    values[node.id] = tree.value if isinstance(target, ast.Name) else None
     elif isinstance(tree, (ast.AugAssign, ast.Delete)):
         for target in tree.targets if isinstance(tree, ast.Delete) else [tree.target]:
             for node in ast.walk(target):
                 if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
                     aliases[node.id] = ''
+                    values.pop(node.id, None)
 
 
 def normalize_host(value: str) -> str:
@@ -346,13 +409,20 @@ def check_skill(source: Path) -> list[dict]:
                 continue
             trees[file] = tree
             # Keep reporting order stable while resolving aliases in source order.
-            scopes = {node: aliases.copy() for node, aliases in scoped_nodes(tree)}
-            parents = {child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
-            namespace_names = {arg.id for call in ast.walk(tree)
-                               if isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute)
-                               and call.func.attr in XML_METHODS
-                               for arg in [*call.args[1:], *(k.value for k in call.keywords if k.arg == 'namespaces')]
-                               if isinstance(arg, ast.Name)}
+            bindings = {}
+            scopes = {node: aliases.copy() for node, aliases in scoped_nodes(tree, bindings=bindings)}
+            namespaces = namespace_literals(tree, bindings)
+            fetch_literals = set()
+            for call in ast.walk(tree):
+                if not isinstance(call, ast.Call):
+                    continue
+                name = qualified(call.func, scopes[call])
+                method = name.rsplit('.', 1)[-1]
+                if method in {'get', 'post', 'put', 'patch', 'delete', 'head', 'options', 'urlopen', 'urlretrieve', 'request'}:
+                    position = 1 if method == 'request' else 0
+                    target = call.args[position] if len(call.args) > position else next(
+                        (k.value for k in call.keywords if k.arg in {'url', 'fullurl'}), None)
+                    fetch_literals.update(string_literals(target, bindings))
             for node in ast.walk(tree):
                 aliases = scopes[node]
                 if isinstance(node, ast.Call):
@@ -400,14 +470,20 @@ def check_skill(source: Path) -> list[dict]:
                     if isinstance(host, str) and normalize_host(host) not in hosts:
                         add(7, file, node.lineno, f'undeclared network host: {normalize_host(host)}')
                     destination = None
-                    if name not in {'open', 'io.open'} and isinstance(node.func, ast.Attribute) and node.func.attr in {'write_text', 'write_bytes', 'open'}:
+                    if name not in {'open', 'io.open', 'builtins.open', 'os.open'} and isinstance(node.func, ast.Attribute) and node.func.attr in {'write_text', 'write_bytes', 'open'}:
                         receiver = node.func.value
                         mode = node.args[0] if node.args else next(
                             (k.value for k in node.keywords if k.arg == 'mode'), None)
                         writes = node.func.attr != 'open' or isinstance(literal(mode), str) and any(c in literal(mode) for c in 'wax+')
                         if writes:
                             destination = literal_path(receiver, aliases)
-                    elif name in {'open', 'io.open'}:
+                    elif name == 'os.open':
+                        flags = node.args[1] if len(node.args) > 1 else next(
+                            (k.value for k in node.keywords if k.arg == 'flags'), None)
+                        if open_flags(flags, aliases) & (os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_APPEND):
+                            destination = literal_path(node.args[0], aliases) if node.args else next(
+                                (literal_path(k.value, aliases) for k in node.keywords if k.arg == 'path'), None)
+                    elif name in {'open', 'io.open', 'builtins.open'}:
                         mode = node.args[1] if len(node.args) > 1 else next(
                             (k.value for k in node.keywords if k.arg == 'mode'), None)
                         if isinstance(literal(mode), str) and any(c in literal(mode) for c in 'wax+'):
@@ -432,7 +508,7 @@ def check_skill(source: Path) -> list[dict]:
                         except ValueError:
                             continue
                         if (host and normalize_host(host) not in hosts
-                                and not namespace_url(node, normalize_host(host), parents, namespace_names)):
+                                and (node in fetch_literals or not namespace_url(node, match, namespaces))):
                             add(7, file, node.lineno, f'undeclared network host: {normalize_host(host)}')
                     if re.search(r'\bsudo\b', node.value) or PERSIST.search(node.value):
                         add(8, file, node.lineno, 'persistence or privilege command/path')
