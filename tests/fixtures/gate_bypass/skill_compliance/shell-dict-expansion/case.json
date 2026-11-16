@@ -1,0 +1,9 @@
+{
+  "source": "452 review 1",
+  "expected": [
+    "forbidden execution: shell=True"
+  ],
+  "files": {
+    "main.py": "import subprocess\nsubprocess.run(\"echo review\", **{\"shell\": True})\n"
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "source": "452 review 1",
+  "expected": [
+    "absolute write destination needs review"
+  ],
+  "files": {
+    "main.py": "from pathlib import Path\nPath(\"/tmp/undeclared-review-state.json\").write_text(\"{}\")\n"
+  }
+}

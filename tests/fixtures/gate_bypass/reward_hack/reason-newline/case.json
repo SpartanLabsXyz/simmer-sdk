@@ -1,0 +1,13 @@
+{
+  "source": "473 review 1",
+  "expected": [
+    "removed assertion"
+  ],
+  "before": {
+    "tests/test_probe.py": "def test_probe():\n    assert x == y\n"
+  },
+  "after": {
+    "tests/test_probe.py": "def test_probe():\n    pass\n"
+  },
+  "body": "Test change reason: tests/test_probe.py -\nTest change reason: tests/other.py - unrelated\n"
+}

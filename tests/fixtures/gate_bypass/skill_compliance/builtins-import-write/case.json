@@ -1,0 +1,9 @@
+{
+  "source": "452 review 4",
+  "expected": [
+    "absolute write destination needs review"
+  ],
+  "files": {
+    "main.py": "from builtins import open as write\nwrite(\"/tmp/outside-state.json\", \"w\")\n"
+  }
+}

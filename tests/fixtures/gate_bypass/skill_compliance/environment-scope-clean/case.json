@@ -1,0 +1,7 @@
+{
+  "source": "452 review 2",
+  "expected": [],
+  "files": {
+    "main.py": "import os\ndef first():\n    env = os.environ\ndef second():\n    env = {\"LOCAL_ONLY\": \"value\"}\n    env.get(\"LOCAL_ONLY\")\n"
+  }
+}

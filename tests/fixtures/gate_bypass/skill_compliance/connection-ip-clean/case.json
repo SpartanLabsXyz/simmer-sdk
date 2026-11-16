@@ -1,0 +1,8 @@
+{
+  "source": "452 review 2",
+  "expected": [],
+  "files": {
+    "main.py": "import http.client\nhttp.client.HTTPSConnection(\"127.0.0.1\")\n",
+    "SKILL.md": "Network hosts: api.example.com 127.0.0.1\n"
+  }
+}

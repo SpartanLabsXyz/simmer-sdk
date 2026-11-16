@@ -122,7 +122,7 @@ def literal_path(node: ast.AST, aliases: dict[str, str]):
 
 
 XML_METHODS = {'find', 'findall', 'iterfind', 'findtext', 'register_namespace'}
-XML_NAMESPACE = re.compile(r'xmlns(?::[\w.-]+)?\s*=\s*["\x27](?P<xmlns>https?://[^"\x27]+)["\x27]|\{(?P<clark>https?://[^}]+)\}[\w.-]+')
+XML_NAMESPACE = re.compile(r'xmlns(?::[\w.-]+)?\s*=\s*["\x27](?P<xmlns>https?://[^"\x27]+)["\x27]|\{(?P<clark>https?://[^}]+)\}[\w.*-]+')
 
 
 def string_literals(node, bindings):
@@ -483,6 +483,12 @@ def check_skill(source: Path) -> list[dict]:
                         if open_flags(flags, aliases) & (os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_APPEND):
                             destination = literal_path(node.args[0], aliases) if node.args else next(
                                 (literal_path(k.value, aliases) for k in node.keywords if k.arg == 'path'), None)
+                            if (isinstance(destination, str) and not Path(destination).is_absolute()
+                                    and any(k.arg == 'dir_fd'
+                                            and not (isinstance(k.value, ast.Constant)
+                                                     and k.value.value is None)
+                                            for k in node.keywords)):
+                                add(8, file, node.lineno, 'dir_fd write destination needs review')
                     elif name in {'open', 'io.open', 'builtins.open'}:
                         mode = node.args[1] if len(node.args) > 1 else next(
                             (k.value for k in node.keywords if k.arg == 'mode'), None)

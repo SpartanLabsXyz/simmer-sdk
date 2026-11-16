@@ -1,0 +1,13 @@
+{
+  "source": "497 review 1",
+  "expected": [
+    "removed assertion"
+  ],
+  "before": {
+    "tests/test_probe.py": "def test_probe():\n    assert x == y\n    assert x == y\ndef test_other():\n    pass\n"
+  },
+  "after": {
+    "tests/test_probe.py": "def test_probe():\n    pass\ndef test_other():\n    assert x == y\n"
+  },
+  "body": ""
+}

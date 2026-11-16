@@ -1,0 +1,8 @@
+{
+  "source": "496 post-merge Greptile",
+  "expected": [],
+  "files": {
+    "main.py": "ns = {\"atom\": \"http://www.w3.org/2005/Atom\"}\nroot.findall(\"atom:entry\", ns)\nelement.get(ns[\"atom\"])\n"
+  },
+  "known_hole": "Method-name-only fetch classification includes Element.get (Refs #496)."
+}

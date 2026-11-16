@@ -1,0 +1,9 @@
+{
+  "source": "474 review 1",
+  "expected": [
+    "undeclared network host: www.w3.org"
+  ],
+  "files": {
+    "main.py": "namespace = \"http://www.w3.org/2005/Atom\"\nrequests.get(namespace)\n"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "source": "473 review 1",
+  "expected": [],
+  "before": {
+    "tests/test_probe.py": "def test_probe():\n    assert x == y\n"
+  },
+  "after": {
+    "tests/test_probe.py": "class TestProbe:\n    def test_probe(self):\n        assert x == y\n"
+  },
+  "body": ""
+}

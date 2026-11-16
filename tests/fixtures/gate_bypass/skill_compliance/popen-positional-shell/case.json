@@ -1,0 +1,9 @@
+{
+  "source": "452 review 2",
+  "expected": [
+    "shell=True"
+  ],
+  "files": {
+    "main.py": "import subprocess\nsubprocess.Popen(\"echo hi\", -1, None, None, None, None, None, True, True)\n"
+  }
+}

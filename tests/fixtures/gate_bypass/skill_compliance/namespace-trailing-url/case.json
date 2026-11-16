@@ -1,0 +1,9 @@
+{
+  "source": "474 review 1",
+  "expected": [
+    "undeclared network host: evil.example.com"
+  ],
+  "files": {
+    "main.py": "url = \"{http://www.w3.org/2005/Atom}https://evil.example.com\"\n"
+  }
+}

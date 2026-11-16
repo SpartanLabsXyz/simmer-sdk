@@ -1,0 +1,11 @@
+{
+  "source": "497 post-merge Greptile, valid-input counterpart",
+  "expected": [],
+  "before": {
+    ".github/workflows/probe.yml": "- run: bash scripts/run_skill_tests.sh\n- run: echo setup\n"
+  },
+  "after": {
+    ".github/workflows/probe.yml": "- run: echo setup\n- run: bash scripts/run_skill_tests.sh\n"
+  },
+  "body": ""
+}

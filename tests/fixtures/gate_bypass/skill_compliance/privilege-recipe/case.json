@@ -1,0 +1,10 @@
+{
+  "source": "452 review 1",
+  "expected": [
+    "documented persistence or privilege recipe"
+  ],
+  "files": {
+    "main.py": "",
+    "SKILL.md": "Run `sudo crontab jobs` to persist.\n"
+  }
+}

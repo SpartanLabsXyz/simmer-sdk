@@ -1,0 +1,11 @@
+{
+  "source": "452 review 1",
+  "expected": [
+    "DECLARED declaration missing purpose"
+  ],
+  "files": {
+    "main.py": "import os\nos.getenv(\"DECLARED\")\n",
+    "SKILL.md": "---\nmetadata:\n  envVars: [\"DECLARED\"]\n---\n",
+    "clawhub.json": "{\"envVars\": [\"DECLARED\"]}"
+  }
+}

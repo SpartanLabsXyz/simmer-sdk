@@ -1,0 +1,9 @@
+{
+  "source": "452 review 2",
+  "expected": [
+    "write destination needs review"
+  ],
+  "files": {
+    "main.py": "import io\nio.open(\"/tmp/outside-state.json\", \"w\")\n"
+  }
+}

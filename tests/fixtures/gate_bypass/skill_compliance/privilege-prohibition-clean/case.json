@@ -1,0 +1,8 @@
+{
+  "source": "452 review 2",
+  "expected": [],
+  "files": {
+    "main.py": "",
+    "SKILL.md": "Don't `sudo npm install`.\n"
+  }
+}

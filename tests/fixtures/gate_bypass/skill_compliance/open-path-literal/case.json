@@ -1,0 +1,9 @@
+{
+  "source": "452 review 3",
+  "expected": [
+    "absolute write destination needs review"
+  ],
+  "files": {
+    "main.py": "from pathlib import Path\nopen(Path(\"/tmp/state.json\"), \"w\")\n"
+  }
+}

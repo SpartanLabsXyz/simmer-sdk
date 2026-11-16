@@ -1,0 +1,9 @@
+{
+  "source": "496 post-merge Greptile",
+  "expected": [
+    "dir_fd write destination needs review"
+  ],
+  "files": {
+    "main.py": "import os\nfd = os.open(\"/tmp\", os.O_RDONLY)\nos.open(\"state.json\", os.O_WRONLY | os.O_CREAT, dir_fd=fd)\n"
+  }
+}

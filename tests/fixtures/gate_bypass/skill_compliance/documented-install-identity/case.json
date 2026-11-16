@@ -1,0 +1,13 @@
+{
+  "source": "452 review 2",
+  "expected": [
+    "unreviewed-extra"
+  ],
+  "files": {
+    "main.py": "",
+    "SKILL.md": "pip install simmer-sdk unreviewed-extra\n"
+  },
+  "before_files": {
+    "SKILL.md": "pip install simmer-sdk\n"
+  }
+}

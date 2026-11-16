@@ -1,0 +1,11 @@
+{
+  "source": "497 post-merge Greptile",
+  "expected": [],
+  "before": {
+    "tests/test_probe.py": "def test_probe():\n    assert x == y\n"
+  },
+  "after": {
+    "tests/test_probe.py": "def test_probe():\n    pass\n"
+  },
+  "body": "Test change reason: tests/test_probe.py \u2014 obsolete coverage\n"
+}

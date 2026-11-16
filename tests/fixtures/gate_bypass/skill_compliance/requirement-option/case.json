@@ -1,0 +1,12 @@
+{
+  "source": "452 review 2",
+  "expected": [
+    "dependency must use an exact == pin: unpinned-extra",
+    "pip install must use exact == pins:"
+  ],
+  "files": {
+    "main.py": "",
+    "SKILL.md": "pip install -rextras.txt example==1.2.3\n",
+    "extras.txt": "unpinned-extra\n"
+  }
+}

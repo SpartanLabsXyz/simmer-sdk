@@ -1,0 +1,12 @@
+{
+  "source": "452 review 1",
+  "expected": [
+    "symlink"
+  ],
+  "files": {
+    "main.py": ""
+  },
+  "symlinks": {
+    "linked.py": "main.py"
+  }
+}

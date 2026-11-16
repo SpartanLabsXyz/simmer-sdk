@@ -268,8 +268,10 @@ def findings(diff: str, snapshots=None) -> list[Finding]:
             before = [(n, t) for n, t in lines['-'] if JS_ASSERT.search(t)]
             after = [(n, t) for n, t in lines['+'] if JS_ASSERT.search(t)]
             _, removed, added = match_checks(before, after, lambda item: item[1].strip())
+            result.extend(Finding(path, number, 'modified assertion')
+                          for number, _ in added[:len(removed)])
             result.extend(Finding(path, number, 'removed assertion')
-                          for number, _ in removed[:max(0, len(removed) - len(added))])
+                          for number, _ in removed[len(added):])
         added = lines['+']
         added_text = {text.strip() for _, text in added}
         removed_markers = Counter(text.strip() for _, text in lines['-'])
@@ -285,7 +287,7 @@ def findings(diff: str, snapshots=None) -> list[Finding]:
                 definition = TEST_DEF.search(text)
                 if definition and definition.group(0) not in added_defs:
                     result.append(Finding(path, number, 'removed test'))
-            if path.startswith('.github/workflows/') and re.search(r'\b(?:pytest|test|tests)\b', text, re.I) and text.strip() not in added_text:
+            if path.startswith('.github/workflows/') and re.search(r'(?<![a-z0-9])(?:pytest|tests?)(?![a-z0-9])', text, re.I) and text.strip() not in added_text:
                 result.append(Finding(path, number, 'removed test or pytest CI step'))
     return list(dict.fromkeys(result))
 

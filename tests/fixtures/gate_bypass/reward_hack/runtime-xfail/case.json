@@ -1,0 +1,13 @@
+{
+  "source": "497 review 1",
+  "expected": [
+    "added skip, xfail, todo, or only marker"
+  ],
+  "before": {
+    "tests/test_probe.py": "def test_probe():\n    pass\n"
+  },
+  "after": {
+    "tests/test_probe.py": "def test_probe():\n    pytest.xfail(\"reason\")\n"
+  },
+  "body": ""
+}

@@ -1,0 +1,11 @@
+{
+  "source": "473 review 3",
+  "expected": [],
+  "before": {
+    "tests/test_probe.py": "def test_probe():\n    values = [pytest.approx(1, abs=.01)]\n"
+  },
+  "after": {
+    "tests/test_probe.py": "def test_probe():\n    values = [\n        pytest.approx(1, abs=.01),\n    ]\n"
+  },
+  "body": ""
+}

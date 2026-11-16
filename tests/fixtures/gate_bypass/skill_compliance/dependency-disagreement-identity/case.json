@@ -1,0 +1,15 @@
+{
+  "source": "452 review 3",
+  "expected": [
+    "new-package==1.0"
+  ],
+  "files": {
+    "main.py": "",
+    "requirements.txt": "example==1.2.3\n",
+    "clawhub.json": "{\"requires\": {\"pip\": [\"example==2.0\", \"new-package==1.0\"]}}"
+  },
+  "before_files": {
+    "requirements.txt": "example==1.2.3\n",
+    "clawhub.json": "{\"requires\": {\"pip\": [\"example==2.0\"]}}"
+  }
+}

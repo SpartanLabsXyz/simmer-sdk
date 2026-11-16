@@ -1,0 +1,14 @@
+{
+  "source": "452 review 1",
+  "expected": [
+    "dependency must use an exact == pin: new-unpinned-package",
+    "requires.pip and requirements.txt disagree:"
+  ],
+  "files": {
+    "main.py": "",
+    "clawhub.json": "{\"requires\": {\"pip\": [\"old-unpinned\", \"new-unpinned-package\"]}}"
+  },
+  "before_files": {
+    "clawhub.json": "{\"requires\": {\"pip\": [\"old-unpinned\"]}}"
+  }
+}

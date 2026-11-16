@@ -1,0 +1,8 @@
+{
+  "source": "496 post-merge Greptile",
+  "expected": [],
+  "files": {
+    "main.py": "NS = \"http://www.w3.org/2005/Atom\"\nroot.findall(f\"{{{NS}}}entry\")\n"
+  },
+  "known_hole": "Interpolated Clark selectors do not establish namespace context (Refs #496)."
+}

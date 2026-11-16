@@ -1,0 +1,11 @@
+{
+  "source": "497 post-merge Greptile",
+  "expected": [],
+  "before": {
+    "mcp/tests/probe.test.ts": "  assert.equal(actual, expected);\n// setup\n"
+  },
+  "after": {
+    "mcp/tests/probe.test.ts": "// setup\nassert.equal(actual, expected);\n"
+  },
+  "body": ""
+}

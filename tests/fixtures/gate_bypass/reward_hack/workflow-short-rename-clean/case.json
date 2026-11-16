@@ -1,0 +1,12 @@
+{
+  "source": "473 review 2",
+  "expected": [],
+  "before": {
+    ".github/workflows/probe.yml": "- name: Run tests\n  run: pytest tests/\n"
+  },
+  "after": {
+    ".github/workflows/probe.yml": "- name: Run unit tests\n  run: pytest tests/\n"
+  },
+  "body": "",
+  "known_hole": "Workflow display names are treated as removed test commands (Refs #473)."
+}
