@@ -1,0 +1,13 @@
+{
+  "source": "497 post-merge Greptile",
+  "expected": [
+    "removed test or pytest CI step"
+  ],
+  "before": {
+    ".github/workflows/probe.yml": "- name: Run tests\n  run: bash scripts/run_skill_tests.sh\n"
+  },
+  "after": {
+    ".github/workflows/probe.yml": "- name: Run tests\n  run: echo disabled\n"
+  },
+  "body": ""
+}

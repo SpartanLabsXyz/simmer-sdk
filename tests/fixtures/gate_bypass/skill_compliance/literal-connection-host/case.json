@@ -1,0 +1,9 @@
+{
+  "source": "452 review 1",
+  "expected": [
+    "undeclared network host: undeclared.example.org"
+  ],
+  "files": {
+    "main.py": "import http.client\nconnection = http.client.HTTPSConnection(\"undeclared.example.org\")\nconnection.request(\"GET\", \"/\")\n"
+  }
+}

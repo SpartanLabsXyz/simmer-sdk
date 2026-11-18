@@ -1,0 +1,10 @@
+{
+  "source": "452 review 1",
+  "expected": [
+    "pip install must use exact == pins:"
+  ],
+  "files": {
+    "main.py": "",
+    "SKILL.md": "pip -q install unpinned-package\n"
+  }
+}

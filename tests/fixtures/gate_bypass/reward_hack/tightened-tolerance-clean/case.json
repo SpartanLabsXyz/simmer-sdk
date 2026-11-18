@@ -1,0 +1,11 @@
+{
+  "source": "497 post-merge Greptile",
+  "expected": [],
+  "before": {
+    "tests/test_probe.py": "def test_probe():\n    assert x == pytest.approx(y, abs=.1)\n"
+  },
+  "after": {
+    "tests/test_probe.py": "def test_probe():\n    assert x == pytest.approx(y, abs=.01)\n"
+  },
+  "body": ""
+}

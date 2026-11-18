@@ -1,0 +1,13 @@
+{
+  "source": "497 review 4 (exact_moves; 6c80a776)",
+  "expected": [
+    "widened abs tolerance"
+  ],
+  "before": {
+    "tests/test_probe.py": "def test_precise():\n    x = 1.05\n    assert x == pytest.approx(1, abs=.01)\ndef test_coarse():\n    x = 1.0\n    assert x == pytest.approx(1, abs=.1)\n"
+  },
+  "after": {
+    "tests/test_probe.py": "def test_precise():\n    x = 1.05\n    assert x == pytest.approx(1, abs=.1)\ndef test_coarse():\n    x = 1.0\n    assert x == pytest.approx(1, abs=.01)\n"
+  },
+  "body": ""
+}

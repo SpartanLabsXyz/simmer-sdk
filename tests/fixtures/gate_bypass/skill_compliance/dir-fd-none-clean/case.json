@@ -1,0 +1,7 @@
+{
+  "source": "496 post-merge Greptile, valid-input counterpart",
+  "expected": [],
+  "files": {
+    "main.py": "import os\nos.open(\"state.json\", os.O_WRONLY | os.O_CREAT, dir_fd=None)\n"
+  }
+}

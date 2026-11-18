@@ -1,0 +1,13 @@
+{
+  "source": "497 review 1",
+  "expected": [
+    "widened abs tolerance"
+  ],
+  "before": {
+    "tests/test_probe.py": "def test_probe():\n    assert x == pytest.approx(\n        y,\n        abs=.01,\n    )\n"
+  },
+  "after": {
+    "tests/test_probe.py": "def test_probe():\n    assert x == pytest.approx(\n        y,\n        abs=.1,\n    )\n"
+  },
+  "body": ""
+}

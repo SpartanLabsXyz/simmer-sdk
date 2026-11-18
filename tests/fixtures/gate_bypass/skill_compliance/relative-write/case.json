@@ -1,0 +1,9 @@
+{
+  "source": "452 review 2",
+  "expected": [
+    "write destination needs review"
+  ],
+  "files": {
+    "main.py": "open(\"../outside-state.json\", \"w\")\n"
+  }
+}

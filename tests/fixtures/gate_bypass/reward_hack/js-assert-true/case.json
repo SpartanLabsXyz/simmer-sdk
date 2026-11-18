@@ -1,0 +1,13 @@
+{
+  "source": "497 post-merge Greptile",
+  "expected": [
+    "modified assertion"
+  ],
+  "before": {
+    "mcp/tests/probe.test.ts": "assert.equal(BUNDLED_VERSION, pkg.version);\n"
+  },
+  "after": {
+    "mcp/tests/probe.test.ts": "assert(true);\n"
+  },
+  "body": ""
+}

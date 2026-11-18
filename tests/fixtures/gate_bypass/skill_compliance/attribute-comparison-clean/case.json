@@ -1,0 +1,7 @@
+{
+  "source": "474 review 4",
+  "expected": [],
+  "files": {
+    "main.py": "path = \".//{http://www.w3.org/2005/Atom}entry[@{http://www.w3.org/2005/Atom}id='x']\"\nroot.findall(path)\n"
+  }
+}

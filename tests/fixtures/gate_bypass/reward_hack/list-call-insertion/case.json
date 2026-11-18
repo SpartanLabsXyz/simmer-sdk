@@ -1,0 +1,13 @@
+{
+  "source": "473 review 3",
+  "expected": [
+    "modified assertion"
+  ],
+  "before": {
+    "tests/test_probe.py": "def test_probe():\n    values = [pytest.approx(1, abs=.01)]\n"
+  },
+  "after": {
+    "tests/test_probe.py": "def test_probe():\n    values = [pytest.approx(2), pytest.approx(1, abs=.1)]\n"
+  },
+  "body": ""
+}

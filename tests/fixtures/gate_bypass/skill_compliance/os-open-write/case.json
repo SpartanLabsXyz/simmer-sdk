@@ -1,0 +1,9 @@
+{
+  "source": "452 review 4",
+  "expected": [
+    "absolute write destination needs review"
+  ],
+  "files": {
+    "main.py": "import os\nos.open(\"/tmp/outside-state.json\", os.O_WRONLY | os.O_CREAT)\n"
+  }
+}

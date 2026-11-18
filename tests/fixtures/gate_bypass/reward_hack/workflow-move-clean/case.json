@@ -1,0 +1,11 @@
+{
+  "source": "473 review 1",
+  "expected": [],
+  "before": {
+    ".github/workflows/probe.yml": "- run: pytest tests/\n- run: echo setup\n"
+  },
+  "after": {
+    ".github/workflows/probe.yml": "- run: echo setup\n- run: pytest tests/\n"
+  },
+  "body": ""
+}

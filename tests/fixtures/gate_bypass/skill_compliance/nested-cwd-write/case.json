@@ -1,0 +1,10 @@
+{
+  "source": "452 review 3",
+  "expected": [
+    "escaping write destination needs review"
+  ],
+  "files": {
+    "main.py": "",
+    "nested/helper.py": "import io\nio.open(\"../outside-state.json\", \"w\")\n"
+  }
+}

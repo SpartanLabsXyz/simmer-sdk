@@ -1,0 +1,9 @@
+{
+  "source": "452 review 2",
+  "expected": [
+    "shell=True"
+  ],
+  "files": {
+    "main.py": "import subprocess\nrun = subprocess.run\nrun(\"echo hi\", shell=True)\n"
+  }
+}

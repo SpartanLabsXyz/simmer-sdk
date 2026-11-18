@@ -1,0 +1,14 @@
+{
+  "source": "473 review 1",
+  "expected": [
+    "removed test"
+  ],
+  "before": {
+    "mcp/tests/probe.test.ts": "test(\n  \"old\",\n  () => { }\n);\n"
+  },
+  "after": {
+    "mcp/tests/probe.test.ts": ""
+  },
+  "body": "",
+  "known_hole": "Multiline JS test declarations are matched one line at a time (Refs #473)."
+}

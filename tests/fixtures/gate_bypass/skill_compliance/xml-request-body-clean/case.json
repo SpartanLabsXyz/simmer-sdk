@@ -1,0 +1,7 @@
+{
+  "source": "474 review 3",
+  "expected": [],
+  "files": {
+    "main.py": "namespace = \"http://www.w3.org/2005/Atom\"\nbody = f'<feed xmlns=\"{namespace}\"/>'\nrequests.post(\"https://api.example.com\", data=body)\n"
+  }
+}

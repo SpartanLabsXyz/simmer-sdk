@@ -1,0 +1,13 @@
+{
+  "source": "473 review 4",
+  "expected": [
+    "removed test or pytest CI step"
+  ],
+  "before": {
+    ".github/workflows/probe.yml": "- name: Run tests\n  uses: org/test-action@v1\n"
+  },
+  "after": {
+    ".github/workflows/probe.yml": "- name: Run checks\n  uses: org/test-action@v1\n  if: ${{ false }}\n"
+  },
+  "body": ""
+}

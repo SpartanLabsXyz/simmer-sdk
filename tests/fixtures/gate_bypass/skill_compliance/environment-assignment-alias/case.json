@@ -1,0 +1,9 @@
+{
+  "source": "452 review 1",
+  "expected": [
+    "MISSING_KEY is read but absent"
+  ],
+  "files": {
+    "main.py": "import os\nenv = os.environ\nx = env[\"MISSING_KEY\"]\n"
+  }
+}

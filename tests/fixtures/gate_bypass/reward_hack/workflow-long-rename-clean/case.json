@@ -1,0 +1,12 @@
+{
+  "source": "473 review 3",
+  "expected": [],
+  "before": {
+    ".github/workflows/probe.yml": "- name: Run tests\n  working-directory: mcp\n  shell: bash\n  env:\n    CI: true\n  run: npm test\n"
+  },
+  "after": {
+    ".github/workflows/probe.yml": "- name: Run unit tests\n  working-directory: mcp\n  shell: bash\n  env:\n    CI: true\n  run: npm test\n"
+  },
+  "body": "",
+  "known_hole": "Workflow display names are treated as removed test commands (Refs #473)."
+}
