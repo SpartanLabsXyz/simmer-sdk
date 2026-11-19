@@ -3,7 +3,7 @@ name: polymarket-fast-loop
 description: Trade Polymarket 5-minute and 15-minute crypto sprint markets, automate short-term prediction trading, use CEX momentum or custom signals, or monitor sprint-market positions. Default signal is Binance BTC/USDT klines.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.7.6"
+  version: "1.7.7"
   displayName: Polymarket FastLoop Trader
   difficulty: advanced
 ---

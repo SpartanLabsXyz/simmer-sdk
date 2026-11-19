@@ -289,6 +289,10 @@ def run_market(
         combo=market_info.get("is_combo") is True,
     )
     taker_fee_rate = fee_rate(category, at)
+    if taker_fee_rate is None:
+        stats["skip_reason"] = "fee_unknown"
+        print("  → Skip market: fee coefficient unknown")
+        return stats
     stats["maker_pool_fraction"] = maker_pool_fraction(category, at)
     stats["maker_rebate_rate"] = maker_rebate_rate(category, at, volume_30d=maker_volume_30d)
     if stats["maker_pool_fraction"] is not None:

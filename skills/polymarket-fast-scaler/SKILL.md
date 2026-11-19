@@ -3,7 +3,7 @@ name: polymarket-fast-scaler
 description: Trade BTC 5-minute fast markets on Polymarket with a magnitude-gated conviction ladder. Use for BTC 5-minute only; not for ETH/SOL/XRP, 15m windows, raw momentum, or signals below the 0.10% magnitude gate. Reference template; the original performance claim was retracted.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.2.5"
+  version: "1.2.6"
   displayName: Polymarket FastScaler
   difficulty: advanced
 ---

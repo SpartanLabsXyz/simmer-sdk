@@ -3,7 +3,7 @@ name: polymarket-mert-sniper
 description: "Trade near-expiry Polymarket markets, filter by topic, cap bet size, or require strongly skewed odds before entry. Scans final-minute markets and places bounded trades against the under-priced side. Defaults: $10 max per trade, 5 trades/run, 8-minute expiry window, dry-run unless `--live`."
 metadata:
   author: Simmer (@simmer_markets)
-  version: "1.3.8"
+  version: "1.3.9"
   displayName: Mert Sniper
   difficulty: advanced
   attribution: Strategy inspired by @mert — https://x.com/mert/status/2020216613279060433

@@ -532,69 +532,6 @@
   },
   {
     "skill": "polymarket-btc-up-down-trader",
-    "check": 3,
-    "file": "skills/polymarket-btc-up-down-trader/SKILL.md",
-    "line": 86,
-    "message": "documented flag absent from entrypoint argparse: --name",
-    "owner": "splabs-ci",
-    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
-  },
-  {
-    "skill": "polymarket-btc-up-down-trader",
-    "check": 3,
-    "file": "skills/polymarket-btc-up-down-trader/SKILL.md",
-    "line": 87,
-    "message": "documented flag absent from entrypoint argparse: --cron",
-    "owner": "splabs-ci",
-    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
-  },
-  {
-    "skill": "polymarket-btc-up-down-trader",
-    "check": 3,
-    "file": "skills/polymarket-btc-up-down-trader/SKILL.md",
-    "line": 88,
-    "message": "documented flag absent from entrypoint argparse: --session",
-    "owner": "splabs-ci",
-    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
-  },
-  {
-    "skill": "polymarket-btc-up-down-trader",
-    "check": 3,
-    "file": "skills/polymarket-btc-up-down-trader/SKILL.md",
-    "line": 89,
-    "message": "documented flag absent from entrypoint argparse: --message",
-    "owner": "splabs-ci",
-    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
-  },
-  {
-    "skill": "polymarket-btc-up-down-trader",
-    "check": 3,
-    "file": "skills/polymarket-btc-up-down-trader/SKILL.md",
-    "line": 209,
-    "message": "documented flag absent from entrypoint argparse: --min-volume",
-    "owner": "splabs-ci",
-    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
-  },
-  {
-    "skill": "polymarket-btc-up-down-trader",
-    "check": 3,
-    "file": "skills/polymarket-btc-up-down-trader/SKILL.md",
-    "line": 209,
-    "message": "documented flag absent from entrypoint argparse: --q",
-    "owner": "splabs-ci",
-    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
-  },
-  {
-    "skill": "polymarket-btc-up-down-trader",
-    "check": 5,
-    "file": "skills/polymarket-btc-up-down-trader/SKILL.md",
-    "line": 43,
-    "message": "pip install must use exact == pins: simmer-sdk",
-    "owner": "splabs-ci",
-    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
-  },
-  {
-    "skill": "polymarket-btc-up-down-trader",
     "check": 5,
     "file": "skills/polymarket-btc-up-down-trader/clawhub.json",
     "line": 1,
@@ -1117,150 +1054,6 @@
   },
   {
     "skill": "polymarket-fast-loop",
-    "check": 2,
-    "file": "skills/polymarket-fast-loop/fastloop_trader.py",
-    "line": 115,
-    "message": "AUTOMATON_MAX_BET is read but absent from SKILL.md envVars",
-    "owner": "splabs-ci",
-    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
-  },
-  {
-    "skill": "polymarket-fast-loop",
-    "check": 2,
-    "file": "skills/polymarket-fast-loop/fastloop_trader.py",
-    "line": 115,
-    "message": "AUTOMATON_MAX_BET is read but absent from clawhub.json envVars",
-    "owner": "splabs-ci",
-    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
-  },
-  {
-    "skill": "polymarket-fast-loop",
-    "check": 2,
-    "file": "skills/polymarket-fast-loop/fastloop_trader.py",
-    "line": 202,
-    "message": "TRADING_VENUE is read but absent from SKILL.md envVars",
-    "owner": "splabs-ci",
-    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
-  },
-  {
-    "skill": "polymarket-fast-loop",
-    "check": 2,
-    "file": "skills/polymarket-fast-loop/fastloop_trader.py",
-    "line": 202,
-    "message": "TRADING_VENUE is read but absent from clawhub.json envVars",
-    "owner": "splabs-ci",
-    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
-  },
-  {
-    "skill": "polymarket-fast-loop",
-    "check": 2,
-    "file": "skills/polymarket-fast-loop/fastloop_trader.py",
-    "line": 542,
-    "message": "SIMMER_REPLAY is read but absent from SKILL.md envVars",
-    "owner": "splabs-ci",
-    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
-  },
-  {
-    "skill": "polymarket-fast-loop",
-    "check": 2,
-    "file": "skills/polymarket-fast-loop/fastloop_trader.py",
-    "line": 542,
-    "message": "SIMMER_REPLAY is read but absent from clawhub.json envVars",
-    "owner": "splabs-ci",
-    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
-  },
-  {
-    "skill": "polymarket-fast-loop",
-    "check": 2,
-    "file": "skills/polymarket-fast-loop/fastloop_trader.py",
-    "line": 744,
-    "message": "SIMMER_API_KEY is read but absent from SKILL.md envVars",
-    "owner": "splabs-ci",
-    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
-  },
-  {
-    "skill": "polymarket-fast-loop",
-    "check": 2,
-    "file": "skills/polymarket-fast-loop/fastloop_trader.py",
-    "line": 1449,
-    "message": "AUTOMATON_MANAGED is read but absent from SKILL.md envVars",
-    "owner": "splabs-ci",
-    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
-  },
-  {
-    "skill": "polymarket-fast-loop",
-    "check": 2,
-    "file": "skills/polymarket-fast-loop/fastloop_trader.py",
-    "line": 1449,
-    "message": "AUTOMATON_MANAGED is read but absent from clawhub.json envVars",
-    "owner": "splabs-ci",
-    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
-  },
-  {
-    "skill": "polymarket-fast-loop",
-    "check": 3,
-    "file": "skills/polymarket-fast-loop/SKILL.md",
-    "line": 96,
-    "message": "documented flag absent from entrypoint argparse: --name",
-    "owner": "splabs-ci",
-    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
-  },
-  {
-    "skill": "polymarket-fast-loop",
-    "check": 3,
-    "file": "skills/polymarket-fast-loop/SKILL.md",
-    "line": 97,
-    "message": "documented flag absent from entrypoint argparse: --cron",
-    "owner": "splabs-ci",
-    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
-  },
-  {
-    "skill": "polymarket-fast-loop",
-    "check": 3,
-    "file": "skills/polymarket-fast-loop/SKILL.md",
-    "line": 98,
-    "message": "documented flag absent from entrypoint argparse: --tz",
-    "owner": "splabs-ci",
-    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
-  },
-  {
-    "skill": "polymarket-fast-loop",
-    "check": 3,
-    "file": "skills/polymarket-fast-loop/SKILL.md",
-    "line": 99,
-    "message": "documented flag absent from entrypoint argparse: --session",
-    "owner": "splabs-ci",
-    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
-  },
-  {
-    "skill": "polymarket-fast-loop",
-    "check": 3,
-    "file": "skills/polymarket-fast-loop/SKILL.md",
-    "line": 100,
-    "message": "documented flag absent from entrypoint argparse: --message",
-    "owner": "splabs-ci",
-    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
-  },
-  {
-    "skill": "polymarket-fast-loop",
-    "check": 3,
-    "file": "skills/polymarket-fast-loop/SKILL.md",
-    "line": 101,
-    "message": "documented flag absent from entrypoint argparse: --announce",
-    "owner": "splabs-ci",
-    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
-  },
-  {
-    "skill": "polymarket-fast-loop",
-    "check": 5,
-    "file": "skills/polymarket-fast-loop/SKILL.md",
-    "line": 41,
-    "message": "pip install must use exact == pins: simmer-sdk",
-    "owner": "splabs-ci",
-    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
-  },
-  {
-    "skill": "polymarket-fast-loop",
     "check": 5,
     "file": "skills/polymarket-fast-loop/clawhub.json",
     "line": 1,
@@ -1292,42 +1085,6 @@
     "file": "skills/polymarket-fast-loop/fastloop_trader.py",
     "line": 96,
     "message": "undeclared network host: api.binance.us",
-    "owner": "splabs-ci",
-    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
-  },
-  {
-    "skill": "polymarket-fast-loop",
-    "check": 7,
-    "file": "skills/polymarket-fast-loop/fastloop_trader.py",
-    "line": 232,
-    "message": "undeclared network host: clob.polymarket.com",
-    "owner": "splabs-ci",
-    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
-  },
-  {
-    "skill": "polymarket-fast-loop",
-    "check": 7,
-    "file": "skills/polymarket-fast-loop/fastloop_trader.py",
-    "line": 427,
-    "message": "undeclared network host: gamma-api.polymarket.com",
-    "owner": "splabs-ci",
-    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
-  },
-  {
-    "skill": "polymarket-fast-loop",
-    "check": 7,
-    "file": "skills/polymarket-fast-loop/fastloop_trader.py",
-    "line": 756,
-    "message": "undeclared network host: api.binance.com",
-    "owner": "splabs-ci",
-    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
-  },
-  {
-    "skill": "polymarket-fast-loop",
-    "check": 7,
-    "file": "skills/polymarket-fast-loop/fastloop_trader.py",
-    "line": 771,
-    "message": "undeclared network host: polymarket.com",
     "owner": "splabs-ci",
     "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
   },
@@ -1387,33 +1144,6 @@
   },
   {
     "skill": "polymarket-fast-scaler",
-    "check": 2,
-    "file": "skills/polymarket-fast-scaler/fast_scaler.py",
-    "line": 984,
-    "message": "AUTOMATON_MANAGED is read but absent from SKILL.md envVars",
-    "owner": "splabs-ci",
-    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
-  },
-  {
-    "skill": "polymarket-fast-scaler",
-    "check": 2,
-    "file": "skills/polymarket-fast-scaler/fast_scaler.py",
-    "line": 984,
-    "message": "AUTOMATON_MANAGED is read but absent from clawhub.json envVars",
-    "owner": "splabs-ci",
-    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
-  },
-  {
-    "skill": "polymarket-fast-scaler",
-    "check": 5,
-    "file": "skills/polymarket-fast-scaler/SKILL.md",
-    "line": 49,
-    "message": "pip install must use exact == pins: simmer-sdk",
-    "owner": "splabs-ci",
-    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
-  },
-  {
-    "skill": "polymarket-fast-scaler",
     "check": 5,
     "file": "skills/polymarket-fast-scaler/clawhub.json",
     "line": 1,
@@ -1454,15 +1184,6 @@
     "file": "skills/polymarket-fast-scaler/fast_scaler.py",
     "line": 638,
     "message": "undeclared network host: polymarket.com",
-    "owner": "splabs-ci",
-    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
-  },
-  {
-    "skill": "polymarket-fast-scaler",
-    "check": 8,
-    "file": "skills/polymarket-fast-scaler/SKILL.md",
-    "line": 65,
-    "message": "documented persistence or privilege recipe needs review",
     "owner": "splabs-ci",
     "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
   },
@@ -1513,33 +1234,6 @@
   },
   {
     "skill": "polymarket-market-maker",
-    "check": 2,
-    "file": "skills/polymarket-market-maker/market_maker.py",
-    "line": 609,
-    "message": "AUTOMATON_MANAGED is read but absent from SKILL.md envVars",
-    "owner": "splabs-ci",
-    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
-  },
-  {
-    "skill": "polymarket-market-maker",
-    "check": 2,
-    "file": "skills/polymarket-market-maker/market_maker.py",
-    "line": 609,
-    "message": "AUTOMATON_MANAGED is read but absent from clawhub.json envVars",
-    "owner": "splabs-ci",
-    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
-  },
-  {
-    "skill": "polymarket-market-maker",
-    "check": 5,
-    "file": "skills/polymarket-market-maker/SKILL.md",
-    "line": 63,
-    "message": "pip install must use exact == pins: -U 'simmer-sdk>=0.26.0'",
-    "owner": "splabs-ci",
-    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
-  },
-  {
-    "skill": "polymarket-market-maker",
     "check": 5,
     "file": "skills/polymarket-market-maker/clawhub.json",
     "line": 1,
@@ -1567,78 +1261,6 @@
   },
   {
     "skill": "polymarket-mert-sniper",
-    "check": 2,
-    "file": "skills/polymarket-mert-sniper/mert_sniper.py",
-    "line": 67,
-    "message": "AUTOMATON_MAX_BET is read but absent from SKILL.md envVars",
-    "owner": "splabs-ci",
-    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
-  },
-  {
-    "skill": "polymarket-mert-sniper",
-    "check": 2,
-    "file": "skills/polymarket-mert-sniper/mert_sniper.py",
-    "line": 67,
-    "message": "AUTOMATON_MAX_BET is read but absent from clawhub.json envVars",
-    "owner": "splabs-ci",
-    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
-  },
-  {
-    "skill": "polymarket-mert-sniper",
-    "check": 2,
-    "file": "skills/polymarket-mert-sniper/mert_sniper.py",
-    "line": 106,
-    "message": "SIMMER_API_KEY is read but absent from SKILL.md envVars",
-    "owner": "splabs-ci",
-    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
-  },
-  {
-    "skill": "polymarket-mert-sniper",
-    "check": 2,
-    "file": "skills/polymarket-mert-sniper/mert_sniper.py",
-    "line": 111,
-    "message": "TRADING_VENUE is read but absent from SKILL.md envVars",
-    "owner": "splabs-ci",
-    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
-  },
-  {
-    "skill": "polymarket-mert-sniper",
-    "check": 2,
-    "file": "skills/polymarket-mert-sniper/mert_sniper.py",
-    "line": 111,
-    "message": "TRADING_VENUE is read but absent from clawhub.json envVars",
-    "owner": "splabs-ci",
-    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
-  },
-  {
-    "skill": "polymarket-mert-sniper",
-    "check": 2,
-    "file": "skills/polymarket-mert-sniper/mert_sniper.py",
-    "line": 725,
-    "message": "AUTOMATON_MANAGED is read but absent from SKILL.md envVars",
-    "owner": "splabs-ci",
-    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
-  },
-  {
-    "skill": "polymarket-mert-sniper",
-    "check": 2,
-    "file": "skills/polymarket-mert-sniper/mert_sniper.py",
-    "line": 725,
-    "message": "AUTOMATON_MANAGED is read but absent from clawhub.json envVars",
-    "owner": "splabs-ci",
-    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
-  },
-  {
-    "skill": "polymarket-mert-sniper",
-    "check": 5,
-    "file": "skills/polymarket-mert-sniper/SKILL.md",
-    "line": 27,
-    "message": "pip install must use exact == pins: simmer-sdk",
-    "owner": "splabs-ci",
-    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
-  },
-  {
-    "skill": "polymarket-mert-sniper",
     "check": 5,
     "file": "skills/polymarket-mert-sniper/clawhub.json",
     "line": 1,
@@ -1652,15 +1274,6 @@
     "file": "skills/polymarket-mert-sniper/clawhub.json",
     "line": 1,
     "message": "requires.pip and requirements.txt disagree: requires.pip=['simmer-sdk>=0.17.25']; requirements.txt=[]",
-    "owner": "splabs-ci",
-    "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
-  },
-  {
-    "skill": "polymarket-mert-sniper",
-    "check": 7,
-    "file": "skills/polymarket-mert-sniper/mert_sniper.py",
-    "line": 89,
-    "message": "undeclared network host: clob.polymarket.com",
     "owner": "splabs-ci",
     "reason": "pre-existing at gate introduction (sdk #448); burn down in sdk #451"
   },

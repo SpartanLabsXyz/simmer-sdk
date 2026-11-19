@@ -3,7 +3,7 @@ name: polymarket-market-maker
 description: Post two-sided GTC limit orders on Polymarket CLOB. Manages inventory skew, cancel/replace on price drift, and estimates potential fee-equivalent value if quotes fill.
 metadata:
   author: Simmer (@simmer_markets)
-  version: "0.9.3"
+  version: "0.9.4"
   displayName: Polymarket Market Maker
   difficulty: advanced
   attribution: "Based on Akey et al. (2026): market-making reduces loss probability by 35.9 pp."

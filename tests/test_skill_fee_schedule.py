@@ -184,6 +184,38 @@ def test_explicit_zero_venue_coefficient_is_known_free(monkeypatch):
     assert run_fastloop(monkeypatch, BEFORE, venue_curve={'fd': {'r': 0, 'e': 1}}) == 1
 
 
+@pytest.mark.parametrize('market_info', [{}, {'category': 'unknown'}, {'category': 'crypto'}])
+@pytest.mark.parametrize('live', [False, True])
+def test_market_maker_unknown_fee_never_submits_orders(monkeypatch, market_info, live):
+    maker = load_skill('polymarket-market-maker', 'market_maker')
+    client = Mock()
+    monkeypatch.setattr(maker, 'get_client', lambda: client)
+    monkeypatch.setattr(maker, 'get_market_mid', lambda _: .5)
+    monkeypatch.setattr(maker, 'get_market_info', lambda _: market_info)
+    monkeypatch.setattr(maker, 'get_inventory', lambda _: (0, 0))
+    stats = maker.run_market('fake-market', {}, live, .04, 10, .3, .02, set(), at=AFTER)
+    client.trade.assert_not_called()
+    assert not stats['bid_placed'] and not stats['ask_placed']
+    assert stats['skip_reason'] == 'fee_unknown'
+    assert stats['quoted_fee_equiv_usd'] is None
+
+
+def test_market_maker_known_fee_with_unknown_rebate_tier_can_submit(monkeypatch):
+    maker = load_skill('polymarket-market-maker', 'market_maker')
+    client = Mock()
+    client.trade.return_value = Mock(success=True, trade_id='fake-order')
+    monkeypatch.setattr(maker, 'get_client', lambda: client)
+    monkeypatch.setattr(maker, 'get_market_mid', lambda _: .5)
+    monkeypatch.setattr(maker, 'get_market_info', lambda _: {'category': 'sports'})
+    monkeypatch.setattr(maker, 'get_inventory', lambda _: (0, 0))
+    stats = maker.run_market('fake-market', {}, True, .04, 10, .3, .02, set(), at=AFTER)
+    assert client.trade.call_count == 2
+    assert stats['bid_placed'] and stats['ask_placed']
+    assert stats['skip_reason'] is None
+    assert stats['quoted_fee_equiv_usd'] == pytest.approx(.52)
+    assert stats['maker_rebate_rate'] is None
+
+
 def test_money_trace_snapshot(monkeypatch, capsys):
     from simmer_sdk.polymarket_fees import fee_rate, weighted_volume, taker_rebate_rate
     from simmer_sdk.backtest.replay.simstate import SimState
