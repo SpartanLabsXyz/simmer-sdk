@@ -19,6 +19,8 @@ import os
 import sys
 import types
 import unittest
+import simmer_sdk.polymarket_fees as _fees
+
 from unittest.mock import MagicMock, patch
 
 _SKILL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -36,6 +38,7 @@ _skill_stub.get_config_path = lambda file: "/tmp/config.json"
 
 with patch.dict(sys.modules, {
     "simmer_sdk": MagicMock(),
+    "simmer_sdk.polymarket_fees": _fees,
     "simmer_sdk.skill": _skill_stub,
 }):
     import fast_scaler as fs  # noqa: E402

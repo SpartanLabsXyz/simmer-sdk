@@ -101,9 +101,11 @@ def fee_for(notional: float, px: float, base_rate: float, kind: str = "market") 
     understates it near 0.50, and prediction-market strategies cluster at
     the extremes.
 
-    ``kind="limit"`` (a resting order that filled as maker) pays 0 — live
-    makers pay no fee (_dev/reference/trading-economics.md). The 20% maker
-    rebate is NOT credited; see REALISM_GAPS.
+    ``kind="limit"`` (a resting order that filled as maker) pays 0.
+    No maker rebate is credited. Before 2026-11-20T23:59:00Z rebates use
+    daily market pools; at and after that instant they use 30-day maker-volume
+    tiers. Replay lacks pool shares and account volume, so zero credit is a
+    conservative bound rather than a scheduled account rate. See REALISM_GAPS.
 
     Clamped at zero as defence-in-depth: buy()/sell() now reject px outside
     their valid range, so an out-of-range price cannot reach here. Were it to,

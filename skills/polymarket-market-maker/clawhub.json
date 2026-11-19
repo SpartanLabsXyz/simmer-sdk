@@ -86,17 +86,6 @@
       "label": "Price drift to trigger cancel/replace (fraction)"
     },
     {
-      "env": "MM_TAKER_FEE_RATE",
-      "type": "number",
-      "default": 0.02,
-      "range": [
-        0.005,
-        0.05
-      ],
-      "step": 0.005,
-      "label": "Taker fee rate for rebate estimation (default 2%, sports 3%)"
-    },
-    {
       "env": "MM_MAX_MARKETS",
       "type": "number",
       "default": 5,

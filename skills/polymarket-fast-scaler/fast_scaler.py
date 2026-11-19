@@ -136,7 +136,6 @@ _automaton_reported = False
 
 MIN_SHARES_PER_ORDER = 5    # Polymarket minimum order size in shares
 MAX_SPREAD_PCT = 0.10       # Skip if CLOB bid-ask spread exceeds this
-POLY_FEE_RATE_CRYPTO = 0.07  # Crypto taker fee coefficient (docs.polymarket.com/trading/fees)
 
 ASSET_SYMBOLS = {
     "BTC": "BTCUSDT",
@@ -144,6 +143,7 @@ ASSET_SYMBOLS = {
     "SOL": "SOLUSDT",
 }
 
+from simmer_sdk.polymarket_fees import classify_market, estimate_fee_rate, fee_time
 from simmer_sdk.skill import load_config, update_config, get_config_path
 
 cfg = load_config(CONFIG_SCHEMA, __file__, slug=SKILL_SLUG)
@@ -884,10 +884,16 @@ def run_fast_scaler(dry_run=True, positions_only=False, show_config=False, quiet
 
     log(f"\n🎯 Signal: {side.upper()} | Tier {tier} (|momentum|={momentum_pct:.4f}%)")
 
-    # Log informational fee estimate (not a gate; the magnitude gate is a noise filter, not a validated EV guarantee)
-    fee_per_share = POLY_FEE_RATE_CRYPTO * buy_price * (1 - buy_price)
-    fee_pct_of_spend = POLY_FEE_RATE_CRYPTO * (1 - buy_price)
-    log(f"  Fee: ${fee_per_share:.4f}/share ({fee_pct_of_spend:.2%} on spend at {buy_price:.3f})")
+    category = classify_market("crypto", asset=ASSET, window=WINDOW, up_down=True)
+    fee_estimate = estimate_fee_rate(category, fee_time(datetime.now(timezone.utc)))
+    if fee_estimate is None:
+        log("  Fee coefficient unknown; skipping trade")
+        _emit_automaton(signals=1, attempted=0, executed=0, skip_reason="fee_unknown")
+        return
+    coefficient = fee_estimate.coefficient
+    fee_per_share = coefficient * buy_price * (1 - buy_price)
+    fee_pct_of_spend = coefficient * (1 - buy_price)
+    log(f"  Fee: ${fee_per_share:.4f}/share ({fee_pct_of_spend:.2%} on spend at {buy_price:.3f}; {fee_estimate.source})")
 
     # --- Daily budget check ---
     remaining_budget = DAILY_BUDGET - daily_spend["spent"]

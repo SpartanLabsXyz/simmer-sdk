@@ -104,6 +104,7 @@ ASSET_PATTERNS = {
 }
 
 
+from simmer_sdk.polymarket_fees import classify_market, estimate_fee_rate, fee_time
 from simmer_sdk.skill import load_config, update_config, get_config_path
 from simmer_sdk.guards.news_recency_veto import load_macro_news_schedule, news_window_match
 
@@ -141,11 +142,6 @@ ORDER_TYPE = cfg["order_type"].upper() if cfg["order_type"] else "GTC"
 ENABLE_NEWS_VETO = cfg["enable_news_veto"]
 SECONDS_PER_YEAR = 31_536_000
 
-# Polymarket crypto taker fee formula (docs.polymarket.com/trading/fees)
-# fee = num_shares × POLY_FEE_RATE_CRYPTO × p × (1-p)
-# Effective rate on dollars spent = POLY_FEE_RATE_CRYPTO × (1-p)
-# Peak: 3.5% at p=0.50. Worst case (p=0.05/0.95): ~6.6%. Makers: 0%.
-POLY_FEE_RATE_CRYPTO = 0.07   # Crypto markets taker fee coefficient
 
 
 # =============================================================================
@@ -257,14 +253,15 @@ def _summarize_api_failure(result, *, url, endpoint):
 
 
 def _lookup_fee_rate(token_id):
-    """Fetch taker fee rate (bps) from Polymarket CLOB for a token. Returns 0 on failure."""
+    """Fetch taker fee rate (bps) from Polymarket CLOB for a token. Returns None for failure or the zero sentinel."""
     result = _api_request(f"{CLOB_API}/fee-rate?token_id={quote(str(token_id))}", timeout=5)
     if not result or not isinstance(result, dict) or result.get("error"):
-        return 0
+        return None
     try:
-        return int(float(result.get("base_fee") or 0))
-    except (ValueError, TypeError):
-        return 0
+        value = int(float(result.get("base_fee") or 0))
+        return value if value > 0 else None
+    except (ValueError, TypeError, OverflowError):
+        return None
 
 
 def fetch_live_midpoint(token_id):
@@ -391,6 +388,7 @@ def discover_fast_market_markets(asset="BTC", window="5m"):
             markets.append({
                 "question": m.question,
                 "market_id": m.id,  # Already imported — no import step needed
+                "condition_id": m.polymarket_condition_id,
                 "end_time": end_time,
                 "clob_token_ids": clob_tokens,
                 "is_live_now": m.is_live_now,
@@ -1019,16 +1017,6 @@ def run_fast_market_strategy(dry_run=True, positions_only=False, show_config=Fal
     markets = discover_fast_market_markets(ASSET, WINDOW)
     log(f"  Found {len(markets)} active fast markets")
 
-    # Look up fee rate once per run from a sample token (same window = same fee tier)
-    if markets:
-        sample = next((m for m in markets if m.get("clob_token_ids")), None)
-        if sample and sample.get("fee_rate_bps", 0) == 0:
-            fee = _lookup_fee_rate(sample["clob_token_ids"][0])
-            if fee > 0:
-                log(f"  Fee rate for {WINDOW} markets: {fee} bps ({fee/100:.0f}%)")
-                for m in markets:
-                    m["fee_rate_bps"] = fee
-
     if not markets:
         log("  No active fast markets found — may be outside market hours or wrong asset/window")
         log(f"  Check: asset={ASSET}, window={WINDOW}")
@@ -1103,15 +1091,20 @@ def run_fast_market_strategy(dry_run=True, positions_only=False, show_config=Fal
             print(f"📊 Summary: No trade (CLOB price unavailable)")
         return
 
-    # Fee info: Polymarket crypto taker fee (docs.polymarket.com/trading/fees):
-    # fee = num_shares × 0.07 × p × (1-p). fee_rate_bps from API is a contract
-    # param, not a direct percentage — we use the documented formula instead.
-    fee_rate_bps = best.get("fee_rate_bps", 0)
-    if fee_rate_bps > 0:
-        # fee per share at current market price (in price terms)
-        _p = market_yes_price if market_yes_price <= 0.5 else (1 - market_yes_price)
-        _eff = POLY_FEE_RATE_CRYPTO * _p * (1 - _p)
-        log(f"  Fee rate:         {_eff:.4f}/share ({POLY_FEE_RATE_CRYPTO * (1 - _p):.2%} on spend at current price, feeRateBps={fee_rate_bps})")
+    fee_rate_bps = best.get("fee_rate_bps")
+    if not fee_rate_bps and clob_tokens and os.environ.get("SIMMER_REPLAY") != "1":
+        fee_rate_bps = _lookup_fee_rate(clob_tokens[0])
+    condition_id = best.get("condition_id")
+    curve = _api_request(f"{CLOB_API}/clob-markets/{quote(str(condition_id), safe='')}", timeout=5) if condition_id and os.environ.get("SIMMER_REPLAY") != "1" else None
+    category = classify_market("crypto", asset=ASSET, window=WINDOW, up_down=True)
+    fee_estimate = estimate_fee_rate(category, fee_time(datetime.now(timezone.utc)), curve)
+    if fee_estimate is None:
+        log("  Fee coefficient unknown; skipping trade")
+        skip_reasons.append("fee unknown")
+        _emit_skip_report()
+        return
+    coefficient = fee_estimate.coefficient
+    log(f"  Fee coefficient: {coefficient:g} ({fee_estimate.source}; legacy base_fee={fee_rate_bps})")
 
     # Step 3: Get CEX price momentum
     log(f"\n📈 Fetching {ASSET} price signal ({SIGNAL_SOURCE})...")
@@ -1300,25 +1293,15 @@ def run_fast_market_strategy(dry_run=True, positions_only=False, show_config=Fal
         _emit_skip_report()
         return
 
-    # Fee-aware EV check: require enough divergence to cover fees
-    # EV = win_prob * payout_after_fees - (1 - win_prob) * cost
-    # At the buy price, win_prob ≈ buy_price (market-implied).
-    # We need our edge (divergence) to overcome the fee drag.
-    if fee_rate_bps > 0:
-        buy_price = market_yes_price if side == "yes" else (1 - market_yes_price)
-        # Polymarket crypto taker fee: fee = num_shares × 0.07 × p × (1-p)
-        # fee_per_share (in price terms) = 0.07 × p × (1-p)
-        fee_per_share = POLY_FEE_RATE_CRYPTO * buy_price * (1 - buy_price)
-        # Divergence is in absolute price — compare to round-trip fee drag + buffer
-        min_divergence = fee_per_share * 2 + 0.02  # round-trip fee + buffer
-        log(f"  Fee:              ${fee_per_share:.4f}/share ({POLY_FEE_RATE_CRYPTO * (1 - buy_price):.2%} on spend, min divergence {min_divergence:.3f})")
-        if divergence < min_divergence:
-            log(f"  ⏸️  Divergence {divergence:.3f} < fee-adjusted minimum {min_divergence:.3f} — skip")
-            if not quiet:
-                print(f"📊 Summary: No trade (fees eat the edge)")
-            skip_reasons.append("fees eat the edge")
-            _emit_skip_report()
-            return
+    buy_price = market_yes_price if side == "yes" else (1 - market_yes_price)
+    fee_per_share = coefficient * buy_price * (1 - buy_price)
+    min_divergence = fee_per_share * 2 + 0.02  # Round-trip fee plus strategy buffer.
+    log(f"  Fee:              ${fee_per_share:.4f}/share ({coefficient * (1 - buy_price):.2%} on spend, min divergence {min_divergence:.3f})")
+    if divergence < min_divergence:
+        log(f"  Divergence {divergence:.3f} < fee-adjusted minimum {min_divergence:.3f}; skip")
+        skip_reasons.append("fees eat the edge")
+        _emit_skip_report()
+        return
 
     # We have a signal!
     position_size = calculate_position_size(MAX_POSITION_USD, smart_sizing)

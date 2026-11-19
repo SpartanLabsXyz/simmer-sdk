@@ -18,7 +18,7 @@ B1 ✅ shipped | B2 ✅ paper validation passed (SIM-1997, PR #115) | B3 ✅ liv
 - **Magnitude gate**: `|momentum| >= 0.10%`. A noise filter, not a validated edge. The original "89.4% win rate" claim was RETRACTED 2026-06-12 (look-ahead bias — see below).
 - **Signal source**: Binance 1m candle at window-open (last complete 1m candle). Do NOT switch to 5m lookback without re-running the backtest.
 - **Sizing table**: 3-tier conviction ladder. T1 $3 / T2 $5 / T3 $10. Tier thresholds: 0.10%/0.20%/0.35%.
-- **Fee formula**: `fee = shares × 0.07 × p × (1-p)`. Crypto taker category.
+- **Fee formula**: `fee = shares × coefficient × p × (1-p)`. For BTC 5m/15m up/down, the coefficient is `0.07` before `2026-11-20T23:59:00Z` and `0.05` at and after it. Other crypto uses `0.01` afterward.
 - **Hold policy**: hold to expiry. No exit logic — results are binary.
 
 ## Backtest source — RETRACTED 2026-06-12 (look-ahead bias)

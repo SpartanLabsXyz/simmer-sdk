@@ -25,6 +25,8 @@ from typing import Any, Optional, Protocol
 
 from fastapi.testclient import TestClient
 
+from simmer_sdk.polymarket_fees import fee_rate as scheduled_fee_rate
+
 from .server import ReplaySession, create_app
 from .simstate import SimState, fee_for
 from .store import HistoricalStore
@@ -39,9 +41,13 @@ REALISM_GAPS = [
     "no market impact at size",
     "no queue position",
     "no latency",
-    "no maker rebates (maker fills pay 0 fee, but the 20% rebate is not credited)",
-    "single blended base fee rate, not per-category (crypto/sports/other differ; "
-    "see _dev/reference/trading-economics.md)",
+    "no maker rebates credited: daily pools before 2026-11-20T23:59:00Z; "
+    "30-day maker-volume tiers at and after that instant. Pool shares and "
+    "account volumes are unknown; zero credit is a conservative bound, "
+    "not the account's scheduled rebate rate",
+    "single generic fee coefficient: the default uses the Other/General "
+    "schedule at the run start (0.05 in both eras), not a classification "
+    "of each market; an explicit override applies throughout the replay",
     "trade-tape prices, not orderbook",
 ]
 
@@ -56,15 +62,9 @@ class ReplayConfig:
     t1: datetime
     cadence: timedelta = timedelta(minutes=15)
     starting_balance: float = 1000.0
-    # BASE fee rate, applied as notional x fee_rate x (1 - price) — see
-    # SimState._fee. 0.05 is derived from the only fees we have actually
-    # measured: 6,812 V2 trades back-filled from on-chain `fee_usdc` between
-    # 2026-04-28 and 2026-06-15 came in at a median 246 bps EFFECTIVE at an
-    # average price of 0.522, which implies a base near 500 bps. Zero was never
-    # right: post-April `real_trades.fee_rate_bps = 0` is a sentinel meaning
-    # "unknown at placement time" (polymarket_client.get_polymarket_fee_rate),
-    # not "free".
-    fee_rate: float = 0.05
+    # None selects the dated Other/General coefficient, not a guessed category.
+    # Explicit values are replay assumptions, never legacy fee_rate_bps values.
+    fee_rate: Optional[float] = None
     skill_slug: str = "unknown"
     skill_version: str = "0"
     dataset_rev: str = "unknown"
@@ -76,6 +76,10 @@ class ReplayConfig:
     # by callers — config_hash is the ReportStore upsert key, so two runs that
     # can produce different results must never hash identical (holistic-review P1).
     params: dict = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if self.fee_rate is None:
+            self.fee_rate = scheduled_fee_rate("other", self.t0)
 
     def config_hash(self) -> str:
         blob = json.dumps({

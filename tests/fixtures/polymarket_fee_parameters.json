@@ -1,0 +1,74 @@
+{
+  "provenance": "Documentation-derived examples and synthetic parser cases, prepared 2026-11-18. Not a live HTTP capture or evidence of charged fees.",
+  "sources": {
+    "clob_market_info": "https://docs.polymarket.com/api-reference/markets/get-clob-market-info",
+    "market_details": "https://docs.polymarket.com/market-data/market-details",
+    "fee_rate": "https://docs.polymarket.com/api-reference/market-data/get-fee-rate",
+    "fees": "https://docs.polymarket.com/trading/fees",
+    "new_schedule": "https://docs.polymarket.com/programs/fee-and-rebate-changes-november-2026",
+    "official_client": "https://github.com/Polymarket/py-clob-client-v2/blob/main/py_clob_client_v2/client.py",
+    "official_fee_calculator": "https://github.com/Polymarket/py-clob-client-v2/blob/main/py_clob_client_v2/fees.py"
+  },
+  "cases": [
+    {
+      "name": "official_clob_example_has_unsupported_exponent",
+      "payload": {"fd": {"r": 0.02, "e": 2, "to": true}},
+      "expected_coefficient": null,
+      "basis": "The fd object from the official CLOB market-info documentation example. Exponent 2 does not match the schedule helper's exponent-1 curve."
+    },
+    {
+      "name": "documented_rate_in_clob_shape",
+      "payload": {"fd": {"r": 0.04, "e": 1, "to": true}},
+      "expected_coefficient": 0.04,
+      "basis": "Synthetic CLOB payload using the rate and exponent from the official Gamma feeSchedule example. The official client establishes the fd field mapping."
+    },
+    {
+      "name": "current_crypto_coefficient",
+      "payload": {"fd": {"r": 0.07, "e": 1, "to": true}},
+      "expected_coefficient": 0.07,
+      "basis": "Synthetic payload using the current published crypto coefficient. Not a captured market response."
+    },
+    {
+      "name": "new_btc_short_coefficient",
+      "payload": {"fd": {"r": 0.05, "e": 1, "to": true}},
+      "expected_coefficient": 0.05,
+      "basis": "Synthetic payload using the published BTC 5-minute and 15-minute up/down coefficient at and after the cutoff."
+    },
+    {
+      "name": "legacy_positive_value_is_not_coefficient",
+      "payload": {"base_fee": 1000},
+      "expected_coefficient": null,
+      "basis": "Synthetic legacy response. No universal mapping from this field to fd.r is established."
+    },
+    {
+      "name": "legacy_zero_sentinel_is_unknown",
+      "payload": {"base_fee": 0},
+      "expected_coefficient": null,
+      "basis": "Synthetic SDK failure-sentinel case. It does not establish a fee-free market."
+    },
+    {
+      "name": "explicit_zero_curve",
+      "payload": {"fd": {"r": 0, "e": 1, "to": true}},
+      "expected_coefficient": 0.0,
+      "basis": "Synthetic valid zero coefficient. The curve explicitly supplies a rate, unlike the legacy sentinel."
+    },
+    {
+      "name": "missing_curve",
+      "payload": {},
+      "expected_coefficient": null,
+      "basis": "Synthetic incomplete response."
+    },
+    {
+      "name": "missing_rate",
+      "payload": {"fd": {"e": 1, "to": true}},
+      "expected_coefficient": null,
+      "basis": "Synthetic incomplete fee curve."
+    },
+    {
+      "name": "malformed_rate",
+      "payload": {"fd": {"r": "unknown", "e": 1, "to": true}},
+      "expected_coefficient": null,
+      "basis": "Synthetic malformed fee curve."
+    }
+  ]
+}
