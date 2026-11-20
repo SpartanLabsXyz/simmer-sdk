@@ -13,6 +13,16 @@
   },
   "envVars": [
     {
+      "name": "SIMMER_REPLAY",
+      "required": false,
+      "description": "Replay harness flag (1); use the frozen replay clock and disable live fee lookups."
+    },
+    {
+      "name": "SIMMER_REPLAY_NOW",
+      "required": false,
+      "description": "Timezone-aware ISO timestamp supplied by the replay harness; required when SIMMER_REPLAY=1."
+    },
+    {
       "name": "SIMMER_API_KEY",
       "required": true,
       "description": "Your Simmer SDK API key \u2014 get from simmer.markets/dashboard"

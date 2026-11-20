@@ -1,0 +1,88 @@
+{
+  "source": "SupaFund/simmer@c243eae175a3908a5f3a5e31b55ea82b18d154ca",
+  "source_file": "scripts/local_dev_server.py",
+  "provenance": "Evaluated api_sdk_get_market return, _refresh_sdk_markets_cache row expression, and _build_sdk_markets_response with synthetic DB values; venue enrichment disabled. Price, clock, and orderbook I/O stubbed. No fee identity fields added.",
+  "detail": {
+    "market": {
+      "id": "contract-market",
+      "question": "Bitcoin Up or Down",
+      "status": "active",
+      "url": "https://simmer.markets/contract-market",
+      "current_probability": 0.6,
+      "current_price": 0.6,
+      "import_source": "polymarket",
+      "external_price_yes": 0.6,
+      "divergence": null,
+      "opportunity_score": 0,
+      "resolves_at": "2026-11-21T00:03:00+00:00",
+      "is_sdk_only": false,
+      "outcome": null,
+      "tags": [
+        "polymarket",
+        "crypto",
+        "fast",
+        "5m"
+      ],
+      "polymarket_token_id": "fake-yes",
+      "polymarket_no_token_id": "fake-no",
+      "polymarket_neg_risk": false,
+      "volume_24h": null,
+      "is_paid": false,
+      "event_id": null,
+      "event_name": null,
+      "outcome_name": null,
+      "event_ref": null,
+      "fee_rate_bps": 0,
+      "tick_size": 0.01,
+      "resolution_criteria": null
+    },
+    "agent_id": "contract-agent"
+  },
+  "list": {
+    "markets": [
+      {
+        "id": "contract-market",
+        "question": "Bitcoin Up or Down",
+        "status": "active",
+        "url": "https://simmer.markets/contract-market",
+        "current_probability": 0.6,
+        "current_price": 0.6,
+        "import_source": "polymarket",
+        "external_price_yes": 0.6,
+        "has_fresh_venue_price": true,
+        "sim_tradeable": true,
+        "resolves_at": "2026-11-21T00:03:00+00:00",
+        "is_sdk_only": false,
+        "outcome": null,
+        "tags": [
+          "polymarket",
+          "crypto",
+          "fast",
+          "5m"
+        ],
+        "polymarket_token_id": "fake-yes",
+        "polymarket_no_token_id": "fake-no",
+        "polymarket_neg_risk": false,
+        "volume_24h": null,
+        "is_paid": false,
+        "event_id": null,
+        "event_name": null,
+        "outcome_name": null,
+        "event_ref": null,
+        "is_orderbook_open": true,
+        "best_bid": null,
+        "best_ask": null,
+        "best_bid_size": null,
+        "best_ask_size": null,
+        "spread": null,
+        "quote_ts": null,
+        "quote_age_seconds": null,
+        "seconds_to_resolution": 240.0
+      }
+    ],
+    "total": 1,
+    "limit_applied": 200,
+    "offset": 0,
+    "agent_id": "contract-agent"
+  }
+}

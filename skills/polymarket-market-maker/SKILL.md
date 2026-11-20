@@ -2,8 +2,15 @@
 name: polymarket-market-maker
 description: Post two-sided GTC limit orders on Polymarket CLOB. Manages inventory skew, cancel/replace on price drift, and estimates potential fee-equivalent value if quotes fill.
 metadata:
+  envVars:
+    - name: SIMMER_REPLAY
+      required: false
+      description: "Replay harness flag (1); use the frozen replay clock and disable live fee lookups."
+    - name: SIMMER_REPLAY_NOW
+      required: false
+      description: "Timezone-aware ISO timestamp supplied by the replay harness; required when SIMMER_REPLAY=1."
   author: Simmer (@simmer_markets)
-  version: "0.9.4"
+  version: "0.9.5"
   displayName: Polymarket Market Maker
   difficulty: advanced
   attribution: "Based on Akey et al. (2026): market-making reduces loss probability by 35.9 pp."
@@ -18,6 +25,15 @@ metadata:
 Post two-sided GTC limit orders (bid + ask) on Polymarket CLOB to earn the bid-ask spread as a liquidity provider. This is a **developer-only SDK primitive** — not a retail "set and forget" skill. You will need to monitor inventory and tune spread/skew parameters to your specific markets.
 
 > **Why this matters.** Akey, Grégoire, Harvie & Martineau (2026) studied 1.4M Polymarket users and $20B in volume. Their headline finding: moving from pure taker to pure market-maker reduces the probability of losing money by **35.9 percentage points** — more than 10× larger than any other behavioral predictor (overtrading: 5pp, category concentration: 13.6pp, extreme-price trading: 3pp). This is the single highest-edge behavior on Polymarket.
+
+The fee helper is bundled as `_polymarket_fees.py`; these estimates work with
+published SDK 0.27.2 and do not require an unpublished SDK module.
+
+The current Simmer market API omits the authoritative identity needed by this
+fee classifier. Its topic tags may be generated from titles and are not a venue
+fee category. With that response shape, this skill skips orders with unknown
+fees until the API supplies authoritative metadata. It does not infer fees
+from tags, question text, or legacy fee-rate zero sentinels.
 
 ## How it works
 

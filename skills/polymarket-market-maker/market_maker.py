@@ -30,6 +30,9 @@ from typing import Optional
 
 sys.stdout.reconfigure(line_buffering=True)
 
+# Support standalone bundles and harnesses that load this file by path.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 # =============================================================================
 # Constants
 # =============================================================================
@@ -276,7 +279,7 @@ def run_market(
         stats["skip_reason"] = "neg_risk_unsupported (multi-outcome market — synthetic-ask math invalid)"
         return stats
 
-    from simmer_sdk.polymarket_fees import (
+    from _polymarket_fees import (
         classify_market, fee_rate, fee_time, maker_pool_fraction, maker_rebate_rate,
     )
 

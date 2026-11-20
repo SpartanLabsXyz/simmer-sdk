@@ -2,8 +2,15 @@
 name: polymarket-mert-sniper
 description: "Trade near-expiry Polymarket markets, filter by topic, cap bet size, or require strongly skewed odds before entry. Scans final-minute markets and places bounded trades against the under-priced side. Defaults: $10 max per trade, 5 trades/run, 8-minute expiry window, dry-run unless `--live`."
 metadata:
+  envVars:
+    - name: SIMMER_REPLAY
+      required: false
+      description: "Replay harness flag (1); use the frozen replay clock and disable live fee lookups."
+    - name: SIMMER_REPLAY_NOW
+      required: false
+      description: "Timezone-aware ISO timestamp supplied by the replay harness; required when SIMMER_REPLAY=1."
   author: Simmer (@simmer_markets)
-  version: "1.3.9"
+  version: "1.3.10"
   displayName: Mert Sniper
   difficulty: advanced
   attribution: Strategy inspired by @mert — https://x.com/mert/status/2020216613279060433
@@ -29,7 +36,16 @@ Venue `fd.r` supplies the coefficient only with exponent `fd.e=1`. Legacy
 fee. A failed lookup or legacy zero sentinel is unknown. When venue parameters
 are missing, explicit market identity can supply a labelled dated schedule
 estimate. Ambiguous identity or an unsupported venue curve skips the trade.
-Replay uses `SIMMER_REPLAY_NOW` and makes no live fee lookup.
+Replay uses `SIMMER_REPLAY=1` with `SIMMER_REPLAY_NOW` and makes no live fee lookup.
+
+The fee helper is bundled as `_polymarket_fees.py`; these estimates work with
+published SDK 0.27.2 and do not require an unpublished SDK module.
+
+The current Simmer market API omits the authoritative identity needed by this
+fee classifier. Its topic tags may be generated from titles and are not a venue
+fee category. With that response shape, this skill skips orders with unknown
+fees until the API supplies authoritative metadata. It does not infer fees
+from tags, question text, or legacy fee-rate zero sentinels.
 
 ## Setup Flow
 

@@ -2,8 +2,15 @@
 name: polymarket-fast-loop
 description: Trade Polymarket 5-minute and 15-minute crypto sprint markets, automate short-term prediction trading, use CEX momentum or custom signals, or monitor sprint-market positions. Default signal is Binance BTC/USDT klines.
 metadata:
+  envVars:
+    - name: SIMMER_REPLAY
+      required: false
+      description: "Replay harness flag (1); use the frozen replay clock and disable live fee lookups."
+    - name: SIMMER_REPLAY_NOW
+      required: false
+      description: "Timezone-aware ISO timestamp supplied by the replay harness; required when SIMMER_REPLAY=1."
   author: Simmer (@simmer_markets)
-  version: "1.7.7"
+  version: "1.7.8"
   displayName: Polymarket FastLoop Trader
   difficulty: advanced
 ---
@@ -28,7 +35,10 @@ Venue `fd.r` supplies the coefficient only with exponent `fd.e=1`. Legacy
 fee. A failed lookup or legacy zero sentinel is unknown. When venue parameters
 are missing, explicit market identity can supply a labelled dated schedule
 estimate. Ambiguous identity or an unsupported venue curve skips the trade.
-Replay uses `SIMMER_REPLAY_NOW` and makes no live fee lookup.
+Replay uses `SIMMER_REPLAY=1` with `SIMMER_REPLAY_NOW` and makes no live fee lookup.
+
+The fee helper is bundled as `_polymarket_fees.py`; these estimates work with
+published SDK 0.27.2 and do not require an unpublished SDK module.
 
 ## How It Finds Markets
 

@@ -28,6 +28,9 @@ from urllib.parse import urlencode, quote
 # Force line-buffered stdout for non-TTY environments (cron, Docker, OpenClaw)
 sys.stdout.reconfigure(line_buffering=True)
 
+# Support standalone bundles and harnesses that load this file by path.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 # Optional: Trade Journal integration
 try:
     from tradejournal import log_trade
@@ -104,7 +107,7 @@ ASSET_PATTERNS = {
 }
 
 
-from simmer_sdk.polymarket_fees import classify_market, estimate_fee_rate, fee_time
+from _polymarket_fees import classify_market, estimate_fee_rate, fee_time
 from simmer_sdk.skill import load_config, update_config, get_config_path
 from simmer_sdk.guards.news_recency_veto import load_macro_news_schedule, news_window_match
 

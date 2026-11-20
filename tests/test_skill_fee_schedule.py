@@ -1,4 +1,5 @@
 import importlib.util
+import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import Mock
@@ -214,6 +215,55 @@ def test_market_maker_known_fee_with_unknown_rebate_tier_can_submit(monkeypatch)
     assert stats['skip_reason'] is None
     assert stats['quoted_fee_equiv_usd'] == pytest.approx(.52)
     assert stats['maker_rebate_rate'] is None
+
+
+@pytest.fixture
+def api_fee_contract():
+    return json.loads((ROOT / 'tests/fixtures/polymarket_fee_api_contract.json').read_text())
+
+
+@pytest.mark.parametrize('live', [False, True])
+def test_market_maker_actual_api_response_fails_closed(monkeypatch, api_fee_contract, live):
+    maker = load_skill('polymarket-market-maker', 'market_maker')
+    client = Mock()
+    client._request.return_value = api_fee_contract['detail']
+    monkeypatch.setattr(maker, 'get_client', lambda: client)
+    stats = maker.run_market('contract-market', {}, live, .04, 10, .3, .02, set(), at=AFTER)
+    client._request.assert_called_with('GET', '/api/sdk/markets/contract-market')
+    client.trade.assert_not_called()
+    assert stats['skip_reason'] == 'fee_unknown'
+    assert not stats['bid_placed'] and not stats['ask_placed']
+    assert stats['quoted_fee_equiv_usd'] is None
+
+
+@pytest.mark.parametrize('dry_run', [False, True])
+def test_mert_actual_api_response_fails_closed(monkeypatch, capsys, api_fee_contract, dry_run):
+    mert = load_skill('polymarket-mert-sniper', 'mert_sniper')
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return AFTER
+    monkeypatch.setattr(mert, 'datetime', Clock)
+    monkeypatch.setattr(mert, 'MIN_EDGE', 0)  # Advisory edge still requires a known fee.
+    monkeypatch.setattr(mert, 'ENABLE_NEWS_VETO', False)
+    client = Mock()
+    client.auto_redeem.return_value = []
+    client.ensure_can_trade.return_value = {'ok': True, 'max_safe_size': 1000}
+    client._request.return_value = api_fee_contract['list']
+    monkeypatch.setattr(mert, 'get_client', lambda **kwargs: client)
+    monkeypatch.setattr(mert, 'fetch_live_midpoint', lambda _: .6)
+    monkeypatch.setattr(mert, 'fetch_orderbook_summary', lambda _: {
+        'spread_pct': .02, 'ask_depth_usd': 1000, 'bid_depth_usd': 1000})
+    lookup = Mock(return_value={'base_fee': 0})
+    execute = Mock()
+    monkeypatch.setattr(mert, '_clob_request', lookup)
+    monkeypatch.setattr(mert, 'execute_trade', execute)
+    mert.run_mert_strategy(dry_run=dry_run, use_safeguards=False)
+    client._request.assert_called_with('GET', '/api/sdk/markets', params={'status': 'active', 'limit': 200})
+    lookup.assert_called_once_with(f'{mert.CLOB_API}/fee-rate?token_id=fake-yes')
+    execute.assert_not_called()
+    client.trade.assert_not_called()
+    assert 'Skip: fee coefficient unknown' in capsys.readouterr().out
 
 
 def test_money_trace_snapshot(monkeypatch, capsys):
