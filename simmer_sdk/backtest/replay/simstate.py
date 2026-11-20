@@ -1,4 +1,4 @@
-# vendored from simmer_v3/replay/simstate.py @ db7e93e81ee8
+# vendored from simmer_v3/replay/simstate.py @ c243eae175a3
 # DO NOT EDIT HERE — regenerate via scripts/sync_replay_engine.py
 """SimState — the simulated agent portfolio during replay (SIM-3070).
 
@@ -22,8 +22,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
+from math import isfinite
 from typing import Optional
 
+from .fee_schedule import GENERIC_FEE_RATE, scheduled_fee_rate
 from .store import ReplayView, Resolution
 
 
@@ -102,8 +104,8 @@ def fee_for(notional: float, px: float, base_rate: float, kind: str = "market") 
     the extremes.
 
     ``kind="limit"`` (a resting order that filled as maker) pays 0 — live
-    makers pay no fee (_dev/reference/trading-economics.md). The 20% maker
-    rebate is NOT credited; see REALISM_GAPS.
+    makers pay no fee (_dev/reference/trading-economics.md). Neither daily
+    pool rebates nor volume-tier rebates are credited by replay.
 
     Clamped at zero as defence-in-depth: buy()/sell() now reject px outside
     their valid range, so an out-of-range price cannot reach here. Were it to,
@@ -123,17 +125,40 @@ def fee_for(notional: float, px: float, base_rate: float, kind: str = "market") 
 class SimState:
     """Mutable per-replay portfolio. One instance per replay job/session."""
 
-    def __init__(self, starting_balance: float = 1000.0, fee_rate: float = 0.0):
+    def __init__(self, starting_balance: float = 1000.0, fee_rate: float | None = None,
+                 fee_categories: dict[str, str] | None = None):
         self.cash = float(starting_balance)
         self.starting_balance = float(starting_balance)
-        self.fee_rate = float(fee_rate)
+        if fee_rate is not None and (not isfinite(fee_rate) or fee_rate < 0):
+            raise ValueError("fee_rate must be finite and nonnegative")
+        self.fee_rate = float(fee_rate) if fee_rate is not None else None
+        self.fee_categories = dict(fee_categories or {})
         self.positions: dict[str, Position] = {}
         self.open_orders: dict[str, LimitOrder] = {}
         self.fills: list[Fill] = []
         self._order_seq = 0
 
-    def _fee(self, notional: float, px: float, kind: str = "market") -> float:
-        return fee_for(notional, px, self.fee_rate, kind)
+    def fee_source(self, market_id: str) -> str:
+        if self.fee_rate is not None:
+            return "explicit"
+        return "schedule" if market_id in self.fee_categories else "generic_estimate"
+
+    def fee_rate_for(self, market_id: str, at: datetime) -> float:
+        if self.fee_rate is not None:
+            return self.fee_rate
+        if market_id not in self.fee_categories:
+            return GENERIC_FEE_RATE
+        category = self.fee_categories[market_id]
+        rate = scheduled_fee_rate(category, at)
+        if rate is None:
+            raise ReplayTradeError(f"unknown fee category {category!r} at {at.isoformat()}")
+        return rate
+
+    def _fee(self, view: ReplayView, market_id: str, notional: float, px: float,
+             kind: str = "market") -> float:
+        if kind == "limit":
+            return 0.0
+        return fee_for(notional, px, self.fee_rate_for(market_id, view.now), kind)
 
     # -- marketable orders ---------------------------------------------------
 
@@ -156,7 +181,7 @@ class SimState:
         # sizing instead of the bad tape print.
         if not 0 < px <= 1:
             raise ReplayTradeError(f"{side} price out of range (0,1]: {px}")
-        fee = self._fee(usd_amount, px)
+        fee = self._fee(view, market_id, usd_amount, px)
         total = usd_amount + fee
         if total > self.cash + 1e-9:
             raise ReplayTradeError(f"insufficient balance: need {total:.2f}, have {self.cash:.2f}")
@@ -198,7 +223,7 @@ class SimState:
         if not 0 <= px <= 1:
             raise ReplayTradeError(f"{side} price out of range [0,1]: {px}")
         proceeds = shares * px
-        fee = self._fee(proceeds, px)
+        fee = self._fee(view, market_id, proceeds, px)
         self.cash += proceeds - fee
         pos.reduce_basis(side, shares, held)
         if side == "yes":
@@ -263,7 +288,7 @@ class SimState:
     def _execute_at_limit(self, view: ReplayView, order: LimitOrder) -> Optional[Fill]:
         px = order.limit_price
         if order.action == "buy":
-            fee = self._fee(order.usd_amount, px, kind="limit")
+            fee = self._fee(view, order.market_id, order.usd_amount, px, kind="limit")
             total = order.usd_amount + fee
             if total > self.cash + 1e-9:
                 return None  # order lapses — insufficient cash at cross time
@@ -285,7 +310,7 @@ class SimState:
             if shares <= 0:
                 return None
             proceeds = shares * px
-            fee = self._fee(proceeds, px, kind="limit")
+            fee = self._fee(view, order.market_id, proceeds, px, kind="limit")
             self.cash += proceeds - fee
             pos.reduce_basis(order.side, shares, held)
             if order.side == "yes":

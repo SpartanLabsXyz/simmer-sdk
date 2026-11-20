@@ -10,8 +10,8 @@ Polymarket by a factor of 10x over any other behavioral predictor.
 Quote structure (synthetic sell on the ask side):
   BID: client.trade(market_id, "yes",  amount=Q, price=mid-spread/2, order_type="GTC")
   ASK: client.trade(market_id, "no",   amount=Q, price=1-(mid+spread/2), order_type="GTC")
-  → Posting the ask as a NO buy avoids taker fees and earns maker rebates
-    on both sides (synthetic sell pattern from @rn1 quant bot analysis).
+  Eligible resting fills can earn maker rebates on either side.
+  A marketable GTC order can take liquidity and pay taker fees.
 
 Usage:
     python market_maker.py                  # Dry run — show quotes, no execution
@@ -25,10 +25,13 @@ import os
 import sys
 import json
 import argparse
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 sys.stdout.reconfigure(line_buffering=True)
+
+# Support standalone bundles and harnesses that load this file by path.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 # =============================================================================
 # Constants
@@ -59,7 +62,7 @@ CONFIG_SCHEMA = {
     "quote_usdc":           {"env": "MM_QUOTE_USDC",           "default": 10.0,  "type": float},
     "max_skew_pct":         {"env": "MM_MAX_SKEW_PCT",         "default": 0.30,  "type": float},
     "drift_threshold":      {"env": "MM_DRIFT_THRESHOLD",      "default": 0.02,  "type": float},
-    "taker_fee_rate":       {"env": "MM_TAKER_FEE_RATE",       "default": 0.02,  "type": float},
+    "maker_volume_30d":     {"env": "MM_MAKER_VOLUME_30D",     "default": None,  "type": float},
     "state_file":           {"env": "MM_STATE_FILE",           "default": STATE_FILE_DEFAULT, "type": str},
     "max_markets":          {"env": "MM_MAX_MARKETS",          "default": 5,     "type": int},
 }
@@ -103,7 +106,7 @@ def load_state(state_file: str) -> dict:
                 return json.load(f)
         except (json.JSONDecodeError, OSError):
             pass
-    return {"markets": {}, "rebate_log": {}}
+    return {"markets": {}}
 
 def save_state(state: dict, state_file: str) -> None:
     os.makedirs(os.path.dirname(state_file), exist_ok=True)
@@ -131,7 +134,7 @@ def compute_quotes(mid: float, spread_pct: float):
 
     In a binary prediction market: YES + NO = 1.
     Posting a NO buy at price (1 - ask_yes) is economically equivalent to
-    selling YES at ask_yes but earns maker rebates instead of paying taker fees.
+    selling YES at ask_yes. Only eligible resting fills earn maker rebates.
     """
     half = spread_pct / 2
     bid_yes = clamp_price(round_to_tick(mid - half))
@@ -147,11 +150,12 @@ def compute_quotes(mid: float, spread_pct: float):
     return bid_yes, ask_yes, bid_no_synthetic
 
 def fee_equivalent(notional_usdc: float, price: float, taker_fee_rate: float) -> float:
+    """Taker fees generated if this notional fills as maker at ``price``.
+
+    Shares = notional / price, so shares × rate × p × (1-p) simplifies
+    to notional × rate × (1-p). Posting an order earns no rebate.
     """
-    Rebate-eligible volume metric from Polymarket Maker Rebates formula.
-    fee_equivalent = C × taker_fee_rate × p × (1-p)
-    """
-    return notional_usdc * taker_fee_rate * price * (1.0 - price)
+    return notional_usdc * taker_fee_rate * (1.0 - price)
 
 # =============================================================================
 # Inventory helpers
@@ -222,8 +226,9 @@ def run_market(
     quote_usdc: float,
     max_skew_pct: float,
     drift_threshold: float,
-    taker_fee_rate: float,
     open_order_ids: set,
+    at: Optional[datetime] = None,
+    maker_volume_30d: Optional[float] = None,
 ) -> dict:
     """
     Process one market:
@@ -235,12 +240,13 @@ def run_market(
       6. Return updated market state + stats
 
     Returns dict with keys: bid_placed, ask_placed, bid_cancelled, ask_cancelled,
-      fee_equiv_usd, skip_reason, mid, bid_price, ask_price
+      quoted_fee_equiv_usd, skip_reason, mid, bid_price, ask_price
     """
     stats = {
         "bid_placed": False, "ask_placed": False,
         "bid_cancelled": False, "ask_cancelled": False,
-        "fee_equiv_usd": 0.0,
+        "quoted_fee_equiv_usd": None,
+        "maker_pool_fraction": None, "maker_rebate_rate": None,
         "skip_reason": None,
         "mid": None, "bid_price": None, "ask_price": None,
     }
@@ -272,6 +278,32 @@ def run_market(
     if is_neg_risk:
         stats["skip_reason"] = "neg_risk_unsupported (multi-outcome market — synthetic-ask math invalid)"
         return stats
+
+    from _polymarket_fees import (
+        classify_market, fee_rate, fee_time, maker_pool_fraction, maker_rebate_rate,
+    )
+
+    at = fee_time(at or datetime.now(timezone.utc))
+    category = classify_market(
+        market_info.get("category"), slug=market_info.get("slug"),
+        asset=market_info.get("asset"), window=market_info.get("window"),
+        up_down=market_info.get("up_down"), elections=market_info.get("elections"),
+        geopolitics=market_info.get("geopolitics"),
+        combo=market_info.get("is_combo") is True,
+    )
+    taker_fee_rate = fee_rate(category, at)
+    if taker_fee_rate is None:
+        stats["skip_reason"] = "fee_unknown"
+        print("  → Skip market: fee coefficient unknown")
+        return stats
+    stats["maker_pool_fraction"] = maker_pool_fraction(category, at)
+    stats["maker_rebate_rate"] = maker_rebate_rate(category, at, volume_30d=maker_volume_30d)
+    if stats["maker_pool_fraction"] is not None:
+        print(f"  Maker program: daily market pool {stats['maker_pool_fraction']:.0%}; payout unknown")
+    elif stats["maker_rebate_rate"] is not None:
+        print(f"  Maker program: {stats['maker_rebate_rate']:.0%} of eligible filled taker fees")
+    else:
+        print("  Maker rebate unknown (category or 30-day maker weighted volume unavailable)")
 
     # 2. Quotes
     bid_yes, ask_yes, bid_no_synth = compute_quotes(mid, spread_pct)
@@ -373,17 +405,13 @@ def run_market(
                     market_state["bid_order_id"] = result.trade_id
                     market_state["bid_price"] = bid_yes
                     stats["bid_placed"] = True
-                    fe = fee_equivalent(usdc_bid, bid_yes, taker_fee_rate)
-                    stats["fee_equiv_usd"] += fe
-                    print(f"     ✅ Order {result.trade_id[:8]}... (fee_equiv=${fe:.4f})")
+                    print(f"     ✅ Order {result.trade_id[:8]}...")
                 else:
                     print(f"     ⚠️ BID failed: {result.error}")
             except Exception as e:
                 print(f"     ⚠️ BID exception: {e}")
         else:
             stats["bid_placed"] = True  # Count as "would place" in dry-run
-            fe = fee_equivalent(usdc_bid, bid_yes, taker_fee_rate)
-            stats["fee_equiv_usd"] += fe
 
     if ask_needs_place:
         print(f"  → POST ASK: BUY NO @ {bid_no_synth:.3f} for ${usdc_ask:.2f} USDC "
@@ -403,18 +431,19 @@ def run_market(
                     market_state["ask_order_id"] = result.trade_id
                     market_state["ask_price"] = bid_no_synth
                     stats["ask_placed"] = True
-                    fe = fee_equivalent(usdc_ask, bid_no_synth, taker_fee_rate)
-                    stats["fee_equiv_usd"] += fe
-                    print(f"     ✅ Order {result.trade_id[:8]}... (fee_equiv=${fe:.4f})")
+                    print(f"     ✅ Order {result.trade_id[:8]}...")
                 else:
                     print(f"     ⚠️ ASK failed: {result.error}")
             except Exception as e:
                 print(f"     ⚠️ ASK exception: {e}")
         else:
             stats["ask_placed"] = True
-            fe = fee_equivalent(usdc_ask, bid_no_synth, taker_fee_rate)
-            stats["fee_equiv_usd"] += fe
 
+    if taker_fee_rate is not None:
+        stats["quoted_fee_equiv_usd"] = (
+            fee_equivalent(usdc_bid, bid_yes, taker_fee_rate) * stats["bid_placed"]
+            + fee_equivalent(usdc_ask, bid_no_synth, taker_fee_rate) * stats["ask_placed"]
+        )
     return stats
 
 # =============================================================================
@@ -443,10 +472,6 @@ def cmd_status(state: dict) -> None:
         print(f"\n  {market_id[:16]}...")
         print(f"    BID YES @ {bid_str} — order {bid_order} {'[live]' if bid_live else '[filled/expired]'}")
         print(f"    ASK (NO buy @ {ask_str}) — order {ask_order} {'[live]' if ask_live else '[filled/expired]'}")
-
-        rebate = state.get("rebate_log", {}).get(market_id, {})
-        if rebate:
-            print(f"    Cumulative fee-equiv: ${rebate.get('total_fee_equiv_usd', 0):.4f}")
 
     # Inventory summary
     print("\n📦 Inventory")
@@ -489,7 +514,7 @@ def cmd_run(args, live: bool) -> None:
     quote_usdc      = _config["quote_usdc"]
     max_skew_pct    = _config["max_skew_pct"]
     drift_threshold = _config["drift_threshold"]
-    taker_fee_rate  = _config["taker_fee_rate"]
+    maker_volume_30d = _config["maker_volume_30d"]
     max_markets     = _config["max_markets"]
     state_file      = _config["state_file"]
 
@@ -536,8 +561,6 @@ def cmd_run(args, live: bool) -> None:
     state = load_state(state_file)
     if "markets" not in state:
         state["markets"] = {}
-    if "rebate_log" not in state:
-        state["rebate_log"] = {}
 
     # Fetch open orders once (avoids per-market API call)
     open_order_ids = get_open_order_ids()
@@ -560,7 +583,7 @@ def cmd_run(args, live: bool) -> None:
             quote_usdc=quote_usdc,
             max_skew_pct=max_skew_pct,
             drift_threshold=drift_threshold,
-            taker_fee_rate=taker_fee_rate,
+            maker_volume_30d=maker_volume_30d,
             open_order_ids=open_order_ids,
         )
 
@@ -578,13 +601,10 @@ def cmd_run(args, live: bool) -> None:
         if stats["ask_placed"]:
             total_asks += 1
         total_cancels += stats["bid_cancelled"] + stats["ask_cancelled"]
-        total_fee_equiv += stats["fee_equiv_usd"]
-
-        # Update rebate log
-        rl = state["rebate_log"].setdefault(market_id, {"total_fee_equiv_usd": 0.0, "runs": 0})
-        rl["total_fee_equiv_usd"] = round(rl["total_fee_equiv_usd"] + stats["fee_equiv_usd"], 6)
-        rl["runs"] += 1
-        rl["last_run"] = datetime.utcnow().isoformat()
+        if stats["quoted_fee_equiv_usd"] is None:
+            total_fee_equiv = None
+        elif total_fee_equiv is not None:
+            total_fee_equiv += stats["quoted_fee_equiv_usd"]
 
     # Save state
     if live:
@@ -594,13 +614,8 @@ def cmd_run(args, live: bool) -> None:
     print(f"\n{'─' * 50}")
     print(f"✅ Run complete: {total_bids} bid(s) | {total_asks} ask(s) posted | "
           f"{total_cancels} cancelled | {len(skipped)} skipped")
-    print(f"   Estimated fee-equiv this run: ${total_fee_equiv:.4f}")
-
-    cumulative_fe = sum(
-        state["rebate_log"].get(m, {}).get("total_fee_equiv_usd", 0.0)
-        for m in market_ids
-    )
-    print(f"   Cumulative fee-equiv (all runs): ${cumulative_fe:.4f}")
+    fee_display = "unknown" if total_fee_equiv is None else f"${total_fee_equiv:.4f}"
+    print(f"   Potential fee-equiv if posted quotes fill: {fee_display} (not earned rebates)")
 
     if not live:
         print("\n💡 Add --live to place real orders on Polymarket CLOB")
@@ -612,8 +627,7 @@ def cmd_run(args, live: bool) -> None:
             "bids_placed": total_bids,
             "asks_placed": total_asks,
             "orders_cancelled": total_cancels,
-            "fee_equiv_usd": round(total_fee_equiv, 4),
-            "cumulative_fee_equiv_usd": round(cumulative_fe, 4),
+            "quoted_fee_equiv_usd": round(total_fee_equiv, 4) if total_fee_equiv is not None else None,
         }
         if skipped:
             report["skipped_markets"] = len(skipped)

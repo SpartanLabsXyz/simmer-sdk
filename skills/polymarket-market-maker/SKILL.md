@@ -1,9 +1,16 @@
 ---
 name: polymarket-market-maker
-description: Post two-sided GTC limit orders on Polymarket CLOB. Manages inventory skew, cancel/replace on price drift, and estimates rebate-eligible volume.
+description: Post two-sided GTC limit orders on Polymarket CLOB. Manages inventory skew, cancel/replace on price drift, and estimates potential fee-equivalent value if quotes fill.
 metadata:
+  envVars:
+    - name: SIMMER_REPLAY
+      required: false
+      description: "Replay harness flag (1); use the frozen replay clock and disable live fee lookups."
+    - name: SIMMER_REPLAY_NOW
+      required: false
+      description: "Timezone-aware ISO timestamp supplied by the replay harness; required when SIMMER_REPLAY=1."
   author: Simmer (@simmer_markets)
-  version: "0.9.3"
+  version: "0.9.5"
   displayName: Polymarket Market Maker
   difficulty: advanced
   attribution: "Based on Akey et al. (2026): market-making reduces loss probability by 35.9 pp."
@@ -18,6 +25,15 @@ metadata:
 Post two-sided GTC limit orders (bid + ask) on Polymarket CLOB to earn the bid-ask spread as a liquidity provider. This is a **developer-only SDK primitive** — not a retail "set and forget" skill. You will need to monitor inventory and tune spread/skew parameters to your specific markets.
 
 > **Why this matters.** Akey, Grégoire, Harvie & Martineau (2026) studied 1.4M Polymarket users and $20B in volume. Their headline finding: moving from pure taker to pure market-maker reduces the probability of losing money by **35.9 percentage points** — more than 10× larger than any other behavioral predictor (overtrading: 5pp, category concentration: 13.6pp, extreme-price trading: 3pp). This is the single highest-edge behavior on Polymarket.
+
+The fee helper is bundled as `_polymarket_fees.py`; these estimates work with
+published SDK 0.27.2 and do not require an unpublished SDK module.
+
+The current Simmer market API omits the authoritative identity needed by this
+fee classifier. Its topic tags may be generated from titles and are not a venue
+fee category. With that response shape, this skill skips orders with unknown
+fees until the API supplies authoritative metadata. It does not infer fees
+from tags, question text, or legacy fee-rate zero sentinels.
 
 ## How it works
 
@@ -34,27 +50,38 @@ Each run (cron or manual):
     4. Check drift: if existing order price differs from new quote by > drift_threshold
                     → cancel and repost
     5. Post GTC orders:
-         BID: client.trade("yes", amount=Q, price=bid, order_type="GTC")
-         ASK: client.trade("no",  amount=Q, price=1-ask, order_type="GTC")
+         BID: client.trade(market_id, "yes", amount=Q, price=bid, order_type="GTC")
+         ASK: client.trade(market_id, "no", amount=Q, price=1-ask, order_type="GTC")
               ^ Synthetic sell: post NO buy at 1-ask_price instead of YES sell
-                → earns maker rebates instead of paying taker fees on exits
-    6. Log fee-equivalent volume for rebate estimation
+                → eligible resting fills may earn maker rebates
+    6. Estimate fee-equivalent value if newly posted quotes fill
 ```
 
 ## Quote structure (synthetic sell on asks)
 
-Polymarket YES and NO tokens are complementary (YES + NO = $1). Instead of posting a sell order on YES (which pays taker fees), this skill posts a buy order on NO at the complementary price:
+Polymarket YES and NO tokens are complementary (YES + NO = $1). This skill posts a buy order on NO at the complementary price. Whether an order pays taker fees depends on whether it takes liquidity, not whether it buys or sells:
 
 | Intent | Order posted | Price |
 |--------|-------------|-------|
 | Buy YES | BUY YES GTC | mid - spread/2 |
 | Sell YES (ask) | **BUY NO GTC** | 1 - (mid + spread/2) |
 
-This earns maker rebates on both sides (Polymarket Maker Rebates Program). At a taker fee rate of 2%, the rebate formula is:
+Only eligible maker **fills** earn rebates. Posting a GTC order alone earns nothing, and a marketable GTC order can take liquidity. For a resting fill, the fee-equivalent formula is:
+
+```text
+fee_equivalent = shares × feeRate × price × (1-price)
+               = notional_USDC × feeRate × (1-price)
 ```
-fee_equivalent = notional_USDC × taker_fee_rate × price × (1-price)
-```
-The `--status` and `--cancel-all` commands show cumulative fee-equivalent estimates.
+
+`feeRate` is a category coefficient, not a flat percentage of notional. The skill resolves the category from market metadata and uses the official dated schedule. Missing or ambiguous categories produce an unknown estimate. `MM_TAKER_FEE_RATE` has been removed.
+
+Before **2026-11-20T23:59:00Z**, daily market pools redistribute 20% of crypto taker fees, 15% for sports, and 25% for other eligible categories. Your payout depends on your share of the market's filled fee-equivalent value. The skill does not know that share or credit a payout.
+
+At and after that instant, pools are replaced by 30-day maker weighted-volume tiers. The thresholds are $200,000, $1 million, $4 million, and $10 million, paying 3%, 7%, 10%, and 15% of eligible taker fees generated by your maker fills. Below $200,000 the rate is 0%. Missing volume remains unknown. `MM_MAKER_VOLUME_30D`, when set, must be the account's known maker weighted volume, not dollar volume or taker volume. Weighted volume is `shares × price × (1-price)`. Combos and fee-free fills earn no maker rebate.
+
+The fee coefficient remains 0.05 for sports and combos. Crypto is 0.07 before the cutoff; afterwards BTC 5-minute and 15-minute up/down markets use 0.05 and other crypto uses 0.01. Politics is 0.04 before the cutoff; afterwards elections use 0.05 and other politics excluding geopolitics uses 0.01. Geopolitics stays fee-free. See the [official schedule](https://docs.polymarket.com/programs/fee-and-rebate-changes-november-2026) and [current maker pool rules](https://docs.polymarket.com/programs/maker-rebates).
+
+Each run reports potential fee-equivalent value for newly posted quotes. It is not a rebate balance or evidence of a fill. The skill no longer accumulates quote submissions as earned rebate volume.
 
 ## Setup
 
@@ -102,9 +129,9 @@ The `--status` and `--cancel-all` commands show cumulative fee-equivalent estima
 | `MM_QUOTE_USDC` | `10.0` | USDC per side per market |
 | `MM_MAX_SKEW_PCT` | `0.30` | Pause one side when inventory skew exceeds this fraction |
 | `MM_DRIFT_THRESHOLD` | `0.02` | Cancel/replace when quote drifts >2¢ from current mid |
-| `MM_TAKER_FEE_RATE` | `0.02` | Taker fee rate for rebate estimation (sports: 0.03) |
+| `MM_MAKER_VOLUME_30D` | unknown | Known account maker weighted volume over 30 days, used for the post-cutoff tier |
 | `MM_MAX_MARKETS` | `5` | Cap number of markets per run |
-| `MM_STATE_FILE` | `~/.simmer/market_maker_state.json` | State persistence (order IDs + rebate log) |
+| `MM_STATE_FILE` | `~/.simmer/market_maker_state.json` | State persistence (order IDs) |
 
 ## CLI commands
 
@@ -130,8 +157,7 @@ Automaton output fields:
 - `markets` — number of markets processed
 - `bids_placed` / `asks_placed` — GTC orders submitted this run
 - `orders_cancelled` — stale quotes cancelled
-- `fee_equiv_usd` — estimated rebate-eligible volume this run
-- `cumulative_fee_equiv_usd` — total across all runs
+- `quoted_fee_equiv_usd` — potential fee-equivalent value if newly posted quotes fill, or `null` if the category is unknown. This replaces `fee_equiv_usd` and `cumulative_fee_equiv_usd`; neither quoted value is earned rebates.
 
 ## Market selection guidance
 

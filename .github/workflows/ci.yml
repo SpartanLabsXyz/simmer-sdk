@@ -185,7 +185,7 @@ jobs:
         run: pip install -e '.[backtest]' pytest
 
       - name: Run backtest extra tests
-        run: pytest tests/test_backtest_run.py tests/test_replay_markets_filters.py tests/test_cli.py -q -rs
+        run: pytest tests/test_backtest_run.py tests/test_replay_markets_filters.py tests/test_replay_fee_schedule.py tests/test_cli.py -q -rs
 
       - name: Backtest demo smoke test
         run: simmer backtest --demo

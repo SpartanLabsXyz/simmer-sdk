@@ -1,4 +1,4 @@
-# vendored from simmer_v3/replay/duckdb_store.py @ db7e93e81ee8
+# vendored from simmer_v3/replay/duckdb_store.py @ c243eae175a3
 # DO NOT EDIT HERE — regenerate via scripts/sync_replay_engine.py
 """DuckDB-backed HistoricalStore over the Polymarket trade-tape parquet set.
 

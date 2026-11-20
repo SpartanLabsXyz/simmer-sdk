@@ -29,10 +29,14 @@ from urllib.parse import urlencode, quote
 # Force line-buffered stdout so output is visible in non-TTY environments (cron, Docker, OpenClaw)
 sys.stdout.reconfigure(line_buffering=True)
 
+# Support standalone bundles and harnesses that load this file by path.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 # =============================================================================
 # Configuration (config.json > env vars > defaults)
 # =============================================================================
 
+from _polymarket_fees import classify_market, estimate_fee_rate, fee_time
 from simmer_sdk.skill import load_config, update_config, get_config_path
 from simmer_sdk.guards.news_recency_veto import load_macro_news_schedule, news_window_match
 
@@ -78,10 +82,6 @@ ENABLE_NEWS_VETO = _config["enable_news_veto"]
 SLIPPAGE_MAX_PCT = 0.15
 MIN_BOOK_DEPTH_USD = 50.0  # Skip if less than $50 available on the side we want
 
-# Polymarket crypto taker fee formula (docs.polymarket.com/trading/fees)
-# fee = num_shares × POLY_FEE_RATE_CRYPTO × p × (1-p)
-# Effective rate on dollars spent = POLY_FEE_RATE_CRYPTO × (1-p)
-POLY_FEE_RATE_CRYPTO = 0.07   # Crypto markets taker fee coefficient
 FEE_BUFFER = _config["fee_buffer"]  # Extra alpha required above entry fee cost
 MIN_EDGE = _config["min_edge"]      # Declared alpha above market price (0 = fee-logging only)
 
@@ -250,14 +250,15 @@ def _clob_request(url, timeout=5):
 
 
 def _lookup_fee_rate(token_id):
-    """Fetch taker fee rate (bps) from Polymarket CLOB for a token. Returns 0 on failure."""
+    """Fetch taker fee rate (bps) from Polymarket CLOB for a token. Returns None for failure or the zero sentinel."""
     result = _clob_request(f"{CLOB_API}/fee-rate?token_id={quote(str(token_id))}")
     if not result or not isinstance(result, dict):
-        return 0
+        return None
     try:
-        return int(float(result.get("base_fee") or 0))
-    except (ValueError, TypeError):
-        return 0
+        value = int(float(result.get("base_fee") or 0))
+        return value if value > 0 else None
+    except (ValueError, TypeError, OverflowError):
+        return None
 
 
 def fetch_live_midpoint(token_id):
@@ -640,12 +641,26 @@ def run_mert_strategy(dry_run=True, positions_only=False, show_config=False,
         # meaningful edge metric here. Instead, gate on MIN_EDGE: the alpha the user declares
         # above the market price. At default MIN_EDGE=0 the gate is advisory (logs fee cost
         # only); set SIMMER_MERT_MIN_EDGE to your signal's claimed edge to activate blocking.
-        fee_rate_bps = _lookup_fee_rate(yes_token_id) if yes_token_id else 0
-        fee_per_share = POLY_FEE_RATE_CRYPTO * side_price * (1 - side_price)
-        min_edge_required = fee_per_share + FEE_BUFFER  # entry fee + buffer (no × 2 — redemption is free)
-        fee_note = "" if fee_rate_bps else " [fee_rate unavailable]"
+        fee_rate_bps = _lookup_fee_rate(yes_token_id) if yes_token_id and os.environ.get("SIMMER_REPLAY") != "1" else None
+        condition_id = market.get("polymarket_condition_id") or market.get("condition_id") or market.get("polymarket_id")
+        curve = _clob_request(f"{CLOB_API}/clob-markets/{quote(str(condition_id), safe='')}") if condition_id and os.environ.get("SIMMER_REPLAY") != "1" else None
+        category = classify_market(
+            market.get("category"), slug=market.get("slug"),
+            asset=market.get("asset"), window=market.get("window"),
+            up_down=market.get("up_down"), elections=market.get("elections"),
+            geopolitics=market.get("geopolitics"),
+            combo=market.get("is_combo") is True,
+        )
+        fee_estimate = estimate_fee_rate(category, fee_time(now), curve)
+        if fee_estimate is None:
+            print("     Skip: fee coefficient unknown")
+            skip_reasons.append("fee unknown")
+            continue
+        coefficient = fee_estimate.coefficient
+        fee_per_share = coefficient * side_price * (1 - side_price)
+        min_edge_required = fee_per_share + FEE_BUFFER
         gate_str = f"declared edge {MIN_EDGE:.3f} vs required {min_edge_required:.3f}"
-        print(f"     Fee:   ${fee_per_share:.4f}/share ({POLY_FEE_RATE_CRYPTO * (1 - side_price):.2%} on spend) | {gate_str}{fee_note}")
+        print(f"     Fee:   ${fee_per_share:.4f}/share ({coefficient * (1 - side_price):.2%} on spend) | {gate_str} [{fee_estimate.source}; legacy base_fee={fee_rate_bps}]")
         if MIN_EDGE > 0 and MIN_EDGE < min_edge_required:
             print(f"     Skip: declared edge {MIN_EDGE:.3f} < fee cost {min_edge_required:.3f} (fees eat the edge)")
             skip_reasons.append("fees eat the edge")

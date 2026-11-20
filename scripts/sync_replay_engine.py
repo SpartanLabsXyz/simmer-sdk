@@ -6,11 +6,11 @@ SIM-3070 slice 2. The `simmer backtest` CLI runs the SAME engine the internal
 can't depend on the private backend. So we vendor a SMALL, public-safe subset
 of `simmer_v3/replay/` into `simmer_sdk/backtest/replay/`.
 
-Vendored set (8 modules — pure engine, no DB/redis/boto3, no badge scoring, no
+Vendored set (9 modules — pure engine, no DB/redis/boto3, no badge scoring, no
 secret thresholds):
 
     store, simstate, server, engine, harness, duckdb_store,
-    candles_service, feeds/binance
+    candles_service, fee_schedule, feeds/binance
 
 DELIBERATELY EXCLUDED (managed badge/worker pipeline — not public-safe, not used
 by the local CLI): catalog, worker, queue, reverify, report_store, tape_capture,
@@ -44,6 +44,7 @@ VENDORED = [
     "harness.py",
     "duckdb_store.py",
     "candles_service.py",
+    "fee_schedule.py",
     "feeds/binance.py",
 ]
 

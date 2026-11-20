@@ -13,6 +13,16 @@
   },
   "envVars": [
     {
+      "name": "SIMMER_REPLAY",
+      "required": false,
+      "description": "Replay harness flag (1); use the frozen replay clock and disable live fee lookups."
+    },
+    {
+      "name": "SIMMER_REPLAY_NOW",
+      "required": false,
+      "description": "Timezone-aware ISO timestamp supplied by the replay harness; required when SIMMER_REPLAY=1."
+    },
+    {
       "name": "SIMMER_API_KEY",
       "required": true,
       "description": "Your Simmer SDK API key \u2014 get from simmer.markets/dashboard"
@@ -84,17 +94,6 @@
       ],
       "step": 0.005,
       "label": "Price drift to trigger cancel/replace (fraction)"
-    },
-    {
-      "env": "MM_TAKER_FEE_RATE",
-      "type": "number",
-      "default": 0.02,
-      "range": [
-        0.005,
-        0.05
-      ],
-      "step": 0.005,
-      "label": "Taker fee rate for rebate estimation (default 2%, sports 3%)"
     },
     {
       "env": "MM_MAX_MARKETS",

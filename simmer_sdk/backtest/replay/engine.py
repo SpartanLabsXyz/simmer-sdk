@@ -1,4 +1,4 @@
-# vendored from simmer_v3/replay/engine.py @ db7e93e81ee8
+# vendored from simmer_v3/replay/engine.py @ c243eae175a3
 # DO NOT EDIT HERE — regenerate via scripts/sync_replay_engine.py
 """Replay engine — the tick loop + report builder (SIM-3070 chunk 3).
 
@@ -25,6 +25,7 @@ from typing import Any, Optional, Protocol
 
 from fastapi.testclient import TestClient
 
+from .fee_schedule import FEE_POLICY, maker_rebate_gaps
 from .server import ReplaySession, create_app
 from .simstate import SimState, fee_for
 from .store import HistoricalStore
@@ -39,9 +40,9 @@ REALISM_GAPS = [
     "no market impact at size",
     "no queue position",
     "no latency",
-    "no maker rebates (maker fills pay 0 fee, but the 20% rebate is not credited)",
-    "single blended base fee rate, not per-category (crypto/sports/other differ; "
-    "see _dev/reference/trading-economics.md)",
+    "no taker rebates credited; account tier is unknown",
+    "missing fee category uses a generic 0.05 estimate, not a known category rate; "
+    "explicit unknown categories reject taker fills; no recorded venue fee parameters",
     "trade-tape prices, not orderbook",
 ]
 
@@ -56,15 +57,10 @@ class ReplayConfig:
     t1: datetime
     cadence: timedelta = timedelta(minutes=15)
     starting_balance: float = 1000.0
-    # BASE fee rate, applied as notional x fee_rate x (1 - price) — see
-    # SimState._fee. 0.05 is derived from the only fees we have actually
-    # measured: 6,812 V2 trades back-filled from on-chain `fee_usdc` between
-    # 2026-04-28 and 2026-06-15 came in at a median 246 bps EFFECTIVE at an
-    # average price of 0.522, which implies a base near 500 bps. Zero was never
-    # right: post-April `real_trades.fee_rate_bps = 0` is a sentinel meaning
-    # "unknown at placement time" (polymarket_client.get_polymarket_fee_rate),
-    # not "free".
-    fee_rate: float = 0.05
+    # None selects the schedule at each fill's timestamp. A numeric value is
+    # an explicit coefficient override, never CLOB base_fee or fee_rate_bps.
+    # Missing category metadata retains the observed 0.05 generic estimate.
+    fee_rate: float | None = None
     skill_slug: str = "unknown"
     skill_version: str = "0"
     dataset_rev: str = "unknown"
@@ -76,12 +72,14 @@ class ReplayConfig:
     # by callers — config_hash is the ReportStore upsert key, so two runs that
     # can produce different results must never hash identical (holistic-review P1).
     params: dict = field(default_factory=dict)
+    fee_categories: dict[str, str] = field(default_factory=dict)
 
     def config_hash(self) -> str:
         blob = json.dumps({
             "t0": self.t0.isoformat(), "t1": self.t1.isoformat(),
             "cadence_s": self.cadence.total_seconds(),
             "balance": self.starting_balance, "fee": self.fee_rate,
+            "fee_policy": FEE_POLICY, "fee_categories": self.fee_categories,
             "skill": f"{self.skill_slug}@{self.skill_version}",
             "dataset": self.dataset_rev, "engine": self.engine_version,
             "seed": self.seed, "max_evaluations": self.max_evaluations,
@@ -104,7 +102,8 @@ class ReplayEngine:
         # TestClient (self.api) AND the subprocess SessionServer (harness),
         # since both serve create_app(self.session).
         self.kline_store = kline_store
-        self.sim = SimState(starting_balance=config.starting_balance, fee_rate=config.fee_rate)
+        self.sim = SimState(starting_balance=config.starting_balance, fee_rate=config.fee_rate,
+                            fee_categories=config.fee_categories)
         self.session = ReplaySession(store=store, sim=self.sim, now=config.t0,
                                      max_evaluations=config.max_evaluations,
                                      kline_store=kline_store)
@@ -157,11 +156,11 @@ class ReplayEngine:
                 "hit_rate": (wins / decided) if decided else None,
                 "pnl": equity - cfg.starting_balance,
                 "final_equity": equity,
-                # fee_rate is the BASE rate (see SimState._fee); fees_paid is
-                # the realised total so a reader can see how much of pnl is
-                # cost drag without re-deriving it from config_hash.
+                # None denotes automatic selection; fills carry applied rates.
                 "fee_rate": cfg.fee_rate,
                 "fees_paid": round(sum(f.fee for f in trades), 6),
+                "maker_rebate_rate": None,
+                "rebates_credited": 0.0,
                 "max_drawdown": _max_drawdown([p["equity"] for p in self.equity_curve]),
                 "ticks": self.tick_count,
                 "evaluations": self.session.evaluations,
@@ -172,11 +171,14 @@ class ReplayEngine:
             "fills": [
                 {"ts": f.ts.isoformat(), "market_id": f.market_id, "side": f.side,
                  "action": f.action, "shares": round(f.shares, 6), "price": f.price,
-                 "usd": round(f.usd, 6), "fee": round(f.fee, 6), "kind": f.kind}
+                 "usd": round(f.usd, 6), "fee": round(f.fee, 6), "kind": f.kind,
+                 "fee_rate": self.sim.fee_rate_for(f.market_id, f.ts) if f.kind == "market" else None,
+                 "fee_category": self.sim.fee_categories.get(f.market_id),
+                 "fee_source": self.sim.fee_source(f.market_id) if f.kind == "market" else f.kind}
                 for f in self.sim.fills
             ],
             "equity_curve": self.equity_curve,
-            "realism_gaps": REALISM_GAPS,
+            "realism_gaps": REALISM_GAPS + maker_rebate_gaps(cfg.t0, cfg.t1),
             # Candles-plane usage (SIM-3070): lets a 0-trade result be audited.
             # For an external-signal skill (the trio), candle_requests==0 means
             # the skill never consulted the plane and candles_served==0 with
@@ -195,6 +197,8 @@ class ReplayEngine:
                 "skill": f"{cfg.skill_slug}@{cfg.skill_version}",
                 "engine": cfg.engine_version,
                 "fee_rate": cfg.fee_rate,
+                "fee_policy": FEE_POLICY,
+                "fee_categories": self.sim.fee_categories,
                 "config_hash": cfg.config_hash(),
                 "seed": cfg.seed,
             },
@@ -223,9 +227,9 @@ class ReplayEngine:
                "note": ("same entry fills/notional; each leg pays the fee for its own trade "
                         "(same base rate and kind, own entry price; maker fills free); "
                         "settlement fee-free")}
-        rate = self.config.fee_rate
         for f in buys:
             mid = f.market_id
+            rate = self.sim.fee_rate_for(mid, f.ts) if f.kind == "market" else 0.0
             amt = -f.usd - f.fee  # Fill.usd for a buy is -(notional + fee)
             if amt <= 0:
                 continue
