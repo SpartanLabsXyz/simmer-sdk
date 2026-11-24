@@ -8,7 +8,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 This is a patch release. It publishes the fee modules from #501 that were missing from the 0.27.2 wheel.
 
 - **Publishes `simmer_sdk.polymarket_fees` and replay `fee_schedule` (`simmer_sdk/backtest/replay/fee_schedule.py`) from #501.** Both modules were missing from the 0.27.2 wheel.
-- **Fixes five shipped skill tests that imported `simmer_sdk.polymarket_fees` at collection time.** Removes the unneeded imports and module stubs so the tests collect against the published wheel using the skills' bundled `_polymarket_fees` modules.
+- Five shipped skill tests that imported `simmer_sdk.polymarket_fees` at collection time now collect against 0.27.3, because the module ships in the wheel.
 
 ## 0.27.2 (2026-11-13)
 
