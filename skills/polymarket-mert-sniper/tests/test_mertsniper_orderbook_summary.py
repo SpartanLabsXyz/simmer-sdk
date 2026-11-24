@@ -18,7 +18,6 @@ import os
 import sys
 import types
 import unittest
-import simmer_sdk.polymarket_fees as _fees
 
 from unittest.mock import MagicMock, patch
 
@@ -42,7 +41,6 @@ _guards_stub.news_window_match = lambda market_id, schedule, lookback_s=30, now=
 
 with patch.dict(sys.modules, {
     "simmer_sdk": MagicMock(),
-    "simmer_sdk.polymarket_fees": _fees,
     "simmer_sdk.skill": _skill_stub,
     "simmer_sdk.guards.news_recency_veto": _guards_stub,
 }):
